@@ -902,6 +902,44 @@ export const consoleEn = {
   "int.branchesConnected": "Branches connected",
   "int.category": "Category",
 
+  "common.type": "Type",
+
+  // -- Morning brief, added -----------------------------------------------
+  "dash.briefTitle": "Morning brief",
+  "dash.briefHint": "The prior business day in a form readable on a phone in under 30 seconds — exceptions first, not totals.",
+  "dash.briefAllClear": "Nothing is outside tolerance. Every tracked metric is at or under its target and no alert is open.",
+  "dash.briefOverTarget": "over target",
+  "dash.briefWatchBranch": "needs attention — furthest from the group mean",
+  "dash.briefAlerts": "open alerts, of which",
+  "dash.briefCritical": "critical or high",
+  "dash.briefNothingToday": "No branch is more than 1.5σ from the group mean.",
+
+  // -- Auth shell, added ---------------------------------------------------
+  "auth.brandLine": "Every sale is a transaction against the entire business, not merely against the cash drawer.",
+  "auth.brandSub": "The management console for a restaurant operating system: sales, kitchen, recipes, inventory, purchasing, staff, cash and tax on one clock.",
+  "auth.pointOffline": "Seventy-two hours of trading with no server, then a sync that loses nothing and duplicates nothing.",
+  "auth.pointArabic": "Arabic and English are first-class on every surface — authored right-to-left, mirrored to English.",
+  "auth.pointAudit": "Every state-changing operation writes a hash-chained audit entry that tampering cannot hide.",
+  "auth.docNote": "ROS-SRS-001 v1.0 · 612 functional · 148 non-functional",
+  "auth.backToSite": "Back to the site",
+
+  // -- Users and roles, added -------------------------------------------
+  "common.notInBuild": "Specified in the baseline, not implemented in this build.",
+  "common.invite": "Invite user",
+  "common.never": "Never",
+  "common.role": "Role",
+  "usr.employeeNote": "A user is a credential; an employee is a person in a job. They are separate records with an optional link, because conflating them produces a permission model that can express neither.",
+  "usr.searchPlaceholder": "Search by name, email or phone",
+  "usr.mfaRequiredMissing": "Required, not enrolled",
+  "usr.scopeNote": "Effective permissions are the union across assignments, evaluated within each assignment's own scope.",
+  "usr.scopeAll": "Whole level",
+  "role.surfaces": "Surfaces",
+  "role.mfaRequired": "MFA mandatory",
+  "role.searchPlaceholder": "Search roles",
+  "role.permissionsIn": "permissions",
+  "role.blockedNote": "Blocked combinations are refused outright regardless of role configuration — FR-SEC-016.",
+  "role.cloneNote": "Predefined roles ship ready to use. A tenant may clone and modify one, but never delete it — FR-SEC-010.",
+
   // -- Live console framing ------------------------------------------------
   "live.title": "Live",
   "live.note": "Everything below comes from the terminals on this device. Take an order on the POS and it lands here as it happens — sales, kitchen tickets, stock movements and the cash drawer.",

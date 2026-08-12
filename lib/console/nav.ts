@@ -212,8 +212,8 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: Settings,
     items: [
       { href: "/settings", labelKey: "nav.settings", icon: Settings, permissions: [] },
-      { href: "/users", labelKey: "nav.users", icon: UserCog, permissions: ["security.user.manage"], stub: true },
-      { href: "/roles", labelKey: "nav.roles", icon: ShieldCheck, permissions: ["security.role.manage"], stub: true },
+      { href: "/users", labelKey: "nav.users", icon: UserCog, permissions: ["security.user.manage"] },
+      { href: "/roles", labelKey: "nav.roles", icon: ShieldCheck, permissions: ["security.role.manage"] },
       { href: "/country-packs", labelKey: "nav.countryPacks", icon: Globe, permissions: ["settings.tenant.manage", "platform.countrypack.manage", "finance.tax.view"], stub: true },
       { href: "/integrations", labelKey: "nav.integrations", icon: Plug, permissions: ["integration.manage"], stub: true },
     ],

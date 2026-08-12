@@ -106,6 +106,18 @@ export default function DashboardPage() {
           return (
             <PageBody>
               <LiveTodayStrip />
+
+              <MorningBrief
+                metrics={[
+                  { label: t("dash.foodCost"), metric: data.foodCostPercent },
+                  { label: t("dash.labourCost"), metric: data.labourCostPercent },
+                  { label: t("dash.primeCost"), metric: data.primeCostPercent },
+                  { label: t("dash.waste"), metric: data.wastePercent },
+                ]}
+                ranking={data.branchRanking}
+                alerts={openAlerts}
+              />
+
               <Callout tone="muted">{t("dash.partialDay")}</Callout>
 
               <TileGrid>
@@ -271,6 +283,93 @@ export default function DashboardPage() {
 
       <Toast message={message} />
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Morning brief — FR-RPT-041
+// ---------------------------------------------------------------------------
+
+/**
+ * The prior business day, stated as exceptions rather than totals.
+ *
+ * §19.1 principle 1: the default view surfaces what is abnormal, not what
+ * happened. A manager should not have to scan four tile rows to notice that
+ * one number is wrong — so anything at or under target is deliberately not
+ * mentioned here at all. When nothing is out of tolerance the panel says so
+ * in one line and stops.
+ */
+function MorningBrief({
+  metrics,
+  ranking,
+  alerts,
+}: {
+  metrics: { label: string; metric: { value: number; target: number | null } }[];
+  ranking: BranchRankingRow[];
+  alerts: OperationalAlert[];
+}) {
+  const { t, tx, fmt } = useI18n();
+
+  const overTarget = metrics.filter(
+    (m) => m.metric.target !== null && m.metric.value > m.metric.target,
+  );
+
+  // The outlier worth naming is the one furthest from the group mean, and
+  // only when it clears the 1.5σ bar the branch ranking already uses.
+  const outlier = [...ranking]
+    .filter((row) => Math.abs(row.outlierSigma) >= 1.5)
+    .sort((a, b) => Math.abs(b.outlierSigma) - Math.abs(a.outlierSigma))[0];
+
+  const severe = alerts.filter(
+    (a) => a.severity === "critical" || a.severity === "high",
+  ).length;
+
+  const clear = overTarget.length === 0 && !outlier && alerts.length === 0;
+
+  return (
+    <Section title={t("dash.briefTitle")} hint={t("dash.briefHint")} spec="FR-RPT-041">
+      {clear ? (
+        <Callout tone="good">{t("dash.briefAllClear")}</Callout>
+      ) : (
+        <ul className="space-y-2.5">
+          {overTarget.map(({ label, metric }) => (
+            <li key={label} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <Badge tone="bad" dot>
+                {formatPercent(metric.value, fmt)}
+              </Badge>
+              <span className="text-fg font-medium">{label}</span>
+              <span className="text-fg-muted">
+                {t("dash.briefOverTarget")} {formatPercent(metric.target ?? 0, fmt, 0)}
+              </span>
+            </li>
+          ))}
+
+          {outlier ? (
+            <li className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <Badge tone="warn" dot>
+                {formatNumber(outlier.outlierSigma, fmt, 1)}σ
+              </Badge>
+              <span className="text-fg font-medium">{tx(outlier.branchName)}</span>
+              <span className="text-fg-muted">{t("dash.briefWatchBranch")}</span>
+            </li>
+          ) : (
+            <li className="text-fg-subtle text-xs">{t("dash.briefNothingToday")}</li>
+          )}
+
+          {alerts.length > 0 ? (
+            <li className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <Badge tone={severe > 0 ? "bad" : "warn"} dot>
+                {formatNumber(alerts.length, fmt)}
+              </Badge>
+              <span className="text-fg-muted">
+                {t("dash.briefAlerts")} {formatNumber(severe, fmt)}{" "}
+                {t("dash.briefCritical")}
+              </span>
+            </li>
+          ) : null}
+        </ul>
+      )}
+    </Section>
   );
 }
 

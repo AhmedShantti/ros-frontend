@@ -24,7 +24,7 @@ import type { Localised } from "../types";
 import { demoUserForRole } from "./governance";
 
 /** The same for every demo account. Stated openly on the sign-in screen. */
-export const DEMO_PASSWORD = "ros-demo-2026";
+export const DEMO_PASSWORD = "trendow-demo-2026";
 
 /** Any six digits are accepted by the MFA screen; this is the one shown. */
 export const DEMO_MFA_CODE = "204060";

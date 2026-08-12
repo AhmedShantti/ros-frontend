@@ -141,8 +141,13 @@ function Wordmark({ collapsed }: { collapsed?: boolean }) {
   const { t } = useI18n();
   return (
     <Link href="/dashboard" className="flex items-center gap-2.5 overflow-hidden">
-      <span className="bg-accent text-accent-fg flex h-7 w-7 shrink-0 items-center justify-center rounded-lg font-mono text-xs font-semibold">
-        R
+      {/* The live dot doubles as the collapsed-rail mark, so the sidebar
+          still identifies itself when the labels are hidden. */}
+      <span
+        aria-hidden
+        className="bg-accent-soft flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+      >
+        <span className="bg-good h-2 w-2 rounded-full" />
       </span>
       {!collapsed ? (
         <span className="min-w-0">
