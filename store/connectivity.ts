@@ -1,0 +1,187 @@
+"use client";
+
+/**
+ * Connectivity and the outbound queue.
+ *
+ * A till in a Cairo basement loses its uplink several times a service. The
+ * rule the whole design follows: **losing the network never blocks a sale.**
+ * Writes are appended to a local queue and acknowledged immediately; the
+ * queue drains when the link returns. The cashier sees a count, not a modal.
+ *
+ * The six states in the UI are the six a real terminal actually passes
+ * through, and they are distinguishable without colour — each carries its own
+ * icon and its own label.
+ *
+ *   online     link healthy, queue empty
+ *   degraded   round-trips slow enough to matter; still writing through
+ *   offline    no link; everything queues
+ *   syncing    link returned, queue draining
+ *   conflict   the server rejected a queued write; needs a human
+ *   synced     transient, shown for a beat after the queue empties
+ */
+
+import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+
+export type ConnectivityState =
+  | "online"
+  | "degraded"
+  | "offline"
+  | "syncing"
+  | "conflict"
+  | "synced";
+
+export type QueuedKind =
+  | "order"
+  | "payment"
+  | "void"
+  | "discount"
+  | "shift"
+  | "cash_movement"
+  | "kds_bump"
+  | "waste"
+  | "count";
+
+export type QueuedStatus = "pending" | "sending" | "conflict" | "failed";
+
+export interface QueuedWrite {
+  id: string;
+  kind: QueuedKind;
+  /** Shown verbatim in the sync drawer — "Order #1043 · 3 items · EGP 285". */
+  label: string;
+  createdAt: number;
+  attempts: number;
+  status: QueuedStatus;
+  /** Populated when `status` is `conflict`; explains what the server said. */
+  conflictReason?: string;
+}
+
+interface ConnectivityStore {
+  state: ConnectivityState;
+  queue: QueuedWrite[];
+  /** False until the persisted queue has been read back on the client. */
+  hydrated: boolean;
+  lastSyncedAt: number | null;
+  /** Set by the dev tools; when true the queue never drains on its own. */
+  simulated: boolean;
+
+  setState: (state: ConnectivityState) => void;
+  simulate: (state: ConnectivityState) => void;
+  enqueue: (kind: QueuedKind, label: string) => string;
+  drain: () => void;
+  retry: (id: string) => void;
+  resolveConflict: (id: string, keep: "local" | "server") => void;
+  clearQueue: () => void;
+  markHydrated: () => void;
+}
+
+/** Monotonic within a tab; the server assigns the real id on acceptance. */
+let counter = 0;
+const localId = () => `q_${(counter += 1)}_${Math.round(performance.now())}`;
+
+export const useConnectivityStore = create<ConnectivityStore>()(
+  persist(
+    (set, get) => ({
+      state: "online",
+      queue: [],
+      hydrated: false,
+      lastSyncedAt: null,
+      simulated: false,
+
+      setState: (state) => set({ state }),
+
+      simulate: (state) =>
+        set({
+          state,
+          simulated: state === "offline" || state === "degraded" || state === "conflict",
+        }),
+
+      enqueue: (kind, label) => {
+        const id = localId();
+        set((s) => ({
+          queue: [
+            ...s.queue,
+            { id, kind, label, createdAt: Date.now(), attempts: 0, status: "pending" },
+          ],
+          // Queueing while online means the link just went; reflect it rather
+          // than pretending the write went through.
+          state: s.state === "online" || s.state === "synced" ? "syncing" : s.state,
+        }));
+        return id;
+      },
+
+      drain: () => {
+        const { queue, simulated } = get();
+        if (simulated || queue.length === 0) return;
+
+        set({ state: "syncing", queue: queue.map((q) => ({ ...q, status: "sending" })) });
+
+        // Stands in for the round-trip. A real client would post the batch and
+        // reconcile each entry against the response.
+        window.setTimeout(() => {
+          set({
+            queue: [],
+            state: "synced",
+            lastSyncedAt: Date.now(),
+          });
+          window.setTimeout(() => {
+            if (get().queue.length === 0 && get().state === "synced") {
+              set({ state: "online" });
+            }
+          }, 2200);
+        }, 900);
+      },
+
+      retry: (id) =>
+        set((s) => ({
+          queue: s.queue.map((q) =>
+            q.id === id
+              ? { ...q, attempts: q.attempts + 1, status: "pending", conflictReason: undefined }
+              : q,
+          ),
+        })),
+
+      resolveConflict: (id, keep) =>
+        set((s) => {
+          // Keeping the server's version discards the local write; keeping the
+          // local one re-queues it as a fresh attempt. Either way the entry
+          // leaves the conflict state, because an unresolved conflict blocks
+          // the rest of the queue behind it.
+          if (keep === "server") {
+            return { queue: s.queue.filter((q) => q.id !== id) };
+          }
+          return {
+            queue: s.queue.map((q) =>
+              q.id === id
+                ? { ...q, status: "pending", attempts: q.attempts + 1, conflictReason: undefined }
+                : q,
+            ),
+            state: s.queue.some((q) => q.id !== id && q.status === "conflict")
+              ? "conflict"
+              : "syncing",
+          };
+        }),
+
+      clearQueue: () => set({ queue: [], state: "online", lastSyncedAt: Date.now() }),
+
+      markHydrated: () => set({ hydrated: true }),
+    }),
+    {
+      name: "ros.connectivity",
+      storage: createJSONStorage(() => localStorage),
+      // The queue survives a reload — that is the entire point of it. The
+      // connectivity state does not: a fresh tab should re-detect the link
+      // rather than inherit yesterday's "offline".
+      partialize: (s) => ({ queue: s.queue, lastSyncedAt: s.lastSyncedAt }),
+      version: 1,
+      onRehydrateStorage: () => (store) => store?.markHydrated(),
+    },
+  ),
+);
+
+/** Pending-sync count for the terminal badge. */
+export const pendingCount = (s: ConnectivityStore) =>
+  s.queue.filter((q) => q.status !== "conflict").length;
+
+export const conflictCount = (s: ConnectivityStore) =>
+  s.queue.filter((q) => q.status === "conflict").length;

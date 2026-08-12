@@ -1,0 +1,856 @@
+@import "tailwindcss";
+
+/* The console toggles dark mode by putting `.dark` on <html>, so the
+   variant must key off a class rather than the OS preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ==================================================================
+   Design tokens
+   ------------------------------------------------------------------
+   A light system. Paper is the ground everywhere — there are no dark
+   bands — and the structure comes from five working hues rather than
+   from switching the lights off.
+
+   Each hue has three weights and one job:
+
+     amber    the brand, and money
+     emerald  "this is working"
+     azure    platform and architecture
+     violet   quality, testing, governance
+     rose     loss, risk, and pain
+
+   The mid weight is for marks, bars, rings and borders. The `-deep`
+   weight is the only one allowed to carry text, because at the mid
+   weight none of them clears 4.5:1 on paper. The `-wash` weight is a
+   section background and nothing else.
+
+   Declared once. No hex values belong in components.
+   ================================================================== */
+@theme {
+  /* ---- Surfaces ------------------------------------------------ */
+  --color-ink: #14181d; /* text, and the rare dark chip */
+  --color-bone: #fcfbf8; /* the page */
+  --color-cream: #f6f3ea; /* alternating band */
+  --color-paper: #ffffff; /* cards */
+
+  /* ---- The five hues ------------------------------------------- */
+  --color-amber: #f0a92c;
+  --color-amber-deep: #8a5a05;
+  --color-amber-wash: #fff4e0;
+
+  --color-emerald: #1fa97a;
+  --color-emerald-deep: #0f6b4c;
+  --color-emerald-wash: #e2f6ed;
+
+  --color-azure: #2f7fe0;
+  --color-azure-deep: #1a4f96;
+  --color-azure-wash: #e7f0fd;
+
+  --color-violet: #7c5cf0;
+  --color-violet-deep: #4b30a8;
+  --color-violet-wash: #efe9fe;
+
+  --color-rose: #e2536b;
+  --color-rose-deep: #a41f38;
+  --color-rose-wash: #fdeaee;
+
+  /* ---- Neutral scale ------------------------------------------- */
+  --color-grey-100: #f1f0ec;
+  --color-grey-200: #e2e0d9;
+  --color-grey-300: #c6c4bb;
+  --color-grey-400: #9b9990;
+  --color-grey-500: #74736b;
+  --color-grey-600: #565650;
+  --color-grey-700: #3a3a36;
+
+  /* ---- Type -----------------------------------------------------
+     Space Grotesk for headings: geometric, slightly mechanical, the
+     face of a control surface. Inter for reading at speed. Cairo
+     carries Arabic on every surface — it is the Arabic face, not a
+     fallback, because this product is authored right-to-left. */
+  --font-sans:
+    var(--font-inter), var(--font-cairo), ui-sans-serif, system-ui, sans-serif;
+  --font-display:
+    var(--font-grotesk), var(--font-cairo), ui-sans-serif, system-ui,
+    sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.75rem;
+
+  /* Soft, low-contrast shadows — objects resting on paper. */
+  --shadow-2xs: 0 1px 2px rgba(20, 24, 29, 0.04);
+  --shadow-xs: 0 1px 3px rgba(20, 24, 29, 0.06);
+  --shadow-sm: 0 2px 8px rgba(20, 24, 29, 0.06);
+  --shadow-md: 0 10px 24px rgba(20, 24, 29, 0.07);
+  --shadow-lg: 0 18px 40px rgba(20, 24, 29, 0.09);
+  --shadow-xl: 0 30px 64px rgba(20, 24, 29, 0.11);
+  --shadow-2xl: 0 44px 90px rgba(20, 24, 29, 0.14);
+}
+
+/* Arabic leads with Cairo on display text too, so a right-to-left
+   heading never falls back to a Latin face with no Arabic coverage. */
+:root:lang(ar) {
+  --font-display:
+    var(--font-cairo), var(--font-grotesk), ui-sans-serif, system-ui,
+    sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-bone);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* The mono requirement tag that appears beside every claim on the site. */
+.spec {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Arabic has no uppercase, and forcing it costs nothing visually but
+   breaks letter shaping in some faces. Turn it off in RTL. */
+:root:lang(ar) .spec {
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--font-cairo), var(--font-jetbrains), monospace;
+  font-size: 0.72rem;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-amber) 40%, transparent);
+  color: var(--color-ink);
+}
+
+/* ==================================================================
+   Accent plumbing
+   ------------------------------------------------------------------
+   A section sets `--a`, `--a-deep` and `--a-wash` once, and everything
+   inside it — rules, dots, rails, glows, hover borders — reads from
+   those three variables. That is what lets one `Section` component
+   change the whole colour of a band without any component knowing
+   which hue it is wearing.
+   ================================================================== */
+[data-accent] {
+  --a: var(--color-amber);
+  --a-deep: var(--color-amber-deep);
+  --a-wash: var(--color-amber-wash);
+}
+
+[data-accent="emerald"] {
+  --a: var(--color-emerald);
+  --a-deep: var(--color-emerald-deep);
+  --a-wash: var(--color-emerald-wash);
+}
+
+[data-accent="azure"] {
+  --a: var(--color-azure);
+  --a-deep: var(--color-azure-deep);
+  --a-wash: var(--color-azure-wash);
+}
+
+[data-accent="violet"] {
+  --a: var(--color-violet);
+  --a-deep: var(--color-violet-deep);
+  --a-wash: var(--color-violet-wash);
+}
+
+[data-accent="rose"] {
+  --a: var(--color-rose);
+  --a-deep: var(--color-rose-deep);
+  --a-wash: var(--color-rose-wash);
+}
+
+.text-a {
+  color: var(--a-deep);
+}
+
+.bg-a {
+  background-color: var(--a);
+}
+
+.bg-a-wash {
+  background-color: var(--a-wash);
+}
+
+.border-a {
+  border-color: color-mix(in oklab, var(--a) 45%, transparent);
+}
+
+/* ==================================================================
+   Motion
+   ------------------------------------------------------------------
+   Everything here is opt-in through a data attribute or a class, and
+   everything here is switched off under prefers-reduced-motion. The
+   site must be fully readable with zero animation.
+   ================================================================== */
+
+/* --- Scroll reveal. `Reveal` in components/motion.tsx adds .is-in --- */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(18px);
+}
+
+[data-reveal="left"] {
+  transform: translateX(-22px);
+}
+
+[data-reveal="right"] {
+  transform: translateX(22px);
+}
+
+[data-reveal="scale"] {
+  transform: scale(0.955);
+}
+
+[data-reveal="blur"] {
+  transform: translateY(14px);
+  filter: blur(6px);
+}
+
+[data-reveal].is-in {
+  opacity: 1;
+  transform: none;
+  filter: none;
+  transition:
+    opacity 760ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 760ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 760ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+/* The reveal starts hidden and is un-hidden by JavaScript. With scripting
+   off, that never happens and the page would be blank, so hand the
+   finished state straight over instead. */
+@media (scripting: none) {
+  [data-reveal] {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes ros-stamp-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.stamp-in {
+  animation: ros-stamp-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* --- Colour field: the soft light behind the hero and the CTA ------ */
+@keyframes ros-drift-a {
+  0%,
+  100% {
+    transform: translate3d(-4%, -3%, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(6%, 5%, 0) scale(1.15);
+  }
+}
+
+@keyframes ros-drift-b {
+  0%,
+  100% {
+    transform: translate3d(5%, 4%, 0) scale(1.1);
+  }
+  50% {
+    transform: translate3d(-6%, -5%, 0) scale(0.92);
+  }
+}
+
+@keyframes ros-drift-c {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(0.95);
+  }
+  33% {
+    transform: translate3d(-7%, 4%, 0) scale(1.12);
+  }
+  66% {
+    transform: translate3d(7%, -4%, 0) scale(1.02);
+  }
+}
+
+.field {
+  position: relative;
+  isolation: isolate;
+}
+
+.field > .blob {
+  position: absolute;
+  z-index: -1;
+  border-radius: 9999px;
+  filter: blur(80px);
+  pointer-events: none;
+  will-change: transform;
+  opacity: 0.55;
+}
+
+.blob-a {
+  animation: ros-drift-a 24s ease-in-out infinite;
+}
+
+.blob-b {
+  animation: ros-drift-b 30s ease-in-out infinite;
+}
+
+.blob-c {
+  animation: ros-drift-c 36s ease-in-out infinite;
+}
+
+/* --- Rulings ------------------------------------------------------- */
+.dot-rule {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    rgba(20, 24, 29, 0.07) 1px,
+    transparent 0
+  );
+  background-size: 26px 26px;
+  -webkit-mask-image: radial-gradient(
+    ellipse 85% 65% at 50% 0%,
+    #000 8%,
+    transparent 78%
+  );
+  mask-image: radial-gradient(
+    ellipse 85% 65% at 50% 0%,
+    #000 8%,
+    transparent 78%
+  );
+}
+
+.grid-rule {
+  background-image:
+    linear-gradient(to right, rgba(20, 24, 29, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(20, 24, 29, 0.045) 1px, transparent 1px);
+  background-size: 68px 68px;
+  -webkit-mask-image: radial-gradient(
+    ellipse 90% 70% at 50% 0%,
+    #000 20%,
+    transparent 82%
+  );
+  mask-image: radial-gradient(
+    ellipse 90% 70% at 50% 0%,
+    #000 20%,
+    transparent 82%
+  );
+}
+
+/* --- A hairline that carries the section's colour ------------------ */
+.edge-lit {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--a) 80%, transparent) 22%,
+    color-mix(in oklab, var(--a) 40%, transparent) 60%,
+    transparent
+  );
+}
+
+/* --- Cards --------------------------------------------------------- */
+.glow-card {
+  position: relative;
+  isolation: isolate;
+  transition:
+    transform 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 300ms ease;
+}
+
+.glow-card::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  background: radial-gradient(
+    17rem circle at var(--mx, 50%) var(--my, 0%),
+    color-mix(in oklab, var(--a) 16%, transparent),
+    transparent 62%
+  );
+  transition: opacity 320ms ease;
+  content: "";
+  pointer-events: none;
+}
+
+.glow-card:hover {
+  transform: translateY(-4px);
+}
+
+.glow-card:hover::before,
+.glow-card:focus-within::before {
+  opacity: 1;
+}
+
+/* A colour bar that grows across the top of a card on hover. */
+.card-bar::after {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  height: 3px;
+  width: 100%;
+  border-start-start-radius: inherit;
+  border-start-end-radius: inherit;
+  background: var(--a);
+  transform: scaleX(0);
+  transform-origin: inline-start;
+  transition: transform 480ms cubic-bezier(0.16, 1, 0.3, 1);
+  content: "";
+}
+
+.glow-card:hover.card-bar::after,
+.glow-card:focus-within.card-bar::after {
+  transform: scaleX(1);
+}
+
+/* --- Pointer-tracked 3D tilt. Angles come from JS. ------------------ */
+.tilt {
+  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transform-style: preserve-3d;
+  transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+
+/* --- Marquee ------------------------------------------------------- */
+@keyframes ros-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(-50% - var(--marquee-gap, 3rem) / 2));
+  }
+}
+
+.marquee-track {
+  display: flex;
+  width: max-content;
+  gap: var(--marquee-gap, 3rem);
+  animation: ros-marquee var(--marquee-duration, 46s) linear infinite;
+}
+
+/* Mirrored travel in RTL so the ribbon reads with the text. */
+:root:lang(ar) .marquee-track {
+  animation-direction: reverse;
+}
+
+.marquee-track:hover {
+  animation-play-state: paused;
+}
+
+.marquee-mask {
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 10%,
+    #000 90%,
+    transparent
+  );
+  mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+}
+
+/* --- Animated gradient type ---------------------------------------- */
+@keyframes ros-sheen {
+  0% {
+    background-position: 0% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.sheen {
+  background: linear-gradient(
+    100deg,
+    var(--color-amber-deep),
+    var(--color-rose-deep) 18%,
+    var(--color-violet-deep) 36%,
+    var(--color-azure-deep) 54%,
+    var(--color-emerald-deep) 72%,
+    var(--color-amber-deep) 90%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: ros-sheen 12s linear infinite;
+}
+
+/* --- Word cycling in the hero -------------------------------------- */
+@keyframes ros-word-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5em) rotateX(-40deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.word-in {
+  display: inline-block;
+  animation: ros-word-in 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* --- Status dot ---------------------------------------------------- */
+@keyframes ros-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  70%,
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+.ping::after {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: ros-ping 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+  content: "";
+}
+
+/* --- Rails that draw themselves in --------------------------------- */
+@keyframes ros-draw {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.draw-down.is-in {
+  transform-origin: top;
+  animation: ros-draw 1000ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* --- Bars that grow to their value --------------------------------- */
+@keyframes ros-grow-x {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.grow-x.is-in {
+  transform-origin: inline-start;
+  animation: ros-grow-x 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* --- Underline that grows from the leading edge -------------------- */
+.link-line {
+  position: relative;
+}
+
+.link-line::after {
+  position: absolute;
+  inset-block-end: -2px;
+  inset-inline-start: 0;
+  height: 1.5px;
+  width: 100%;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: inline-end;
+  transition: transform 380ms cubic-bezier(0.16, 1, 0.3, 1);
+  content: "";
+}
+
+.link-line:hover::after,
+.link-line:focus-visible::after {
+  transform: scaleX(1);
+  transform-origin: inline-start;
+}
+
+/* --- A slowly rotating decorative ring ------------------------------ */
+@keyframes ros-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin-slow {
+  animation: ros-spin 26s linear infinite;
+}
+
+/* --- Disclosure panels open with a slide ---------------------------- */
+@keyframes ros-open {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+details[open] > .disclosure-body {
+  animation: ros-open 340ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+details > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.chev {
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+details[open] .chev {
+  transform: rotate(90deg);
+}
+
+:root:lang(ar) details[open] .chev {
+  transform: rotate(-90deg);
+}
+
+/* ------------------------------------------------------------------
+   One switch turns all of it off.
+   ------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  [data-reveal] {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+
+  .stamp-in,
+  .blob-a,
+  .blob-b,
+  .blob-c,
+  .marquee-track,
+  .sheen,
+  .word-in,
+  .ping::after,
+  .draw-down.is-in,
+  .grow-x.is-in,
+  .spin-slow,
+  details[open] > .disclosure-body {
+    animation: none;
+  }
+
+  .sheen {
+    color: var(--color-amber-deep);
+    -webkit-text-fill-color: var(--color-amber-deep);
+  }
+
+  .glow-card:hover {
+    transform: none;
+  }
+
+  .tilt {
+    transform: none;
+  }
+
+  .grow-x.is-in,
+  .draw-down.is-in {
+    transform: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==================================================================
+   Management console and terminals
+   ------------------------------------------------------------------
+   A separate surface from the marketing site: it has a light and a
+   dark mode, and it needs semantic names (surface, line, fg) rather
+   than the palette's literal ones. The `--c-*` variables below are the
+   runtime values; `@theme inline` exposes them to Tailwind so
+   `bg-surface` compiles to `var(--c-surface)` and the `.dark` override
+   cascades without recompiling any utility.
+   ================================================================== */
+:root {
+  --c-surface: #f5f3ec;
+  --c-raised: #ffffff;
+  --c-sunken: #eae8df;
+  --c-line: #dedcd3;
+  --c-line-strong: #c0beb4;
+  --c-fg: #14181d;
+  --c-fg-muted: #565650;
+  --c-fg-subtle: #8b8a82;
+  --c-accent: #8a5a05;
+  --c-accent-fg: #fffdf6;
+  --c-accent-soft: #fff4e0;
+  --c-good: #0f6b4c;
+  --c-good-soft: #e2f6ed;
+  --c-warn: #96690f;
+  --c-warn-soft: #fbeed0;
+  --c-bad: #a41f38;
+  --c-bad-soft: #fdeaee;
+  --c-info: #1a4f96;
+  --c-info-soft: #e7f0fd;
+}
+
+.dark {
+  --c-surface: #14181d;
+  --c-raised: #1c2128;
+  --c-sunken: #232932;
+  --c-line: #2e353f;
+  --c-line-strong: #46505d;
+  --c-fg: #eceae4;
+  --c-fg-muted: #a0a099;
+  --c-fg-subtle: #74746d;
+  --c-accent: #f0a92c;
+  --c-accent-fg: #24190a;
+  --c-accent-soft: #35290f;
+  --c-good: #4ecf9c;
+  --c-good-soft: #10291f;
+  --c-warn: #f0c065;
+  --c-warn-soft: #2f2410;
+  --c-bad: #ff8b9c;
+  --c-bad-soft: #331720;
+  --c-info: #7fb0f0;
+  --c-info-soft: #14202e;
+}
+
+@theme inline {
+  --color-surface: var(--c-surface);
+  --color-raised: var(--c-raised);
+  --color-sunken: var(--c-sunken);
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+  --color-fg: var(--c-fg);
+  --color-fg-muted: var(--c-fg-muted);
+  --color-fg-subtle: var(--c-fg-subtle);
+  --color-accent: var(--c-accent);
+  --color-accent-fg: var(--c-accent-fg);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-good: var(--c-good);
+  --color-good-soft: var(--c-good-soft);
+  --color-warn: var(--c-warn);
+  --color-warn-soft: var(--c-warn-soft);
+  --color-bad: var(--c-bad);
+  --color-bad-soft: var(--c-bad-soft);
+  --color-info: var(--c-info);
+  --color-info-soft: var(--c-info-soft);
+}
+
+/* The console owns the page background while it is mounted. */
+body:has(.ros-console) {
+  background: var(--c-surface);
+  color: var(--c-fg);
+}
+
+/* Visible focus for keyboard users on every interactive surface. */
+.ros-console :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* The marketing site needs the same guarantee. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-amber-deep);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* Recharts injects its own focus outline on the wrapper; suppress it so
+   only real interactive elements show a focus ring. */
+.recharts-wrapper:focus,
+.recharts-surface:focus {
+  outline: none;
+}
+
+@keyframes ros-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ros-fade-in {
+  animation: ros-fade-in 200ms ease-out both;
+}
+
+@keyframes ros-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.ros-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--c-sunken);
+}
+
+.ros-skeleton::after {
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--c-line) 60%, transparent),
+    transparent
+  );
+  animation: ros-shimmer 1.4s infinite;
+  content: "";
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ros-skeleton::after,
+  .ros-fade-in {
+    animation: none;
+  }
+}
+
+/* Thin scrollbars inside console panes, both themes. */
+.ros-console * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-line-strong) transparent;
+}
+
+/* Dense operational surfaces — tables, tickets, the order pane — opt out
+   of the generous body leading. */
+.ros-console table,
+.ros-console .tabular-nums {
+  line-height: 1.45;
+}
