@@ -129,7 +129,7 @@ export function PosFloor() {
         {visible.length === 0 ? (
           <p className="text-fg-subtle p-6 text-center text-sm">{t("common.noResults")}</p>
         ) : (
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-6">
+          <div className="grid grid-cols-3 gap-2 lg:grid-cols-4 xl:grid-cols-6">
             {visible.map((tbl) => {
               const seated = tbl.seatedAt ? elapsedSince(tbl.seatedAt, now) : null;
               const order = tbl.orderId ? state.orders[tbl.orderId] : null;

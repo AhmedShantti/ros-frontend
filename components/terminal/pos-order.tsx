@@ -90,7 +90,7 @@ export function PosOrderPane({
 
   if (!order) {
     return (
-      <aside className="border-line bg-raised flex w-full flex-col border-s lg:w-[26rem]">
+      <aside className="border-line bg-raised flex w-full shrink-0 flex-col border-s md:w-80 lg:w-[26rem]">
         <div className="text-fg-subtle grid flex-1 place-items-center p-8 text-center text-sm">
           {t("pos.startPrompt")}
         </div>
@@ -106,8 +106,11 @@ export function PosOrderPane({
   const inclusive = pack.pricingMode === "tax_inclusive";
   const settled = order.state === "completed";
 
+  // Stacked on a phone the bill would grow with the order and squeeze the menu
+  // to nothing, so it is capped at half the viewport there; the lines list
+  // inside already scrolls. From `md` it is a fixed-width column again.
   return (
-    <aside className="border-line bg-raised flex w-full min-h-0 flex-col border-s lg:w-[26rem]">
+    <aside className="border-line bg-raised flex max-h-[50vh] w-full min-h-0 shrink-0 flex-col border-s md:max-h-none md:w-80 lg:w-[26rem]">
       {/* header */}
       <div className="border-line shrink-0 border-b px-3 py-2.5">
         <div className="flex items-center justify-between gap-2">

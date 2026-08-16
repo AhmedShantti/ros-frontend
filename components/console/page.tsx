@@ -189,7 +189,10 @@ export function SearchInput({
 }) {
   const { t } = useI18n();
   return (
-    <div className={cx("relative min-w-0 flex-1 sm:max-w-xs", className)}>
+    // Full width on its own line on a phone: sharing a wrapped flex row with
+    // two filter selects squeezed the field down to about the width of its own
+    // magnifier icon, which is a search box you cannot type in.
+    <div className={cx("relative w-full min-w-0 sm:w-auto sm:flex-1 sm:max-w-xs", className)}>
       <Search
         size={14}
         aria-hidden

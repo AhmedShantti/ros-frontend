@@ -138,7 +138,11 @@ export function PosMenu({ orderId, course, onAdded }: Props) {
         {visible.length === 0 ? (
           <p className="text-fg-subtle p-6 text-center text-sm">{t("pos.noItems")}</p>
         ) : (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          // Column counts are tuned against the space left after the bill
+          // column, not against the viewport: at 768px the grid only has about
+          // 450px to work with, and three columns there gives 140px tiles that
+          // truncate every item name. Two until `lg` keeps them readable.
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {visible.map((item) => {
               const off = state.unavailable[item.id];
               const left = remainingSellable(state, item.variants[0]?.recipeId ?? null);

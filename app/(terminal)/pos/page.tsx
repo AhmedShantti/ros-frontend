@@ -81,7 +81,14 @@ export default function PosPage() {
         <ShiftControls />
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      {/*
+        The split happens at `md`, not `lg`. An iPad in portrait is 768–834px
+        wide, so splitting at 1024 pushed the bill below the fold on the most
+        common tablet in a restaurant — you cannot take an order on a POS that
+        shows the menu or the total but not both. Below 768 (a phone) they
+        stack, and the bill is capped so the menu keeps usable height.
+      */}
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         {effectivePane === "menu" && activeOrder ? (
           <PosMenu orderId={activeOrder.id} course={course} />
         ) : (

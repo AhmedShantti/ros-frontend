@@ -348,10 +348,13 @@ export function SegmentedControl<T extends string>({
   label?: string;
 }) {
   return (
+    // `max-w-full` plus a scroll lets a group with many options (the report
+    // categories are seven) stay on a 390px phone instead of pushing the page
+    // sideways; `shrink-0` keeps the labels from being squeezed into ellipses.
     <div
       role="radiogroup"
       aria-label={label}
-      className="border-line bg-sunken inline-flex rounded-lg border p-0.5"
+      className="border-line bg-sunken inline-flex max-w-full overflow-x-auto rounded-lg border p-0.5"
     >
       {options.map((option) => (
         <button
@@ -361,7 +364,7 @@ export function SegmentedControl<T extends string>({
           aria-checked={value === option.value}
           onClick={() => onChange(option.value)}
           className={cx(
-            "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+            "shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
             value === option.value
               ? "bg-raised text-fg shadow-sm"
               : "text-fg-muted hover:text-fg",
