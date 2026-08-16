@@ -2,7 +2,7 @@
 
 Frontend only. There is no server, no database and no Python anywhere in the
 tree: the running restaurant lives in the browser. `npx tsc --noEmit` and
-`npm run build` both pass, and `npm run dev` serves all 23 routes.
+`npm run build` both pass, and `npm run dev` serves all 62 routes.
 
 ## What works
 
@@ -67,13 +67,47 @@ first, so a counter sale cannot slip past the ledger.
 food was sold, so the record must say so. A negative balance means a receipt
 was not entered, and it should be loud rather than hidden.
 
-## What is not built
+## Every module now has a screen
 
-Roughly two thirds of the SRS modules — menu editing, purchasing, costing
-analytics, workforce, organisation, approvals, users and roles, country
-packs, integrations. They appear in the sidebar greyed with a "not in this
-build" tag rather than hidden or linked to a 404, because the shape of the
-product is part of what the console is showing.
+The remaining 39 routes were built against the service registry that was
+already in place, so no page reaches a mock module for its rows — everything
+goes through `services.*` and swaps to HTTP in one file. There are no `stub`
+entries left in `nav.ts`; nothing in the sidebar is greyed.
+
+- **Menu** — categories, items (with the 86 workflow), modifier groups
+  showing the recipe delta beside the price delta, combos, price lists with
+  the precedence rule, recipes with the cost breakdown and margin.
+- **Inventory** — item master, blind counts (expected stays hidden until the
+  count is submitted), transfers with the dispatch/receipt discrepancy,
+  batches, an expiry queue bucketed by time left to act, adjustments.
+- **Purchasing** — supplier scorecards, requisitions, purchase orders with
+  value-band approval, goods receipts carrying price variance and
+  temperature, invoices with the three-way match and ageing.
+- **Costing** — food cost by branch/brand/category, theoretical-vs-actual
+  variance with the hypothesis column, waste analysis separating true waste
+  from controlled consumption, contribution margin with the Boston matrix
+  and per-channel profitability.
+- **Workforce** — employees (compensation behind its own permission),
+  schedules with rule violations, attendance with flags and method,
+  overtime split approved/unapproved, performance with the control metrics.
+- **Finance** — expenses, day close with blocking sessions and the Z
+  sequence, tax summary tied to the country pack that produced it.
+- **Organisation** — tenants, brands, branches, warehouses, central kitchens.
+- **Governance and admin** — the approvals queue with self-approval and
+  permission checks, the report catalogue, terminals with outbox depth,
+  country packs with the signing and conformance gates, integrations with
+  connector health and circuit-breaker state.
+
+Writes stay demo-scoped: the actions wired to the service layer are the ones
+it implements — `toggleAvailability`, `approveOrder`, `closeDay`, `decide`.
+Everything else raises the "not in this build" toast rather than pretending.
+
+## Verified
+
+`npx tsc --noEmit` and `npm run build` both pass; all 62 routes prerender.
+`en.ts` and `ar.ts` carry 1,496 keys each — `ar.ts` is typed as `ConsoleCopy`,
+so that parity is enforced by the compiler rather than by discipline. Every
+route was served and every collection behind it returned rows.
 
 ## Notes for whoever picks this up
 
