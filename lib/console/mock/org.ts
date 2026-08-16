@@ -328,7 +328,7 @@ const STATION_LIBRARY: { type: StationType; en: string; ar: string; colour: stri
   { type: "bakery", en: "Bakery", ar: "المخبز", colour: "#b58a3c" },
   { type: "shawarma", en: "Shawarma", ar: "الشاورما", colour: "#9d4029" },
   { type: "packaging", en: "Packaging", ar: "التغليف", colour: "#756454" },
-  { type: "pass", en: "Pass", ar: "التمرير", colour: "#6b8a45" },
+  { type: "pass", en: "Pass", ar: "التسليم", colour: "#6b8a45" },
 ];
 
 const STATIONS_BY_BRAND: Record<string, StationType[]> = {
@@ -380,7 +380,7 @@ const AREAS = [
   { en: "Main hall", ar: "الصالة الرئيسية" },
   { en: "Terrace", ar: "التراس" },
   { en: "Family section", ar: "قسم العائلات" },
-  { en: "Mezzanine", ar: "الTRENDOWين" },
+  { en: "Mezzanine", ar: "الميزانين" },
 ];
 
 export const tables: RestaurantTable[] = (() => {

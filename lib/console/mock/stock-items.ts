@@ -43,7 +43,7 @@ const SEEDS: Seed[] = [
   // Dairy
   { sku: "DRY-001", en: "Cheddar slices", ar: "شرائح شيدر", catEn: "Dairy", catAr: "الألبان", base: "g", purchase: "kg", conversion: 1000, cost: 18.4, storage: "chilled", batch: true, expiry: true, shelfLife: 30, allergens: ["milk"] },
   { sku: "DRY-002", en: "Mozzarella", ar: "موتزاريلا", catEn: "Dairy", catAr: "الألبان", base: "g", purchase: "kg", conversion: 1000, cost: 16.8, storage: "chilled", batch: true, expiry: true, shelfLife: 21, allergens: ["milk"] },
-  { sku: "DRY-003", en: "Parmesan", ar: "بارTRENDOW", catEn: "Dairy", catAr: "الألبان", base: "g", purchase: "kg", conversion: 1000, cost: 52.0, storage: "chilled", batch: true, expiry: true, shelfLife: 60, allergens: ["milk"] },
+  { sku: "DRY-003", en: "Parmesan", ar: "بارميزان", catEn: "Dairy", catAr: "الألبان", base: "g", purchase: "kg", conversion: 1000, cost: 52.0, storage: "chilled", batch: true, expiry: true, shelfLife: 60, allergens: ["milk"] },
   { sku: "DRY-004", en: "Fresh milk", ar: "حليب طازج", catEn: "Dairy", catAr: "الألبان", base: "ml", purchase: "l", conversion: 1000, cost: 3.4, storage: "chilled", batch: true, expiry: true, shelfLife: 7, allergens: ["milk"] },
   { sku: "DRY-005", en: "Cooking cream 35%", ar: "كريمة طهي ٣٥٪", catEn: "Dairy", catAr: "الألبان", base: "ml", purchase: "l", conversion: 1000, cost: 8.9, storage: "chilled", batch: true, expiry: true, shelfLife: 14, allergens: ["milk"] },
   { sku: "DRY-006", en: "Butter unsalted", ar: "زبدة غير مملحة", catEn: "Dairy", catAr: "الألبان", base: "g", purchase: "kg", conversion: 1000, cost: 22.0, storage: "chilled", batch: true, expiry: true, shelfLife: 45, allergens: ["milk"] },

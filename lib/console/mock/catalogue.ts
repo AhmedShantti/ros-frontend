@@ -370,8 +370,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["milk", "egg"],
   },
   {
-    brand: "BLP", cat: "salads", en: "Rocket and parmesan", ar: "جرجير وبارTRENDOW",
-    kitchenEn: "ROCKET PARM", kitchenAr: "جرجير بارTRENDOW", emoji: "🥬", station: "cold", prep: 120,
+    brand: "BLP", cat: "salads", en: "Rocket and parmesan", ar: "جرجير وبارميزان",
+    kitchenEn: "ROCKET PARM", kitchenAr: "جرجير بارميزان", emoji: "🥬", station: "cold", prep: 120,
     variants: [{ en: "Portion", ar: "طبق", price: 76 }],
     recipe: [
       { sku: "PRD-008", qty: 90, unit: "g", wastage: 18 },

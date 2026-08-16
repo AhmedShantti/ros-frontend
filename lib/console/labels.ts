@@ -69,7 +69,7 @@ export const ORDER_STATE: Record<OrderState, Entry> = {
   draft: e("Draft", "مسودة", "muted"),
   open: e("Open", "مفتوح", "accent"),
   held: e("Held", "معلّق", "warn"),
-  parked: e("Parked", "مركون", "warn"),
+  parked: e("Parked", "مؤجَّل", "warn"),
   partially_paid: e("Partially paid", "مدفوع جزئيًا", "warn"),
   completed: e("Completed", "مكتمل", "good"),
   cancelled: e("Cancelled", "ملغى", "bad"),
@@ -77,12 +77,22 @@ export const ORDER_STATE: Record<OrderState, Entry> = {
   refunded: e("Refunded", "مسترد", "bad"),
 };
 
+/**
+ * FR-LOC-002 asks for Modern Standard Arabic rather than a dialect, which
+ * rules out the terms a Cairo floor actually says out loud: "سفري" for
+ * takeaway and "دليفري" for delivery are Egyptian colloquial, and a Saudi or
+ * Emirati branch running the same tenant would not use them.
+ *
+ * "طلب خارجي" (an order taken away) and "استلام" (collected after ordering
+ * ahead) are the pair that keeps takeaway and pickup distinguishable, which
+ * matters because they route and report differently.
+ */
 export const ORDER_TYPE: Record<OrderType, Entry> = {
-  dine_in: e("Dine-in", "تناول بالمطعم"),
-  takeaway: e("Takeaway", "سفري"),
+  dine_in: e("Dine-in", "تناول في المطعم"),
+  takeaway: e("Takeaway", "طلب خارجي"),
   delivery: e("Delivery", "توصيل"),
   drive_thru: e("Drive-through", "خدمة السيارة"),
-  pickup: e("Pickup", "استلام"),
+  pickup: e("Pickup", "استلام من الفرع"),
   aggregator: e("Aggregator", "منصة توصيل"),
 };
 
@@ -102,7 +112,8 @@ export const ORDER_LINE_STATE: Record<OrderLineState, Entry> = {
   ready: e("Ready", "جاهز", "good"),
   served: e("Served", "قُدّم", "good"),
   voided: e("Voided", "ملغى", "bad"),
-  comped: e("Comped", "مجاني", "warn"),
+  // "ضيافة" carries the goodwill sense a comp has; "مجاني" only says free.
+  comped: e("Comped", "ضيافة", "warn"),
 };
 
 export const SYNC_STATE: Record<SyncState, Entry> = {
@@ -165,7 +176,8 @@ export const STATION_TYPE: Record<StationType, Entry> = {
   bakery: e("Bakery", "المخبز"),
   shawarma: e("Shawarma", "الشاورما"),
   packaging: e("Packaging", "التغليف"),
-  pass: e("Pass", "التمرير"),
+  // The pass is the counter food is handed over at, not an act of passing.
+  pass: e("Pass", "التسليم"),
 };
 
 export const TERMINAL_STATUS: Record<TerminalStatus, Entry> = {
