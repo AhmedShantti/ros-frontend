@@ -18,6 +18,7 @@ import { formatElapsed } from "@/lib/console/format";
 import { useI18n } from "@/lib/console/providers";
 import { elapsedSince, useLive, useNow } from "@/lib/console/live/store";
 import { stationsByBranch } from "@/lib/console/live/reducer";
+import { recallableAt } from "@/lib/console/live/state";
 import { urgencyFor } from "@/lib/console/live/engine";
 import { Badge, Button, SegmentedControl, Spinner, cx } from "@/components/console/ui";
 import { TerminalBar } from "@/components/terminal/chrome";
@@ -84,8 +85,10 @@ export default function KdsPage() {
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
   }, [tickets]);
 
-  const recallable = state.recallable
-    .map((id) => state.tickets[id])
+  // Bounded by the retention window rather than by a count, so what the
+  // strip offers matches what TICKET_RECALL will actually accept.
+  const recallable = recallableAt(state.recallable, now)
+    .map((entry) => state.tickets[entry.id])
     .filter((x): x is KitchenTicket => Boolean(x))
     .slice(0, 4);
 

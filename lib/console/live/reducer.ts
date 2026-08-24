@@ -21,6 +21,7 @@
  */
 
 import type {
+  CostingMethod,
   AuditEntry,
   DenominationCount,
   Id,
@@ -70,7 +71,10 @@ import {
 import {
   DEFAULT_SETTINGS,
   initialLiveState,
+  recallableAt,
+  type CostLayer,
   stockKey,
+  upsertAlert,
   type LiveCashSession,
   type LiveState,
   type VoidDisposition,
@@ -160,6 +164,7 @@ export type LiveAction =
     }
   | { type: "LINE_QTY"; at: IsoDateTime; orderId: Id; lineId: Id; quantity: number }
   | { type: "LINE_NOTE"; at: IsoDateTime; orderId: Id; lineId: Id; notes: string | null }
+  /** FR-POS-036 — lines are grouped into courses and fired independently. */
   | { type: "LINE_COURSE"; at: IsoDateTime; orderId: Id; lineId: Id; course: number }
   | {
       type: "LINE_VOID";
@@ -206,6 +211,21 @@ export type LiveAction =
   | { type: "ORDER_SERVE"; at: IsoDateTime; orderId: Id }
   | { type: "TABLE_STATE"; at: IsoDateTime; tableId: Id; state: import("../types").TableState }
   | { type: "ITEM_86"; at: IsoDateTime; menuItemId: Id; reason: string | null }
+  /**
+   * FR-MNU-031 — a manager lets an 86'd item through for one order.
+   *
+   * Deliberately not "un-86 it": restoring makes the item available on every
+   * order on the terminal, which is a different decision made by a different
+   * person for a different reason. This is scoped to the order in hand and
+   * expires with it.
+   */
+  | {
+      type: "ITEM_86_OVERRIDE";
+      at: IsoDateTime;
+      orderId: Id;
+      menuItemId: Id;
+      approvedBy: Id;
+    }
   | { type: "TICK"; at: IsoDateTime; nowMs: number };
 
 // ---------------------------------------------------------------------------
@@ -349,6 +369,94 @@ function setTable(
 // ---------------------------------------------------------------------------
 
 /**
+ * FR-INV-042 — what leaving stock costs, according to the item's method.
+ *
+ * Returns the cost of the movement in minor units and the layers that remain
+ * afterwards. The three methods differ only in which layers they draw from:
+ *
+ *   fifo              oldest arrivals first, at the price they arrived at
+ *   weighted_average  the pooled average of everything on hand
+ *   standard          the catalogue cost, ignoring what was actually paid
+ *
+ * Stock going *in* is always a new layer at its own cost, whatever the
+ * method — that is the record the other two are computed from.
+ *
+ * Issuing more than the layers hold is normal here, because negative stock
+ * is recorded rather than blocked. The shortfall is priced at the last cost
+ * known for the item, which is the closest thing to the truth available.
+ */
+function consumeCost(
+  layers: CostLayer[],
+  quantity: number,
+  method: CostingMethod,
+  fallbackMinor: number,
+): { costMinor: number; layers: CostLayer[] } {
+  if (quantity > 0) {
+    return {
+      costMinor: Math.round(quantity * fallbackMinor),
+      layers: [...layers, { qty: quantity, costMinor: fallbackMinor }],
+    };
+  }
+
+  const wanted = Math.abs(quantity);
+  if (wanted === 0) return { costMinor: 0, layers };
+
+  if (method === "standard") {
+    // Standard costing does not care what was paid, but the layers still
+    // have to be drawn down or the on-hand basis drifts from the balance.
+    return { costMinor: Math.round(wanted * fallbackMinor), layers: drawDown(layers, wanted) };
+  }
+
+  const onHand = layers.reduce((sum, l) => sum + l.qty, 0);
+
+  if (method === "weighted_average") {
+    const value = layers.reduce((sum, l) => sum + l.qty * l.costMinor, 0);
+    const average = onHand > 0 ? value / onHand : fallbackMinor;
+    return { costMinor: Math.round(wanted * average), layers: drawDown(layers, wanted) };
+  }
+
+  // FIFO — walk the layers oldest first, taking what each can give.
+  let remaining = wanted;
+  let cost = 0;
+  const rest: CostLayer[] = [];
+
+  for (const layer of layers) {
+    if (remaining <= 0) {
+      rest.push(layer);
+      continue;
+    }
+    const taken = Math.min(layer.qty, remaining);
+    cost += taken * layer.costMinor;
+    remaining -= taken;
+    if (layer.qty > taken) rest.push({ ...layer, qty: layer.qty - taken });
+  }
+
+  // Whatever the layers could not cover went out anyway.
+  if (remaining > 0) {
+    const last = layers[layers.length - 1]?.costMinor ?? fallbackMinor;
+    cost += remaining * last;
+  }
+
+  return { costMinor: Math.round(cost), layers: rest };
+}
+
+/** Reduces layers by a quantity without pricing it — oldest first. */
+function drawDown(layers: CostLayer[], quantity: number): CostLayer[] {
+  let remaining = quantity;
+  const rest: CostLayer[] = [];
+  for (const layer of layers) {
+    if (remaining <= 0) {
+      rest.push(layer);
+      continue;
+    }
+    const taken = Math.min(layer.qty, remaining);
+    remaining -= taken;
+    if (layer.qty > taken) rest.push({ ...layer, qty: layer.qty - taken });
+  }
+  return rest;
+}
+
+/**
  * Applies signed stock deltas and writes the ledger entries behind them.
  *
  * Negative stock is recorded, never blocked — UC-POS-01 alt-flow 13a. The
@@ -374,7 +482,9 @@ function applyStock(
   const branch = branchById.get(state.branchId);
   const locationId = state.branchId;
   const stock = { ...state.stock };
+  const costLayers = { ...state.costLayers };
   const movements: StockMovement[] = [];
+  let alerts = state.alerts;
 
   for (const delta of deltas) {
     const stockItem = stockItemById.get(delta.itemId);
@@ -383,6 +493,39 @@ function applyStock(
     const before = stock[key] ?? 0;
     const after = before + delta.quantity;
     stock[key] = after;
+
+    // UC-POS-01 alt-flow 13a — the sale is never blocked, but crossing zero
+    // is the moment somebody has to be told. Raised on the crossing and on
+    // every step further down, keyed by item so one line does not stack.
+    if (after < 0) {
+      alerts = upsertAlert(alerts, {
+        id: mint.next("alt"),
+        key: `negative_stock:${locationId}:${delta.itemId}`,
+        kind: "negative_stock",
+        severity: before >= 0 ? "medium" : "high",
+        at: meta.at,
+        subjectId: delta.itemId,
+        subjectName: stockItem.name,
+        value: after,
+        unit: stockItem.baseUnit,
+        acknowledged: false,
+      });
+    }
+
+    // The caller's `costMinor` is the recipe's snapshot cost. What the stock
+    // actually cost is decided here, by the item's own costing method.
+    const priced = consumeCost(
+      costLayers[key] ?? [],
+      delta.quantity,
+      stockItem.costingMethod,
+      stockItem.unitCost.amount,
+    );
+    costLayers[key] = priced.layers;
+    const movementCost = Math.abs(priced.costMinor);
+    const perUnit =
+      Math.abs(delta.quantity) > 0
+        ? Math.round(movementCost / Math.abs(delta.quantity))
+        : stockItem.unitCost.amount;
 
     movements.push({
       id: mint.next("mov"),
@@ -394,8 +537,8 @@ function applyStock(
       batchId: null,
       movementType: meta.movementType,
       quantity: { value: delta.quantity.toFixed(6), unit: stockItem.baseUnit },
-      unitCost: stockItem.unitCost,
-      totalCost: money(Math.round(Math.abs(delta.costMinor)), stockItem.unitCost.currency),
+      unitCost: money(perUnit, stockItem.unitCost.currency),
+      totalCost: money(movementCost, stockItem.unitCost.currency),
       balanceAfter: { value: after.toFixed(6), unit: stockItem.baseUnit },
       referenceType: meta.referenceType,
       referenceId: meta.referenceId,
@@ -412,8 +555,27 @@ function applyStock(
   return {
     ...state,
     stock,
+    costLayers,
+    alerts,
     movements: [...movements, ...state.movements].slice(0, 800),
   };
+}
+
+/**
+ * FR-MNU-031 — whether an 86'd item has been approved onto this order.
+ *
+ * An item that is not 86'd at all is trivially sellable; the override only
+ * matters for one that is.
+ */
+export function isOverridden(
+  state: LiveState,
+  orderId: Id | null,
+  menuItemId: Id,
+): boolean {
+  if (!orderId) return false;
+  return state.overrides.some(
+    (o) => o.orderId === orderId && o.menuItemId === menuItemId,
+  );
 }
 
 function depletionFor(line: OrderLine) {
@@ -948,6 +1110,56 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       );
 
       next = putOrder(next, retotal(next, { ...order, lines, state: "cancelled" }));
+
+      /*
+        The food that was already made has to be accounted for.
+
+        Cancelling an order force-voided every line, including ones that had
+        been fired, prepared or served — and unlike LINE_VOID it wrote neither
+        a stock reversal nor a waste record. The stock had already left at
+        fire time, so the loss stayed on the books as unexplained shrinkage,
+        showing up later as variance nobody could trace to a cause.
+
+        LINE_VOID asks the cook where the food went, because for a single line
+        that is a real question with three answers. A cancelled order is not
+        that: the whole ticket is being abandoned, usually mid-service, and
+        there is no one standing at the screen to classify each dish. So it is
+        recorded as waste under `order_error`, which is what it is, rather
+        than being silently dropped or wrongly returned to stock.
+      */
+      const cooked = order.lines.filter(
+        (line) => line.state !== "pending" && line.state !== "voided",
+      );
+
+      if (cooked.length > 0) {
+        const branch = branchById.get(state.branchId)!;
+        const operator = operatorOf(state);
+        const reason = wasteReasonByCode.get("order_error")!;
+        const currency = currencyOf(state);
+
+        const records: WasteRecord[] = cooked.map((line) => ({
+          id: mint.next("wst"),
+          tenantId: branch.tenantId,
+          locationId: branch.id,
+          locationName: branch.name,
+          itemId: line.menuItemId,
+          itemName: line.itemNameSnapshot,
+          quantity: { value: line.quantity.toFixed(3), unit: "pc" },
+          reasonCode: reason.code,
+          reasonName: reason.name,
+          category: reason.category,
+          isTrueWaste: reason.isTrueWaste,
+          value: money(line.unitCostSnapshot.amount, currency),
+          recordedAt: action.at,
+          recordedBy: operator.id,
+          recordedByName: operator.name,
+          stationId: line.stationId,
+          approval: "not_required",
+          notes: action.reason,
+        }));
+
+        next = { ...next, waste: [...records, ...next.waste].slice(0, 400) };
+      }
       next = setTable(next, order.tableId, {
         state: "needs_cleaning",
         orderId: null,
@@ -1339,7 +1551,9 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
             state: allReady ? "bumped" : ticket.state === "queued" ? "started" : ticket.state,
           },
         },
-        recallable: allReady ? [ticket.id, ...state.recallable].slice(0, 20) : state.recallable,
+        recallable: allReady
+          ? recallableAt([{ id: ticket.id, bumpedAt: action.at }, ...state.recallable], action.at)
+          : recallableAt(state.recallable, action.at),
       };
       next = syncOrderFromTickets(next, ticket.orderId, action.at);
       return next;
@@ -1360,7 +1574,10 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
             ),
           },
         },
-        recallable: [ticket.id, ...state.recallable].slice(0, 20),
+        recallable: recallableAt(
+          [{ id: ticket.id, bumpedAt: action.at }, ...state.recallable],
+          action.at,
+        ),
       };
       next = syncOrderFromTickets(next, ticket.orderId, action.at);
       return next;
@@ -1370,6 +1587,13 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
     case "TICKET_RECALL": {
       const ticket = state.tickets[action.ticketId];
       if (!ticket) return state;
+      // FR-KDS-025 is a time window. Enforcing it in the reducer rather than
+      // only in the KDS list means a stale button, a second tab or a replayed
+      // action cannot bring back a ticket that has aged out.
+      const open = recallableAt(state.recallable, action.at);
+      if (!open.some((entry) => entry.id === ticket.id)) {
+        return { ...state, recallable: open };
+      }
       const next: LiveState = {
         ...state,
         tickets: {
@@ -1382,7 +1606,7 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
             ),
           },
         },
-        recallable: state.recallable.filter((id) => id !== ticket.id),
+        recallable: state.recallable.filter((entry) => entry.id !== ticket.id),
       };
       const order = next.orders[ticket.orderId];
       if (!order) return next;
@@ -1439,6 +1663,43 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
           entityType: "menu_item",
           entityId: action.menuItemId,
           reasonText: action.reason,
+        })),
+      );
+    }
+
+    case "ITEM_86_OVERRIDE": {
+      const approver = activeEmployees.find((e) => e.id === action.approvedBy);
+      if (!approver) return state;
+      // Re-approving the same item on the same order is a no-op rather than a
+      // second audit entry — a double-tap is not a second decision.
+      const already = state.overrides.some(
+        (o) => o.orderId === action.orderId && o.menuItemId === action.menuItemId,
+      );
+      if (already) return state;
+
+      const next: LiveState = {
+        ...state,
+        overrides: [
+          {
+            orderId: action.orderId,
+            menuItemId: action.menuItemId,
+            approvedBy: approver.id,
+            approvedByName: approver.name,
+            at: action.at,
+          },
+          ...state.overrides,
+        ].slice(0, 200),
+      };
+
+      return commit(
+        withAudit(next, audit(state, mint, {
+          at: action.at,
+          action: "menu.item.86.override",
+          entityType: "menu_item",
+          entityId: action.menuItemId,
+          before: { unavailable: state.unavailable[action.menuItemId] ?? null },
+          after: { orderId: action.orderId, approvedBy: approver.id },
+          reasonText: state.unavailable[action.menuItemId] ?? null,
         })),
       );
     }

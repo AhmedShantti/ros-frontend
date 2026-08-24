@@ -21,7 +21,8 @@ import {
   modifierGroupsForItem,
   unsatisfiedGroups,
 } from "@/lib/console/live/engine";
-import { menuItemsForBranch, remainingSellable } from "@/lib/console/live/reducer";
+import { isOverridden, menuItemsForBranch, remainingSellable } from "@/lib/console/live/reducer";
+import { activeEmployees } from "@/lib/console/mock/workforce";
 import {
   Badge,
   Button,
@@ -30,6 +31,7 @@ import {
   Input,
   Modal,
   SegmentedControl,
+  Select,
   cx,
 } from "@/components/console/ui";
 
@@ -145,13 +147,16 @@ export function PosMenu({ orderId, course, onAdded }: Props) {
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {visible.map((item) => {
               const off = state.unavailable[item.id];
+              // FR-MNU-031 — a manager may have let this one through for the
+              // order in hand, which does not lift the 86 for anyone else.
+              const cleared = Boolean(off) && isOverridden(state, orderId, item.id);
               const left = remainingSellable(state, item.variants[0]?.recipeId ?? null);
               return (
                 <button
                   key={item.id}
                   type="button"
-                  disabled={!orderId || Boolean(off)}
-                  onClick={() => add(item)}
+                  disabled={!orderId || (Boolean(off) && !cleared)}
+                  onClick={() => (off && !cleared ? setEightySix(item) : add(item))}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setEightySix(item);
@@ -206,7 +211,11 @@ export function PosMenu({ orderId, course, onAdded }: Props) {
       ) : null}
 
       {eightySix ? (
-        <EightySixSheet item={eightySix} onClose={() => setEightySix(null)} />
+        <EightySixSheet
+          item={eightySix}
+          orderId={orderId}
+          onClose={() => setEightySix(null)}
+        />
       ) : null}
     </div>
   );
@@ -460,11 +469,31 @@ const EIGHTY_SIX_REASONS = [
   { en: "Sold out for today", ar: "نفدت الكمية اليوم" },
 ];
 
-function EightySixSheet({ item, onClose }: { item: MenuItem; onClose: () => void }) {
+function EightySixSheet({
+  item,
+  orderId,
+  onClose,
+}: {
+  item: MenuItem;
+  orderId: Id | null;
+  onClose: () => void;
+}) {
   const { t, tx } = useI18n();
   const { state, dispatch } = useLive();
   const current = state.unavailable[item.id];
   const [reason, setReason] = useState(EIGHTY_SIX_REASONS[0]!.en);
+  const [approver, setApprover] = useState("");
+
+  /**
+   * FR-MNU-031 — the override needs a named approver, the same way a
+   * discount over the threshold does. Anyone who can authorise one can
+   * authorise this.
+   */
+  const managers = useMemo(
+    () => activeEmployees.filter((e) => /manager|supervisor|head/i.test(e.position.en)),
+    [],
+  );
+  const cleared = isOverridden(state, orderId, item.id);
 
   return (
     <Modal
@@ -475,15 +504,33 @@ function EightySixSheet({ item, onClose }: { item: MenuItem; onClose: () => void
         <>
           <Button onClick={onClose}>{t("common.cancel")}</Button>
           {current ? (
-            <Button
-              variant="primary"
-              onClick={() => {
-                dispatch({ type: "ITEM_86", menuItemId: item.id, reason: null });
-                onClose();
-              }}
-            >
-              {t("pos.restore")}
-            </Button>
+            <>
+              {orderId && !cleared ? (
+                <Button
+                  variant="primary"
+                  disabled={!approver}
+                  onClick={() => {
+                    dispatch({
+                      type: "ITEM_86_OVERRIDE",
+                      orderId,
+                      menuItemId: item.id,
+                      approvedBy: approver,
+                    });
+                    onClose();
+                  }}
+                >
+                  {t("pos.overrideOnce")}
+                </Button>
+              ) : null}
+              <Button
+                onClick={() => {
+                  dispatch({ type: "ITEM_86", menuItemId: item.id, reason: null });
+                  onClose();
+                }}
+              >
+                {t("pos.restore")}
+              </Button>
+            </>
           ) : (
             <Button
               variant="danger"
@@ -500,9 +547,28 @@ function EightySixSheet({ item, onClose }: { item: MenuItem; onClose: () => void
       }
     >
       {current ? (
-        <Callout tone="bad" title={t("pos.eightySixed")}>
-          {current}
-        </Callout>
+        <div className="space-y-4">
+          <Callout tone="bad" title={t("pos.eightySixed")}>
+            {current}
+          </Callout>
+
+          {cleared ? (
+            <Callout tone="good" title={t("pos.overrideActive")}>
+              {t("pos.overrideActiveNote")}
+            </Callout>
+          ) : orderId ? (
+            <Field label={t("pos.overrideApprover")} hint={t("pos.overrideNote")}>
+              <Select value={approver} onChange={(e) => setApprover(e.target.value)}>
+                <option value="">{t("pos.overrideChoose")}</option>
+                {managers.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {tx(m.name)} — {tx(m.position)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
+        </div>
       ) : (
         <Field label={t("pos.eightySixReason")}>
           <SegmentedControl

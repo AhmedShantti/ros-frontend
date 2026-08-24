@@ -36,7 +36,7 @@ import {
 import { CellStack, DataTable, type Column } from "@/components/console/data-table";
 import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/page";
 import { AsyncPanel, CardSkeleton, Gate, MetricSkeleton } from "@/components/console/states";
-import { LiveTodayStrip } from "@/components/console/live-panels";
+import { LiveTodayStrip, useLiveAlerts } from "@/components/console/live-panels";
 import {
   Badge,
   Button,
@@ -57,6 +57,8 @@ export default function DashboardPage() {
     () => services.dashboard.get(scope),
     [scope.tenantId, scope.brandId, scope.branchId],
   );
+
+  const liveAlerts = useLiveAlerts();
 
   return (
     <>
@@ -99,7 +101,10 @@ export default function DashboardPage() {
           const major = (value: number) =>
             formatAmount({ amount: Math.round(value * 100), currency }, fmt, true);
 
-          const openAlerts = data.alerts.filter(
+          // What the terminals on this device have actually raised goes
+          // first: a negative balance or a ticket past its threshold is
+          // happening now, where the fixtures describe a seeded yesterday.
+          const openAlerts = [...liveAlerts, ...data.alerts].filter(
             (alert) => !alert.acknowledged && !acknowledged.includes(alert.id),
           );
 

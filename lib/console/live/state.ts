@@ -21,6 +21,7 @@ import type {
   IsoDate,
   IsoDateTime,
   KitchenTicket,
+  Localised,
   Money,
   Order,
   RestaurantTable,
@@ -30,10 +31,11 @@ import type {
 } from "../types";
 import { branches, tables, terminals } from "../mock/org";
 import { stockLevels } from "../mock/inventory";
+import { stockItemById } from "../mock/stock-items";
 import { BUSINESS_DAY, NOW_ISO } from "../mock/clock";
 
 export const LIVE_STORAGE_KEY = "ros.live.v1";
-export const LIVE_STATE_VERSION = 4;
+export const LIVE_STATE_VERSION = 6;
 
 /** Mid-shift drawer operations — FR-POS-091. */
 export interface CashMovementRecord {
@@ -80,6 +82,57 @@ export const DEFAULT_SETTINGS: LiveSettings = {
 /** A void that produced food — FR-POS-071 forces the disposition to be named. */
 export type VoidDisposition = "returned_to_stock" | "wasted" | "staff_meal";
 
+/**
+ * FR-KDS-025 — how long a bumped ticket stays recallable.
+ *
+ * This used to be a count: the last twenty tickets, regardless of when they
+ * were bumped. That is the documented behaviour inverted in both directions
+ * — in a slow period a mis-bump stayed recallable all afternoon, and in a
+ * rush it fell out of reach in under a minute.
+ */
+export const RECALL_WINDOW_MS = 30 * 60 * 1000;
+
+/**
+ * Something the running restaurant noticed and a manager needs to see.
+ *
+ * The dashboard's alert rail was fed entirely from a static fixture, so the
+ * two events the site documents as raising an alert — stock driven negative
+ * by a fire, and a ticket past its critical threshold — produced nothing at
+ * all. These are raised by the reducer as they happen and merged into that
+ * rail ahead of the fixtures.
+ *
+ * `key` is what makes an alert idempotent: the same item going further
+ * negative on the next fire updates the existing alert rather than stacking
+ * a new one on top of it.
+ */
+export type LiveAlertKind = "negative_stock" | "ticket_delayed";
+
+export interface LiveAlert {
+  id: Id;
+  key: string;
+  kind: LiveAlertKind;
+  severity: "medium" | "high";
+  at: IsoDateTime;
+  /** Filled in by the consumer from the fixtures; stored as ids to stay serialisable. */
+  subjectId: Id;
+  subjectName: Localised;
+  /** The number that made it an alert — a negative balance, or seconds late. */
+  value: number;
+  unit: string | null;
+  acknowledged: boolean;
+}
+
+/** Newest first, one per key, and bounded so a long shift cannot grow forever. */
+export function upsertAlert(alerts: LiveAlert[], next: LiveAlert): LiveAlert[] {
+  const rest = alerts.filter((a) => a.key !== next.key);
+  const previous = alerts.find((a) => a.key === next.key);
+  // An alert a manager already dismissed does not come back for the same
+  // key unless it got worse.
+  const acknowledged =
+    previous?.acknowledged === true && Math.abs(next.value) <= Math.abs(previous.value);
+  return [{ ...next, acknowledged }, ...rest].slice(0, 40);
+}
+
 export interface LiveState {
   version: number;
 
@@ -100,8 +153,14 @@ export interface LiveState {
 
   tickets: Record<Id, KitchenTicket>;
   ticketIds: Id[];
-  /** Bumped tickets kept for the recall window — FR-KDS-025. */
-  recallable: Id[];
+  /**
+   * Bumped tickets kept for the recall window — FR-KDS-025.
+   *
+   * The bump time travels with the id because the window is measured in
+   * minutes, not in tickets, and the ticket itself may have been recalled,
+   * re-bumped or evicted by the time anything asks.
+   */
+  recallable: RecallEntry[];
 
   /** Table overrides, keyed by table id. Absent means "as seeded". */
   tableStates: Record<Id, RestaurantTable>;
@@ -119,7 +178,75 @@ export interface LiveState {
   /** FR-MNU-030 — 86'd items and why. */
   unavailable: Record<Id, string>;
 
+  /**
+   * FR-MNU-031 — a manager's one-time override of an 86'd item.
+   *
+   * Scoped to a single order rather than lifting the 86 for everyone, which
+   * is what "Restore" does and why it was the wrong control to reach for.
+   */
+  overrides: EightySixOverride[];
+
+  /** Raised by the running restaurant, read by the dashboard's alert rail. */
+  alerts: LiveAlert[];
+
+  /** FR-INV-042 — cost layers per `locationId::itemId`, oldest first. */
+  costLayers: Record<string, CostLayer[]>;
+
   settings: LiveSettings;
+}
+
+export interface EightySixOverride {
+  orderId: Id;
+  menuItemId: Id;
+  approvedBy: Id;
+  approvedByName: Localised;
+  at: IsoDateTime;
+}
+
+/**
+ * FR-INV-042 — what a unit of stock actually cost, in the order it arrived.
+ *
+ * `costingMethod` was a label with nothing behind it: every movement priced
+ * off the item's single static `unitCost`, so choosing FIFO, weighted average
+ * or standard changed the word on the screen and nothing else.
+ *
+ * A layer is one arrival at one price. FIFO consumes them oldest-first;
+ * weighted average pools them; standard ignores them and keeps using the
+ * catalogue cost. Storing arrivals rather than a running number is what
+ * makes all three derivable from the same record.
+ */
+export interface CostLayer {
+  /** Base units remaining in this layer. */
+  qty: number;
+  /** Minor units per base unit. */
+  costMinor: number;
+}
+
+export interface RecallEntry {
+  id: Id;
+  bumpedAt: IsoDateTime;
+}
+
+/**
+ * Those still inside the window, measured against the caller's clock.
+ *
+ * Takes either an ISO stamp or epoch milliseconds because the two callers
+ * hold different things: the reducer is given `action.at` as ISO, while the
+ * KDS ticks on a millisecond counter it already uses for elapsed times.
+ *
+ * An entry with an unparseable stamp is kept rather than dropped — losing a
+ * recallable ticket is worse than holding one a few minutes too long.
+ */
+export function recallableAt(
+  entries: RecallEntry[],
+  now: IsoDateTime | number,
+): RecallEntry[] {
+  const ms = typeof now === "number" ? now : Date.parse(now);
+  if (!Number.isFinite(ms) || ms === 0) return entries;
+  return entries.filter((entry) => {
+    const at = Date.parse(entry.bumpedAt);
+    return Number.isNaN(at) || ms - at < RECALL_WINDOW_MS;
+  });
 }
 
 export function stockKey(locationId: Id, itemId: Id): string {
@@ -182,6 +309,18 @@ export function initialLiveState(branchId: Id = defaultBranchId()): LiveState {
     }
   }
 
+  // The opening balance is one arrival at the catalogue cost. Without it,
+  // the first depletion of the shift would find no layers and fall back to
+  // standard costing on an item configured for FIFO.
+  const costLayers: Record<string, CostLayer[]> = {};
+  for (const [key, qty] of Object.entries(stock)) {
+    if (qty <= 0) continue;
+    const itemId = key.split("::")[1] ?? "";
+    const unitCost = stockItemById.get(itemId)?.unitCost.amount;
+    if (unitCost === undefined) continue;
+    costLayers[key] = [{ qty, costMinor: unitCost }];
+  }
+
   const tableStates: Record<Id, RestaurantTable> = {};
   for (const table of tables) {
     tableStates[table.id] = {
@@ -214,6 +353,9 @@ export function initialLiveState(branchId: Id = defaultBranchId()): LiveState {
     closedSessions: [],
     audit: [],
     unavailable: {},
+    overrides: [],
+    alerts: [],
+    costLayers,
     settings: DEFAULT_SETTINGS,
   };
 }

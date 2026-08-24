@@ -9,9 +9,13 @@
  */
 
 import Link from "next/link";
+import { useMemo } from "react";
 import { ChefHat, ScanLine } from "lucide-react";
+import type { OperationalAlert } from "@/lib/console/types";
 import { useI18n } from "@/lib/console/providers";
-import { useLive } from "@/lib/console/live/store";
+import { elapsedSince, useLive, useNow } from "@/lib/console/live/store";
+import { urgencyFor } from "@/lib/console/live/engine";
+import { branchById } from "@/lib/console/mock/org";
 import { formatMoney, formatPercent, money } from "@/lib/console/format";
 import { Callout, Card, CardHeader } from "./ui";
 import { EmptyPanel } from "./states";
@@ -127,4 +131,97 @@ function Figure({ label, value }: { label: string; value: string }) {
       <p className="text-fg mt-1 text-xl font-semibold tabular-nums">{value}</p>
     </div>
   );
+}
+
+/**
+ * The alerts the running restaurant has actually raised.
+ *
+ * The dashboard's alert rail was fed entirely from a static fixture, so two
+ * things the site documents as raising an alert produced nothing at all:
+ * stock driven negative by a fire, and a ticket past its threshold. Both are
+ * surfaced here, mapped onto the same `OperationalAlert` shape the rail
+ * already renders so nothing downstream has to know where they came from.
+ *
+ * The two are sourced differently on purpose:
+ *
+ *  - **Negative stock** is an event. It happens at a known instant, in the
+ *    reducer, so it is stored in live state and survives a reload.
+ *  - **A delayed ticket** is not an event — nothing fires when a ticket
+ *    crosses its threshold, because the threshold is crossed by the clock
+ *    rather than by an action. It is therefore derived on each tick from the
+ *    tickets still open, and clears itself when the ticket is bumped.
+ */
+export function useLiveAlerts(): OperationalAlert[] {
+  const { state, ready } = useLive();
+  const now = useNow(15_000);
+
+  return useMemo(() => {
+    if (!ready) return [];
+
+    const branch = branchById.get(state.branchId) ?? null;
+    const branchName = branch?.name ?? null;
+    const stockAlerts: OperationalAlert[] = state.alerts.map((alert) => {
+      const short = Math.abs(alert.value);
+      return {
+        id: alert.id,
+        kind: "negative_stock",
+        severity: alert.severity,
+        title: {
+          en: "Stock went negative on a fired line",
+          ar: "رصيد سالب بعد إرسال طلب للمطبخ",
+        },
+        detail: {
+          en: `${alert.subjectName.en} is ${short.toFixed(0)} ${alert.unit ?? ""} short. The sale was recorded, not blocked — the count needs correcting.`.replace(
+            /\s+/g,
+            " ",
+          ),
+          ar: `${alert.subjectName.ar} بالسالب بمقدار ${short.toFixed(0)} ${alert.unit ?? ""}. البيع سُجّل ولم يُمنع — الجرد يحتاج تصحيحًا.`.replace(
+            /\s+/g,
+            " ",
+          ),
+        },
+        branchId: state.branchId,
+        branchName,
+        raisedAt: alert.at,
+        acknowledged: alert.acknowledged,
+        href: "/inventory/levels",
+        specRef: "FR-INV-030",
+      } satisfies OperationalAlert;
+    });
+
+    // FR-KDS-018 — a ticket past critical urgency, still not bumped.
+    const delayed = state.ticketIds
+      .map((id) => state.tickets[id]!)
+      .filter((ticket) => ticket && ticket.state !== "bumped")
+      .filter(
+        (ticket) =>
+          urgencyFor(elapsedSince(ticket.firedAt, now) ?? 0, ticket.targetSeconds) === "critical",
+      );
+
+    const ticketAlerts: OperationalAlert[] = delayed.map((ticket) => {
+      const lateSeconds = Math.max(0, (elapsedSince(ticket.firedAt, now) ?? 0) - ticket.targetSeconds);
+      const lateMinutes = Math.round(lateSeconds / 60);
+      return {
+        id: `alt_live_${ticket.id}`,
+        kind: "order_delayed",
+        severity: "high",
+        title: {
+          en: "Order past its kitchen threshold",
+          ar: "طلب تجاوز الحد الزمني في المطبخ",
+        },
+        detail: {
+          en: `${ticket.orderNumber} on ${ticket.stationName.en} is ${lateMinutes} min past target and has not been bumped.`,
+          ar: `${ticket.orderNumber} على ${ticket.stationName.ar} متأخر ${lateMinutes} دقيقة عن المستهدف ولم يُسلَّم بعد.`,
+        },
+        branchId: state.branchId,
+        branchName,
+        raisedAt: ticket.firedAt,
+        acknowledged: false,
+        href: "/operations/kitchen",
+        specRef: "FR-KDS-018",
+      } satisfies OperationalAlert;
+    });
+
+    return [...ticketAlerts, ...stockAlerts];
+  }, [ready, state, now]);
 }
