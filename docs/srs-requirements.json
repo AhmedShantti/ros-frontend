@@ -1,0 +1,3708 @@
+{
+ "source": "ROS-SRS-001 v1.0",
+ "extracted": 617,
+ "requirements": [
+  {
+   "id": "FR-API-001",
+   "module": "API",
+   "priority": "M",
+   "text": "Error responses SHALL use a stable machine-readable code in addition to the human-readable title and detail."
+  },
+  {
+   "id": "FR-API-002",
+   "module": "API",
+   "priority": "M",
+   "text": "Error messages SHALL be localised per the request’s Accept-Language header."
+  },
+  {
+   "id": "FR-API-003",
+   "module": "API",
+   "priority": "M",
+   "text": "Error responses SHALL NOT leak internal details: stack traces, SQL, internal hostnames, or other tenants’ data. Status Use 200 Success with body 201 Created; Location header set 202 Accepted for asynchronous processing; status URL returned 204 Success, no body 400 Malformed request 401 Not authenticated 403 Authenticated but not authorised 404 Not found, or not visible in this tenant scope 409 Con"
+  },
+  {
+   "id": "FR-API-010",
+   "module": "API",
+   "priority": "M",
+   "text": "Interactive clients SHALL authenticate using short-lived access tokens (15 minutes) with refresh tokens (30 days, rotating on use)."
+  },
+  {
+   "id": "FR-API-011",
+   "module": "API",
+   "priority": "M",
+   "text": "Machine clients SHALL authenticate using OAuth 2.0 client credentials or scoped API keys."
+  },
+  {
+   "id": "FR-API-012",
+   "module": "API",
+   "priority": "M",
+   "text": "Tokens SHALL carry: subject, tenant, scope set, and permitted branch set. Every request SHALL be authorised against both the permission and the scope."
+  },
+  {
+   "id": "FR-API-013",
+   "module": "API",
+   "priority": "M",
+   "text": "Refresh token rotation SHALL detect reuse of a consumed refresh token and SHALL revoke the entire token family on detection."
+  },
+  {
+   "id": "FR-API-014",
+   "module": "API",
+   "priority": "M",
+   "text": "API keys SHALL be displayed exactly once at creation, stored as a hash, and identifiable thereafter only by a non-secret prefix."
+  },
+  {
+   "id": "FR-API-020",
+   "module": "API",
+   "priority": "M",
+   "text": "Every POST and PATCH SHALL accept an Idempotency-Key header, and it SHALL be mandatory on all financially significant endpoints."
+  },
+  {
+   "id": "FR-API-021",
+   "module": "API",
+   "priority": "M",
+   "text": "The System SHALL store the key, the request fingerprint, and the response for at least 30 days."
+  },
+  {
+   "id": "FR-API-022",
+   "module": "API",
+   "priority": "M",
+   "text": "A repeated key with an identical request fingerprint SHALL return the stored response with Idempotent-Replay: true."
+  },
+  {
+   "id": "FR-API-023",
+   "module": "API",
+   "priority": "M",
+   "text": "A repeated key with a different request fingerprint SHALL return 409 Conflict, because this indicates a client defect rather than a retry."
+  },
+  {
+   "id": "FR-AUD-001",
+   "module": "AUD",
+   "priority": "M",
+   "text": "The System SHALL record an immutable audit entry for every statechanging operation."
+  },
+  {
+   "id": "FR-AUD-002",
+   "module": "AUD",
+   "priority": "M",
+   "text": "Each audit entry SHALL contain: Field Content id ULID tenant_id, branch_id Scope Field Content occurred_at, recorded_at Business and system time actor_id, actor_type User, system, device, or integration impersonated_by Set when a support user is acting as a tenant user action Canonical verb, e.g. order.discount.applied entity_type, entity_id Target before, after JSONB state snapshots (changed fiel"
+  },
+  {
+   "id": "FR-AUD-003",
+   "module": "AUD",
+   "priority": "M",
+   "text": "Audit entries SHALL be append-only. The application database role SHALL hold INSERT and SELECT grants on the audit table and SHALL NOT hold UPDATE or DELETE."
+  },
+  {
+   "id": "FR-AUD-004",
+   "module": "AUD",
+   "priority": "M",
+   "text": "Audit entries SHALL be hash-chained: each entry’s hash covers its own content and the previous entry’s hash, per tenant. hash(n) = SHA-256( canonical_json(entry_n) || hash(n-1) )"
+  },
+  {
+   "id": "FR-AUD-005",
+   "module": "AUD",
+   "priority": "M",
+   "text": "A scheduled job SHALL verify chain integrity and SHALL raise a platformlevel security alert on any break. Rationale: Hash chaining does not prevent tampering by an actor with database access. It makes tampering detectable, which is what an auditor requires and what makes the log admissible as evidence in a dispute with an employee or a franchisee. A log that could have been silently edited proves "
+  },
+  {
+   "id": "FR-AUD-006",
+   "module": "AUD",
+   "priority": "M",
+   "text": "The following actions SHALL always generate audit entries: authentication success and failure, permission changes, role changes, price changes, recipe changes, discounts, comps, voids, refunds, cash variances, stock adjustments, count postings, waste records, purchase approvals, configuration changes, data exports, integration credential changes, and impersonation sessions."
+  },
+  {
+   "id": "FR-AUD-007",
+   "module": "AUD",
+   "priority": "M",
+   "text": "Audit log access SHALL itself be audited."
+  },
+  {
+   "id": "FR-AUD-008",
+   "module": "AUD",
+   "priority": "M",
+   "text": "The audit log SHALL be searchable and filterable by actor, entity, action, date range, branch, and correlation ID, and SHALL be exportable by users with audit.view plus report.export."
+  },
+  {
+   "id": "FR-AUD-009",
+   "module": "AUD",
+   "priority": "M",
+   "text": "Audit entries SHALL be retained for the greater of 7 years or the statutory period of the branch’s jurisdiction."
+  },
+  {
+   "id": "FR-AUD-010",
+   "module": "AUD",
+   "priority": "M",
+   "text": "Support staff access to tenant data SHALL require an explicit impersonation session with a recorded reason, a time limit, tenant-visible notification, and full audit capture of every action performed. Rationale: Vendor support access is a legitimate necessity and a genuine risk. Tenants must be able to see, after the fact, exactly what the vendor’s staff did in their account. Making this visible b"
+  },
+  {
+   "id": "FR-BRN-001",
+   "module": "BRN",
+   "priority": "M",
+   "text": "The System SHALL support an unlimited number of branches per brand and an unlimited number of brands per tenant, subject to plan limits."
+  },
+  {
+   "id": "FR-BRN-002",
+   "module": "BRN",
+   "priority": "M",
+   "text": "Each branch SHALL hold its own: inventory, cash drawers, staff roster, operating hours, timezone, currency, tax configuration, and country pack assignment."
+  },
+  {
+   "id": "FR-BRN-003",
+   "module": "BRN",
+   "priority": "M",
+   "text": "Branches in different countries SHALL operate under different country packs within one tenant, and consolidated reporting SHALL handle multi-currency correctly."
+  },
+  {
+   "id": "FR-BRN-004",
+   "module": "BRN",
+   "priority": "M",
+   "text": "Consolidated multi-currency reports SHALL display both the original currency amounts and a converted total, with the conversion rate, rate source, and rate date shown explicitly. Rationale: A consolidated total that silently converts currencies at an unstated rate is a number nobody can reconcile or defend. Showing the rate and its date is what makes the figure usable in a board pack rather than m"
+  },
+  {
+   "id": "FR-BRN-005",
+   "module": "BRN",
+   "priority": "M",
+   "text": "The System SHALL support branch groups (regions, clusters, franchise territories) as a reporting and permission-scoping dimension."
+  },
+  {
+   "id": "FR-BRN-006",
+   "module": "BRN",
+   "priority": "S",
+   "text": "The System SHALL support central menu and price management with perbranch override capability, and the System SHALL report which branches deviate from the brand standard."
+  },
+  {
+   "id": "FR-BRN-007",
+   "module": "BRN",
+   "priority": "S",
+   "text": "The System SHALL support central recipe management with the same override-and-report pattern."
+  },
+  {
+   "id": "FR-BRN-008",
+   "module": "BRN",
+   "priority": "S",
+   "text": "The System SHALL support a branch template: a new branch may be created by copying configuration (menu, stations, roles, settings, printers) from an existing branch. Rationale: A growing chain opens branches on a schedule. If opening branch 12 requires a week of manual configuration, the System becomes the bottleneck in the customer’s expansion — which is the worst possible position for a vendor w"
+  },
+  {
+   "id": "FR-BRN-010",
+   "module": "BRN",
+   "priority": "S",
+   "text": "The System SHALL provide a branch scorecard comparing branches on: net sales, transaction count, average order value, food cost %, labour cost %, prime cost %, waste %, variance value, void/discount rates, and average service time."
+  },
+  {
+   "id": "FR-BRN-011",
+   "module": "BRN",
+   "priority": "S",
+   "text": "Comparison SHALL support normalisation by seat count, floor area, labour hours, and trading hours, so branches of different sizes are meaningfully comparable."
+  },
+  {
+   "id": "FR-BRN-012",
+   "module": "BRN",
+   "priority": "S",
+   "text": "The System SHALL rank branches on any metric and SHALL indicate movement against the prior period."
+  },
+  {
+   "id": "FR-BRN-013",
+   "module": "BRN",
+   "priority": "S",
+   "text": "The System SHALL highlight outliers, defined as branches deviating beyond a configurable number of standard deviations from the group mean on any tracked metric."
+  },
+  {
+   "id": "FR-BRN-014",
+   "module": "BRN",
+   "priority": "C",
+   "text": "The System SHALL support like-for-like comparison, excluding branches open for less than a configurable maturity period from group averages."
+  },
+  {
+   "id": "FR-BRN-015",
+   "module": "BRN",
+   "priority": "M",
+   "text": "The System SHALL support stock transfers between any two locations within a tenant, per"
+  },
+  {
+   "id": "FR-BRN-016",
+   "module": "BRN",
+   "priority": "S",
+   "text": "The System SHALL support transfer requests: a branch requests stock, the source location approves and dispatches."
+  },
+  {
+   "id": "FR-BRN-017",
+   "module": "BRN",
+   "priority": "S",
+   "text": "The System SHALL suggest transfers where one location holds excess stock approaching expiry and another location shows a shortage of the same item."
+  },
+  {
+   "id": "FR-BRN-020",
+   "module": "BRN",
+   "priority": "S",
+   "text": "The System SHALL model central kitchens as locations that consume input stock and produce output stock."
+  },
+  {
+   "id": "FR-BRN-021",
+   "module": "BRN",
+   "priority": "S",
+   "text": "Production SHALL be driven by a production order specifying output item, target quantity, and target date."
+  },
+  {
+   "id": "FR-BRN-022",
+   "module": "BRN",
+   "priority": "S",
+   "text": "A production order SHALL expand its recipe to compute required inputs, SHALL check availability, and SHALL flag shortages before production begins."
+  },
+  {
+   "id": "FR-BRN-023",
+   "module": "BRN",
+   "priority": "S",
+   "text": "On completion, a production order SHALL record actual output quantity, consume input stock, produce output stock, and create an output batch with production date and expiry."
+  },
+  {
+   "id": "FR-BRN-024",
+   "module": "BRN",
+   "priority": "S",
+   "text": "The System SHALL compute production yield variance: Yield Variance = Actual Output − (Theoretical Output from Actual Inputs) and SHALL report it by item, batch, date, and operator."
+  },
+  {
+   "id": "FR-BRN-025",
+   "module": "BRN",
+   "priority": "S",
+   "text": "Production output cost SHALL be computed as the sum of consumed input costs plus configurable production overhead (labour, energy) per unit or per batch."
+  },
+  {
+   "id": "FR-BRN-026",
+   "module": "BRN",
+   "priority": "S",
+   "text": "The System SHALL generate a production plan from branch demand forecasts and current branch stock, indicating what the central kitchen should produce for the next production cycle."
+  },
+  {
+   "id": "FR-BRN-027",
+   "module": "BRN",
+   "priority": "S",
+   "text": "The System SHALL support distribution orders allocating produced quantities to branches, generating transfer movements and, where relevant, delivery manifests."
+  },
+  {
+   "id": "FR-BRN-028",
+   "module": "BRN",
+   "priority": "S",
+   "text": "Where produced quantity is insufficient for all branch requests, the System SHALL support allocation rules: proportional, by priority ranking, or manual."
+  },
+  {
+   "id": "FR-BRN-029",
+   "module": "BRN",
+   "priority": "S",
+   "text": "The System SHALL maintain full batch traceability from raw material receipt through production to the branch and to the customer order."
+  },
+  {
+   "id": "FR-BRN-030",
+   "module": "BRN",
+   "priority": "C",
+   "text": "The System SHALL support internal transfer pricing between central kitchen and branch, enabling the central kitchen to be evaluated as a cost centre or a profit centre per tenant policy."
+  },
+  {
+   "id": "FR-BRN-035",
+   "module": "BRN",
+   "priority": "C",
+   "text": "The System SHALL support franchise branches with restricted configuration authority: franchisees may operate but may not modify brand-controlled menu, recipes, or pricing."
+  },
+  {
+   "id": "FR-BRN-036",
+   "module": "BRN",
+   "priority": "C",
+   "text": "The System SHALL compute franchise royalties as a configurable percentage of net sales, with reporting per franchisee per period."
+  },
+  {
+   "id": "FR-BRN-037",
+   "module": "BRN",
+   "priority": "C",
+   "text": "The System SHALL provide franchisor visibility into franchisee operational compliance: menu deviation, price deviation, recipe deviation, and mandated-supplier usage. Chapter 18 — Customer & Loyalty | العمالء والوالء"
+  },
+  {
+   "id": "FR-CRM-001",
+   "module": "CRM",
+   "priority": "M",
+   "text": "The System SHALL maintain customer records with: name, phone (primary identifier), email, addresses, date of birth, preferred language, tags, and consent flags."
+  },
+  {
+   "id": "FR-CRM-002",
+   "module": "CRM",
+   "priority": "M",
+   "text": "Phone number SHALL be the primary identifier, unique within a tenant, stored in E.164 format."
+  },
+  {
+   "id": "FR-CRM-003",
+   "module": "CRM",
+   "priority": "M",
+   "text": "Customer creation from the POS SHALL require no more than phone number and name, completable in under 15 seconds. Rationale: Every additional required field reduces capture rate. A form demanding email, birthday, and address at the counter will be filled in with fake data or skipped entirely, and the resulting database is worse than none because it is trusted while being wrong."
+  },
+  {
+   "id": "FR-CRM-004",
+   "module": "CRM",
+   "priority": "M",
+   "text": "The System SHALL maintain per-customer order history with full detail, retrievable from the POS."
+  },
+  {
+   "id": "FR-CRM-005",
+   "module": "CRM",
+   "priority": "S",
+   "text": "The System SHALL compute per-customer: total spend, order count, average order value, first and last order dates, favourite items, preferred branch, preferred order type, and preferred day-part."
+  },
+  {
+   "id": "FR-CRM-006",
+   "module": "CRM",
+   "priority": "S",
+   "text": "The System SHALL support multiple delivery addresses per customer with labels and delivery notes."
+  },
+  {
+   "id": "FR-CRM-007",
+   "module": "CRM",
+   "priority": "S",
+   "text": "The System SHALL support customer blocking, preventing on-account sales or delivery to a flagged customer, with reason and audit record."
+  },
+  {
+   "id": "FR-CRM-008",
+   "module": "CRM",
+   "priority": "M",
+   "text": "The System SHALL record explicit consent flags per communication channel and per purpose, with timestamp and source, and SHALL NOT send marketing communication absent recorded consent."
+  },
+  {
+   "id": "FR-CRM-009",
+   "module": "CRM",
+   "priority": "M",
+   "text": "The System SHALL support customer data export and erasure requests, with erasure anonymising the customer record while retaining transactional and fiscal records as legally required. Rationale: Erasure cannot delete a sales transaction, because tax law requires its retention. The correct implementation replaces personally identifying fields with an anonymised token while preserving the financial r"
+  },
+  {
+   "id": "FR-CRM-015",
+   "module": "CRM",
+   "priority": "S",
+   "text": "The System SHALL support a points-based loyalty programme with configurable earn rate, redemption rate, expiry, and eligibility rules."
+  },
+  {
+   "id": "FR-CRM-016",
+   "module": "CRM",
+   "priority": "S",
+   "text": "Points SHALL be earnable on net spend excluding tax and excluding already-discounted amounts, configurable per tenant."
+  },
+  {
+   "id": "FR-CRM-017",
+   "module": "CRM",
+   "priority": "S",
+   "text": "Points SHALL be redeemable as a tender type at the POS, converting to a monetary discount at the configured rate."
+  },
+  {
+   "id": "FR-CRM-018",
+   "module": "CRM",
+   "priority": "S",
+   "text": "The System SHALL support tiered loyalty with configurable thresholds, tier benefits, and tier review periods."
+  },
+  {
+   "id": "FR-CRM-019",
+   "module": "CRM",
+   "priority": "S",
+   "text": "The System SHALL support a stamp-card model (“buy 9 coffees, get the 10th free”) as an alternative to points, configurable per item or item group."
+  },
+  {
+   "id": "FR-CRM-020",
+   "module": "CRM",
+   "priority": "M",
+   "text": "Loyalty balances SHALL be maintained as an append-only transaction ledger, not as a mutable balance field. Rationale: A mutable balance combined with offline operation is a duplication vulnerability: a customer redeems the same points at two branches while both are offline. A ledger with server-side reconciliation on sync detects the double-spend, and the tenant’s configured policy determines whet"
+  },
+  {
+   "id": "FR-CRM-021",
+   "module": "CRM",
+   "priority": "M",
+   "text": "Offline loyalty accrual SHALL be permitted. Offline redemption SHALL be permitted up to a configurable per-transaction limit, with the risk of overdraw accepted and reported on sync."
+  },
+  {
+   "id": "FR-CRM-022",
+   "module": "CRM",
+   "priority": "S",
+   "text": "The System SHALL provide the customer a loyalty balance view via a QR code on the receipt leading to a lightweight web page requiring no app installation."
+  },
+  {
+   "id": "FR-CRM-025",
+   "module": "CRM",
+   "priority": "S",
+   "text": "The System SHALL support a promotion engine with conditions and effects. Conditions: date and time range, day of week, branch set, order type, channel, minimum order value, specific items or categories present, minimum quantity, customer tag or tier, first order, Nth order, and coupon code presence. Effects: percentage discount on order, percentage discount on qualifying items, fixed amount off, f"
+  },
+  {
+   "id": "FR-CRM-026",
+   "module": "CRM",
+   "priority": "S",
+   "text": "Promotions SHALL support usage limits: total redemptions, per-customer redemptions, and per-day redemptions."
+  },
+  {
+   "id": "FR-CRM-027",
+   "module": "CRM",
+   "priority": "M",
+   "text": "Promotion evaluation SHALL be deterministic and identical offline and online, and is covered by the shared conformance suite."
+  },
+  {
+   "id": "FR-CRM-028",
+   "module": "CRM",
+   "priority": "S",
+   "text": "The System SHALL support single-use and multi-use coupon codes, with bulk generation and per-code tracking."
+  },
+  {
+   "id": "FR-CRM-029",
+   "module": "CRM",
+   "priority": "S",
+   "text": "The System SHALL report promotion performance: redemptions, incremental revenue, discount cost, margin impact, and redeeming customer profile."
+  },
+  {
+   "id": "FR-CRM-030",
+   "module": "CRM",
+   "priority": "S",
+   "text": "Promotion stacking SHALL be governed by explicit configuration; the default SHALL be non-stackable with best-value selection."
+  },
+  {
+   "id": "FR-CRM-035",
+   "module": "CRM",
+   "priority": "C",
+   "text": "The System SHALL compute RFM segmentation (Recency, Frequency, Monetary) and SHALL classify customers into actionable segments: champions, loyal, at-risk, hibernating, and new."
+  },
+  {
+   "id": "FR-CRM-036",
+   "module": "CRM",
+   "priority": "C",
+   "text": "The System SHALL compute a churn indicator based on a customer’s own historical inter-purchase interval rather than a global threshold."
+  },
+  {
+   "id": "FR-CRM-037",
+   "module": "CRM",
+   "priority": "C",
+   "text": "The System SHALL support exporting a segment for a marketing campaign, subject to consent flags. Chapter 19 — Reporting & Analytics | التقارير والتحليالت"
+  },
+  {
+   "id": "FR-CST-001",
+   "module": "CST",
+   "priority": "M",
+   "text": "On order completion, the System SHALL compute COGS by expanding each order line’s recipe to base ingredients, applying modifier recipe deltas, and valuing consumption at the item’s current cost per the configured costing method."
+  },
+  {
+   "id": "FR-CST-002",
+   "module": "CST",
+   "priority": "M",
+   "text": "COGS SHALL be recorded on the order line as unit_cost_snapshot and SHALL NOT be recomputed retroactively when ingredient costs change."
+  },
+  {
+   "id": "FR-CST-003",
+   "module": "CST",
+   "priority": "M",
+   "text": "The System SHALL report food cost percentage as: Food Cost % = COGS ÷ Net Sales × 100 where Net Sales = Gross Sales − Discounts − Refunds − Tax"
+  },
+  {
+   "id": "FR-CST-004",
+   "module": "CST",
+   "priority": "M",
+   "text": "Food cost percentage SHALL be reportable by item, category, branch, brand, day-part, order type, and date range."
+  },
+  {
+   "id": "FR-CST-005",
+   "module": "CST",
+   "priority": "M",
+   "text": "The System SHALL compute contribution margin per item: Contribution Margin = Selling Price (ex-tax) − Direct Cost Contribution Margin % = Contribution Margin ÷ Selling Price (extax) × 100 Total Contribution = Contribution Margin × Units Sold"
+  },
+  {
+   "id": "FR-CST-006",
+   "module": "CST",
+   "priority": "S",
+   "text": "The System SHALL support inclusion of configurable non-recipe direct costs in the margin calculation: packaging (per order type), delivery commission (per channel), and disposables. Rationale: A burger with a 68% margin dine-in may have a 31% margin on a delivery aggregator once a 25% commission and packaging cost are applied. Restaurants routinely discover, too late, that their delivery channel i"
+  },
+  {
+   "id": "FR-CST-007",
+   "module": "CST",
+   "priority": "S",
+   "text": "The System SHALL compute channel profitability, showing revenue, COGS, commission, packaging, and net contribution per sales channel."
+  },
+  {
+   "id": "FR-CST-010",
+   "module": "CST",
+   "priority": "M",
+   "text": "For a defined period and location, the System SHALL compute theoretical usage per stock item as the sum, across all sold items, of recipe-expanded ingredient quantities."
+  },
+  {
+   "id": "FR-CST-011",
+   "module": "CST",
+   "priority": "M",
+   "text": "For the same period and location, the System SHALL compute actual usage as: Actual Usage = Opening Count + Purchases Received + Transfers In + Production Output − Transfers Out − Production Input − Closing Count"
+  },
+  {
+   "id": "FR-CST-012",
+   "module": "CST",
+   "priority": "M",
+   "text": "The System SHALL compute variance: Variance Quantity = Actual Usage − Theoretical Usage Variance Value = Variance Quantity × Current Unit Cost Variance Percentage = Variance Quantity ÷ Theoretical Usage × 100"
+  },
+  {
+   "id": "FR-CST-013",
+   "module": "CST",
+   "priority": "M",
+   "text": "Recorded waste SHALL be presented as a separate column so that the report distinguishes explained from unexplained variance: Unexplained Variance = Variance Quantity − Recorded Waste Quantity"
+  },
+  {
+   "id": "FR-CST-014",
+   "module": "CST",
+   "priority": "M",
+   "text": "The variance report SHALL be sortable by variance value descending, so that the largest financial losses appear first regardless of quantity. Rationale: Sorting by quantity variance surfaces flour and salt. Sorting by value surfaces the beef, the salmon, and the imported cheese. Only one of those orderings is useful. This sounds like a trivial UI decision; it determines whether the report changes "
+  },
+  {
+   "id": "FR-CST-015",
+   "module": "CST",
+   "priority": "S",
+   "text": "The System SHALL classify variance by likely cause using the following heuristics, presented as hypotheses rather than conclusions: Signature Likely Cause Consistent positive variance on one item across all shifts Recipe understates actual portion Variance concentrated in one shift pattern Portion control or theft in that shift High variance on high-value items only Theft Variance correlating with"
+  },
+  {
+   "id": "FR-CST-016",
+   "module": "CST",
+   "priority": "S",
+   "text": "The System SHALL compute variance at a per-shift granularity where opening and closing counts are available at that granularity, and SHALL fall back to the count period otherwise."
+  },
+  {
+   "id": "FR-CST-017",
+   "module": "CST",
+   "priority": "S",
+   "text": "The System SHALL provide a variance trend view showing an item’s variance percentage over successive count periods."
+  },
+  {
+   "id": "FR-CST-020",
+   "module": "CST",
+   "priority": "M",
+   "text": "The System SHALL report waste by value and quantity, grouped by item, reason, category, employee, station, day-part, shift, and branch."
+  },
+  {
+   "id": "FR-CST-021",
+   "module": "CST",
+   "priority": "M",
+   "text": "The System SHALL compute waste as a percentage of both COGS and net sales."
+  },
+  {
+   "id": "FR-CST-022",
+   "module": "CST",
+   "priority": "S",
+   "text": "The System SHALL compute a rolling baseline of expected waste per item and location, and SHALL flag deviations beyond a configurable number of standard deviations."
+  },
+  {
+   "id": "FR-CST-023",
+   "module": "CST",
+   "priority": "S",
+   "text": "The System SHALL produce a “cost of waste” summary translating waste into the revenue required to offset it: Revenue Required to Offset = Waste Value ÷ (Average Contribution Margin %) Rationale: “You wasted 4,200 EGP this month” is abstract. “You wasted 4,200 EGP, which requires 6,800 EGP of extra sales to recover” is a sentence that changes behaviour. Framing matters, and the framing that works i"
+  },
+  {
+   "id": "FR-CST-024",
+   "module": "CST",
+   "priority": "C",
+   "text": "The System SHALL correlate waste by reason with operational factors (staffing level, order volume, new employee presence, equipment fault reports) to support rootcause analysis."
+  },
+  {
+   "id": "FR-CST-030",
+   "module": "CST",
+   "priority": "S",
+   "text": "The System SHALL compute labour cost per shift from attendance records and configured hourly rates."
+  },
+  {
+   "id": "FR-CST-031",
+   "module": "CST",
+   "priority": "S",
+   "text": "The System SHALL compute: Metric Formula Labour Cost % Labour Cost ÷ Net Sales × 100 Sales per Labour Hour Net Sales ÷ Hours Worked Covers per Labour Hour Orders (or Guests) ÷ Hours Worked Prime Cost COGS + Labour Cost Prime Cost % Prime Cost ÷ Net Sales × 100"
+  },
+  {
+   "id": "FR-CST-032",
+   "module": "CST",
+   "priority": "S",
+   "text": "The System SHALL display sales and labour on a common hourly axis so overand under-staffing by hour is visible. Rationale: Prime cost is the number experienced operators watch, because it captures the two variable costs that management actually controls. A prime cost above roughly 65% of net sales is a warning; above 70% the business generally cannot cover rent and overheads. Presenting it promine"
+  },
+  {
+   "id": "FR-CST-035",
+   "module": "CST",
+   "priority": "S",
+   "text": "The System SHALL produce a branch profitability summary: Gross Sales − Discounts − Refunds = Net Sales (excl. tax) − COGS = Gross Profit − Labour Cost = Contribution After Labour − Recorded Operating Expenses = Branch Operating Profit"
+  },
+  {
+   "id": "FR-CST-036",
+   "module": "CST",
+   "priority": "S",
+   "text": "The System SHALL support recording branch operating expenses (rent, utilities, maintenance) with category, recurrence, and allocation."
+  },
+  {
+   "id": "FR-CST-037",
+   "module": "CST",
+   "priority": "S",
+   "text": "The System SHALL support branch ranking by any metric, with configurable normalisation (absolute, per seat, per square metre, per labour hour) so that branches of different sizes are comparable."
+  },
+  {
+   "id": "FR-CST-038",
+   "module": "CST",
+   "priority": "C",
+   "text": "The System SHALL compute a break-even sales level per branch from fixed costs and average contribution margin, and SHALL show progress against it during the month."
+  },
+  {
+   "id": "FR-CST-040",
+   "module": "CST",
+   "priority": "S",
+   "text": "The System SHALL monitor and flag the following patterns for review. Every flag is a prompt for human investigation, never an accusation. Pattern Signal Excessive voids Void count or value per employee exceeding peer baseline by >2σ Post-payment voids Any void occurring after payment initiation Refund concentration Refunds by one employee exceeding baseline Refunds to different tender Cash refund "
+  },
+  {
+   "id": "FR-CST-041",
+   "module": "CST",
+   "priority": "M",
+   "text": "Anomaly flags SHALL be visible only to users holding an explicit governance.view_anomalies permission."
+  },
+  {
+   "id": "FR-CST-042",
+   "module": "CST",
+   "priority": "M",
+   "text": "The System SHALL present anomaly flags with the underlying evidence — the specific transactions, timestamps, and comparison baseline — so that a manager can evaluate them rather than accept them. Rationale: An unexplained accusation against an employee is worse than no detection at all. It produces false accusations, damages trust, and generates legal exposure. The System’s role is to direct atten"
+  },
+  {
+   "id": "FR-CST-043",
+   "module": "CST",
+   "priority": "S",
+   "text": "Baselines SHALL be computed per branch and per role, not globally, because normal void rates differ enormously between a fast-food counter and a fine-dining room."
+  },
+  {
+   "id": "FR-DR-001",
+   "module": "DR",
+   "priority": "M",
+   "text": "High-volume, time-ordered tables SHALL be range-partitioned by time: Table Partition Key Interval Retention Online sales.orders business_day Monthly 24 months, then archived sales.order_line s business_day Monthly 24 months inventory.stock_ movements occurred_at Monthly 24 months governance.audit _entries occurred_at Monthly 12 months, then cold storage analytics.fact_s ales_line date_key Monthly "
+  },
+  {
+   "id": "FR-DR-002",
+   "module": "DR",
+   "priority": "M",
+   "text": "Partitions SHALL be created automatically at least 3 months in advance by a scheduled job, with alerting if creation fails."
+  },
+  {
+   "id": "FR-DR-003",
+   "module": "DR",
+   "priority": "M",
+   "text": "Archived partitions SHALL be exported to object storage in a queryable columnar format and SHALL remain retrievable within the statutory retention window."
+  },
+  {
+   "id": "FR-DR-010",
+   "module": "DR",
+   "priority": "M",
+   "text": "All schema changes SHALL be expressed as versioned, forward-only migrations checked into source control."
+  },
+  {
+   "id": "FR-DR-011",
+   "module": "DR",
+   "priority": "M",
+   "text": "Migrations SHALL be backward compatible with the previously deployed application version, enabling zero-downtime deployment and rollback."
+  },
+  {
+   "id": "FR-DR-012",
+   "module": "DR",
+   "priority": "M",
+   "text": "Breaking schema changes SHALL follow the expand–migrate–contract sequence: 1. Expand : add the new column/table, nullable, with no constraint. Deploy. 2. Backfill : populate in batches with throttling to avoid lock escalation and replication lag. 3. Dual write: application writes both old and new. Deploy. 4. Migrate : switch reads to the new. Deploy. Observe. 5. Contract : stop writing old; drop t"
+  },
+  {
+   "id": "FR-DR-013",
+   "module": "DR",
+   "priority": "M",
+   "text": "Migrations SHALL be tested against a production-sized dataset in staging with timing measured, and any migration exceeding a 5-second lock SHALL be rejected."
+  },
+  {
+   "id": "FR-DR-014",
+   "module": "DR",
+   "priority": "M",
+   "text": "Adding a NOT NULL column to a large table SHALL use a nullable column plus a backfill plus a validated constraint, never a single blocking statement."
+  },
+  {
+   "id": "FR-DR-020",
+   "module": "DR",
+   "priority": "M",
+   "text": "Backups SHALL be encrypted, and restore procedures SHALL be documented and rehearsed quarterly with recorded results."
+  },
+  {
+   "id": "FR-DR-021",
+   "module": "DR",
+   "priority": "M",
+   "text": "The System SHALL support restoring a single tenant’s data without restoring the entire database, using logical export filtered by tenant_id. Chapter 26 — API Design | تصميم الواجهات البرمجية"
+  },
+  {
+   "id": "FR-FIN-001",
+   "module": "FIN",
+   "priority": "M",
+   "text": "The System SHALL model cash drawers as branch-level entities, with one open cash session per drawer at any time."
+  },
+  {
+   "id": "FR-FIN-002",
+   "module": "FIN",
+   "priority": "M",
+   "text": "A cash session SHALL be bound to exactly one employee. Two employees SHALL NOT share an open session on the same drawer."
+  },
+  {
+   "id": "FR-FIN-003",
+   "module": "FIN",
+   "priority": "S",
+   "text": "The System SHALL support shared-drawer mode where a branch policy permits multiple cashiers on one drawer, in which case accountability attaches to the shift rather than the individual, and this SHALL be visibly indicated as a reduced control environment."
+  },
+  {
+   "id": "FR-FIN-004",
+   "module": "FIN",
+   "priority": "M",
+   "text": "Expected cash SHALL be computed as: Expected Cash = Opening Float + Cash Sales + Cash Tips (if placed in drawer) + Pay-ins − Cash Refunds − Pay-outs − Safe Drops ± Cash Rounding Adjustments"
+  },
+  {
+   "id": "FR-FIN-005",
+   "module": "FIN",
+   "priority": "M",
+   "text": "Cash variance SHALL be computed as Counted Cash − Expected Cash and SHALL be recorded on the session."
+  },
+  {
+   "id": "FR-FIN-006",
+   "module": "FIN",
+   "priority": "M",
+   "text": "Variance beyond a configurable tolerance SHALL require a reason and approval by a user with cash.variance.approve, who SHALL NOT be the session owner."
+  },
+  {
+   "id": "FR-FIN-007",
+   "module": "FIN",
+   "priority": "M",
+   "text": "Cash sessions SHALL be immutable once closed. Corrections SHALL be recorded as adjusting entries referencing the session."
+  },
+  {
+   "id": "FR-FIN-010",
+   "module": "FIN",
+   "priority": "M",
+   "text": "The System SHALL record, per session and per day, totals by tender type: cash, each card scheme, each wallet, gift card, voucher, on-account, and aggregator-settled."
+  },
+  {
+   "id": "FR-FIN-011",
+   "module": "FIN",
+   "priority": "S",
+   "text": "The System SHALL support reconciliation of card totals against the payment terminal’s batch settlement report, flagging differences."
+  },
+  {
+   "id": "FR-FIN-012",
+   "module": "FIN",
+   "priority": "S",
+   "text": "The System SHALL support reconciliation of aggregator-settled orders against aggregator payout statements, computing expected payout net of commission and flagging discrepancies. Rationale: Aggregator payout reconciliation is a real and under-served pain. Aggregators deduct commissions, promotional contributions, cancellation adjustments, and fees in ways that are difficult to verify. Restaurants "
+  },
+  {
+   "id": "FR-FIN-015",
+   "module": "FIN",
+   "priority": "S",
+   "text": "The System SHALL support recording branch operating expenses with category, amount, payment method, supplier, date, attachment, and approval status."
+  },
+  {
+   "id": "FR-FIN-016",
+   "module": "FIN",
+   "priority": "S",
+   "text": "Petty cash paid from the drawer SHALL be recorded as a pay-out linked to the expense record, so that the drawer reconciles."
+  },
+  {
+   "id": "FR-FIN-017",
+   "module": "FIN",
+   "priority": "S",
+   "text": "Expenses above a configurable threshold SHALL require approval before posting."
+  },
+  {
+   "id": "FR-FIN-018",
+   "module": "FIN",
+   "priority": "S",
+   "text": "The System SHALL support recurring expense templates for rent, utilities, and subscriptions."
+  },
+  {
+   "id": "FR-FIN-020",
+   "module": "FIN",
+   "priority": "M",
+   "text": "The System SHALL support a business-day close operation per branch."
+  },
+  {
+   "id": "FR-FIN-021",
+   "module": "FIN",
+   "priority": "M",
+   "text": "Day close SHALL be blocked while any cash session remains open, and SHALL list the blocking sessions."
+  },
+  {
+   "id": "FR-FIN-022",
+   "module": "FIN",
+   "priority": "M",
+   "text": "Day close SHALL produce a Z report containing: gross sales, discounts, refunds, net sales, tax by rate, sales by category, sales by tender, sales by order type, transaction count, average order value, void and comp summary, cash reconciliation, and variance summary."
+  },
+  {
+   "id": "FR-FIN-023",
+   "module": "FIN",
+   "priority": "M",
+   "text": "Z reports SHALL be sequentially numbered per branch, immutable, and retrievable for any historical date."
+  },
+  {
+   "id": "FR-FIN-024",
+   "module": "FIN",
+   "priority": "M",
+   "text": "The System SHALL support a configurable business-day boundary per branch (e.g. 04:00), so that late-night trading is attributed to the correct operating day."
+  },
+  {
+   "id": "FR-FIN-025",
+   "module": "FIN",
+   "priority": "S",
+   "text": "Day close SHALL be performable automatically at the configured boundary where the branch enables it, with any open sessions force-closed and flagged."
+  },
+  {
+   "id": "FR-FIN-026",
+   "module": "FIN",
+   "priority": "M",
+   "text": "Day close SHALL trigger: fiscal document finalisation, inventory day-end snapshot, report pre-aggregation, and accounting export generation where configured."
+  },
+  {
+   "id": "FR-FIN-030",
+   "module": "FIN",
+   "priority": "M",
+   "text": "Tax SHALL be computed by the country pack’s tax engine, never by hardcoded logic."
+  },
+  {
+   "id": "FR-FIN-031",
+   "module": "FIN",
+   "priority": "M",
+   "text": "The System SHALL support tax-inclusive and tax-exclusive pricing, configurable per branch and per price list."
+  },
+  {
+   "id": "FR-FIN-032",
+   "module": "FIN",
+   "priority": "M",
+   "text": "The System SHALL support multiple simultaneous tax components (e.g. VAT plus municipality fee plus service tax), each with its own rate, base, and rounding."
+  },
+  {
+   "id": "FR-FIN-033",
+   "module": "FIN",
+   "priority": "M",
+   "text": "The System SHALL support tax classes per item (standard, reduced, zerorated, exempt) and SHALL support order-type-dependent rates where the jurisdiction differentiates dine-in from takeaway."
+  },
+  {
+   "id": "FR-FIN-034",
+   "module": "FIN",
+   "priority": "M",
+   "text": "Tax SHALL be computed at line level and summed, not computed on the order total. Rationale: Computing tax on the order total rather than per line produces amounts that differ by one or two minor units from line-level computation, and tax authorities that validate submitted invoices will reject the discrepancy. Per-line computation with explicit summation is the only approach that reconciles with f"
+  },
+  {
+   "id": "FR-FIN-035",
+   "module": "FIN",
+   "priority": "M",
+   "text": "The rounding mode and rounding point SHALL be specified by the country pack and SHALL be applied consistently across POS, server, receipt, and fiscal submission."
+  },
+  {
+   "id": "FR-HRM-001",
+   "module": "HRM",
+   "priority": "M",
+   "text": "The System SHALL maintain employee records containing: employee code, names (localised), national/residency identifier, contact details, emergency contact, date of birth, hire date, termination date, position, department, home branch, permitted branches, employment type, and status."
+  },
+  {
+   "id": "FR-HRM-002",
+   "module": "HRM",
+   "priority": "M",
+   "text": "The System SHALL support employment types: full-time, part-time, casual, contractor, and trainee, with different rules for scheduling and overtime."
+  },
+  {
+   "id": "FR-HRM-003",
+   "module": "HRM",
+   "priority": "M",
+   "text": "The System SHALL store compensation basis (hourly rate, monthly salary, or per-shift rate) with effective dating, and SHALL restrict visibility of compensation to holders of an explicit permission."
+  },
+  {
+   "id": "FR-HRM-004",
+   "module": "HRM",
+   "priority": "S",
+   "text": "The System SHALL store document references with expiry dates (residency permit, work permit, health certificate, food-handling licence) and SHALL alert before expiry. Rationale: In GCC markets, expired residency or health certificates create immediate regulatory exposure for the employer. A restaurant inspected with a lapsed foodhandling certificate faces closure. Expiry alerting is a compliance f"
+  },
+  {
+   "id": "FR-HRM-005",
+   "module": "HRM",
+   "priority": "M",
+   "text": "Employees SHALL be assignable to multiple branches with a designated home branch, supporting the common practice of staff covering shifts across a group."
+  },
+  {
+   "id": "FR-HRM-006",
+   "module": "HRM",
+   "priority": "M",
+   "text": "Employee records SHALL be deactivatable but SHALL NOT be deletable while historical transactions reference them."
+  },
+  {
+   "id": "FR-HRM-010",
+   "module": "HRM",
+   "priority": "S",
+   "text": "The System SHALL support creating shift schedules by branch, week, position, and employee."
+  },
+  {
+   "id": "FR-HRM-011",
+   "module": "HRM",
+   "priority": "S",
+   "text": "The System SHALL support shift templates and week-pattern copying to avoid rebuilding a schedule each week."
+  },
+  {
+   "id": "FR-HRM-012",
+   "module": "HRM",
+   "priority": "S",
+   "text": "The System SHALL validate schedules against configurable rules and warn or block on violation: Rule Default Maximum consecutive working days 6 Minimum rest between shifts 11 hours Maximum shift length 12 hours Maximum weekly hours before overtime 48 Minimum staffing per position per hour Per branch configuration Employee availability and leave Must not conflict Required certification for position "
+  },
+  {
+   "id": "FR-HRM-013",
+   "module": "HRM",
+   "priority": "S",
+   "text": "The System SHALL project scheduled labour cost for the week and compare it against a configurable target percentage of forecast sales."
+  },
+  {
+   "id": "FR-HRM-014",
+   "module": "HRM",
+   "priority": "S",
+   "text": "The System SHALL forecast required staffing per hour from historical sales patterns for the same weekday and season, and SHALL overlay this against the drafted schedule."
+  },
+  {
+   "id": "FR-HRM-015",
+   "module": "HRM",
+   "priority": "S",
+   "text": "The System SHALL publish schedules to employees by mobile notification and SHALL record acknowledgement."
+  },
+  {
+   "id": "FR-HRM-016",
+   "module": "HRM",
+   "priority": "C",
+   "text": "The System SHALL support shift swap requests between employees, subject to rule validation and manager approval."
+  },
+  {
+   "id": "FR-HRM-017",
+   "module": "HRM",
+   "priority": "S",
+   "text": "The System SHALL support leave requests, approval workflow, and a leave balance per configured leave type."
+  },
+  {
+   "id": "FR-HRM-020",
+   "module": "HRM",
+   "priority": "M",
+   "text": "The System SHALL support clock-in and clock-out via: POS terminal with PIN, mobile app with geofence validation, and biometric device integration where available."
+  },
+  {
+   "id": "FR-HRM-021",
+   "module": "HRM",
+   "priority": "M",
+   "text": "The System SHALL record clock events with timestamp, method, terminal or device, and — where mobile — GPS coordinates."
+  },
+  {
+   "id": "FR-HRM-022",
+   "module": "HRM",
+   "priority": "M",
+   "text": "The System SHALL detect and flag: late arrival beyond a grace period, early departure, missing clock-out, clock-in outside the geofence, and clock-in with no scheduled shift."
+  },
+  {
+   "id": "FR-HRM-023",
+   "module": "HRM",
+   "priority": "M",
+   "text": "The System SHALL prevent a clock-in more than a configurable interval before the scheduled shift start, to prevent inflated paid hours."
+  },
+  {
+   "id": "FR-HRM-024",
+   "module": "HRM",
+   "priority": "S",
+   "text": "Missing clock-outs SHALL be auto-closed at a configurable maximum shift length, flagged for manager correction, and SHALL NOT silently accrue hours."
+  },
+  {
+   "id": "FR-HRM-025",
+   "module": "HRM",
+   "priority": "M",
+   "text": "Manual attendance corrections SHALL require a reason, SHALL be permission-gated, and SHALL create an audit entry retaining the original value."
+  },
+  {
+   "id": "FR-HRM-026",
+   "module": "HRM",
+   "priority": "S",
+   "text": "The System SHALL support break tracking, distinguishing paid from unpaid breaks per configuration."
+  },
+  {
+   "id": "FR-HRM-027",
+   "module": "HRM",
+   "priority": "C",
+   "text": "The System SHALL support photo capture at clock-in as a deterrent to buddy-punching, subject to explicit configuration and employee notice. Rationale: Buddy-punching (one employee clocking in for another) is the most common form of labour fraud. Geofencing addresses it for mobile clock-in; photo capture addresses it for terminal clock-in. Both are privacy-sensitive and must be optin per tenant wit"
+  },
+  {
+   "id": "FR-HRM-030",
+   "module": "HRM",
+   "priority": "S",
+   "text": "The System SHALL compute per-employee metrics: total sales, order count, average order value, items per order, upsell attachment rate, average service time, void count and value, discount count and value, and cash variance."
+  },
+  {
+   "id": "FR-HRM-031",
+   "module": "HRM",
+   "priority": "S",
+   "text": "The System SHALL compute kitchen employee metrics from KDS data: items prepared, average preparation time by item, and remake count."
+  },
+  {
+   "id": "FR-HRM-032",
+   "module": "HRM",
+   "priority": "S",
+   "text": "The System SHALL support ranking employees on any metric within a branch, position, and period."
+  },
+  {
+   "id": "FR-HRM-033",
+   "module": "HRM",
+   "priority": "M",
+   "text": "The System SHALL compute worked hours, split into regular and overtime per the branch’s country pack overtime rules."
+  },
+  {
+   "id": "FR-HRM-034",
+   "module": "HRM",
+   "priority": "M",
+   "text": "Overtime beyond a configurable threshold SHALL require pre-approval, and unapproved overtime SHALL be flagged in a separate report rather than silently included."
+  },
+  {
+   "id": "FR-HRM-035",
+   "module": "HRM",
+   "priority": "M",
+   "text": "The System SHALL export payroll data in configurable formats (CSV with mappable columns, plus provider-specific templates) containing employee identifier, period, regular hours, overtime hours, absence, tips allocated, and deductions recorded."
+  },
+  {
+   "id": "FR-HRM-036",
+   "module": "HRM",
+   "priority": "S",
+   "text": "The System SHALL NOT compute net pay, tax withholding, or statutory contributions. It exports inputs to payroll; it is not a payroll engine. Chapter 15 — Roles, Permissions & Access Control | األدوار والصالحيات"
+  },
+  {
+   "id": "FR-INT-001",
+   "module": "INT",
+   "priority": "M",
+   "text": "Every external system SHALL be accessed through an Anti-Corruption Layer that translates between the external model and the ROS domain model. External data structures SHALL NOT propagate into the domain."
+  },
+  {
+   "id": "FR-INT-002",
+   "module": "INT",
+   "priority": "M",
+   "text": "All outbound integration calls SHALL be dispatched through the transactional outbox and SHALL be idempotent."
+  },
+  {
+   "id": "FR-INT-003",
+   "module": "INT",
+   "priority": "M",
+   "text": "All inbound integration calls SHALL be authenticated, rate-limited, validated against a schema, and idempotent by an external reference key."
+  },
+  {
+   "id": "FR-INT-004",
+   "module": "INT",
+   "priority": "M",
+   "text": "Integration failures SHALL be visible in an integration health dashboard showing per-connector status, last success, error rate, and queue depth."
+  },
+  {
+   "id": "FR-INT-005",
+   "module": "INT",
+   "priority": "M",
+   "text": "Integration credentials SHALL be stored encrypted, SHALL be rotatable without downtime, and SHALL never appear in logs or error messages."
+  },
+  {
+   "id": "FR-INT-006",
+   "module": "INT",
+   "priority": "M",
+   "text": "Each connector SHALL implement a circuit breaker: after a configured failure threshold, calls are suspended and queued, with periodic probing for recovery."
+  },
+  {
+   "id": "FR-INT-020",
+   "module": "INT",
+   "priority": null,
+   "text": ") and the immutability constraint CR-04."
+  },
+  {
+   "id": "FR-INV-001",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL maintain a stock item master with the following attributes: Attribute Notes Code / SKU Unique per tenant Names (localised) Category Hierarchical: Food → Protein → Poultry Base unit of measure Immutable after first movement Purchase unit(s) With conversion factor to base unit Recipe unit Usually base unit Costing method FIFO, weighted average, or standard Batch tracked Boolean Expi"
+  },
+  {
+   "id": "FR-INV-002",
+   "module": "INV",
+   "priority": "M",
+   "text": "The base unit of measure SHALL be immutable once any stock movement exists for the item. Rationale: Changing the base unit after movements exist retroactively reinterprets every historical quantity. A change from kilograms to grams would multiply history by 1,000 and produce an inventory value in the millions. This must be structurally impossible, not merely discouraged."
+  },
+  {
+   "id": "FR-INV-003",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL support multiple purchase units per item with independent conversion factors, so an item may be bought in cases of 12 from one supplier and cases of 24 from another."
+  },
+  {
+   "id": "FR-INV-004",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL support mass↔volume conversion for an item where a density factor is configured, and SHALL reject such conversion where it is not."
+  },
+  {
+   "id": "FR-INV-005",
+   "module": "INV",
+   "priority": "S",
+   "text": "The System SHALL support supplier-specific item codes and barcodes, so that a supplier’s invoice or delivery note can be matched automatically."
+  },
+  {
+   "id": "FR-INV-010",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL maintain current stock levels per (item, location) pair as a projection over the stock movement ledger."
+  },
+  {
+   "id": "FR-INV-011",
+   "module": "INV",
+   "priority": "M",
+   "text": "Stock levels SHALL be reconcilable to the movement ledger at any point in time, and a scheduled job SHALL verify the reconciliation daily and alert on divergence."
+  },
+  {
+   "id": "FR-INV-012",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL support three costing methods, configurable per item: Method Computation Best For Weighted Average (existing_value + received_value) / (existing_qty + received_qty) recomputed on each receipt Most food items; simple and stable FIFO Consumption valued at the cost of the oldest remaining batch Items with volatile pricing; more accurate COGS Standard Cost Fixed cost per unit; purchas"
+  },
+  {
+   "id": "FR-INV-013",
+   "module": "INV",
+   "priority": "M",
+   "text": "Where an item is batch-tracked, FIFO valuation SHALL follow batch receipt order, and consumption SHALL record which batch was consumed."
+  },
+  {
+   "id": "FR-INV-014",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL permit negative stock levels, recording them and raising an alert, rather than blocking the transaction that causes them."
+  },
+  {
+   "id": "FR-INV-015",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL report total inventory value per location, per category, and per item, at any historical date, computed from the movement ledger."
+  },
+  {
+   "id": "FR-INV-020",
+   "module": "INV",
+   "priority": "M",
+   "text": "For batch-tracked items, the System SHALL create a batch record on receipt or production, carrying: batch number, production date, expiry date, quantity, unit cost, supplier, and originating document."
+  },
+  {
+   "id": "FR-INV-021",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL default the expiry date from the item’s configured shelf life, allowing override at receipt."
+  },
+  {
+   "id": "FR-INV-022",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL support two consumption strategies, configurable per item: • FIFO — consume the oldest received batch first. • FEFO — consume the batch with the nearest expiry first."
+  },
+  {
+   "id": "FR-INV-023",
+   "module": "INV",
+   "priority": "M",
+   "text": "FEFO SHALL be the default for items with expiry tracking enabled. Rationale: FIFO and FEFO diverge whenever a later delivery has an earlier expiry — which happens constantly in fresh produce and dairy, because suppliers rotate their own stock. Using FIFO on perishables systematically produces expired stock behind fresh stock. FEFO is the correct default for anything that spoils."
+  },
+  {
+   "id": "FR-INV-024",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL generate expiry alerts at configurable horizons per item category (default: 7, 3, and 1 days before expiry)."
+  },
+  {
+   "id": "FR-INV-025",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL provide an expiry action worklist showing items approaching expiry, with quantity, value, and one-tap actions: mark wasted, transfer to another location, or create a markdown promotion."
+  },
+  {
+   "id": "FR-INV-026",
+   "module": "INV",
+   "priority": "S",
+   "text": "The System SHALL support automatic write-off of expired batches at day close, configurable per item category, creating waste records with reason expired."
+  },
+  {
+   "id": "FR-INV-027",
+   "module": "INV",
+   "priority": "S",
+   "text": "The System SHALL support batch traceability reporting: given a batch, list every order that consumed it (forward trace); given an order, list every batch consumed (backward trace). Rationale: This is a food-safety and legal requirement in an incident. If a supplier issues a recall on a specific lot of chicken, the operator must be able to answer, within minutes, which branches received it, how muc"
+  },
+  {
+   "id": "FR-INV-030",
+   "module": "INV",
+   "priority": null,
+   "text": "..048, FR-CST010..022 Eliminate connectivity as a failure mode < 0.1% of business days report a POS outage attributable to connectivity"
+  },
+  {
+   "id": "FR-INV-031",
+   "module": "INV",
+   "priority": "M",
+   "text": "Inter-location transfers SHALL be modelled as a two-step process — dispatch and receipt — creating paired movements, with quantity in transit visible between them."
+  },
+  {
+   "id": "FR-INV-032",
+   "module": "INV",
+   "priority": "M",
+   "text": "The receiving location SHALL be able to record a received quantity differing from the dispatched quantity, creating a transfer discrepancy record requiring investigation and approval."
+  },
+  {
+   "id": "FR-INV-033",
+   "module": "INV",
+   "priority": "S",
+   "text": "Transfers SHALL support a printed or digital transfer note with barcode/QR for scanning at receipt."
+  },
+  {
+   "id": "FR-INV-034",
+   "module": "INV",
+   "priority": "M",
+   "text": "Transfers between locations with different costing bases SHALL transfer at the sending location’s cost, with the difference posted to a transfer variance account where configured."
+  },
+  {
+   "id": "FR-INV-035",
+   "module": "INV",
+   "priority": "M",
+   "text": "Manual stock adjustments SHALL require a reason code, SHALL be permission-gated, and SHALL require approval above a configurable value threshold."
+  },
+  {
+   "id": "FR-INV-040",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL support stock count sessions covering: a full location, a category, a storage area, or an ad-hoc item list."
+  },
+  {
+   "id": "FR-INV-041",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL support two count modes: • Blind count — expected quantity is hidden during counting. • Open count — expected quantity is displayed."
+  },
+  {
+   "id": "FR-INV-042",
+   "module": "INV",
+   "priority": "M",
+   "text": "Blind count SHALL be the default and SHALL be enforceable as mandatory by policy configuration."
+  },
+  {
+   "id": "FR-INV-043",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL support counting on a mobile device with barcode scanning, offline-capable, syncing on completion."
+  },
+  {
+   "id": "FR-INV-044",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL freeze the expected quantity at the moment a count session opens, and SHALL account for movements occurring during the count window so that the variance calculation is not corrupted by concurrent activity. Rationale: A count that takes 90 minutes while the restaurant is trading will show a variance equal to everything sold during the count. The count must be reconciled against a s"
+  },
+  {
+   "id": "FR-INV-045",
+   "module": "INV",
+   "priority": "M",
+   "text": "On posting, the System SHALL compute per-item variance in quantity and value, and SHALL create count_adjustment movements bringing recorded stock to counted stock."
+  },
+  {
+   "id": "FR-INV-046",
+   "module": "INV",
+   "priority": "M",
+   "text": "Variances exceeding a configurable threshold (by percentage or value) SHALL require a recount or a written explanation before posting."
+  },
+  {
+   "id": "FR-INV-047",
+   "module": "INV",
+   "priority": "M",
+   "text": "Count posting SHALL be permission-gated and SHALL be an approvalrequiring action for high-value adjustments."
+  },
+  {
+   "id": "FR-INV-048",
+   "module": "INV",
+   "priority": "S",
+   "text": "The System SHALL support cycle counting: a rolling schedule that counts high-value or high-variance items frequently and low-risk items rarely, so that a full count is never required. Class Criterion Count Frequency A Top 20% by value or high historical variance Weekly B Next 30% Fortnightly C Remaining 50% Monthly"
+  },
+  {
+   "id": "FR-INV-049",
+   "module": "INV",
+   "priority": "S",
+   "text": "The System SHALL provide a count sheet ordered by physical storage location to minimise walking, configurable by the tenant."
+  },
+  {
+   "id": "FR-INV-050",
+   "module": "INV",
+   "priority": "M",
+   "text": "Count sessions SHALL retain full history, including counted values, counter identity, timestamps, recounts, and approvals."
+  },
+  {
+   "id": "FR-INV-051",
+   "module": "INV",
+   "priority": "M",
+   "text": "A scheduled reconciliation job SHALL verify that the sum of movements equals the stock level projection for every (item, location) pair, and SHALL raise a platform alert on any divergence."
+  },
+  {
+   "id": "FR-INV-055",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL support waste recording at any point: from the POS (void disposition), from the kitchen (KDS), from a stock screen, and from a mobile device."
+  },
+  {
+   "id": "FR-INV-056",
+   "module": "INV",
+   "priority": "M",
+   "text": "Every waste record SHALL capture: item, quantity, unit, reason code, location, employee, timestamp, and computed value. Photographs SHALL be optionally attachable."
+  },
+  {
+   "id": "FR-INV-057",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL provide a configurable reason code taxonomy, defaulting to: Reason Category Typical Root Cause Expired Storage Over-ordering, poor rotation Spoiled Storage Temperature failure, poor handling Damaged in delivery Supplier Supplier handling Preparation error Kitchen Training Overproduction Kitchen Forecasting Incorrect portion Kitchen Training, tooling Burnt / overcooked Kitchen Trai"
+  },
+  {
+   "id": "FR-INV-058",
+   "module": "INV",
+   "priority": "M",
+   "text": "Waste above a configurable value threshold SHALL require manager approval before posting."
+  },
+  {
+   "id": "FR-INV-059",
+   "module": "INV",
+   "priority": "S",
+   "text": "The System SHALL distinguish “true waste” from “controlled consumption” (staff meals, tastings, marketing samples), reporting them separately so that the waste percentage is not inflated by legitimate consumption."
+  },
+  {
+   "id": "FR-INV-060",
+   "module": "INV",
+   "priority": "S",
+   "text": "The System SHALL provide waste analysis by item, reason, employee, station, shift, day-part, and branch, with trend comparison."
+  },
+  {
+   "id": "FR-INV-061",
+   "module": "INV",
+   "priority": "C",
+   "text": "The System SHALL detect anomalous waste patterns using statistical baselines — for example, waste of a high-value item consistently recorded by one employee during a single shift pattern — and raise them for review. Rationale: Theft is very often recorded as waste, because waste is the sanctioned way to make inventory disappear. The signature is statistical, not individual: no single waste record "
+  },
+  {
+   "id": "FR-INV-065",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL maintain per-location reorder points and reorder quantities per item."
+  },
+  {
+   "id": "FR-INV-066",
+   "module": "INV",
+   "priority": "M",
+   "text": "The System SHALL generate low-stock alerts when available quantity falls below the reorder point."
+  },
+  {
+   "id": "FR-INV-067",
+   "module": "INV",
+   "priority": "S",
+   "text": "The System SHALL compute a suggested order quantity using: forecast_demand = average_daily_usage(last N days, day-of-week weighted) × (supplier_lead_time_days + review_period_days) safety_stock = z × σ(daily_usage) × √(lead_time) target_level = forecast_demand + safety_stock suggested_order = target_level − (on_hand + on_order − allocated) rounded_order = round_up_to(supplier_pack_size, min_order_"
+  },
+  {
+   "id": "FR-INV-068",
+   "module": "INV",
+   "priority": "S",
+   "text": "The suggestion SHALL be capped by remaining shelf life: the System SHALL NOT suggest ordering more of a perishable item than can be consumed before expiry at forecast usage."
+  },
+  {
+   "id": "FR-INV-069",
+   "module": "INV",
+   "priority": "S",
+   "text": "The System SHALL incorporate known future demand — scheduled events, catering orders, promotions — into the forecast where recorded."
+  },
+  {
+   "id": "FR-INV-070",
+   "module": "INV",
+   "priority": "C",
+   "text": "The System SHALL adjust forecasts for known seasonality, including Ramadan, Eid, and local holidays defined in the country pack. Rationale: In MENA markets, Ramadan alters demand patterns by 200–400% and inverts the day-part distribution entirely. A forecasting model that treats it as an anomaly to be smoothed will under-order catastrophically on the first day and overorder on the last. Ramadan is"
+  },
+  {
+   "id": "FR-KDS-001",
+   "module": "KDS",
+   "priority": "M",
+   "text": "The System SHALL support definition of preparation stations per branch, with configurable name, display colour, and capacity. Standard station types: Grill, Fryer, Cold/Salad, Hot line, Beverage, Barista, Dessert, Bakery, Shawarma/Rotisserie, Packaging, Expediter (Pass)."
+  },
+  {
+   "id": "FR-KDS-010",
+   "module": "KDS",
+   "priority": null,
+   "text": ", records first_fired_at, and publishes order.line.fired. 7. Kitchen prepares and bumps. System receives ticket.bumped, updates line states to ready. 8. Waiter fires subsequent courses. 9. Customer requests bill. Waiter prints the pre-bill (non-fiscal). 10. Waiter or cashier initiates payment. System presents tender selection. 11. Payment is captured. System validates paid_total ≥ grand_total. 12."
+  },
+  {
+   "id": "FR-KDS-011",
+   "module": "KDS",
+   "priority": "M",
+   "text": "A single order line SHALL be routable to multiple stations when the item requires multi-station preparation (a burger requiring grill and packaging)."
+  },
+  {
+   "id": "FR-KDS-012",
+   "module": "KDS",
+   "priority": "S",
+   "text": "The System SHALL support a Prep-Time-Aware coordination mode in which items on one order are released to their stations at staggered times, calculated backwards from a target completion time, so that all components finish together. target_ready = fire_time + max(prep_time of all lines) release_time(line) = target_ready − prep_time(line) Rationale: Without staggering, the salad is ready in 90 secon"
+  },
+  {
+   "id": "FR-KDS-013",
+   "module": "KDS",
+   "priority": "S",
+   "text": "The System SHALL support an Expediter (Pass) display showing complete orders, with per-station completion state, for final assembly and quality check."
+  },
+  {
+   "id": "FR-KDS-020",
+   "module": "KDS",
+   "priority": "M",
+   "text": "The KDS SHALL display tickets as cards containing: order number, order type, elapsed time, table or customer reference, item lines with quantity and modifiers, and preparation notes."
+  },
+  {
+   "id": "FR-KDS-021",
+   "module": "KDS",
+   "priority": "M",
+   "text": "Modifiers SHALL be visually distinguished from item names, with removals (- no onion) rendered differently from additions (+ extra cheese)."
+  },
+  {
+   "id": "FR-KDS-022",
+   "module": "KDS",
+   "priority": "M",
+   "text": "Tickets SHALL be colour-coded by elapsed time against a configurable target: within target (neutral), approaching (amber), exceeded (red), critically exceeded (red, flashing)."
+  },
+  {
+   "id": "FR-KDS-023",
+   "module": "KDS",
+   "priority": "M",
+   "text": "The System SHALL support the following ticket sort orders, configurable per station: oldest first (FIFO), by target completion time, by order type priority, and by course sequence."
+  },
+  {
+   "id": "FR-KDS-024",
+   "module": "KDS",
+   "priority": "M",
+   "text": "Staff SHALL be able to mark an individual item ready (“bump item”) or an entire ticket ready (“bump all”)."
+  },
+  {
+   "id": "FR-KDS-025",
+   "module": "KDS",
+   "priority": "M",
+   "text": "The System SHALL provide a recall function restoring the most recently bumped tickets, retained for a configurable period (default 30 minutes)."
+  },
+  {
+   "id": "FR-KDS-026",
+   "module": "KDS",
+   "priority": "M",
+   "text": "Bump actions SHALL require a deliberate interaction (long-press, doubletap, or a dedicated confirm zone) to prevent accidental bumping from splashes or brushes against the screen. Rationale: Kitchen screens get touched by accident constantly — an elbow, a sleeve, a splash of water. Single-tap bumping causes tickets to vanish and food not to be made. Every kitchen that has used a single-tap KDS has"
+  },
+  {
+   "id": "FR-KDS-027",
+   "module": "KDS",
+   "priority": "S",
+   "text": "The System SHALL support order priority flags (rush, VIP, remake) with distinct visual treatment."
+  },
+  {
+   "id": "FR-KDS-028",
+   "module": "KDS",
+   "priority": "S",
+   "text": "Amendments to a fired order SHALL appear as a visually distinct update on the existing ticket, with an audible and visual alert, never as a new ticket."
+  },
+  {
+   "id": "FR-KDS-029",
+   "module": "KDS",
+   "priority": "M",
+   "text": "Cancelled lines SHALL be struck through and highlighted on the station display, with an alert, and SHALL remain visible for a configurable period so the cook stops preparing."
+  },
+  {
+   "id": "FR-KDS-030",
+   "module": "KDS",
+   "priority": "S",
+   "text": "The System SHALL support “all-day” counts: an aggregate view showing total outstanding quantity per item across all active tickets at this station."
+  },
+  {
+   "id": "FR-KDS-031",
+   "module": "KDS",
+   "priority": "S",
+   "text": "The KDS SHALL support an icon-and-image mode for kitchens where staff literacy in the configured language cannot be assumed."
+  },
+  {
+   "id": "FR-KDS-040",
+   "module": "KDS",
+   "priority": "M",
+   "text": "The System SHALL record the following timestamps per ticket and per line: created, routed, first viewed, started, ready, bumped, and served."
+  },
+  {
+   "id": "FR-KDS-041",
+   "module": "KDS",
+   "priority": "M",
+   "text": "The System SHALL compute and report: average preparation time by item, by station, by hour, by employee, and by order type."
+  },
+  {
+   "id": "FR-KDS-042",
+   "module": "KDS",
+   "priority": "M",
+   "text": "The System SHALL define and report “ticket time” as bump time minus fire time, and “order time” as last-line-ready minus order-open."
+  },
+  {
+   "id": "FR-KDS-043",
+   "module": "KDS",
+   "priority": "S",
+   "text": "The System SHALL identify the bottleneck station per hour, defined as the station with the highest ratio of queue depth to throughput."
+  },
+  {
+   "id": "FR-KDS-044",
+   "module": "KDS",
+   "priority": "S",
+   "text": "The System SHALL support configurable per-item target preparation times, defaulting to the recipe’s prep_time_seconds."
+  },
+  {
+   "id": "FR-KDS-045",
+   "module": "KDS",
+   "priority": "C",
+   "text": "The System SHALL provide a capacity warning when queued items at a station exceed configured throughput capacity for the next 15 minutes."
+  },
+  {
+   "id": "FR-LOC-001",
+   "module": "LOC",
+   "priority": "M",
+   "text": "The System SHALL support Arabic and English as first-class languages across every surface: POS, KDS, dashboard, mobile, receipts, tickets, reports, exports, emails, and error messages."
+  },
+  {
+   "id": "FR-LOC-002",
+   "module": "LOC",
+   "priority": "M",
+   "text": "The Arabic interface SHALL use clear Modern Standard Arabic, not a regional dialect."
+  },
+  {
+   "id": "FR-LOC-003",
+   "module": "LOC",
+   "priority": "M",
+   "text": "Layout direction SHALL follow the selected language: full RTL mirroring for Arabic, LTR for English, applied to layout, iconography with directional meaning, progress indicators, and navigation."
+  },
+  {
+   "id": "FR-LOC-004",
+   "module": "LOC",
+   "priority": "M",
+   "text": "The System SHALL correctly render bidirectional text: an Arabic dish name containing a Latin brand name, or an English item name containing an Arabic word, SHALL render with correct ordering per the Unicode Bidirectional Algorithm. Rationale: Bidirectional rendering failures are the clearest signal that Arabic was retrofitted. “Coca Cola لتر ٢” rendering as “٢ لتر Coca Cola” in the wrong visual or"
+  },
+  {
+   "id": "FR-LOC-005",
+   "module": "LOC",
+   "priority": "M",
+   "text": "Numeral rendering SHALL be configurable between Western (0123456789) and Arabic-Indic (٩٨٧٦٥٤٣٢١٠), independently for the interface and for printed documents."
+  },
+  {
+   "id": "FR-LOC-006",
+   "module": "LOC",
+   "priority": "M",
+   "text": "All user-authored content — item names, descriptions, categories, modifiers, reason codes, station names, expense categories — SHALL be storable in every enabled language, with a designated fallback."
+  },
+  {
+   "id": "FR-LOC-007",
+   "module": "LOC",
+   "priority": "M",
+   "text": "Where a translation is missing, the System SHALL display the fallback language content rather than an empty string or a key."
+  },
+  {
+   "id": "FR-LOC-008",
+   "module": "LOC",
+   "priority": "M",
+   "text": "Language SHALL be selectable per user, per terminal, and per printed document type independently. A branch may run an English-language dashboard, an Arabic POS, an Urdu kitchen ticket, and a bilingual customer receipt."
+  },
+  {
+   "id": "FR-LOC-009",
+   "module": "LOC",
+   "priority": "S",
+   "text": "The System SHALL support additional languages by translation pack: French, Turkish, Urdu, Bengali, Hindi, Tagalog. Rationale: Kitchen staff in Gulf restaurants frequently read Urdu, Bengali, or Tagalog more fluently than Arabic or English. Kitchen ticket language is a genuine operational requirement, not a nicety — a cook who cannot read the ticket produces the wrong dish."
+  },
+  {
+   "id": "FR-LOC-010",
+   "module": "LOC",
+   "priority": "M",
+   "text": "Dates, times, numbers, and currency SHALL be formatted per locale, and the System SHALL support both Gregorian and Hijri calendar display where the country pack enables it."
+  },
+  {
+   "id": "FR-LOC-011",
+   "module": "LOC",
+   "priority": "M",
+   "text": "Arabic typography SHALL use fonts selected and tested for legibility at small sizes on thermal printers and at 2-metre viewing distance on kitchen displays."
+  },
+  {
+   "id": "FR-LOC-012",
+   "module": "LOC",
+   "priority": "M",
+   "text": "Thermal printing of Arabic SHALL be tested across the supported printer matrix, with the System supporting both native Arabic font rendering and image-based rendering as a fallback for printers with poor Arabic support. Rationale: Many thermal printers in the market have incomplete or broken Arabic support, particularly for letter joining and diacritics. Rendering the receipt as a bitmap is slower"
+  },
+  {
+   "id": "FR-LOC-020",
+   "module": "LOC",
+   "priority": "M",
+   "text": "All jurisdiction-specific behaviour SHALL be driven by the country pack. No country-specific logic SHALL be compiled into core application code."
+  },
+  {
+   "id": "FR-LOC-021",
+   "module": "LOC",
+   "priority": "M",
+   "text": "Country packs SHALL be versioned with effective dates, and historical transactions SHALL be interpreted under the pack version in force at their transaction time."
+  },
+  {
+   "id": "FR-LOC-022",
+   "module": "LOC",
+   "priority": "M",
+   "text": "Country packs SHALL be cryptographically signed, and the System SHALL reject an unsigned or invalidly-signed pack."
+  },
+  {
+   "id": "FR-LOC-023",
+   "module": "LOC",
+   "priority": "M",
+   "text": "Country packs SHALL be validated against a conformance test suite before activation, covering tax computation, rounding, invoice field completeness, and QR generation."
+  },
+  {
+   "id": "FR-LOC-024",
+   "module": "LOC",
+   "priority": "M",
+   "text": "Country packs SHALL be distributed to offline terminals in advance of their effective date and SHALL activate locally by date."
+  },
+  {
+   "id": "FR-LOC-025",
+   "module": "LOC",
+   "priority": "M",
+   "text": "The tax engine referenced by a pack SHALL be one of a registered set of strategy implementations. Adding a genuinely novel tax model requires a new strategy implementation; changing rates, classes, or rounding does not."
+  },
+  {
+   "id": "FR-LOC-030",
+   "module": "LOC",
+   "priority": "S",
+   "text": "The System SHALL provide a country pack authoring and validation tool so that a new pack can be produced, tested against the conformance suite, and certified without core code changes."
+  },
+  {
+   "id": "FR-LOC-031",
+   "module": "LOC",
+   "priority": null,
+   "text": "). ADR-006 — Event-Driven Internal Integration with Transactional Outbox Status: Accepted · Date: 2026-07-02 Decision: In-process domain events inside the transaction boundary; transactional outbox for all external effects. Consequences: All external effects are at-least-once, so all external integrations must be idempotent. Consumers must be written accordingly; this is a standing engineering rul"
+  },
+  {
+   "id": "FR-MNU-001",
+   "module": "MNU",
+   "priority": "M",
+   "text": "The System SHALL support a menu hierarchy of: Menu → Category → Sub-category (optional) → Item → Variant."
+  },
+  {
+   "id": "FR-MNU-002",
+   "module": "MNU",
+   "priority": "M",
+   "text": "A tenant SHALL be able to define multiple menus (e.g. Breakfast, Main, Late Night, Ramadan, Delivery) and assign each to branches, order types, and time windows."
+  },
+  {
+   "id": "FR-MNU-003",
+   "module": "MNU",
+   "priority": "M",
+   "text": "Where multiple menus are active simultaneously for a context, resolution SHALL follow explicit priority ordering, and the System SHALL warn on configuration that produces ambiguity."
+  },
+  {
+   "id": "FR-MNU-004",
+   "module": "MNU",
+   "priority": "M",
+   "text": "Menu items SHALL support the following attributes: Attribute Purpose Names (localised, per language) Display on POS, KDS, receipt, aggregator — each independently overridable Description (localised) Customer-facing menu, QR menu Kitchen name (localised) Short name for KDS/ticket, may differ from customer name Images POS grid, QR menu, aggregator Category assignment Navigation and reporting Tax cla"
+  },
+  {
+   "id": "FR-MNU-005",
+   "module": "MNU",
+   "priority": "M",
+   "text": "Item names SHALL be independently configurable for each surface (POS, KDS, customer receipt, aggregator listing), because the appropriate name differs by context. Rationale: A customer receipt should read “Grilled Chicken Sandwich with Garlic Sauce.” The KDS should read “GRL CHKN SW”. The POS button should read “Chkn Sw”. The aggregator listing should read whatever converts best. Forcing one name "
+  },
+  {
+   "id": "FR-MNU-006",
+   "module": "MNU",
+   "priority": "M",
+   "text": "Variants SHALL support independent pricing, independent recipes, independent barcodes, and independent availability."
+  },
+  {
+   "id": "FR-MNU-007",
+   "module": "MNU",
+   "priority": "S",
+   "text": "The System SHALL support item-level and category-level sort order, with drag-and-drop configuration and a live POS preview."
+  },
+  {
+   "id": "FR-MNU-010",
+   "module": "MNU",
+   "priority": "M",
+   "text": "Modifier groups SHALL be defined once and attached to multiple items, with per-item overrides for price and default selection."
+  },
+  {
+   "id": "FR-MNU-011",
+   "module": "MNU",
+   "priority": "M",
+   "text": "Modifier groups SHALL support: minimum selections, maximum selections, required flag, allow-repeat flag, default selection, and free-quantity threshold (first two free, third charged)."
+  },
+  {
+   "id": "FR-MNU-012",
+   "module": "MNU",
+   "priority": "M",
+   "text": "Individual modifiers SHALL support linkage to a stock item and a consumption quantity, so their inventory impact is computed."
+  },
+  {
+   "id": "FR-MNU-013",
+   "module": "MNU",
+   "priority": "S",
+   "text": "Modifiers SHALL support a “recipe delta” specification, expressing changes to the parent recipe rather than an independent consumption: modifier: \"Extra Cheese\" price_delta: 500 # 5.00 recipe_delta: - component: cheddar_slice operation: add quantity: 20 unit: gram modifier: \"No Onion\" price_delta: 0 recipe_delta: - component: onion_diced operation: remove_all modifier: \"Chicken instead of Beef\" pr"
+  },
+  {
+   "id": "FR-MNU-020",
+   "module": "MNU",
+   "priority": "M",
+   "text": "The System SHALL support named price lists, each with a scope (tenant, brand, branch, or branch group), a validity window, an optional recurrence schedule, and a priority."
+  },
+  {
+   "id": "FR-MNU-021",
+   "module": "MNU",
+   "priority": "M",
+   "text": "The System SHALL support order-type-specific pricing, so delivery prices may differ from dine-in prices for the same item."
+  },
+  {
+   "id": "FR-MNU-022",
+   "module": "MNU",
+   "priority": "M",
+   "text": "The System SHALL support time-based pricing with recurring schedules (e.g. weekdays 15:00–18:00), evaluated in the branch’s timezone."
+  },
+  {
+   "id": "FR-MNU-023",
+   "module": "MNU",
+   "priority": "M",
+   "text": "Price changes SHALL be schedulable with a future effective date and SHALL propagate to offline terminals in advance of that date, activating locally at the correct local time. Rationale: A price change that requires connectivity at the moment it takes effect will not take effect on a branch that is offline. Prices must be shipped ahead and activated by the device clock, or a Ramadan promotion will"
+  },
+  {
+   "id": "FR-MNU-024",
+   "module": "MNU",
+   "priority": "M",
+   "text": "The System SHALL maintain full price change history: who changed what, from what to what, when, and effective when."
+  },
+  {
+   "id": "FR-MNU-025",
+   "module": "MNU",
+   "priority": "S",
+   "text": "The System SHALL support bulk price operations: percentage increase across a category, rounding to a configured price point (e.g. always end in .95), and CSV import with a preview-and-confirm step."
+  },
+  {
+   "id": "FR-MNU-026",
+   "module": "MNU",
+   "priority": "S",
+   "text": "The System SHALL warn when a price change would move an item’s contribution margin below a configurable threshold, or below its cost."
+  },
+  {
+   "id": "FR-MNU-030",
+   "module": "MNU",
+   "priority": "M",
+   "text": "The System SHALL support manual availability toggling (“86-ing”) per item, per branch, with an optional automatic re-enable time."
+  },
+  {
+   "id": "FR-MNU-031",
+   "module": "MNU",
+   "priority": "M",
+   "text": "The System SHALL automatically mark an item unavailable when any non-optional ingredient’s stock reaches zero, if automatic availability is enabled for that branch."
+  },
+  {
+   "id": "FR-MNU-032",
+   "module": "MNU",
+   "priority": "M",
+   "text": "Automatic unavailability SHALL be overridable by an authorised user, with the override recorded."
+  },
+  {
+   "id": "FR-MNU-033",
+   "module": "MNU",
+   "priority": "S",
+   "text": "The System SHALL compute and display “remaining sellable quantity” per item, being the minimum across ingredients of (available stock ÷ required quantity per portion). Rationale: “We can sell 14 more of these” is far more actionable to a manager than “cheese is at 280 g”. It is also the number that tells the kitchen when to start the next batch of prep."
+  },
+  {
+   "id": "FR-MNU-034",
+   "module": "MNU",
+   "priority": "S",
+   "text": "Availability state SHALL propagate to connected aggregator platforms within 60 seconds where the aggregator API supports it."
+  },
+  {
+   "id": "FR-MNU-035",
+   "module": "MNU",
+   "priority": "C",
+   "text": "The System SHALL support daily quantity limits per item (“only 20 specials today”), decrementing on sale and auto-disabling at zero."
+  },
+  {
+   "id": "FR-MNU-040",
+   "module": "MNU",
+   "priority": "M",
+   "text": "The System SHALL support recipes for menu item variants, for subrecipes (prep items), and for central-kitchen production items."
+  },
+  {
+   "id": "FR-MNU-041",
+   "module": "MNU",
+   "priority": "M",
+   "text": "Recipes SHALL specify components as either stock items or other recipes (sub-recipes), with quantity and unit."
+  },
+  {
+   "id": "FR-MNU-042",
+   "module": "MNU",
+   "priority": "M",
+   "text": "The System SHALL detect and reject circular sub-recipe references, displaying the full cycle path."
+  },
+  {
+   "id": "FR-MNU-043",
+   "module": "MNU",
+   "priority": "M",
+   "text": "Recipes SHALL support a yield specification: the quantity produced, and a yield percentage representing preparation loss."
+  },
+  {
+   "id": "FR-MNU-044",
+   "module": "MNU",
+   "priority": "M",
+   "text": "Recipe lines SHALL support a per-component wastage percentage representing trim loss (e.g. peeling potatoes loses 18%). Rationale: Yield and trim loss are where naive costing systems become useless. A kilogram of purchased potatoes does not produce a kilogram of chips. If the system costs by purchase weight, food cost is understated by 15–25% on every fresh-produce item, and the resulting “excelle"
+  },
+  {
+   "id": "FR-MNU-045",
+   "module": "MNU",
+   "priority": "M",
+   "text": "Recipes SHALL be versioned. Publishing a new version SHALL supersede but not delete the prior version, and completed orders SHALL retain their reference to the version in force at sale time."
+  },
+  {
+   "id": "FR-MNU-046",
+   "module": "MNU",
+   "priority": "M",
+   "text": "Recipe cost SHALL be automatically recomputed when any component’s valuation changes, and the recomputation SHALL cascade through dependent sub-recipes and parent recipes."
+  },
+  {
+   "id": "FR-MNU-047",
+   "module": "MNU",
+   "priority": "S",
+   "text": "The System SHALL support recipe scoping, allowing a branch to hold a variant recipe differing from the brand standard, with the deviation visible in a compliance report."
+  },
+  {
+   "id": "FR-MNU-048",
+   "module": "MNU",
+   "priority": "S",
+   "text": "The System SHALL support recipe scaling: displaying a recipe scaled to an arbitrary output quantity for batch production."
+  },
+  {
+   "id": "FR-MNU-049",
+   "module": "MNU",
+   "priority": "S",
+   "text": "The System SHALL store localised preparation instructions and reference images per recipe, viewable from the KDS."
+  },
+  {
+   "id": "FR-MNU-050",
+   "module": "MNU",
+   "priority": "C",
+   "text": "The System SHALL compute nutritional information per portion by aggregating component nutritional data where supplied. This is informational only and is explicitly not certified. BR-MNU-012 — An item MAY be sold with an incomplete or absent recipe. The System SHALL permit the sale, SHALL record zero or partial cost, and SHALL list the item in a “recipes requiring completion” report. Rationale: Req"
+  },
+  {
+   "id": "FR-MNU-055",
+   "module": "MNU",
+   "priority": "S",
+   "text": "The System SHALL classify menu items on the Boston-matrix menu engineering model using popularity (units sold relative to menu average) and profitability (contribution margin relative to menu average): Classification Popularity Margin Recommended Action Star High High Protect: maintain quality, feature prominently Plough-horse High Low Re-engineer: reduce cost or raise price carefully Puzzle Low H"
+  },
+  {
+   "id": "FR-MNU-056",
+   "module": "MNU",
+   "priority": "S",
+   "text": "The classification SHALL be computable per branch, per day-part, and per date range."
+  },
+  {
+   "id": "FR-MNU-057",
+   "module": "MNU",
+   "priority": "C",
+   "text": "The System SHALL analyse modifier attachment rates and suggest price adjustments for modifiers whose attachment rate exceeds a threshold (indicating underpricing) or falls below one (indicating over-pricing). Chapter 11 — Inventory Management | إدارة المخزون"
+  },
+  {
+   "id": "FR-OFF-001",
+   "module": "OFF",
+   "priority": "M",
+   "text": "The POS SHALL detect its operating mode continuously and SHALL indicate it unobtrusively but unambiguously in the interface."
+  },
+  {
+   "id": "FR-OFF-002",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Mode transitions SHALL NOT interrupt an in-progress order."
+  },
+  {
+   "id": "FR-OFF-003",
+   "module": "OFF",
+   "priority": "M",
+   "text": "The POS SHALL operate in Isolated mode for a minimum of 72 hours without functional degradation of sales capture."
+  },
+  {
+   "id": "FR-OFF-010",
+   "module": "OFF",
+   "priority": "M",
+   "text": "The local database SHALL be encrypted at rest with a key derived from device credentials and a server-issued key, unusable if the device registration is revoked."
+  },
+  {
+   "id": "FR-OFF-011",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Downward reference data SHALL be versioned, and the client SHALL request only deltas since its last known version."
+  },
+  {
+   "id": "FR-OFF-012",
+   "module": "OFF",
+   "priority": "M",
+   "text": "The client SHALL periodically perform a full reference-data reconciliation (checksum comparison per entity type) to detect and repair silent drift."
+  },
+  {
+   "id": "FR-OFF-013",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Local storage SHALL be bounded: completed and fully-synced orders older than a configurable period (default 30 days) SHALL be pruned locally while remaining available from the server when online."
+  },
+  {
+   "id": "FR-OFF-015",
+   "module": "OFF",
+   "priority": "M",
+   "text": "All entities created on a device SHALL receive a client-generated ULID as their permanent primary key. The server SHALL NOT reassign identifiers."
+  },
+  {
+   "id": "FR-OFF-016",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Human-readable order numbers SHALL be allocated from server-issued blocks per terminal per business day, as specified in"
+  },
+  {
+   "id": "FR-OFF-017",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Where a jurisdiction requires a strictly gapless fiscal document sequence, the country pack SHALL specify the sequence strategy: Strategy Mechanism Used Where Server-assigned on sync Local document held as provisional; fiscal number assigned at sync Jurisdictions permitting delayed issuance Pre-allocated block Server issues a signed block of fiscal numbers to the terminal in advance Jurisdictions "
+  },
+  {
+   "id": "FR-OFF-018",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Unused numbers in an expired pre-allocated block SHALL be reported as void to the fiscal authority where required, and SHALL never be silently discarded. Rationale: Fiscal sequence gaps are the most common compliance failure in offlinecapable POS systems. A tax authority that sees invoice 1001 followed by 1004 assumes three sales were concealed. The block allocation strategy must include explicit "
+  },
+  {
+   "id": "FR-OFF-020",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Sync SHALL be batched, with batch size bounded by plan limits and by payload size."
+  },
+  {
+   "id": "FR-OFF-021",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Every operation SHALL carry an idempotency key. The server SHALL persist processed keys for at least 30 days and SHALL return the original result for a repeated key rather than reprocessing."
+  },
+  {
+   "id": "FR-OFF-022",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Operations within a batch SHALL be applied in causal order. An operation whose causal parent has not been applied SHALL be deferred, not rejected."
+  },
+  {
+   "id": "FR-OFF-023",
+   "module": "OFF",
+   "priority": "M",
+   "text": "The server SHALL respond per-operation with accepted, duplicate, conflict, or rejected, including a reason for the latter two. A single failing operation SHALL NOT fail the batch."
+  },
+  {
+   "id": "FR-OFF-024",
+   "module": "OFF",
+   "priority": "M",
+   "text": "The client SHALL remove an operation from the outbox only upon receiving a definitive server response for it."
+  },
+  {
+   "id": "FR-OFF-025",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Sync SHALL be resumable: a connection lost mid-batch SHALL resume without duplication, guaranteed by batch and operation idempotency."
+  },
+  {
+   "id": "FR-OFF-026",
+   "module": "OFF",
+   "priority": "M",
+   "text": "The client SHALL apply exponential backoff with jitter on failure, and SHALL prioritise financially significant operations (orders, payments, cash sessions) ahead of others in the queue."
+  },
+  {
+   "id": "FR-OFF-030",
+   "module": "OFF",
+   "priority": "M",
+   "text": "The client SHALL pull reference data changes since its cursor on a configurable interval and immediately on regaining connectivity."
+  },
+  {
+   "id": "FR-OFF-031",
+   "module": "OFF",
+   "priority": "S",
+   "text": "Where a persistent connection is available, the server SHALL push change notifications by WebSocket so that price changes, 86’d items, and permission revocations propagate within seconds."
+  },
+  {
+   "id": "FR-OFF-032",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Permission and terminal revocations SHALL be applied by the client immediately on receipt and SHALL be re-verified on every reconnection."
+  },
+  {
+   "id": "FR-OFF-035",
+   "module": "OFF",
+   "priority": "M",
+   "text": "POS and KDS devices on the same local network SHALL discover each other by mDNS and SHALL exchange order and bump events directly, so that the kitchen functions with no internet connection."
+  },
+  {
+   "id": "FR-OFF-036",
+   "module": "OFF",
+   "priority": "M",
+   "text": "One device per branch SHALL be electable as the LAN coordinator, holding the authoritative branch-local state during an outage. Election SHALL be automatic with deterministic tie-breaking on device identifier."
+  },
+  {
+   "id": "FR-OFF-037",
+   "module": "OFF",
+   "priority": "M",
+   "text": "LAN peer communication SHALL be authenticated using a branch-scoped key distributed during registration, and SHALL be encrypted."
+  },
+  {
+   "id": "FR-OFF-038",
+   "module": "OFF",
+   "priority": "S",
+   "text": "Where the LAN coordinator fails, remaining devices SHALL elect a new coordinator within 30 seconds and SHALL reconcile divergent state on election."
+  },
+  {
+   "id": "FR-OFF-040",
+   "module": "OFF",
+   "priority": "M",
+   "text": "The System SHALL classify every entity type by conflict strategy: Entity Strategy Justification Order (created on one device) No conflict possible Single-writer by construction Order lines on a shared table CRDT: add-wins set with perline last-writer-wins on mutable fields Two waiters may add to one table Payment Server-authoritative, idempotent by key Money must not duplicate Stock level Not sync"
+  },
+  {
+   "id": "FR-OFF-041",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Ordering across devices SHALL use Hybrid Logical Clocks, which preserve causality without depending on synchronised wall clocks. On local event: l' = max(l, physical_time) c' = (l' == l) ? c + 1 : 0 On receiving message with (l_msg, c_msg): l' = max(l, l_msg, physical_time) c' = if l' == l == l_msg then max(c, c_msg) + 1 else if l' == l then c + 1 else if l' == l_msg then c_msg + 1 else 0 Rational"
+  },
+  {
+   "id": "FR-OFF-042",
+   "module": "OFF",
+   "priority": "M",
+   "text": "The System SHALL detect device clock skew exceeding a configurable threshold (default 5 minutes) on every sync, SHALL record it, SHALL alert the branch manager, and SHALL preserve the device’s original timestamp alongside the server-corrected one."
+  },
+  {
+   "id": "FR-OFF-043",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Conflicts that cannot be resolved automatically SHALL be recorded in a conflict register, SHALL raise an alert, and SHALL be presented to a manager for manual resolution with both versions displayed."
+  },
+  {
+   "id": "FR-OFF-044",
+   "module": "OFF",
+   "priority": "M",
+   "text": "All automatic conflict resolutions SHALL be recorded in the audit log with both input states and the applied rule."
+  },
+  {
+   "id": "FR-OFF-045",
+   "module": "OFF",
+   "priority": "M",
+   "text": "On receiving an operation, the server SHALL revalidate all financially significant computations — prices, discounts, taxes, totals, loyalty accrual — rather than trusting client-computed values."
+  },
+  {
+   "id": "FR-OFF-046",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Where server revalidation produces a different result, the server SHALL accept the transaction (the sale physically occurred), record both values, and raise a reconciliation exception for review. Rationale: Rejecting a synced sale because the server disagrees about a price is not an option: the customer already paid and left. The correct behaviour is to accept the record of what happened, flag the"
+  },
+  {
+   "id": "FR-OFF-047",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Systematic revalidation mismatches from one terminal SHALL be treated as a signal of stale reference data or client tampering, and SHALL escalate to a platform alert after a configurable count."
+  },
+  {
+   "id": "FR-OFF-050",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Business logic that must produce identical results on client and server SHALL be specified as a language-neutral test corpus, executed by both the Dart client test suite and the TypeScript server test suite in CI. Scope of the corpus: price resolution, modifier price computation, discount application and distribution, promotion evaluation, tax computation and rounding, service charge, cash roundin"
+  },
+  {
+   "id": "FR-OFF-051",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Any divergence between client and server on the corpus SHALL block release."
+  },
+  {
+   "id": "FR-OFF-052",
+   "module": "OFF",
+   "priority": "M",
+   "text": "Every production discrepancy detected under"
+  },
+  {
+   "id": "FR-OPS-001",
+   "module": "OPS",
+   "priority": "M",
+   "text": "Deployments SHALL be zero-downtime and SHALL be rollback-capable within 5 minutes."
+  },
+  {
+   "id": "FR-OPS-002",
+   "module": "OPS",
+   "priority": "M",
+   "text": "Canary deployments SHALL automatically roll back on error-rate or latency SLO breach without human intervention."
+  },
+  {
+   "id": "FR-OPS-003",
+   "module": "OPS",
+   "priority": "M",
+   "text": "All infrastructure SHALL be defined as code (Terraform), reviewed, and version controlled. Manual production changes are prohibited except under a documented break-glass procedure."
+  },
+  {
+   "id": "FR-OPS-004",
+   "module": "OPS",
+   "priority": "M",
+   "text": "Container images SHALL be signed, scanned, and accompanied by a Software Bill of Materials."
+  },
+  {
+   "id": "FR-OPS-005",
+   "module": "OPS",
+   "priority": "M",
+   "text": "Feature flags SHALL gate risky changes, permitting per-tenant progressive rollout independent of deployment."
+  },
+  {
+   "id": "FR-OPS-010",
+   "module": "OPS",
+   "priority": "M",
+   "text": "POS and KDS client releases SHALL support staged rollout by tenant, branch, and terminal."
+  },
+  {
+   "id": "FR-OPS-011",
+   "module": "OPS",
+   "priority": "M",
+   "text": "The client SHALL be able to operate against the previous API version for at least one release cycle, so that a client update failure never prevents trading."
+  },
+  {
+   "id": "FR-OPS-012",
+   "module": "OPS",
+   "priority": "M",
+   "text": "The System SHALL support forced client updates for security-critical releases, with the update deferrable until after the current shift closes. Rationale: Forcing an update mid-service is the fastest way to have a customer stop trusting the product. Security-critical updates must still be deferrable to a shift boundary, with the deferral bounded."
+  },
+  {
+   "id": "FR-OPS-013",
+   "module": "OPS",
+   "priority": "M",
+   "text": "Release notes SHALL be published per release, in Arabic and English, and SHALL be visible in the product."
+  },
+  {
+   "id": "FR-OPS-020",
+   "module": "OPS",
+   "priority": "M",
+   "text": "The System SHALL maintain an on-call rotation with documented escalation and runbooks for every paging alert."
+  },
+  {
+   "id": "FR-OPS-021",
+   "module": "OPS",
+   "priority": "M",
+   "text": "Incidents SHALL be classified by severity with defined response times: Severity Definition Response Resolution Target SEV-1 Sales blocked for multiple tenants 15 min 4 h SEV-2 Major feature unavailable; workaround exists 1 h 24 h SEV-3 Minor feature degraded 4 h 5 days SEV-4 Cosmetic or low impact Next business day Next release"
+  },
+  {
+   "id": "FR-OPS-022",
+   "module": "OPS",
+   "priority": "M",
+   "text": "Every SEV-1 and SEV-2 SHALL produce a blameless post-incident review within 5 working days, with action items tracked to completion."
+  },
+  {
+   "id": "FR-OPS-023",
+   "module": "OPS",
+   "priority": "M",
+   "text": "A public status page SHALL report current and historical availability."
+  },
+  {
+   "id": "FR-OPS-030",
+   "module": "OPS",
+   "priority": "S",
+   "text": "Infrastructure cost SHALL be attributable per tenant, enabling grossmargin measurement per customer and detection of unprofitable accounts."
+  },
+  {
+   "id": "FR-OPS-031",
+   "module": "OPS",
+   "priority": "S",
+   "text": "The System SHALL alert when a single tenant’s infrastructure consumption exceeds a configured multiple of their subscription revenue."
+  },
+  {
+   "id": "FR-PLT-001",
+   "module": "PLT",
+   "priority": "M",
+   "text": "The System SHALL model tenants, brands, branches, warehouses, and central kitchens as distinct entities with the hierarchy above."
+  },
+  {
+   "id": "FR-PLT-002",
+   "module": "PLT",
+   "priority": "M",
+   "text": "A tenant SHALL be able to own multiple brands, and a brand SHALL be able to own multiple branches."
+  },
+  {
+   "id": "FR-PLT-003",
+   "module": "PLT",
+   "priority": "M",
+   "text": "Every tenant-scoped record SHALL carry an immutable tenant_id. Records SHALL NOT be transferable between tenants."
+  },
+  {
+   "id": "FR-PLT-004",
+   "module": "PLT",
+   "priority": "S",
+   "text": "A branch MAY be reassigned between brands within the same tenant by a Tenant Owner, with a full audit record and an explicit warning regarding menu and pricing implications. BR-PLT-001 — Inventory is held at a location (branch, warehouse, or central kitchen), never at brand or tenant level. Two brands operating from the same physical kitchen must be modelled as two branches sharing a warehouse, no"
+  },
+  {
+   "id": "FR-PLT-010",
+   "module": "PLT",
+   "priority": "M",
+   "text": "The System SHALL enforce tenant data isolation at the database layer using PostgreSQL Row-Level Security, independent of application-layer filtering. Every tenant-scoped table carries: tenant_id UUID NOT NULL REFERENCES tenants(id) and a policy: ALTER TABLE orders ENABLE ROW LEVEL SECURITY; ALTER TABLE orders FORCE ROW LEVEL SECURITY; CREATE POLICY tenant_isolation ON orders USING (tenant_id = cur"
+  },
+  {
+   "id": "FR-PLT-011",
+   "module": "PLT",
+   "priority": "M",
+   "text": "The application database role SHALL NOT have BYPASSRLS. A separate, restricted migration/admin role SHALL be used for schema changes and platform-level operations."
+  },
+  {
+   "id": "FR-PLT-012",
+   "module": "PLT",
+   "priority": "M",
+   "text": "Any request that reaches the data layer without a resolved tenant context SHALL fail closed with an error, never defaulting to an unfiltered query. Risk: The catastrophic failure mode of shared-schema multi-tenancy is cross-tenant data leakage. Every reported incident of this class in the industry traces to the same root cause: application-layer filtering that was omitted on one query path. RLS as"
+  },
+  {
+   "id": "FR-PLT-013",
+   "module": "PLT",
+   "priority": null,
+   "text": ") Generated from schema Every PR E2E Full user journeys Staging Nightly and prerelease Offline Partition simulation, sync, conflict Orchestrated devices Nightly Performance Load and soak against NFR targets Production-like Weekly and prerelease Security SAST, DAST, dependency scan, secret scan CI Every commit / nightly Localisation RTL layout, bidi, truncation, printing Device matrix Pre-release A"
+  },
+  {
+   "id": "FR-PLT-014",
+   "module": "PLT",
+   "priority": "M",
+   "text": "The CI pipeline SHALL fail if any table with a tenant_id column lacks an enabled and forced RLS policy."
+  },
+  {
+   "id": "FR-PLT-015",
+   "module": "PLT",
+   "priority": "M",
+   "text": "The System SHALL apply per-tenant rate limits on API requests, report generation, and export jobs. Resource Starter Professional Enterprise API requests / minute 300 1,200 6,000 Concurrent report generations 1 3 10 Export rows / day 100,000 1,000,000 10,000,000 Sync batch size 500 ops 2,000 ops 5,000 ops Webhook deliveries / hour 0 5,000 50,000"
+  },
+  {
+   "id": "FR-PLT-016",
+   "module": "PLT",
+   "priority": "M",
+   "text": "Long-running analytical queries SHALL execute against a read replica using a separate connection pool, so that a heavy report cannot exhaust the transactional pool."
+  },
+  {
+   "id": "FR-PLT-017",
+   "module": "PLT",
+   "priority": "S",
+   "text": "The System SHALL apply a statement timeout of 5 seconds on the transactional pool and 120 seconds on the analytical pool."
+  },
+  {
+   "id": "FR-PLT-018",
+   "module": "PLT",
+   "priority": "C",
+   "text": "For Enterprise tenants with contractual isolation requirements, the System SHALL support deployment into a dedicated schema or a dedicated database instance, using identical application code and migrations."
+  },
+  {
+   "id": "FR-PLT-020",
+   "module": "PLT",
+   "priority": "M",
+   "text": "Tenant self-service signup SHALL create a working branch with a starter menu template, a default role set, and a first user in a single flow."
+  },
+  {
+   "id": "FR-PLT-021",
+   "module": "PLT",
+   "priority": null,
+   "text": "is a commercial decision expressed as an engineering requirement. Restaurants have seasonal cash-flow problems. A system that destroys a lapsed customer’s data guarantees they never return. A system that preserves it converts a churned customer into a dormant one, and dormant customers reactivate at rates between 8% and 15%."
+  },
+  {
+   "id": "FR-PLT-022",
+   "module": "PLT",
+   "priority": "M",
+   "text": "At any lifecycle state except purged, a tenant SHALL be able to export all of their data in machine-readable format (CSV per entity plus a JSON manifest) within 24 hours of request."
+  },
+  {
+   "id": "FR-PLT-023",
+   "module": "PLT",
+   "priority": "M",
+   "text": "Termination SHALL be a two-step process: an initiation that begins a 30day reversible countdown, and a final confirmation. Data purge SHALL occur no earlier than 30 days after initiation. Rationale: Requirement"
+  },
+  {
+   "id": "FR-PLT-025",
+   "module": "PLT",
+   "priority": "M",
+   "text": "The System SHALL implement a hierarchical settings resolver with the precedence above."
+  },
+  {
+   "id": "FR-PLT-026",
+   "module": "PLT",
+   "priority": "M",
+   "text": "A setting SHALL be markable as locked at any level, preventing override at lower levels. Locked settings SHALL be visibly indicated in the UI at lower levels with the locking level named."
+  },
+  {
+   "id": "FR-PLT-027",
+   "module": "PLT",
+   "priority": "S",
+   "text": "The System SHALL provide a settings inspector showing, for any effective value, which level supplied it and what the value would be at each level. Rationale: The most common support ticket in configurable multi-level systems is “why is this price/tax/permission different at this branch?” A settings inspector converts that ticket from a 30-minute investigation into a 10-second answer, and it is one"
+  },
+  {
+   "id": "FR-PLT-028",
+   "module": "PLT",
+   "priority": "M",
+   "text": "Settings that affect financial computation (tax class, rounding policy, service charge) SHALL be versioned with effective dates, and historical transactions SHALL be interpreted with the setting version in force at their transaction time, never the current version. Chapter 7 — Domain Model | نموذج المجال"
+  },
+  {
+   "id": "FR-PLT-041",
+   "module": "PLT",
+   "priority": null,
+   "text": ")."
+  },
+  {
+   "id": "FR-POS-001",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL allow creation of an order in the following types: dinein, takeaway, delivery, drive-through, pickup, and aggregator-injected."
+  },
+  {
+   "id": "FR-POS-002",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL assign a human-readable order number, unique within a branch within a business day, generated locally without requiring server connectivity. Order number format: <branch_code>-<business_day_seq> where the sequence is drawn from a locally-held block. Each terminal is issued a block of numbers on sync (default 500) and requests a new block when 80% consumed. Offline terminals that e"
+  },
+  {
+   "id": "FR-POS-003",
+   "module": "POS",
+   "priority": "M",
+   "text": "For dine-in orders, the System SHALL require table assignment before firing to the kitchen."
+  },
+  {
+   "id": "FR-POS-004",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL support assigning order lines to seat numbers within a dine-in order, to enable seat-level splitting and service."
+  },
+  {
+   "id": "FR-POS-005",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL allow multiple orders to be open simultaneously on one terminal and SHALL allow switching between them without data loss."
+  },
+  {
+   "id": "FR-POS-006",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL allow an order to be parked (set aside) and resumed by the same or another authorised user on the same or another terminal within the branch."
+  },
+  {
+   "id": "FR-POS-007",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL record opened_by, served_by, and closed_by employee identities on every order."
+  },
+  {
+   "id": "FR-POS-010",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL present the menu as a configurable grid of categories and items, with per-branch layout, colour coding, and item images."
+  },
+  {
+   "id": "FR-POS-011",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL support item lookup by: category navigation, text search (Arabic and English, diacriticand hamza-insensitive), barcode scan, PLU code, and a configurable favourites/quick-keys panel."
+  },
+  {
+   "id": "FR-POS-012",
+   "module": "POS",
+   "priority": "M",
+   "text": "Arabic search SHALL normalise أ إ آ ا to a single form, ة to ه, ى to ي, and SHALL ignore tashkeel, so that a cashier typing “شاورما” finds “ْرَماوَش اِ”. Rationale: Arabic text entry on a POS during a rush is error-prone and orthographic variation is the norm. Naïve string matching means the search box does not work, which means staff stop using it, which means the menu grid must contain every ite"
+  },
+  {
+   "id": "FR-POS-013",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL support items with multiple variants (size, preparation) and SHALL require variant selection before the line is added."
+  },
+  {
+   "id": "FR-POS-014",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL support fractional quantities for items sold by weight, with input from a connected scale where available."
+  },
+  {
+   "id": "FR-POS-015",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL support open-price items where the price is entered at sale time, restricted by permission and bounded by configurable min/max."
+  },
+  {
+   "id": "FR-POS-016",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL support open-description items (“miscellaneous”) mapped to a configured revenue category and tax class."
+  },
+  {
+   "id": "FR-POS-020",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL present modifier groups attached to an item immediately upon selection, in configured order, enforcing minimum and maximum selection counts."
+  },
+  {
+   "id": "FR-POS-021",
+   "module": "POS",
+   "priority": "M",
+   "text": "Modifiers SHALL support three semantic kinds: Kind Effect on Price Effect on Recipe Addition (“extra cheese”) + delta Adds ingredient quantity Removal (“no onion”) 0 or − delta Removes ingredient quantity Substitution (“chicken instead of beef”) ± delta Replaces one component with another"
+  },
+  {
+   "id": "FR-POS-022",
+   "module": "POS",
+   "priority": "M",
+   "text": "Modifier price deltas SHALL be configurable per price list, per branch, and per order type. A modifier may be free for dine-in and charged for delivery."
+  },
+  {
+   "id": "FR-POS-023",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL support nested modifier groups to a depth of 2 (e.g. “Add sauce” → “which sauce” → “how much”)."
+  },
+  {
+   "id": "FR-POS-024",
+   "module": "POS",
+   "priority": "M",
+   "text": "Removal modifiers SHALL reduce ingredient consumption in the inventory depletion calculation. A “no cheese” burger SHALL NOT deplete cheese. Rationale: This is a differentiator that competitors handle poorly. Over a month, an outlet selling 3,000 sandwiches with a 12% “no sauce” rate consumes measurably less sauce than the theoretical usage predicts. If modifiers are not recipe-aware, that gap app"
+  },
+  {
+   "id": "FR-POS-025",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL support free-text kitchen notes per line, with a configurable per-branch option to disable them."
+  },
+  {
+   "id": "FR-POS-026",
+   "module": "POS",
+   "priority": "C",
+   "text": "The System SHALL support a library of predefined note chips (“no ice”, “well done”, “separate packaging”) to reduce free-text usage."
+  },
+  {
+   "id": "FR-POS-030",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL support combo items composed of slots, where each slot offers a choice among configured options, with optional price deltas for premium choices."
+  },
+  {
+   "id": "FR-POS-031",
+   "module": "POS",
+   "priority": "S",
+   "text": "Combo pricing SHALL support fixed price, sum-of-components-minusdiscount, and component-price-override strategies."
+  },
+  {
+   "id": "FR-POS-032",
+   "module": "POS",
+   "priority": "S",
+   "text": "Combo revenue SHALL be allocable to component items for reporting purposes, using a configurable allocation basis (equal, by list price, by cost). Rationale: Without allocation, a combo shows as a single line and the sales report cannot answer “how many burgers did we sell?” because half of them were inside meals. Restaurateurs consider this a defect, correctly."
+  },
+  {
+   "id": "FR-POS-035",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL support firing an order to the kitchen either automatically upon line entry (fast-casual mode) or explicitly by user action (table-service mode), configurable per branch and per order type."
+  },
+  {
+   "id": "FR-POS-036",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL support courses, allowing lines to be grouped and fired independently in sequence."
+  },
+  {
+   "id": "FR-POS-037",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL support a “hold and fire” instruction where a course is sent to the kitchen but marked not to start until released."
+  },
+  {
+   "id": "FR-POS-038",
+   "module": "POS",
+   "priority": "M",
+   "text": "Adding a line to an already-fired order SHALL create an amendment ticket to the kitchen clearly marked as an addition, not a reprint of the whole order. Rationale: Reprinting an entire ticket when one item is added is the single most common cause of duplicate production in kitchens using printer-based systems. The kitchen sees a ticket that looks new and makes everything on it again."
+  },
+  {
+   "id": "FR-POS-040",
+   "module": "POS",
+   "priority": "M",
+   "text": "Price for an item SHALL be resolved by the following precedence, evaluated at order time: 1. Manual price override (permission-gated, audited) 2. Active promotion for the customer and context 3. Time-based price list active at the order timestamp (happy hour) 4. Order-type-specific price list (delivery pricing) 5. Branch price list 6. Brand price list 7. Base price"
+  },
+  {
+   "id": "FR-POS-041",
+   "module": "POS",
+   "priority": "M",
+   "text": "Price resolution SHALL be deterministic and SHALL be identical when computed offline on the device and online on the server. The resolution algorithm is part of the shared conformance test suite (21.9)."
+  },
+  {
+   "id": "FR-POS-042",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL record which price list and which rule produced the price for each line, for audit and reporting."
+  },
+  {
+   "id": "FR-POS-045",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL support discounts at line level and order level, expressed as percentage or fixed amount."
+  },
+  {
+   "id": "FR-POS-046",
+   "module": "POS",
+   "priority": "M",
+   "text": "Every discount SHALL require selection of a reason from a configurable list."
+  },
+  {
+   "id": "FR-POS-047",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL enforce configurable approval thresholds: Threshold Dimension Configuration Maximum percentage without approval Per role, per branch Maximum absolute amount without approval Per role, per branch Maximum discounts per shift per employee Per role Discount permitted after payment started Boolean, per role"
+  },
+  {
+   "id": "FR-POS-048",
+   "module": "POS",
+   "priority": "M",
+   "text": "Approval SHALL be obtainable by manager PIN entry on the terminal, by manager card swipe, or by remote approval request to the manager’s mobile app, without abandoning the order."
+  },
+  {
+   "id": "FR-POS-049",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL record for every discount: amount, percentage, reason, applying employee, approving employee, timestamp, and order context."
+  },
+  {
+   "id": "FR-POS-050",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL support “comp” (complimentary) as distinct from discount: a comped item is given free, the revenue is zero, but the cost is still recognised and inventory is still depleted. Rationale: Conflating comps and discounts destroys the ability to analyse either. A discount is a pricing decision; a comp is a service-recovery cost. They belong in different lines of the P&L and are abused i"
+  },
+  {
+   "id": "FR-POS-051",
+   "module": "POS",
+   "priority": "M",
+   "text": "Discount stacking SHALL be controlled by configuration: promotions may be marked exclusive, and the System SHALL apply the most favourable single discount when exclusivity is set."
+  },
+  {
+   "id": "FR-POS-055",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL support automatic service charge as a percentage, configurable per branch, per order type, and conditional on guest count."
+  },
+  {
+   "id": "FR-POS-056",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL support tip entry at payment, on the payment terminal, and post-payment adjustment where the acquirer supports it."
+  },
+  {
+   "id": "FR-POS-057",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL support tip pooling configuration and SHALL produce a tip distribution report per shift."
+  },
+  {
+   "id": "FR-POS-058",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL correctly apply the country pack’s rule on whether service charge is itself taxable, as this differs by jurisdiction."
+  },
+  {
+   "id": "FR-POS-060",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL support the following tender types: cash, card (via integrated terminal), card (manual/external terminal), digital wallet, gift card, loyalty points, store credit, voucher, bank transfer, on-account (credit customer), and aggregator-settled."
+  },
+  {
+   "id": "FR-POS-061",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL support split payment across multiple tenders on a single order, with running balance display."
+  },
+  {
+   "id": "FR-POS-062",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL support splitting a bill by: equal division among N parties, by seat, by selected items, and by arbitrary amount."
+  },
+  {
+   "id": "FR-POS-063",
+   "module": "POS",
+   "priority": "M",
+   "text": "For cash payment, the System SHALL compute change due and SHALL apply the country pack’s cash rounding rule, recording any rounding adjustment as a separate ledger amount."
+  },
+  {
+   "id": "FR-POS-064",
+   "module": "POS",
+   "priority": "M",
+   "text": "Integrated card payment SHALL be initiated from the POS, and the System SHALL handle terminal timeout, decline, partial approval, and communication failure without leaving the order in an indeterminate state."
+  },
+  {
+   "id": "FR-POS-065",
+   "module": "POS",
+   "priority": "M",
+   "text": "Payment operations SHALL be idempotent. A retried payment request bearing the same idempotency key SHALL NOT create a second charge. Risk: The most damaging POS defect class is double-charging a customer because the cashier tapped “Pay” again after a slow response. Idempotency keys generated per payment attempt, plus a terminal-side transaction reference check before initiating a new authorisation"
+  },
+  {
+   "id": "FR-POS-066",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL NOT store, log, or transmit card PANs, CVV, or magnetic stripe data. Only the last 4 digits, card scheme, authorisation code, and terminal reference SHALL be retained."
+  },
+  {
+   "id": "FR-POS-067",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL support on-account sales to registered credit customers with a configurable credit limit, blocking sales that would exceed it without override permission."
+  },
+  {
+   "id": "FR-POS-070",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL distinguish four correction operations: Operation When Inventory Effect Financial Effect Line void (pre-fire) Before kitchen None None Line void (postfire) After kitchen started Depletion stands; waste record prompted Removed from bill Order cancel Before payment Per line rules above Order marked cancelled Refund After payment Configurable: return to stock or write off Negative fi"
+  },
+  {
+   "id": "FR-POS-071",
+   "module": "POS",
+   "priority": "M",
+   "text": "Post-fire voids SHALL prompt the user to classify the disposition of the produced item: returned to stock (if applicable), wasted, or given to staff. The classification SHALL create the corresponding inventory record. Rationale: This is where uncontrolled systems bleed. An item is made, voided from the bill, and physically consumed by someone — but the inventory system was never told, so it appear"
+  },
+  {
+   "id": "FR-POS-072",
+   "module": "POS",
+   "priority": "M",
+   "text": "Refunds SHALL reference the original order and SHALL NOT permit a refund exceeding the original amount, in aggregate across all refunds against that order."
+  },
+  {
+   "id": "FR-POS-073",
+   "module": "POS",
+   "priority": "M",
+   "text": "Refunds SHALL require a reason and, above a configurable threshold, manager approval."
+  },
+  {
+   "id": "FR-POS-074",
+   "module": "POS",
+   "priority": "M",
+   "text": "Refunds SHALL be returned to the original tender type by default; refunding to a different tender SHALL require elevated permission and SHALL be flagged in the fraud detection report."
+  },
+  {
+   "id": "FR-POS-075",
+   "module": "POS",
+   "priority": "M",
+   "text": "All voids, cancellations, and refunds SHALL generate audit entries containing the actor, approver, reason, amount, and full before/after state."
+  },
+  {
+   "id": "FR-POS-080",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL provide a graphical floor plan editor allowing definition of areas, tables, shapes, capacities, and positions."
+  },
+  {
+   "id": "FR-POS-081",
+   "module": "POS",
+   "priority": "S",
+   "text": "The floor plan SHALL display live table state: available, seated, ordered, food served, bill requested, payment in progress, needs cleaning."
+  },
+  {
+   "id": "FR-POS-082",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL support merging tables, splitting a table’s order, and transferring an order between tables, each with an audit record."
+  },
+  {
+   "id": "FR-POS-083",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL display time-since-seated and time-since-last-course per table, to support service pacing."
+  },
+  {
+   "id": "FR-POS-084",
+   "module": "POS",
+   "priority": "C",
+   "text": "The System SHALL support server section assignment, restricting or highlighting tables per assigned server."
+  },
+  {
+   "id": "FR-POS-090",
+   "module": "POS",
+   "priority": "M",
+   "text": "A cashier SHALL be required to open a shift, declaring an opening float, before processing sales."
+  },
+  {
+   "id": "FR-POS-091",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL support mid-shift cash operations: pay-in (adding cash to drawer), pay-out (removing cash for an expense), and safe drop (removing excess cash to the safe), each with reason and amount."
+  },
+  {
+   "id": "FR-POS-092",
+   "module": "POS",
+   "priority": "M",
+   "text": "Safe drops SHALL be enforceable by a configurable drawer limit that triggers a prompt or a block when exceeded."
+  },
+  {
+   "id": "FR-POS-093",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL produce an X report (non-resetting mid-shift summary) on demand for authorised users."
+  },
+  {
+   "id": "FR-POS-094",
+   "module": "POS",
+   "priority": "M",
+   "text": "Shift close SHALL require a physical cash count. The System SHALL support both blind count (expected amount hidden until after entry) and open count, configurable per branch."
+  },
+  {
+   "id": "FR-POS-095",
+   "module": "POS",
+   "priority": "M",
+   "text": "Blind count SHALL be the default configuration. Rationale: If the cashier can see the expected amount before counting, a shortage can be concealed by “counting” the expected number. Blind count is a basic internal control and its absence is a finding in any operational audit."
+  },
+  {
+   "id": "FR-POS-096",
+   "module": "POS",
+   "priority": "M",
+   "text": "Shift close SHALL compute and record cash variance, and SHALL require a reason and manager acknowledgement when variance exceeds a configurable tolerance."
+  },
+  {
+   "id": "FR-POS-097",
+   "module": "POS",
+   "priority": "M",
+   "text": "Denomination-level counting SHALL be supported, with the System computing the total from denomination counts."
+  },
+  {
+   "id": "FR-POS-100",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL print a customer receipt containing all elements mandated by the branch’s country pack, including tax registration number, invoice sequence, tax breakdown, and any required QR code."
+  },
+  {
+   "id": "FR-POS-101",
+   "module": "POS",
+   "priority": "M",
+   "text": "Receipt layout SHALL be template-driven per country pack and per brand, supporting logo, custom header/footer text, and language selection."
+  },
+  {
+   "id": "FR-POS-102",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL support bilingual receipts with configurable layout: Arabic only, English only, or both with defined ordering."
+  },
+  {
+   "id": "FR-POS-103",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL support digital receipt delivery by SMS, WhatsApp, email, and QR code, in addition to or instead of printing."
+  },
+  {
+   "id": "FR-POS-104",
+   "module": "POS",
+   "priority": "S",
+   "text": "The System SHALL support receipt reprint, with reprints clearly marked as duplicates and logged."
+  },
+  {
+   "id": "FR-POS-105",
+   "module": "POS",
+   "priority": "M",
+   "text": "Kitchen tickets SHALL print in the kitchen’s configured language, which may differ from the customer receipt language."
+  },
+  {
+   "id": "FR-POS-106",
+   "module": "POS",
+   "priority": "M",
+   "text": "The System SHALL handle printer failure gracefully: queue the job, alert the user, permit continuation of the sale, and retry automatically, never blocking the transaction."
+  },
+  {
+   "id": "FR-PRC-001",
+   "module": "PRC",
+   "priority": "M",
+   "text": "The System SHALL implement the procure-to-pay cycle above, with configurable steps that may be skipped per tenant policy."
+  },
+  {
+   "id": "FR-PRC-002",
+   "module": "PRC",
+   "priority": "M",
+   "text": "A tenant SHALL be able to operate in “simple mode” where a purchase order and goods receipt are combined into a single receiving action, for small operations that do not raise formal POs. Rationale: A single-branch café that buys vegetables from the market each morning will never raise a purchase order. Requiring one guarantees the module goes unused and inventory receipts never get recorded, whic"
+  },
+  {
+   "id": "FR-PRC-005",
+   "module": "PRC",
+   "priority": "M",
+   "text": "The System SHALL maintain a supplier master with: code, legal name, trading name, tax registration number, addresses, contacts, payment terms, currency, delivery lead time, minimum order value, delivery days, and status."
+  },
+  {
+   "id": "FR-PRC-006",
+   "module": "PRC",
+   "priority": "M",
+   "text": "The System SHALL maintain supplier price lists per item, with unit, pack size, price, validity window, and optional volume break tiers."
+  },
+  {
+   "id": "FR-PRC-007",
+   "module": "PRC",
+   "priority": "M",
+   "text": "The System SHALL support multiple suppliers per item with a preference ranking, and SHALL display comparative pricing when ordering."
+  },
+  {
+   "id": "FR-PRC-008",
+   "module": "PRC",
+   "priority": "S",
+   "text": "The System SHALL track price history per supplier per item and SHALL alert when a received price differs from the agreed price by more than a configurable tolerance. Rationale: Supplier price creep is one of the most common and least detected margin leaks. A supplier raises the price of cooking oil by 4% every second month. Nobody checks. Over a year the cost rises 25% and the food cost report sho"
+  },
+  {
+   "id": "FR-PRC-009",
+   "module": "PRC",
+   "priority": "S",
+   "text": "The System SHALL maintain a supplier scorecard computing: Metric Computation On-time delivery rate Deliveries within promised window ÷ total deliveries Fill rate Quantity received ÷ quantity ordered Price stability Standard deviation of price changes over period Quality rejection rate Rejected quantity ÷ received quantity Invoice accuracy Invoices matching without dispute ÷ total invoices Average "
+  },
+  {
+   "id": "FR-PRC-010",
+   "module": "PRC",
+   "priority": "S",
+   "text": "The System SHALL support approved-supplier lists per item category, and SHALL warn or block when ordering a category from a non-approved supplier."
+  },
+  {
+   "id": "FR-PRC-011",
+   "module": "PRC",
+   "priority": "S",
+   "text": "The System SHALL store supplier compliance documents (food safety certificates, licences, insurance) with expiry dates and expiry alerting."
+  },
+  {
+   "id": "FR-PRC-015",
+   "module": "PRC",
+   "priority": "S",
+   "text": "Branches SHALL be able to raise purchase requisitions for central review, supporting the common group structure where branches request and head office buys."
+  },
+  {
+   "id": "FR-PRC-016",
+   "module": "PRC",
+   "priority": "S",
+   "text": "The System SHALL support consolidating requisitions from multiple branches into a single supplier purchase order, retaining branch attribution for delivery and cost allocation."
+  },
+  {
+   "id": "FR-PRC-017",
+   "module": "PRC",
+   "priority": "M",
+   "text": "Purchase orders SHALL contain: supplier, delivery location, expected delivery date, lines with item, quantity, unit, unit price, tax, and total."
+  },
+  {
+   "id": "FR-PRC-018",
+   "module": "PRC",
+   "priority": "M",
+   "text": "The System SHALL support a configurable approval workflow for purchase orders based on total value: Value Band Approver Below threshold 1 Auto-approved Threshold 1 – 2 Branch Manager Threshold 2 – 3 Operations Director Above threshold 3 Tenant Owner"
+  },
+  {
+   "id": "FR-PRC-019",
+   "module": "PRC",
+   "priority": "M",
+   "text": "The approval workflow SHALL enforce segregation of duties: the requester SHALL NOT be an approver of their own requisition or order."
+  },
+  {
+   "id": "FR-PRC-020",
+   "module": "PRC",
+   "priority": "M",
+   "text": "Approval SHALL be actionable from the mobile app and from an email link with a signed, single-use, time-limited token."
+  },
+  {
+   "id": "FR-PRC-021",
+   "module": "PRC",
+   "priority": "S",
+   "text": "Approved purchase orders SHALL be transmittable to suppliers by email (PDF plus structured attachment), WhatsApp, or supplier portal where integrated."
+  },
+  {
+   "id": "FR-PRC-022",
+   "module": "PRC",
+   "priority": "S",
+   "text": "The System SHALL generate suggested purchase orders from reorder-point analysis ("
+  },
+  {
+   "id": "FR-PRC-023",
+   "module": "PRC",
+   "priority": "M",
+   "text": "Purchase orders SHALL be amendable before receipt, with amendment history retained and re-approval required if the value increases beyond the approved band."
+  },
+  {
+   "id": "FR-PRC-030",
+   "module": "PRC",
+   "priority": "M",
+   "text": "The System SHALL support receiving against a purchase order, receiving without a purchase order (direct receipt), and receiving a partial quantity."
+  },
+  {
+   "id": "FR-PRC-031",
+   "module": "PRC",
+   "priority": "M",
+   "text": "At receipt the System SHALL capture per line: quantity received, unit, batch number, production date, expiry date, unit price if differing from PO, and rejection quantity with reason."
+  },
+  {
+   "id": "FR-PRC-032",
+   "module": "PRC",
+   "priority": "M",
+   "text": "Receipt SHALL create stock movements of type purchase_receipt and, for batch-tracked items, SHALL create batch records."
+  },
+  {
+   "id": "FR-PRC-033",
+   "module": "PRC",
+   "priority": "M",
+   "text": "The System SHALL enforce configurable over-receipt tolerance, requiring approval to receive more than the ordered quantity beyond the tolerance."
+  },
+  {
+   "id": "FR-PRC-034",
+   "module": "PRC",
+   "priority": "S",
+   "text": "The System SHALL support receiving on a mobile device with barcode scanning and camera capture of delivery notes."
+  },
+  {
+   "id": "FR-PRC-035",
+   "module": "PRC",
+   "priority": "S",
+   "text": "The System SHALL support temperature recording at receipt for chilled and frozen items, with configurable acceptable ranges and automatic rejection prompts outside them."
+  },
+  {
+   "id": "FR-PRC-036",
+   "module": "PRC",
+   "priority": "M",
+   "text": "Rejected goods SHALL create a rejection record with reason and SHALL NOT enter stock, and SHALL generate a supplier credit expectation."
+  },
+  {
+   "id": "FR-PRC-037",
+   "module": "PRC",
+   "priority": "S",
+   "text": "The System SHALL support supplier returns after receipt, creating a negative stock movement and a credit note expectation."
+  },
+  {
+   "id": "FR-PRC-040",
+   "module": "PRC",
+   "priority": "M",
+   "text": "The System SHALL support recording supplier invoices against goods receipts."
+  },
+  {
+   "id": "FR-PRC-041",
+   "module": "PRC",
+   "priority": "M",
+   "text": "The System SHALL perform a three-way match across purchase order, goods receipt, and supplier invoice, evaluating: Check Tolerance Quantity: invoice vs receipt Configurable, default 0% Unit price: invoice vs PO Configurable, default 2% Total: computed vs stated 1 minor unit (rounding) Tax: computed vs stated 1 minor unit"
+  },
+  {
+   "id": "FR-PRC-042",
+   "module": "PRC",
+   "priority": "M",
+   "text": "Invoices matching within tolerance SHALL be eligible for payment approval. Invoices outside tolerance SHALL enter a dispute state requiring resolution."
+  },
+  {
+   "id": "FR-PRC-043",
+   "module": "PRC",
+   "priority": "S",
+   "text": "The System SHALL support supplier credit notes, applied against outstanding invoices."
+  },
+  {
+   "id": "FR-PRC-044",
+   "module": "PRC",
+   "priority": "S",
+   "text": "The System SHALL maintain a supplier account statement showing invoices, credits, payments, and outstanding balance, with an ageing breakdown (current, 30, 60, 90+ days)."
+  },
+  {
+   "id": "FR-PRC-045",
+   "module": "PRC",
+   "priority": "S",
+   "text": "The System SHALL generate a payment proposal listing invoices due within a horizon, respecting payment terms and available early-settlement discounts."
+  },
+  {
+   "id": "FR-PRC-046",
+   "module": "PRC",
+   "priority": "C",
+   "text": "The System SHALL support invoice capture by photograph with OCR extraction of supplier, date, invoice number, line items, and totals, presented for human verification before posting. Rationale: OCR is presented as an accelerator, never as an authority. An OCR pipeline that posts directly to the ledger will eventually mis-read a quantity and create a fivefigure inventory error that nobody notices f"
+  },
+  {
+   "id": "FR-QA-001",
+   "module": "QA",
+   "priority": "M",
+   "text": "The domain layer SHALL be tested exclusively with unit tests requiring no database, no HTTP, and no framework."
+  },
+  {
+   "id": "FR-QA-002",
+   "module": "QA",
+   "priority": "M",
+   "text": "Every functional requirement SHALL trace to at least one automated test, verified by the traceability matrix in Appendix B."
+  },
+  {
+   "id": "FR-QA-010",
+   "module": "QA",
+   "priority": "M",
+   "text": "The System SHALL provide reproducible seed datasets: a minimal singlebranch café, a 12-branch chain, a multi-brand multi-country group, and a cloud kitchen with aggregators."
+  },
+  {
+   "id": "FR-QA-011",
+   "module": "QA",
+   "priority": "M",
+   "text": "Test data SHALL be synthetic. Production data SHALL NOT be copied into non-production environments."
+  },
+  {
+   "id": "FR-QA-012",
+   "module": "QA",
+   "priority": "M",
+   "text": "Where production-shaped data is required for performance testing, it SHALL be generated at production scale rather than copied, or anonymised through a documented, verified pipeline."
+  },
+  {
+   "id": "FR-RPT-001",
+   "module": "RPT",
+   "priority": "M",
+   "text": "Analytical queries SHALL execute against a read replica, never the transactional primary."
+  },
+  {
+   "id": "FR-RPT-002",
+   "module": "RPT",
+   "priority": "M",
+   "text": "The System SHALL maintain pre-aggregated rollups at hourly, daily, weekly, and monthly grain for the core fact tables."
+  },
+  {
+   "id": "FR-RPT-003",
+   "module": "RPT",
+   "priority": "M",
+   "text": "Rollups SHALL be incrementally updated as new transactions arrive, and SHALL be fully rebuildable from source on demand."
+  },
+  {
+   "id": "FR-RPT-004",
+   "module": "RPT",
+   "priority": "M",
+   "text": "Every report SHALL display the timestamp of the data it reflects, and SHALL indicate when data is not yet complete for the period shown. Rationale: A manager looking at today’s sales at 14:00 must understand that the figure is partial. Systems that display an incomplete figure without indication generate support tickets (“the report is wrong”) that are not defects."
+  },
+  {
+   "id": "FR-RPT-005",
+   "module": "RPT",
+   "priority": "M",
+   "text": "Dimension tables SHALL be slowly-changing (Type 2) for attributes that affect historical interpretation — item category, employee position, branch region — so that reclassifying an item today does not silently restate last year."
+  },
+  {
+   "id": "FR-RPT-030",
+   "module": "RPT",
+   "priority": "M",
+   "text": "The System SHALL provide role-appropriate default dashboards."
+  },
+  {
+   "id": "FR-RPT-031",
+   "module": "RPT",
+   "priority": "S",
+   "text": "The Executive dashboard SHALL present: net sales against target, prime cost %, branch ranking, top and bottom performing items, exception count, and trend sparklines."
+  },
+  {
+   "id": "FR-RPT-032",
+   "module": "RPT",
+   "priority": "S",
+   "text": "The Branch Manager dashboard SHALL present: today’s sales against forecast, hourly sales curve with labour overlay, food cost trend, items requiring reorder, expiry watch, open exceptions, and staff on shift."
+  },
+  {
+   "id": "FR-RPT-033",
+   "module": "RPT",
+   "priority": "S",
+   "text": "The System SHALL provide a live operations view: open orders, table states, kitchen queue depth, average current wait, and active terminals."
+  },
+  {
+   "id": "FR-RPT-034",
+   "module": "RPT",
+   "priority": "C",
+   "text": "Dashboards SHALL be customisable by the user through widget selection and arrangement, with a tenant-level default layout per role."
+  },
+  {
+   "id": "FR-RPT-040",
+   "module": "RPT",
+   "priority": "S",
+   "text": "The System SHALL support scheduled report delivery by email and by mobile push, with configurable recipients, schedule, and format."
+  },
+  {
+   "id": "FR-RPT-041",
+   "module": "RPT",
+   "priority": "S",
+   "text": "The System SHALL support a daily digest (“morning brief”) delivered at a configurable time, summarising the prior business day in a form readable on a phone in under 30 seconds."
+  },
+  {
+   "id": "FR-RPT-042",
+   "module": "RPT",
+   "priority": null,
+   "text": "). Persona 4 — Sameh, Head Chef Forty-seven. Runs a kitchen with six stations. He knows his recipes but has never written them down with gram-level precision. He views the KDS as either an aid or an obstacle, with no middle ground. What he needs: Tickets that arrive in the order he should cook them, not the order they were entered. Clear indication of what is late. The ability to bump an item with"
+  },
+  {
+   "id": "FR-RPT-043",
+   "module": "RPT",
+   "priority": "M",
+   "text": "The System SHALL support export in CSV, XLSX, and PDF, with exports of more than 50,000 rows processed asynchronously and delivered by notification."
+  },
+  {
+   "id": "FR-RPT-044",
+   "module": "RPT",
+   "priority": "M",
+   "text": "All exports SHALL be logged in the audit trail with the requesting user, filters applied, and row count."
+  },
+  {
+   "id": "FR-RPT-045",
+   "module": "RPT",
+   "priority": "S",
+   "text": "The System SHALL support configurable alerts delivered in real time: Alert Default Trigger Cash variance exceeds tolerance On shift close Discount exceeds threshold On application Void after payment Immediately Stock reaches zero On depletion Alert Default Trigger Item approaching expiry Daily at configured hour Order delayed beyond target On threshold breach Sales significantly below forecast Hou"
+  },
+  {
+   "id": "FR-RPT-046",
+   "module": "RPT",
+   "priority": "M",
+   "text": "Alerts SHALL be rate-limited and de-duplicated per recipient per type per period. Rationale: Alert fatigue is the standard failure mode of operational alerting. A manager receiving forty notifications a day will disable them within a week, at which point the one alert that mattered is never seen. Aggressive rate limiting and digest grouping are not conveniences; they are what makes the alerting sy"
+  },
+  {
+   "id": "FR-RPT-047",
+   "module": "RPT",
+   "priority": "C",
+   "text": "The System SHALL support a natural-language query interface over the reporting layer, translating questions such as “which branch had the worst food cost last week” into parameterised queries, with the generated query shown to the user for verification."
+  },
+  {
+   "id": "FR-RPT-055",
+   "module": "RPT",
+   "priority": null,
+   "text": "). Persona 3 — Youssef, Group Operations Director Forty-one. Oversees 14 branches across two brands and two countries. He does not open the POS. He opens a dashboard on Monday morning and needs to know which three branches need his attention this week. What he needs: Ranking, not listing. Exceptions, not totals. Comparability — a branch with higher revenue but worse food cost must be visible as a "
+  },
+  {
+   "id": "FR-SEC-001",
+   "module": "SEC",
+   "priority": "M",
+   "text": "The System SHALL implement role-based access control where permissions are granted to roles and roles are assigned to users."
+  },
+  {
+   "id": "FR-SEC-002",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Role assignments SHALL carry a scope, restricting the assignment to a tenant, a brand, a set of branches, or a single branch."
+  },
+  {
+   "id": "FR-SEC-003",
+   "module": "SEC",
+   "priority": "M",
+   "text": "A user MAY hold multiple role assignments with different scopes — for example, Branch Manager at Branch 1 and Cashier at Branch 2."
+  },
+  {
+   "id": "FR-SEC-004",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Where multiple assignments apply, effective permissions SHALL be the union of granted permissions within each assignment’s own scope. Permissions SHALL NOT leak across scopes."
+  },
+  {
+   "id": "FR-SEC-005",
+   "module": "SEC",
+   "priority": "S",
+   "text": "Role assignments SHALL support validity dates, enabling temporary elevation (covering a manager’s leave) that expires automatically. Rationale: Temporary elevation without expiry is the mechanism by which every organisation’s permission model degrades. Someone covers a shift, gains manager rights, and keeps them for three years. Automatic expiry is the only control that survives contact with opera"
+  },
+  {
+   "id": "FR-SEC-010",
+   "module": "SEC",
+   "priority": "M",
+   "text": "The System SHALL ship predefined roles suitable for immediate use, which tenants may clone and modify but not delete. Role Scope Character Owner Tenant All permissions Operations Director Brand(s) All operational, no user or billing management Brand Manager Brand Menu, pricing, reports; no financial approval Branch Manager Branch Full branch operations, approvals within band Shift Supervisor Branc"
+  },
+  {
+   "id": "FR-SEC-011",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Tenants SHALL be able to create custom roles by selecting permissions from the catalogue."
+  },
+  {
+   "id": "FR-SEC-012",
+   "module": "SEC",
+   "priority": "M",
+   "text": "The role editor SHALL display, for each permission, a plain-language description of what it allows and a warning marker on sensitive permissions."
+  },
+  {
+   "id": "FR-SEC-015",
+   "module": "SEC",
+   "priority": "M",
+   "text": "The System SHALL define incompatible permission pairs and SHALL warn when a role or user combines them. Permission A Permission B Risk inventory.count.perfo rm inventory.count.post Counter approves own count purchase.order.create purchase.order.approv e_* Self-approved purchasing purchase.receipt.post purchase.invoice.appr ove_payment Fictitious receipt paid pos.discount.apply pos.discount.approve"
+  },
+  {
+   "id": "FR-SEC-016",
+   "module": "SEC",
+   "priority": "M",
+   "text": "The System SHALL block, not merely warn, on the following combinations regardless of role configuration: approving one’s own requisition, approving one’s own discount, approving one’s own cash variance, and posting a count one performed where the tenant has enabled strict SoD."
+  },
+  {
+   "id": "FR-SEC-017",
+   "module": "SEC",
+   "priority": "S",
+   "text": "The System SHALL provide an SoD conflict report listing every user whose effective permissions contain an incompatible pair."
+  },
+  {
+   "id": "FR-SEC-018",
+   "module": "SEC",
+   "priority": null,
+   "text": "Make the product sellable to groups Support ≥ 100 branches per tenant with sub-2s consolidated reporting"
+  },
+  {
+   "id": "FR-SEC-020",
+   "module": "SEC",
+   "priority": "M",
+   "text": "The System SHALL support the following authentication methods: Method Context Email + password Web dashboard PIN (4–8 digits) POS terminal, fast switching Employee card (magnetic or NFC) POS terminal Biometric (device-provided) Mobile app SSO via SAML 2.0 / OIDC Enterprise tier"
+  },
+  {
+   "id": "FR-SEC-021",
+   "module": "SEC",
+   "priority": "M",
+   "text": "PIN authentication SHALL be valid only on registered terminals within the employee’s permitted branches, and SHALL NOT grant access to the web dashboard."
+  },
+  {
+   "id": "FR-SEC-022",
+   "module": "SEC",
+   "priority": "M",
+   "text": "PINs SHALL be stored as salted hashes, SHALL be unique within a branch, and SHALL be subject to lockout after a configurable number of failures. Rationale: A 4-digit PIN has 10,000 combinations and is not a security control against a determined attacker. It is a control against casual misattribution and a mechanism for accountability. It must therefore be scoped narrowly — terminalbound, branch-bo"
+  },
+  {
+   "id": "FR-SEC-023",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Multi-factor authentication SHALL be supported for dashboard access and SHALL be enforceable as mandatory per role."
+  },
+  {
+   "id": "FR-SEC-024",
+   "module": "SEC",
+   "priority": "M",
+   "text": "MFA SHALL be mandatory for any role holding security.user.manage, settings.tenant.manage, or api.key.manage."
+  },
+  {
+   "id": "FR-SEC-025",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Password policy SHALL be configurable per tenant with a minimum of 10 characters, and SHALL check candidate passwords against a known-breached-password list."
+  },
+  {
+   "id": "FR-SEC-026",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Sessions SHALL expire after a configurable idle period: default 15 minutes on POS, 60 minutes on dashboard, 8 hours on KDS."
+  },
+  {
+   "id": "FR-SEC-027",
+   "module": "SEC",
+   "priority": "M",
+   "text": "The System SHALL support forced logout of a user’s sessions across all devices by an administrator."
+  },
+  {
+   "id": "FR-SEC-028",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Terminals SHALL be individually registered, and the System SHALL support revoking a terminal’s registration, immediately invalidating its credentials and wiping its local data on next contact."
+  },
+  {
+   "id": "FR-SEC-030",
+   "module": "SEC",
+   "priority": "M",
+   "text": "The System SHALL provide a general approval mechanism used by discounts, refunds, purchase orders, waste, count adjustments, expenses, and price changes."
+  },
+  {
+   "id": "FR-SEC-031",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Approval requests SHALL specify: the requesting user, the action, the affected entity, the value, the required approver permission, and an expiry."
+  },
+  {
+   "id": "FR-SEC-032",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Approvals SHALL be obtainable synchronously (manager PIN on the terminal) or asynchronously (push notification to the manager’s mobile device), with the terminal remaining usable while awaiting an asynchronous decision."
+  },
+  {
+   "id": "FR-SEC-033",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Approval decisions SHALL record approver, timestamp, decision, and any comment, and SHALL be immutable."
+  },
+  {
+   "id": "FR-SEC-034",
+   "module": "SEC",
+   "priority": "S",
+   "text": "The System SHALL support escalation: if no decision is made within a configured period, the request escalates to the next approval level."
+  },
+  {
+   "id": "FR-SEC-035",
+   "module": "SEC",
+   "priority": null,
+   "text": "), the on-site supervisor approves by PIN, and both are flagged for retrospective review. 6. A cashier attempts to redeem 4,000 loyalty points. The offline redemption limit is 2,000; the excess is declined with a clear message and the customer is offered the permitted amount. 7. Fiscal receipts are issued from the terminal’s pre-allocated fiscal number block. 412 numbers are consumed from a block "
+  },
+  {
+   "id": "FR-SEC-040",
+   "module": "SEC",
+   "priority": "M",
+   "text": "All network traffic SHALL use TLS 1.3 with TLS 1.2 as the minimum fallback."
+  },
+  {
+   "id": "FR-SEC-041",
+   "module": "SEC",
+   "priority": "M",
+   "text": "All data at rest SHALL be encrypted: database volumes, object storage, backups, and the POS local database."
+  },
+  {
+   "id": "FR-SEC-042",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Sensitive fields (national identifiers, bank details, API secrets) SHALL be encrypted at the application layer with envelope encryption and per-tenant data keys, in addition to volume encryption."
+  },
+  {
+   "id": "FR-SEC-043",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Encryption keys SHALL be managed by a managed KMS, SHALL be rotated at least annually, and SHALL never be committed to source control or logged."
+  },
+  {
+   "id": "FR-SEC-044",
+   "module": "SEC",
+   "priority": null,
+   "text": "); SAQ-C or SAQ-P2PE where applicable OWASP ASVS 4.0 L2 Application security Verified in the security test suite Egypt ETA E-invoice and e-receipt Country pack EG (Chapter Requirement Source Applicable Obligation ROS Implementation submission 22) KSA ZATCA Phase 2 Cryptographic stamp, QR, clearance Country pack SA (Chapter 22) UAE FTA VAT invoice content and retention Country pack AE GDPR (EU tena"
+  },
+  {
+   "id": "FR-SEC-045",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Every API endpoint SHALL enforce authorisation server-side. Client-side permission checks are presentation only and SHALL NOT be relied upon."
+  },
+  {
+   "id": "FR-SEC-046",
+   "module": "SEC",
+   "priority": "M",
+   "text": "The System SHALL apply rate limiting and progressive lockout on authentication endpoints."
+  },
+  {
+   "id": "FR-SEC-047",
+   "module": "SEC",
+   "priority": "M",
+   "text": "All user input SHALL be validated against an explicit schema at the API boundary, rejecting unknown fields rather than ignoring them."
+  },
+  {
+   "id": "FR-SEC-048",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Database access SHALL use parameterised queries exclusively; stringconcatenated SQL is prohibited and SHALL fail static analysis."
+  },
+  {
+   "id": "FR-SEC-049",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Dependencies SHALL be scanned for known vulnerabilities on every build, and builds SHALL fail on critical findings."
+  },
+  {
+   "id": "FR-SEC-050",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Secrets SHALL be injected at runtime from a secret manager, never present in images or repositories."
+  },
+  {
+   "id": "FR-SEC-051",
+   "module": "SEC",
+   "priority": "S",
+   "text": "The System SHALL undergo an external penetration test before general availability and annually thereafter."
+  },
+  {
+   "id": "FR-SEC-052",
+   "module": "SEC",
+   "priority": "M",
+   "text": "The System SHALL support IP allow-listing for API access and for dashboard access at the Enterprise tier."
+  },
+  {
+   "id": "FR-SEC-053",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Security-relevant events SHALL be forwarded to a SIEM-compatible sink, and Enterprise tenants SHALL be able to receive their own security event stream."
+  },
+  {
+   "id": "FR-SEC-060",
+   "module": "SEC",
+   "priority": "M",
+   "text": "The System SHALL classify data by sensitivity and apply corresponding controls: Class Examples Controls Public Menu items, prices Standard Internal Sales figures, stock levels Tenant isolation, RBAC Confidential Costs, margins, supplier terms RBAC with explicit permission Restricted Employee compensation, national IDs, customer contact Explicit permission, field encryption, access audited Prohibit"
+  },
+  {
+   "id": "FR-SEC-061",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Data retention periods SHALL be configurable within statutory bounds, and a scheduled job SHALL purge or anonymise data past retention."
+  },
+  {
+   "id": "FR-SEC-062",
+   "module": "SEC",
+   "priority": "M",
+   "text": "The System SHALL support data subject requests: access (export), rectification, and erasure (anonymisation preserving financial records)."
+  },
+  {
+   "id": "FR-SEC-063",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Tenants SHALL be able to select a data residency region at signup, and their data SHALL remain within that region including backups."
+  },
+  {
+   "id": "FR-SEC-064",
+   "module": "SEC",
+   "priority": "M",
+   "text": "Backups SHALL be encrypted, tested by restoration at least quarterly, and retained per a documented schedule."
+  },
+  {
+   "id": "NFR-API-001",
+   "module": "API",
+   "priority": "M",
+   "text": "The API SHALL be documented as an OpenAPI 3.1 specification generated from the implementation, so that documentation cannot drift from behaviour."
+  },
+  {
+   "id": "NFR-API-002",
+   "module": "API",
+   "priority": "M",
+   "text": "A deprecated endpoint or field SHALL be announced at least 180 days before removal, marked in the specification, and SHALL emit a Deprecation header. Chapter 27 — Non-Functional Requirements | المتطلبات غير الوظيفية"
+  },
+  {
+   "id": "NFR-CAP-001",
+   "module": "CAP",
+   "priority": "M",
+   "text": "The local store SHALL accommodate at least 20,000 orders and their lines without performance degradation beyond stated budgets."
+  },
+  {
+   "id": "NFR-DATA-001",
+   "module": "DATA",
+   "priority": "M",
+   "text": "Stock movement records SHALL be retained for the statutory period of the branch’s jurisdiction or 7 years, whichever is greater."
+  },
+  {
+   "id": "NFR-DATA-002",
+   "module": "DATA",
+   "priority": "M",
+   "text": "Aggregated reporting data SHALL be no more than 15 minutes behind the transactional source during trading hours. Chapter 20 — Audit, Security & Compliance | التدقيق واألمان"
+  },
+  {
+   "id": "NFR-OBS-001",
+   "module": "OBS",
+   "priority": null,
+   "text": "All logs structured (JSON), with tenant, branch, correlation, and causation identifiers"
+  },
+  {
+   "id": "NFR-OBS-002",
+   "module": "OBS",
+   "priority": null,
+   "text": "Distributed tracing across API, workers, and database"
+  },
+  {
+   "id": "NFR-OBS-003",
+   "module": "OBS",
+   "priority": null,
+   "text": "RED metrics (Rate, Errors, Duration) per endpoint and per handler"
+  },
+  {
+   "id": "NFR-OBS-004",
+   "module": "OBS",
+   "priority": null,
+   "text": "Business metrics emitted: orders/min, sync backlog, fiscal failures, offline terminals"
+  },
+  {
+   "id": "NFR-OBS-005",
+   "module": "OBS",
+   "priority": null,
+   "text": "No PII or secrets in logs, enforced by a redaction layer with an allowlist"
+  },
+  {
+   "id": "NFR-OBS-006",
+   "module": "OBS",
+   "priority": null,
+   "text": "Alerts defined for every SLO breach with documented runbooks"
+  },
+  {
+   "id": "NFR-OBS-007",
+   "module": "OBS",
+   "priority": null,
+   "text": "Per-tenant health view available to support without database access"
+  },
+  {
+   "id": "NFR-PERF-001",
+   "module": "PERF",
+   "priority": "M",
+   "text": "Item addition to an order SHALL render within 100 ms at the 95th percentile on the reference device (Android 11, 4 GB RAM, quad-core 1.8 GHz)."
+  },
+  {
+   "id": "NFR-PERF-002",
+   "module": "PERF",
+   "priority": "M",
+   "text": "Payment finalisation, including local persistence and print job dispatch, SHALL complete within 800 ms at p95 offline, and 1,500 ms at p95 online."
+  },
+  {
+   "id": "NFR-PERF-003",
+   "module": "PERF",
+   "priority": "M",
+   "text": "POS cold start SHALL complete within 6 seconds on the reference device."
+  },
+  {
+   "id": "NFR-PERF-004",
+   "module": "PERF",
+   "priority": "M",
+   "text": "A fired order SHALL appear on the target station display within 1 second at p95 on the local network."
+  },
+  {
+   "id": "NFR-PERF-005",
+   "module": "PERF",
+   "priority": "M",
+   "text": "Stock level queries for a single location with up to 3,000 items SHALL return within 500 ms at p95."
+  },
+  {
+   "id": "NFR-PERF-006",
+   "module": "PERF",
+   "priority": "M",
+   "text": "Recipe expansion and inventory depletion for a completed order of up to 30 lines SHALL complete within 200 ms at p95 and SHALL execute within the order’s transaction."
+  },
+  {
+   "id": "NFR-PERF-010",
+   "module": "PERF",
+   "priority": "M",
+   "text": "Standard reports over a 31-day period for a single branch SHALL render within 2 seconds at p95."
+  },
+  {
+   "id": "NFR-PERF-011",
+   "module": "PERF",
+   "priority": "M",
+   "text": "Consolidated reports across up to 100 branches over a 31-day period SHALL render within 5 seconds at p95."
+  },
+  {
+   "id": "NFR-PERF-012",
+   "module": "PERF",
+   "priority": "M",
+   "text": "Dashboard initial load SHALL complete within 3 seconds at p95."
+  },
+  {
+   "id": "NFR-PERF-020",
+   "module": "PERF",
+   "priority": "M",
+   "text": "A backlog of 5,000 queued operations SHALL synchronise within 5 minutes on a 2 Mbps connection."
+  },
+  {
+   "id": "NFR-PERF-021",
+   "module": "PERF",
+   "priority": "M",
+   "text": "Local order persistence SHALL complete within 50 ms at p95 on the reference device."
+  },
+  {
+   "id": "NFR-PERF-030",
+   "module": "PERF",
+   "priority": "M",
+   "text": "Read endpoints SHALL respond within 200 ms at p95 and 500 ms at p99, excluding reporting endpoints."
+  },
+  {
+   "id": "NFR-PERF-031",
+   "module": "PERF",
+   "priority": "M",
+   "text": "Write endpoints SHALL respond within 400 ms at p95."
+  },
+  {
+   "id": "NFR-PERF-032",
+   "module": "PERF",
+   "priority": "M",
+   "text": "The sync batch endpoint SHALL process 500 operations within 3 seconds at p95."
+  },
+  {
+   "id": "NFR-PERF-040",
+   "module": "PERF",
+   "priority": null,
+   "text": "Web dashboard Largest Contentful Paint ≤ 2.5 s"
+  },
+  {
+   "id": "NFR-PERF-041",
+   "module": "PERF",
+   "priority": null,
+   "text": "Web dashboard Interaction to Next Paint ≤ 200 ms"
+  },
+  {
+   "id": "NFR-PORT-001",
+   "module": "PORT",
+   "priority": null,
+   "text": "POS supported on Android 9+, iOS 15+, Windows 10+"
+  },
+  {
+   "id": "NFR-PORT-002",
+   "module": "PORT",
+   "priority": null,
+   "text": "KDS supported on Android 9+ and evergreen browsers ID Requirement"
+  },
+  {
+   "id": "NFR-PORT-003",
+   "module": "PORT",
+   "priority": null,
+   "text": "Dashboard supported on the two most recent versions of Chrome, Safari, Edge, and Firefox"
+  },
+  {
+   "id": "NFR-PORT-004",
+   "module": "PORT",
+   "priority": null,
+   "text": "Dashboard responsive from 360 px to 2560 px"
+  },
+  {
+   "id": "NFR-PORT-005",
+   "module": "PORT",
+   "priority": null,
+   "text": "Deployment portable across major cloud providers (no proprietary lock-in beyond managed Postgres, Redis, object storage)"
+  },
+  {
+   "id": "NFR-PORT-006",
+   "module": "PORT",
+   "priority": null,
+   "text": "ESC/POS printer support across the certified hardware matrix Chapter 28 — Testing Strategy | استراتيجية االختبار"
+  },
+  {
+   "id": "NFR-REL-001",
+   "module": "REL",
+   "priority": "M",
+   "text": "The POS SHALL survive abrupt power loss with no loss of committed orders. Every state transition SHALL be persisted to durable local storage before the UI acknowledges it."
+  },
+  {
+   "id": "NFR-REL-002",
+   "module": "REL",
+   "priority": "M",
+   "text": "The KDS SHALL continue to display and accept bump actions for alreadyreceived tickets during a network outage, buffering bump events locally."
+  },
+  {
+   "id": "NFR-REL-003",
+   "module": "REL",
+   "priority": "M",
+   "text": "Where the KDS and POS are on the same local network, order routing SHALL function via local peer discovery even when the internet connection is down. Rationale: A cloud-round-trip requirement for kitchen routing means the kitchen stops when the internet stops, which is unacceptable. Local-network routing with cloud sync as a secondary path is the required topology (Chapter 21.6)."
+  },
+  {
+   "id": "NFR-REL-010",
+   "module": "REL",
+   "priority": "M",
+   "text": "No committed sale SHALL be lost under any single-device failure, including abrupt power loss, application crash, or storage exhaustion."
+  },
+  {
+   "id": "NFR-REL-011",
+   "module": "REL",
+   "priority": "M",
+   "text": "The System SHALL guarantee at-most-once financial effect for any operation, enforced by idempotency keys."
+  },
+  {
+   "id": "NFR-REL-012",
+   "module": "REL",
+   "priority": null,
+   "text": "Data durability ≥ 99.999999999% (managed storage guarantee)"
+  },
+  {
+   "id": "NFR-REL-013",
+   "module": "REL",
+   "priority": null,
+   "text": "RPO / RTO ≤ 5 min / ≤ 60 min"
+  },
+  {
+   "id": "NFR-USA-001",
+   "module": "USA",
+   "priority": "M",
+   "text": "A three-line dine-in order with no modifiers SHALL be completable in no more than 6 user interactions from an empty screen."
+  },
+  {
+   "id": "NFR-USA-002",
+   "module": "USA",
+   "priority": "M",
+   "text": "All primary touch targets SHALL be at least 48 × 48 dp with at least 8 dp separation."
+  },
+  {
+   "id": "NFR-USA-003",
+   "module": "USA",
+   "priority": null,
+   "text": ", FR-PLT020..029 Enable multi-country sale without code change New country pack certified in ≤ 6 engineer-weeks"
+  },
+  {
+   "id": "NFR-USA-004",
+   "module": "USA",
+   "priority": "M",
+   "text": "The POS SHALL be fully operable by a user who cannot read, using a configurable image-based menu grid."
+  },
+  {
+   "id": "NFR-USA-005",
+   "module": "USA",
+   "priority": null,
+   "text": "New cashier productive after ≤ 30 minutes of training"
+  },
+  {
+   "id": "NFR-USA-006",
+   "module": "USA",
+   "priority": null,
+   "text": "); recipe entry supports progressive precision — an item can be sold before its recipe is complete, with the system flagging incomplete recipes rather than blocking (BR-MNU-012). Persona 5 — Nadia, Accountant (External) Fifty-two. Handles books for eleven small businesses. Interacts with ROS twice a month. Cares about one thing: whether the numbers reconcile and whether she can export them. What s"
+  },
+  {
+   "id": "NFR-USA-007",
+   "module": "USA",
+   "priority": null,
+   "text": "Dashboard meets WCAG 2.1 Level AA"
+  },
+  {
+   "id": "NFR-USA-008",
+   "module": "USA",
+   "priority": null,
+   "text": "Contrast ratio ≥ 4.5:1 for text, ≥ 3:1 for UI components"
+  },
+  {
+   "id": "NFR-USA-009",
+   "module": "USA",
+   "priority": null,
+   "text": "Dashboard fully keyboard-navigable"
+  },
+  {
+   "id": "NFR-USA-010",
+   "module": "USA",
+   "priority": null,
+   "text": "Every destructive action is confirmable or undoable"
+  },
+  {
+   "id": "NFR-USA-011",
+   "module": "USA",
+   "priority": null,
+   "text": "Every error message states what happened and what to do next"
+  }
+ ]
+}
