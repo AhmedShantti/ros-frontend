@@ -4,7 +4,13 @@ import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { Reveal, useGlow, useTilt } from "./motion";
 
-/** The five working hues. A section picks one and everything inherits it. */
+/**
+ * The accent names survive as an API so that every `accent="violet"`
+ * already written across nine pages keeps compiling. They all resolve to
+ * the same orange in globals.css — this design has one colour, and the
+ * separation that five hues used to provide now comes from inverting a
+ * band and from the weight of the display face instead.
+ */
 export type Accent = "amber" | "emerald" | "azure" | "violet" | "rose";
 
 export const cx = (...parts: Array<string | false | null | undefined>) =>
@@ -18,18 +24,47 @@ export function Container({
   className?: string;
 }) {
   return (
-    <div className={cx("mx-auto w-full max-w-6xl px-5 sm:px-8", className)}>
+    <div className={cx("mx-auto w-full max-w-6xl px-6 sm:px-10", className)}>
       {children}
     </div>
+  );
+}
+
+/**
+ * The mark. A small orange arrow that sits in front of every label on
+ * the site — eyebrows, list bullets, the wordmark. It is the only piece
+ * of ornament in the system, which is what lets it be used everywhere
+ * without the page becoming decorated.
+ */
+export function Arrow({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 10"
+      aria-hidden
+      className={cx("h-2 w-4 shrink-0 rtl:-scale-x-100", className)}
+      fill="none"
+    >
+      <path d="M0 8.4 19 1.2" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M12.4 0.2 19.4 1 18.2 7.6Z" fill="currentColor" />
+    </svg>
   );
 }
 
 /* ==================================================================
    Bands
    ------------------------------------------------------------------
-   Three light surfaces: paper, cream, and the section's own colour
-   wash. Structure comes from hue rather than from switching the lights
-   off, so nothing on this site is dark.
+   Three grounds, and the rhythm of the page is the order they come in.
+
+     bone   the ordinary dark ground
+     wash   a deeper dark, for a band that should sit back
+     cream  the inverted plate — near-white, dark type
+
+   `cream` is the one that does the work. A page of unbroken dark goes
+   flat no matter how good the type is, and flipping one band per page
+   is what stops that happening. Everything inside a `cream` band
+   re-reads its colours from `[data-tone="light"]`, so the same card,
+   the same table and the same button render on both grounds without a
+   single component knowing which one it is standing on.
    ================================================================== */
 export function Section({
   children,
@@ -44,33 +79,31 @@ export function Section({
   accent?: Accent;
   id?: string;
   className?: string;
+  /** Kept for call-site compatibility; the industrial system has no
+   *  background texture, so this now only chooses whether the band
+   *  gets a top rule. `false` removes it. */
   ruled?: "dot" | "grid" | false;
 }) {
+  const light = tone === "cream";
+
   return (
     <section
       id={id}
       data-accent={accent}
+      data-tone={light ? "light" : undefined}
       className={cx(
-        "text-ink relative overflow-hidden py-20 sm:py-28",
-        tone === "wash" ? "bg-a-wash" : tone === "cream" ? "bg-cream" : "bg-bone",
+        "relative py-24 sm:py-32",
+        light ? "bg-cream text-ink" : tone === "wash" ? "bg-void" : "bg-bone",
         className,
       )}
-      style={id ? { scrollMarginTop: "5.5rem" } : undefined}
+      style={id ? { scrollMarginTop: "5rem" } : undefined}
     >
       {ruled ? (
         <span
           aria-hidden
-          className={cx(
-            "pointer-events-none absolute inset-0",
-            ruled === "grid" ? "grid-rule" : "dot-rule",
-          )}
+          className="bg-ink/12 pointer-events-none absolute inset-x-0 top-0 h-px"
         />
       ) : null}
-
-      <span
-        aria-hidden
-        className="edge-lit pointer-events-none absolute inset-x-0 top-0 h-px"
-      />
 
       <Container className="relative">{children}</Container>
     </section>
@@ -80,6 +113,8 @@ export function Section({
 /* ==================================================================
    Type
    ================================================================== */
+
+/** The mono label above a heading. Caps, widely tracked, arrow in front. */
 export function Eyebrow({
   children,
   className,
@@ -88,8 +123,8 @@ export function Eyebrow({
   className?: string;
 }) {
   return (
-    <p className={cx("spec text-a inline-flex items-center gap-2", className)}>
-      <span aria-hidden className="bg-a inline-block h-1.5 w-1.5 rounded-full" />
+    <p className={cx("spec text-a inline-flex items-center gap-2.5", className)}>
+      <Arrow />
       {children}
     </p>
   );
@@ -109,22 +144,27 @@ export function SectionHead({
   align?: "start" | "center";
 }) {
   return (
-    <header className={cx("max-w-3xl", align === "center" && "mx-auto text-center")}>
+    <header
+      className={cx(
+        "max-w-3xl",
+        align === "center" && "mx-auto flex flex-col items-center text-center",
+      )}
+    >
       {eyebrow ? (
         <Reveal>
-          <Eyebrow className="mb-5">{eyebrow}</Eyebrow>
+          <Eyebrow className="mb-6">{eyebrow}</Eyebrow>
         </Reveal>
       ) : null}
 
       <Reveal delay={60}>
-        <h2 className="font-display text-ink text-[1.75rem] leading-[1.12] font-semibold tracking-[-0.02em] text-balance sm:text-[2.6rem]">
+        <h2 className="font-display display-md text-ink text-balance">
           {title}
         </h2>
       </Reveal>
 
       {lede ? (
         <Reveal delay={120}>
-          <p className="text-grey-600 mt-5 text-base leading-relaxed sm:text-lg">
+          <p className="text-grey-600 mt-6 max-w-2xl text-base leading-relaxed">
             {lede}
           </p>
         </Reveal>
@@ -132,7 +172,9 @@ export function SectionHead({
 
       {note ? (
         <Reveal delay={170}>
-          <p className="text-grey-500 mt-4 text-sm leading-relaxed">{note}</p>
+          <p className="text-grey-500 mt-4 max-w-2xl text-sm leading-relaxed">
+            {note}
+          </p>
         </Reveal>
       ) : null}
     </header>
@@ -157,7 +199,7 @@ export function SpecTag({
     <span
       dir="ltr"
       className={cx(
-        "spec text-a border-a bg-a-wash inline-flex items-center rounded-md border px-1.5 py-0.5 whitespace-nowrap",
+        "spec text-a border-a inline-flex items-center border px-2 py-0.5 whitespace-nowrap",
         className,
       )}
     >
@@ -167,7 +209,11 @@ export function SpecTag({
 }
 
 /* ==================================================================
-   Page hero — every inner page opens with the same lit plate.
+   Page hero
+   ------------------------------------------------------------------
+   Every inner page opens the same way: the label, then the title at
+   the size the display face was drawn for, then the argument. No
+   ornament above the fold — the type is the ornament.
    ================================================================== */
 export function PageHero({
   eyebrow,
@@ -187,37 +233,22 @@ export function PageHero({
   return (
     <section
       data-accent={accent}
-      className="field bg-bone text-ink relative overflow-hidden"
+      className="bg-bone text-ink relative overflow-hidden"
     >
-      <span
-        aria-hidden
-        className="blob blob-a bg-a -top-40 h-[26rem] w-[38rem]"
-        style={{ insetInlineStart: "-8rem" }}
-      />
-      <span
-        aria-hidden
-        className="blob blob-b bg-violet -top-24 h-[22rem] w-[30rem] opacity-30"
-        style={{ insetInlineEnd: "-6rem" }}
-      />
-      <span
-        aria-hidden
-        className="grid-rule pointer-events-none absolute inset-0"
-      />
-
-      <Container className="relative py-20 sm:py-28">
+      <Container className="relative pt-28 pb-20 sm:pt-36 sm:pb-28">
         <Reveal>
-          <Eyebrow className="mb-5">{eyebrow}</Eyebrow>
+          <Eyebrow className="mb-7">{eyebrow}</Eyebrow>
         </Reveal>
 
         <Reveal delay={60}>
-          <h1 className="font-display text-ink max-w-4xl text-[2rem] leading-[1.08] font-semibold tracking-[-0.025em] text-balance sm:text-[3.4rem]">
+          <h1 className="font-display display-lg text-ink max-w-[16ch] text-balance">
             {title}
           </h1>
         </Reveal>
 
         {lede ? (
           <Reveal delay={120}>
-            <p className="text-grey-600 mt-6 max-w-3xl text-base leading-relaxed sm:text-lg">
+            <p className="text-grey-600 mt-8 max-w-2xl text-base leading-relaxed sm:text-lg">
               {lede}
             </p>
           </Reveal>
@@ -225,14 +256,19 @@ export function PageHero({
 
         {note ? (
           <Reveal delay={170}>
-            <p className="text-grey-500 mt-4 max-w-3xl text-sm leading-relaxed">
+            <p className="text-grey-500 mt-4 max-w-2xl text-sm leading-relaxed">
               {note}
             </p>
           </Reveal>
         ) : null}
 
-        {children ? <div className="mt-10">{children}</div> : null}
+        {children ? <div className="mt-12">{children}</div> : null}
       </Container>
+
+      <span
+        aria-hidden
+        className="bg-ink/12 pointer-events-none absolute inset-x-0 bottom-0 h-px"
+      />
     </section>
   );
 }
@@ -241,7 +277,14 @@ export function PageHero({
    Surfaces
    ================================================================== */
 
-/** A panel that lifts, lights up and tilts fractionally under the cursor. */
+/**
+ * A card: a square, a hairline, and a surface one step off the ground.
+ *
+ * The rounding, the drop shadow and the soft glow the light system used
+ * are all gone. What is left to signal "this is a distinct object" is
+ * the hairline, and what is left to signal "this one is under your
+ * cursor" is an orange rule drawn across its top edge.
+ */
 export function GlowCard({
   children,
   className,
@@ -262,7 +305,7 @@ export function GlowCard({
   tilt?: boolean;
 }) {
   const glow = useGlow<HTMLDivElement>();
-  const tilted = useTilt<HTMLDivElement>(4);
+  const tilted = useTilt<HTMLDivElement>(3);
   const h = tilt ? tilted : glow;
 
   const body = (
@@ -274,7 +317,7 @@ export function GlowCard({
       onPointerLeave={tilt ? tilted.onPointerLeave : undefined}
       style={style}
       className={cx(
-        "glow-card border-ink/8 bg-paper hover:border-a hover:shadow-md shadow-2xs h-full overflow-hidden rounded-2xl border p-6",
+        "glow-card border-ink/12 hover:border-a h-full border p-6",
         bar && "card-bar",
         tilt && "tilt",
         className,
@@ -285,7 +328,7 @@ export function GlowCard({
   );
 
   return href ? (
-    <Link href={href} className="group block h-full rounded-2xl">
+    <Link href={href} className="group block h-full">
       {body}
     </Link>
   ) : (
@@ -306,12 +349,12 @@ export function FactRows({
   stagger?: boolean;
 }) {
   return (
-    <dl className="border-ink/10 divide-ink/8 divide-y border-t">
+    <dl className="border-ink/12 divide-ink/10 divide-y border-t">
       {rows.map(([k, v], i) => (
         <Reveal
           key={`${k}-${i}`}
           delay={stagger ? Math.min(i * 45, 260) : 0}
-          className="hover:bg-a-wash/60 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 px-1 py-3.5 transition-colors"
+          className="hover:bg-ink/4 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 px-1 py-4 transition-colors"
         >
           <dt className="text-grey-600 text-sm leading-relaxed">{k}</dt>
           <dd className="text-a font-mono text-sm tabular-nums">{v}</dd>
@@ -336,16 +379,16 @@ export function DataTable({
   compact?: boolean;
 }) {
   return (
-    <div className="border-ink/10 bg-paper -mx-5 overflow-x-auto rounded-xl border px-0 sm:mx-0">
+    <div className="border-ink/12 -mx-6 overflow-x-auto border sm:mx-0">
       <table className="w-full min-w-[42rem] border-collapse text-sm">
         <caption className="sr-only">
           {firstColLabel ?? head.join(", ")}
         </caption>
         <thead>
-          <tr className="border-ink/15 bg-a-wash border-b">
+          <tr className="border-ink/20 bg-ink/5 border-b">
             <th
               scope="col"
-              className="spec text-a px-4 py-3 text-start font-normal"
+              className="spec text-a px-4 py-3.5 text-start font-normal"
             >
               {firstColLabel ?? ""}
             </th>
@@ -353,7 +396,7 @@ export function DataTable({
               <th
                 key={h}
                 scope="col"
-                className="font-display text-ink px-4 py-3 text-start text-sm font-semibold"
+                className="font-display text-ink px-4 py-3.5 text-start text-sm"
               >
                 {h}
               </th>
@@ -364,13 +407,13 @@ export function DataTable({
           {rows.map((row, ri) => (
             <tr
               key={`${row[0]}-${ri}`}
-              className="border-ink/8 hover:bg-a-wash/50 border-b transition-colors last:border-0"
+              className="border-ink/10 hover:bg-ink/4 border-b transition-colors last:border-0"
             >
               <th
                 scope="row"
                 className={cx(
                   "text-ink px-4 text-start align-top font-medium",
-                  compact ? "py-2.5" : "py-3.5",
+                  compact ? "py-3" : "py-4",
                 )}
               >
                 {row[0]}
@@ -380,7 +423,7 @@ export function DataTable({
                   key={ci}
                   className={cx(
                     "text-grey-600 px-4 align-top",
-                    compact ? "py-2.5" : "py-3.5",
+                    compact ? "py-3" : "py-4",
                   )}
                 >
                   {renderCell ? renderCell(cellValue) : cellValue}
@@ -411,8 +454,8 @@ export function Disclosure({
   defaultOpen?: boolean;
 }) {
   return (
-    <details open={defaultOpen} className="border-ink/10 group border-t">
-      <summary className="hover:text-a flex items-center gap-3 py-3.5 text-sm font-medium transition-colors">
+    <details open={defaultOpen} className="border-ink/12 group border-t">
+      <summary className="hover:text-a font-display flex items-center gap-3.5 py-4 text-base transition-colors">
         <span
           aria-hidden
           className="chev text-a inline-block text-xs rtl:-scale-x-100"
@@ -424,7 +467,7 @@ export function Disclosure({
           <span className="spec text-grey-400 tabular-nums">{count}</span>
         ) : null}
       </summary>
-      <div className="disclosure-body pb-6">{children}</div>
+      <div className="disclosure-body pb-7">{children}</div>
     </details>
   );
 }
@@ -432,37 +475,76 @@ export function Disclosure({
 /* ==================================================================
    Controls
    ================================================================== */
+
+/**
+ * Every button on the site.
+ *
+ * Four crosshair brackets at the corners and nothing else — no fill and
+ * no full outline at rest. On hover the brackets grow to the size of the
+ * button and close into a complete rectangle, and the label takes the
+ * accent. It reads as instrumentation rather than as a control, which is
+ * the register the rest of the site is in.
+ *
+ * The brackets are symmetric, so nothing here needs mirroring in Arabic.
+ *
+ * It renders a link or a real `<button>` depending on whether it is
+ * given an `href`, so the contact form's submit and the pricing plans
+ * use the same component as everything else rather than three
+ * hand-maintained copies of the same class string.
+ */
 export function Button({
   href,
   children,
   variant = "primary",
   className,
+  type,
+  disabled,
+  onClick,
 }: {
-  href: string;
+  href?: string;
   children: ReactNode;
   variant?: "primary" | "ghost";
   className?: string;
+  type?: "button" | "submit";
+  disabled?: boolean;
+  onClick?: () => void;
 }) {
-  const skin =
-    variant === "primary"
-      ? "bg-ink text-bone hover:bg-a-deep shadow-md"
-      : "border-ink/20 text-ink hover:border-a hover:text-a border";
+  const inner = (
+    <>
+      {(["tl", "tr", "bl", "br"] as const).map((corner) => (
+        <span key={corner} aria-hidden data-corner={corner} className="btn-corner" />
+      ))}
+      <span className="relative">{children}</span>
+    </>
+  );
+
+  const shared = cx(
+    "btn font-display ui-btn transition-colors duration-300",
+    className,
+  );
+
+  if (href) {
+    return (
+      <Link href={href} data-variant={variant} className={shared}>
+        {inner}
+      </Link>
+    );
+  }
 
   return (
-    <Link
-      href={href}
-      className={cx(
-        "inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-medium transition-all duration-300 hover:-translate-y-0.5",
-        skin,
-        className,
-      )}
+    <button
+      type={type ?? "button"}
+      disabled={disabled}
+      onClick={onClick}
+      data-variant={variant}
+      className={cx(shared, "disabled:opacity-60")}
     >
-      {children}
-    </Link>
+      {inner}
+    </button>
   );
 }
 
-/** A small pill used for capability chips and needs lists. */
+/** A small square used for capability chips and needs lists. */
 export function Chip({
   children,
   accent,
@@ -473,32 +555,30 @@ export function Chip({
   return (
     <span
       data-accent={accent}
-      className="border-ink/12 text-grey-600 hover:border-a hover:bg-a-wash hover:text-a inline-flex items-center rounded-full border px-3 py-1 text-xs leading-relaxed transition-colors"
+      className="border-ink/15 text-grey-600 hover:border-a hover:text-a inline-flex items-center border px-3 py-1.5 text-xs leading-relaxed transition-colors"
     >
       {children}
     </span>
   );
 }
 
-/** The numbered rule that opens each item in a list of many. */
+/** The numbered label that opens each item in a list of many. */
 export function Ordinal({ n }: { n: number }) {
   return (
-    <span className="spec text-a bg-a-wash inline-flex h-6 min-w-6 items-center justify-center rounded-md px-1.5 tabular-nums">
+    <span className="spec text-a tabular-nums">
       {String(n).padStart(2, "0")}
     </span>
   );
 }
 
-/** Bulleted point with an accent marker that survives RTL. */
+/** Bulleted point. The arrow replaces the dot, and survives RTL. */
 export function Bullet({ children }: { children: ReactNode }) {
   return (
-    <li className="text-grey-600 relative ps-5 text-sm leading-relaxed">
-      <span
-        aria-hidden
-        className="bg-a absolute top-[0.6rem] h-1.5 w-1.5 rounded-full"
-        style={{ insetInlineStart: 0 }}
-      />
-      {children}
+    <li className="text-grey-600 flex gap-3 text-sm leading-relaxed">
+      <span className="text-a mt-[0.5em] shrink-0">
+        <Arrow />
+      </span>
+      <span className="flex-1">{children}</span>
     </li>
   );
 }
@@ -518,7 +598,7 @@ export function JumpList({
         <a
           key={it.id}
           href={`#${it.id}`}
-          className="border-ink/12 text-grey-600 hover:border-a hover:bg-a-wash hover:text-a rounded-full border px-3 py-1.5 text-xs transition-colors"
+          className="border-ink/15 text-grey-600 hover:border-a hover:text-a hover:bg-ink/4 border px-3.5 py-2 text-xs transition-colors"
         >
           {it.label}
         </a>
@@ -532,9 +612,89 @@ export function Formula({ children }: { children: ReactNode }) {
   return (
     <pre
       dir="ltr"
-      className="border-ink/10 bg-cream text-grey-700 overflow-x-auto rounded-lg border px-4 py-3 font-mono text-xs leading-relaxed"
+      className="border-ink/12 bg-ink/5 text-grey-600 overflow-x-auto border px-4 py-3.5 font-mono text-xs leading-relaxed"
     >
       {children}
     </pre>
+  );
+}
+
+/* ==================================================================
+   Hero backdrop
+   ------------------------------------------------------------------
+   The design this site is modelled on runs a full-bleed photograph
+   behind its hero, under a heavy scrim. There is no photography in
+   this repository — no `public/` directory and no image assets — so
+   the backdrop is generated instead: a wide industrial rule grid, a
+   diagonal hatch over it, and a vignette that drops the edges away so
+   the type has somewhere quiet to sit.
+
+   It is deliberately a single component with an `src` prop rather than
+   a pile of decorative spans in the page. The day there is a photo to
+   use, `<Backdrop src="/hero.jpg" />` is the whole change, and every
+   hero on the site picks it up at once.
+   ================================================================== */
+export function Backdrop({
+  src,
+  alt = "",
+  className,
+}: {
+  src?: string;
+  alt?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      aria-hidden={src ? undefined : true}
+      className={cx("pointer-events-none absolute inset-0 -z-10 overflow-hidden", className)}
+    >
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={alt}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : (
+        <>
+          {/* The rule grid: wide, faint, and cropped by the vignette. */}
+          <span
+            className="absolute inset-0"
+            style={{
+              backgroundImage:
+                "linear-gradient(to right, rgba(243,242,242,.055) 1px, transparent 1px), linear-gradient(to bottom, rgba(243,242,242,.055) 1px, transparent 1px)",
+              backgroundSize: "88px 88px",
+            }}
+          />
+          {/* A fine diagonal hatch, at an angle the grid never sits at. */}
+          <span
+            className="absolute inset-0 opacity-45"
+            style={{
+              backgroundImage:
+                "repeating-linear-gradient(112deg, rgba(243,242,242,.04) 0 1px, transparent 1px 11px)",
+            }}
+          />
+          {/* One slow wash of the accent, low enough to read as light
+              rather than as colour. */}
+          <span
+            className="absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(120% 80% at 78% 8%, rgba(255,105,51,.12), transparent 58%)",
+            }}
+          />
+        </>
+      )}
+
+      {/* The scrim. Everything above is background; this is what makes
+          the type legible on top of it, photograph or not. */}
+      <span
+        className="absolute inset-0"
+        style={{
+          background:
+            "linear-gradient(to bottom, rgba(19,18,17,.72) 0%, rgba(19,18,17,.55) 45%, rgba(27,26,24,.96) 100%)",
+        }}
+      />
+    </div>
   );
 }

@@ -10,7 +10,7 @@ export const qualityEn = {
   quality: {
     eyebrow: "Quality & operations",
     title: "How it is verified, and how it is run",
-    lede: "A performance target without a percentile and a reference condition is untestable. So is a quality claim without a gate that blocks the merge. Everything below is written to be enforced by a pipeline rather than asserted in a meeting.",
+    lede: "Performance is not enough as a goal, and quality is not enough as a claim. So we do not rely on a reference condition that cannot be tested, and no change is merged without a quality gate governing it. Every step here is written to be enforced inside the pipeline — so quality stays a fixed standard in every release, not just a promise.",
     pageLede:
       "Reproduced from chapters 27, 28 and 29 of the baseline: usability and accessibility, maintainability, observability, portability, the test strategy, the quality gates, the environments, the pipeline, and the incident model.",
 

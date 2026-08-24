@@ -2,20 +2,35 @@
 
 import { useState, type FormEvent } from "react";
 import { useI18n } from "@/lib/i18n";
-import { Container, GlowCard, PageHero } from "@/components/ui";
+import { Button, Container, GlowCard, PageHero } from "@/components/ui";
 import { Reveal } from "@/components/motion";
 
 type Status = "idle" | "sending" | "sent";
 
+/**
+ * Where an enquiry actually goes.
+ *
+ * Set `NEXT_PUBLIC_CONTACT_ENDPOINT` to a route handler, a CRM webhook or a
+ * form service and this page starts posting to it — including reporting a
+ * failure instead of a false confirmation. Left unset, the form still works
+ * and the confirmation says outright that nothing was sent, rather than
+ * telling someone their request was recorded when it was not.
+ */
+const ENDPOINT = process.env.NEXT_PUBLIC_CONTACT_ENDPOINT ?? "";
+
+/* A field is a hairline and a slightly sunken surface. On focus the
+   hairline turns orange and the surface lifts — no ring, because the
+   border is already doing the job and two focus indicators on the same
+   control read as an error state. */
 const FIELD =
-  "border-ink/15 focus:border-a focus:ring-amber/25 mt-2 w-full rounded-lg border bg-paper px-3.5 py-2.5 text-sm outline-none transition-colors focus:ring-4";
+  "border-ink/20 focus:border-a text-ink placeholder:text-grey-400 bg-ink/4 focus:bg-ink/6 mt-2.5 w-full border px-3.5 py-3 text-sm outline-none transition-colors";
 
 export default function ContactPage() {
   const { t } = useI18n();
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
 
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
     const name = String(data.get("name") ?? "").trim();
@@ -29,9 +44,29 @@ export default function ContactPage() {
 
     setError(null);
     setStatus("sending");
-    // Nothing leaves the browser. Replace this with a fetch to your CRM,
-    // a route handler, or a form service to make the form real.
-    window.setTimeout(() => setStatus("sent"), 700);
+
+    // Not wired up: confirm locally and say plainly that nothing was sent.
+    // The old version showed the same confirmation either way, so a real
+    // enquiry looked delivered when it had gone nowhere.
+    if (!ENDPOINT) {
+      window.setTimeout(() => setStatus("sent"), 700);
+      return;
+    }
+
+    try {
+      const response = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Object.fromEntries(data.entries())),
+      });
+      // A failed send must not look like a successful one — that is the whole
+      // defect this is fixing.
+      if (!response.ok) throw new Error(String(response.status));
+      setStatus("sent");
+    } catch {
+      setError(t.contact.sendFailed);
+      setStatus("idle");
+    }
   }
 
   return (
@@ -50,18 +85,18 @@ export default function ContactPage() {
               <Reveal>
                 <div
                   data-accent="emerald"
-                  className="border-a bg-a-wash rounded-2xl border p-8"
+                  className="border-a bg-a-wash border p-8"
                 >
-                  <h2 className="font-display text-ink text-xl font-semibold">
-                    {t.contact.successTitle}
+                  <h2 className="font-display text-ink text-2xl">
+                    {ENDPOINT ? t.contact.sentTitle : t.contact.successTitle}
                   </h2>
                   <p className="text-grey-600 mt-3 text-sm leading-relaxed">
-                    {t.contact.successText}
+                    {ENDPOINT ? t.contact.sentText : t.contact.successText}
                   </p>
                   <button
                     type="button"
                     onClick={() => setStatus("idle")}
-                    className="border-ink/20 text-ink hover:border-a hover:text-a mt-7 rounded-full border px-5 py-2.5 text-sm font-medium transition-colors"
+                    className="border-ink/25 text-ink hover:border-a hover:text-a font-display ui-btn mt-7 border px-[17px] py-[13px] transition-colors"
                   >
                     {t.contact.reset}
                   </button>
@@ -140,19 +175,19 @@ export default function ContactPage() {
                     <p
                       role="alert"
                       data-accent="rose"
-                      className="text-a border-a bg-a-wash mt-5 rounded-lg border px-4 py-3 text-sm"
+                      className="text-a border-a bg-a-wash mt-5 border px-4 py-3 text-sm"
                     >
                       {error}
                     </p>
                   ) : null}
 
-                  <button
+                  <Button
                     type="submit"
                     disabled={status === "sending"}
-                    className="bg-ink text-bone hover:bg-a-deep mt-8 rounded-full px-6 py-3 text-sm font-medium transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-60"
+                    className="mt-8"
                   >
                     {status === "sending" ? t.contact.sending : t.contact.submit}
-                  </button>
+                  </Button>
                 </form>
               </Reveal>
             )}
@@ -163,7 +198,7 @@ export default function ContactPage() {
                 <ol className="mt-6 space-y-5">
                   {t.contact.steps.map((step, i) => (
                     <li key={step} className="flex gap-3.5">
-                      <span className="bg-a-wash text-a border-a font-display flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold">
+                      <span className="bg-a-wash text-a border-a font-display flex h-7 w-7 shrink-0 items-center justify-center border text-xs">
                         {i + 1}
                       </span>
                       <span className="text-grey-600 text-sm leading-relaxed">

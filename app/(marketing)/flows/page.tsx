@@ -38,7 +38,7 @@ function Steps({ steps }: { steps: readonly string[] }) {
         >
           <span
             aria-hidden
-            className="bg-a-wash text-a border-a spec absolute top-0 flex h-6 w-6 items-center justify-center rounded-full border tabular-nums"
+            className="bg-a-wash text-a border-a spec absolute top-0 flex h-6 w-6 items-center justify-center border tabular-nums"
             style={{ insetInlineStart: "-2.5rem" }}
           >
             {i + 1}
@@ -81,10 +81,27 @@ export default function FlowsPage() {
               <div className="flex flex-wrap items-center gap-3">
                 <SpecTag id={uc.code} />
                 <SpecTag id={uc.chapter} />
+                {/*
+                  Two of these flows describe modules that are specified but
+                  not built. They are written in the same operational voice as
+                  the POS and kitchen flows you can actually click through, so
+                  without a marker there is no way to tell from the page which
+                  is which.
+                */}
+                {uc.notInBuild ? (
+                  <span className="border-ink/25 text-grey-500 spec inline-flex items-center border border-dashed px-2 py-0.5">
+                    {f.labels.notInBuild}
+                  </span>
+                ) : null}
               </div>
-              <h2 className="font-display text-ink mt-5 text-[1.6rem] leading-tight font-semibold tracking-[-0.02em] text-balance sm:text-[2.3rem]">
+              <h2 className="font-display text-ink mt-5 text-[1.6rem] text-balance sm:text-[2.3rem]">
                 {uc.name}
               </h2>
+              {uc.notInBuild ? (
+                <p className="text-grey-500 mt-4 max-w-2xl text-sm leading-relaxed">
+                  {f.labels.notInBuildNote}
+                </p>
+              ) : null}
             </Reveal>
 
             {/* Actor, preconditions, trigger */}

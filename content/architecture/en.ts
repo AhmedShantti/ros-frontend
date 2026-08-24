@@ -9,7 +9,7 @@ export const architectureEn = {
   architecture: {
     eyebrow: "Architecture",
     title: "The decisions that are expensive to reverse",
-    lede: "Architecture is the set of decisions that cost the most to undo. Seven drivers determine every one of them, in priority order — and when two conflict, the higher-priority one wins and the trade-off is recorded.",
+    lede: "Architecture is not just technical detail; it is the set of decisions that determine how the system behaves in every situation. Seven principles govern those decisions in a clear priority order, and when they conflict the decision is settled by them and its effect recorded plainly.",
     pageLede:
       "Reproduced from chapters 5, 7, 24, 25 and 26 of the baseline. Where the document shows code or a schema, so does this page.",
 
@@ -56,9 +56,9 @@ export const architectureEn = {
       ],
     ],
 
-    rulesTitle: "What 'modular' actually requires",
+    rulesTitle: "What does 'modular' actually mean?",
     rulesLede:
-      "A monolith without discipline becomes a big ball of mud, at which point extraction is impossible and the decision above becomes a trap. These rules are enforced mechanically, not by convention.",
+      "That every part of the system keeps clear boundaries and owns its responsibility, without working in isolation from the rest. That is how modules integrate without tangling, and how the system stays easier to develop and expand without a change in one part rippling through the whole.",
     rulesCols: ["Enforcement"],
     rulesFirstCol: "Rule",
     rules: [
@@ -282,7 +282,7 @@ COMMIT;
 
     movementsTitle: "Stock movement types",
     movementsLede:
-      "The immutable ledger of all inventory change. Every quantity in the system is derivable from this one table, and no row in it is ever updated or deleted.",
+      "Every inventory movement is written as an independent record that is never edited after creation, and the system's actual quantities are built from the sum of those movements. That keeps inventory history clear, and every change traceable and retrievable precisely, at any time.",
     movementsCols: ["Sign", "Trigger"],
     movementsFirstCol: "Type",
     movements: [
@@ -303,7 +303,7 @@ COMMIT;
 
     patternsTitle: "Patterns, and where they earn their keep",
     patternsLede:
-      "A pattern is a named solution to a recurring problem, applied where that problem actually exists. Applied where it does not, it is pure cost: more indirection, more files, more concepts to learn, no benefit.",
+      "We do not add a pattern just to repeat a solution, but when a real problem recurs often enough to deserve one uniform treatment. Every new pattern carries an ongoing cost: more conventions, more layers, and more concepts the system has to keep alive.",
     patternsCols: ["Where it is applied"],
     patternsFirstCol: "Pattern",
     patterns: [
@@ -361,9 +361,9 @@ COMMIT;
       ["Backpressure", "Sync batch size limits and queue depth thresholds"],
     ],
 
-    antiTitle: "Anti-patterns explicitly rejected",
+    antiTitle: "Patterns we reject outright",
     antiLede:
-      "An architecture is defined as much by what it excludes. Each of these is written down so it cannot be reintroduced by accident.",
+      "The strength of an architecture comes not only from what it adopts, but from what it refuses. So these patterns are named explicitly, to keep out solutions that may look faster today but create complexity and defects that are hard to reverse later.",
     antiCols: ["Why it is rejected here"],
     antiFirstCol: "Anti-pattern",
     anti: [
@@ -406,7 +406,7 @@ COMMIT;
 
     appendOnlyTitle: "Append-only, enforced by the database",
     appendOnlyNote:
-      "Orders, payments, stock movements and audit entries are never updated or deleted. Corrections are new records referencing the original. This is not a convention — the grants are revoked and rules block the statements outright.",
+      "Every order, payment, stock movement and audit entry stays stored exactly as it happened, with no edit and no deletion. Any correction is written as a new event referencing the original — so the data stays traceable, permissions stay governed, and the operating record stays complete from the start.",
     appendOnlyCode: `REVOKE UPDATE, DELETE ON inventory.stock_movements FROM app_role;
 CREATE RULE no_update AS ON UPDATE TO inventory.stock_movements DO INSTEAD NOTHING;
 CREATE RULE no_delete AS ON DELETE TO inventory.stock_movements DO INSTEAD NOTHING;

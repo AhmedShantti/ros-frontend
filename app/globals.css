@@ -7,67 +7,83 @@
 /* ==================================================================
    Design tokens
    ------------------------------------------------------------------
-   A light system. Paper is the ground everywhere — there are no dark
-   bands — and the structure comes from five working hues rather than
-   from switching the lights off.
+   An industrial system. The ground is a warm near-black, the type is
+   an off-white, and there is exactly one colour: a signal orange.
 
-   Each hue has three weights and one job:
+   Everything that used to be carried by five hues is now carried by
+   three things instead — the weight of the display face, the inversion
+   of a band from dark to light, and that single orange used sparingly
+   enough that it still means something when it appears.
 
-     amber    the brand, and money
-     emerald  "this is working"
-     azure    platform and architecture
-     violet   quality, testing, governance
-     rose     loss, risk, and pain
-
-   The mid weight is for marks, bars, rings and borders. The `-deep`
-   weight is the only one allowed to carry text, because at the mid
-   weight none of them clears 4.5:1 on paper. The `-wash` weight is a
-   section background and nothing else.
-
-   Declared once. No hex values belong in components.
+   The five accent names survive as plumbing so that `data-accent` on a
+   section keeps working, but they all resolve to the same orange. That
+   is deliberate: re-introducing a hue is a one-line change here, and
+   nothing in a component has to know.
    ================================================================== */
 @theme {
   /* ---- Surfaces ------------------------------------------------ */
-  --color-ink: #14181d; /* text, and the rare dark chip */
-  --color-bone: #fcfbf8; /* the page */
-  --color-cream: #f6f3ea; /* alternating band */
-  --color-paper: #ffffff; /* cards */
+  --color-void: #131211; /* deepest: hero scrim, footer floor */
+  --color-ink: #f3f2f2; /* text — the name kept, the value flipped */
+  --color-bone: #1b1a18; /* the page */
+  --color-cream: #f2f3f2; /* the inverted plate, and only that */
+  --color-paper: #201f1c; /* a card, one step off the ground */
 
-  /* ---- The five hues ------------------------------------------- */
-  --color-amber: #f0a92c;
-  --color-amber-deep: #8a5a05;
-  --color-amber-wash: #fff4e0;
+  /* ---- The one colour -------------------------------------------
+     `-deep` is the weight that carries text. On this ground the
+     readable orange and the fill orange are the same value; on an
+     inverted plate `[data-tone="light"]` swaps in a darker one. */
+  --color-amber: #ff6933;
+  --color-amber-deep: #ff6933;
+  --color-amber-wash: #2a1710;
 
-  --color-emerald: #1fa97a;
-  --color-emerald-deep: #0f6b4c;
-  --color-emerald-wash: #e2f6ed;
+  /* The other four names are aliases. Same orange, no exceptions. */
+  --color-emerald: #ff6933;
+  --color-emerald-deep: #ff6933;
+  --color-emerald-wash: #2a1710;
 
-  --color-azure: #2f7fe0;
-  --color-azure-deep: #1a4f96;
-  --color-azure-wash: #e7f0fd;
+  --color-azure: #ff6933;
+  --color-azure-deep: #ff6933;
+  --color-azure-wash: #2a1710;
 
-  --color-violet: #7c5cf0;
-  --color-violet-deep: #4b30a8;
-  --color-violet-wash: #efe9fe;
+  --color-violet: #ff6933;
+  --color-violet-deep: #ff6933;
+  --color-violet-wash: #2a1710;
 
-  --color-rose: #e2536b;
-  --color-rose-deep: #a41f38;
-  --color-rose-wash: #fdeaee;
+  --color-rose: #ff6933;
+  --color-rose-deep: #ff6933;
+  --color-rose-wash: #2a1710;
 
-  /* ---- Neutral scale ------------------------------------------- */
-  --color-grey-100: #f1f0ec;
-  --color-grey-200: #e2e0d9;
-  --color-grey-300: #c6c4bb;
-  --color-grey-400: #9b9990;
-  --color-grey-500: #74736b;
-  --color-grey-600: #565650;
-  --color-grey-700: #3a3a36;
+  /* ---- Neutral scale --------------------------------------------
+     Inverted from the light system it replaces: 600 is body copy and
+     the brightest of the reading greys, 400 is the dimmest label that
+     still clears 4.5:1 on the ground. Nothing below 400 carries text. */
+  --color-grey-100: #26241f;
+  --color-grey-200: #2f2d28;
+  --color-grey-300: #46433c;
+  --color-grey-400: #8a857c; /* 4.7:1 — labels */
+  --color-grey-500: #9c968c; /* 5.9:1 — notes */
+  --color-grey-600: #c9c5bd; /* 10.1:1 — body */
+  --color-grey-700: #e2dfd8;
 
   /* ---- Type -----------------------------------------------------
-     Space Grotesk for headings: geometric, slightly mechanical, the
-     face of a control surface. Inter for reading at speed. Cairo
-     carries Arabic on every surface — it is the Arabic face, not a
-     fallback, because this product is authored right-to-left. */
+     Alumni Sans is the display voice: condensed, heavy, set in caps
+     with the leading crushed. Figtree reads at speed underneath it.
+     DM Mono is the label — step numbers, spec ids, eyebrows.
+
+     Noto Kufi Arabic carries all three jobs in Arabic. It is not a
+     fallback: Alumni Sans has no Arabic coverage, Arabic has no
+     uppercase, and it does not survive being condensed — so the
+     Arabic build keeps the density and weight of the design without
+     pretending the script works like Latin. */
+  --font-brut:
+    var(--font-alumni), var(--font-kufi), "Arial Narrow", ui-sans-serif,
+    sans-serif;
+  --font-body:
+    var(--font-figtree), var(--font-kufi), ui-sans-serif, system-ui, sans-serif;
+  --font-label:
+    var(--font-dmmono), var(--font-kufi), ui-monospace, monospace;
+
+  /* The console's stacks. Untouched — it has its own surface. */
   --font-sans:
     var(--font-inter), var(--font-cairo), ui-sans-serif, system-ui, sans-serif;
   --font-display:
@@ -82,22 +98,16 @@
   --radius-2xl: 1.25rem;
   --radius-3xl: 1.75rem;
 
-  /* Soft, low-contrast shadows — objects resting on paper. */
-  --shadow-2xs: 0 1px 2px rgba(20, 24, 29, 0.04);
-  --shadow-xs: 0 1px 3px rgba(20, 24, 29, 0.06);
-  --shadow-sm: 0 2px 8px rgba(20, 24, 29, 0.06);
-  --shadow-md: 0 10px 24px rgba(20, 24, 29, 0.07);
-  --shadow-lg: 0 18px 40px rgba(20, 24, 29, 0.09);
-  --shadow-xl: 0 30px 64px rgba(20, 24, 29, 0.11);
-  --shadow-2xl: 0 44px 90px rgba(20, 24, 29, 0.14);
-}
-
-/* Arabic leads with Cairo on display text too, so a right-to-left
-   heading never falls back to a Latin face with no Arabic coverage. */
-:root:lang(ar) {
-  --font-display:
-    var(--font-cairo), var(--font-grotesk), ui-sans-serif, system-ui,
-    sans-serif;
+  /* On a dark ground a drop shadow does nothing. Depth comes from the
+     surface stepping up and from a hairline, so these collapse to a
+     lift you can only see at the edges. */
+  --shadow-2xs: 0 1px 0 rgba(243, 242, 242, 0.04);
+  --shadow-xs: 0 1px 0 rgba(243, 242, 242, 0.05);
+  --shadow-sm: 0 1px 0 rgba(243, 242, 242, 0.06);
+  --shadow-md: 0 12px 30px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 32px 70px rgba(0, 0, 0, 0.55);
+  --shadow-2xl: 0 44px 96px rgba(0, 0, 0, 0.6);
 }
 
 html {
@@ -113,37 +123,430 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* The mono requirement tag that appears beside every claim on the site. */
-.spec {
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  font-variant-numeric: tabular-nums;
+/* ==================================================================
+   The marketing shell
+   ------------------------------------------------------------------
+   Everything below is scoped to `.site-shell`, which the (marketing)
+   layout puts around the site. The console, the auth screens and the
+   terminals are wrapped in `.ros-console` instead and never see any
+   of it — that is what lets this file hold two design systems.
+
+   The shell re-points the font and radius custom properties rather
+   than restyling utilities. Tailwind compiles `font-display` to
+   `font-family: var(--font-display)` and `rounded-xl` to
+   `border-radius: var(--radius-xl)`, so redefining those variables
+   here re-skins every existing class in all nine pages at once —
+   and leaves `rounded-full` alone, because that one is a literal.
+   Status dots stay round; every box goes square.
+   ================================================================== */
+.site-shell {
+  --font-sans: var(--font-body);
+  --font-display: var(--font-brut);
+  --font-mono: var(--font-label);
+
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+
+  background: var(--color-bone);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  line-height: 1.5;
 }
 
-/* Arabic has no uppercase, and forcing it costs nothing visually but
-   breaks letter shaping in some faces. Turn it off in RTL. */
-:root:lang(ar) .spec {
-  text-transform: none;
-  letter-spacing: 0;
-  font-family: var(--font-cairo), var(--font-jetbrains), monospace;
-  font-size: 0.72rem;
+/* ==================================================================
+   Arabic swaps the faces, not the rules
+   ------------------------------------------------------------------
+   Everything downstream reads `--font-display`, `--font-sans` and
+   `--font-mono`, so the Arabic build changes those three and leaves
+   every component untouched.
+
+   Alumni Sans stays in each stack behind Noto Kufi. Kufi is loaded
+   with the Arabic subset only, so its @font-face carries an Arabic
+   unicode-range and Latin characters fall straight past it — which is
+   what keeps the wordmark and the spec ids in the display face on a
+   right-to-left page.
+   ================================================================== */
+:root:lang(ar) .site-shell {
+  --font-display: var(--font-kufi), var(--font-alumni), ui-sans-serif, sans-serif;
+  --font-sans: var(--font-kufi), var(--font-figtree), ui-sans-serif, sans-serif;
+  --font-mono: var(--font-kufi), var(--font-dmmono), ui-monospace, monospace;
+
+  font-family: var(--font-sans);
 }
 
-::selection {
-  background: color-mix(in oklab, var(--color-amber) 40%, transparent);
+/* --- Latin islands keep the Latin faces ------------------------------
+   Noto Kufi's Arabic subset also covers basic Latin, so on an Arabic
+   page it was catching the wordmark, the spec ids and the integration
+   names before the stack reached Alumni Sans and DM Mono — TRENDOW came
+   out in a Kufi, and FR-POS-040 stopped being monospaced.
+
+   Every genuinely-Latin island in the site is already marked `dir="ltr"`
+   for the bidi algorithm, which makes that attribute the exact selector
+   for "this subtree is Latin". No specificity fight with the rule above:
+   these are custom properties set on a descendant, so they simply
+   override the inherited value for that subtree.
+   -------------------------------------------------------------------- */
+.site-shell [dir="ltr"] {
+  --font-display: var(--font-brut);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-label);
+}
+
+/* ==================================================================
+   The design system, in @layer components
+   ------------------------------------------------------------------
+   These rules must sit UNDER Tailwind's utilities, not over them.
+
+   Tailwind v4 emits every utility inside `@layer utilities`, and CSS
+   layer order beats specificity: an unlayered rule wins against a
+   layered one no matter how weak its selector is. A top-level
+   `.site-shell .font-display { font-size: 1.12em }` therefore silently
+   defeats `text-xl`, `text-6xl` and every `leading-*` on the element,
+   which is the opposite of what a design system should do.
+
+   Inside `@layer components` the relationship is the right way round:
+   these rules set the default voice of the display face, and any
+   utility written on the element overrides it.
+   ================================================================== */
+@layer components {
+  /* --- The display voice ---------------------------------------------
+     Caps, heavy, condensed, and set tight. The leading is deliberately
+     below 1 — that crushed stack is the single loudest thing about this
+     design, and a heading that opens up to 1.2 stops looking like it
+     belongs to the same system. */
+  .site-shell .font-display {
+    font-family: var(--font-brut);
+    font-weight: 700;
+    letter-spacing: -0.012em;
+    text-transform: uppercase;
+
+    /* The leading is set twice on purpose.
+
+       `line-height` covers display text with no size utility on it.
+       `--tw-leading` covers the rest: Tailwind compiles `text-xl` to
+       `line-height: var(--tw-leading, var(--text-xl--line-height))`,
+       so feeding that variable is the only way to change the leading
+       of a sized heading from underneath without a specificity fight —
+       and an explicit `leading-snug` on the element still wins, because
+       that utility sets the same variable from a higher layer. */
+    line-height: 0.95;
+    --tw-leading: 0.95;
+  }
+
+  /* The three display sizes that carry a section. Written as classes
+     rather than utilities so nothing has to fight a `leading-*` class
+     for specificity. */
+  .site-shell .display-xl {
+    font-size: clamp(2.75rem, 11vw, 9rem);
+    line-height: 0.74;
+    --tw-leading: 0.74;
+    letter-spacing: -0.02em;
+  }
+
+  .site-shell .display-lg {
+    font-size: clamp(2.25rem, 6.5vw, 4.75rem);
+    line-height: 0.78;
+    --tw-leading: 0.78;
+    letter-spacing: -0.018em;
+  }
+
+  .site-shell .display-md {
+    font-size: clamp(1.75rem, 4vw, 3rem);
+    line-height: 0.82;
+    --tw-leading: 0.82;
+    letter-spacing: -0.015em;
+  }
+
+  /* --- Arabic ---------------------------------------------------------
+     No uppercase, no negative tracking, and the leading opens back up:
+     Arabic needs room below the baseline for descenders and above it for
+     the marks, and 0.74 would collide both. The weight does the work
+     instead. */
+  :root:lang(ar) .site-shell .font-display {
+    font-weight: 800;
+    text-transform: none;
+    letter-spacing: 0;
+    line-height: 1.3;
+    --tw-leading: 1.3;
+  }
+
+  :root:lang(ar) .site-shell .display-xl {
+    font-size: clamp(2.5rem, 8vw, 7rem);
+    line-height: 1.16;
+    --tw-leading: 1.16;
+  }
+
+  :root:lang(ar) .site-shell .display-lg {
+    font-size: clamp(2rem, 5.5vw, 4.25rem);
+    line-height: 1.2;
+    --tw-leading: 1.2;
+  }
+
+  :root:lang(ar) .site-shell .display-md {
+    font-size: clamp(1.6rem, 3.6vw, 2.75rem);
+    line-height: 1.25;
+    --tw-leading: 1.25;
+  }
+
+  /* --- The button ------------------------------------------------------
+     Four crosshair brackets at the corners and nothing else — no fill,
+     no full outline. On hover each bracket grows to the full size of the
+     button, so the four of them close into a complete rectangle around
+     the label, and the label takes the accent.
+
+     Each bracket draws two of the four sides, so at full size the set
+     draws every side twice. That is why the colour drops to just over
+     half strength at the same moment: two coincident 2px borders at full
+     strength read heavier than the brackets they grew out of, and the
+     outline would appear to thicken rather than to close.
+
+     The arrangement is symmetric, so it needs no mirroring in Arabic —
+     physical corners are the same corners in both directions.
+     -------------------------------------------------------------------- */
+  .site-shell .btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 15px 26px;
+    isolation: isolate;
+    transition: color 300ms ease;
+  }
+
+  .site-shell .btn-corner {
+    position: absolute;
+    width: 13px;
+    height: 13px;
+    border: 2px solid var(--btn-line);
+    pointer-events: none;
+    transition:
+      width 420ms cubic-bezier(0.16, 1, 0.3, 1),
+      height 420ms cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 300ms ease;
+  }
+
+  .site-shell .btn-corner[data-corner="tl"] {
+    top: 0;
+    left: 0;
+    border-right: 0;
+    border-bottom: 0;
+  }
+
+  .site-shell .btn-corner[data-corner="tr"] {
+    top: 0;
+    right: 0;
+    border-left: 0;
+    border-bottom: 0;
+  }
+
+  .site-shell .btn-corner[data-corner="bl"] {
+    bottom: 0;
+    left: 0;
+    border-right: 0;
+    border-top: 0;
+  }
+
+  .site-shell .btn-corner[data-corner="br"] {
+    bottom: 0;
+    right: 0;
+    border-left: 0;
+    border-top: 0;
+  }
+
+  .site-shell .btn:hover .btn-corner,
+  .site-shell .btn:focus-visible .btn-corner {
+    width: 100%;
+    height: 100%;
+    border-color: var(--btn-line-closed);
+  }
+
+  /* The two variants differ only in how much accent they carry at rest.
+     The primary wears the orange from the start; the outlined one stays
+     neutral until it is reached for. */
+  .site-shell .btn[data-variant="primary"] {
+    --btn-line: var(--a);
+    --btn-line-closed: color-mix(in oklab, var(--a) 55%, transparent);
+    color: var(--color-ink);
+  }
+
+  .site-shell .btn[data-variant="primary"]:hover,
+  .site-shell .btn[data-variant="primary"]:focus-visible {
+    color: var(--a-deep);
+  }
+
+  .site-shell .btn[data-variant="ghost"] {
+    --btn-line: color-mix(in oklab, var(--color-ink) 32%, transparent);
+    --btn-line-closed: color-mix(in oklab, var(--color-ink) 26%, transparent);
+    color: var(--color-grey-600);
+  }
+
+  .site-shell .btn[data-variant="ghost"]:hover,
+  .site-shell .btn[data-variant="ghost"]:focus-visible {
+    --btn-line: var(--a);
+    --btn-line-closed: color-mix(in oklab, var(--a) 55%, transparent);
+    color: var(--color-ink);
+  }
+
+  /* --- The interface scale -------------------------------------------
+     Measured off the reference rather than guessed, because a condensed
+     face breaks the usual intuitions about size. Alumni Sans is narrow
+     enough that 22px of it occupies about the width — and reads at about
+     the size — of 15px of a normal sans. The reference sets its nav and
+     its buttons at 22px, its small footer labels at 18px and its footer
+     values at 28px; every one of those is roughly 1.6x what the same
+     element would take in an uncondensed face, and setting them at
+     "normal" UI sizes is what made the first pass read as though the
+     type had been shrunk by accident.
+
+     Tracking goes back to zero here too. The display voice runs at
+     -0.012em because at 144px the letters are already touching; at 22px
+     they are not, and the reference leaves its interface text untracked.
+
+       ui-nav     22 / 600   header and menu links
+       ui-btn     22 / 700   every button on the site
+       ui-label   18 / 600   the small grey label above a value
+       ui-value   28 / 400   the value under it
+       ui-small   22 / 400   legal line, credits, back-to-top
+     -------------------------------------------------------------------- */
+  .site-shell .ui-nav {
+    font-size: 1.375rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0;
+  }
+
+  .site-shell .ui-btn {
+    font-size: 1.375rem;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: 0;
+  }
+
+  .site-shell .ui-label {
+    font-size: 1.125rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+
+  .site-shell .ui-value {
+    font-size: 1.75rem;
+    font-weight: 400;
+    line-height: 1.05;
+    letter-spacing: -0.015em;
+  }
+
+  .site-shell .ui-small {
+    font-size: 1.375rem;
+    font-weight: 400;
+    line-height: 1;
+    letter-spacing: -0.018em;
+  }
+
+  /* Arabic runs the same ladder two steps lower.
+
+     Noto Kufi is a normal-width face, so it fills roughly 1.5x the
+     measure of Alumni Sans at the same point size — matching the
+     numbers would make the Arabic interface shout. These are set by eye
+     to the same apparent size, and the weight goes up to hold the
+     density that the condensing provides on the Latin side. */
+  :root:lang(ar) .site-shell .ui-nav,
+  :root:lang(ar) .site-shell .ui-btn {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  :root:lang(ar) .site-shell .ui-label {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  :root:lang(ar) .site-shell .ui-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  :root:lang(ar) .site-shell .ui-small {
+    font-size: 0.9375rem;
+    font-weight: 500;
+    letter-spacing: 0;
+  }
+
+  /* The mono label: step numbers, spec ids, eyebrows, the small print. */
+  .site-shell .spec {
+    font-family: var(--font-label);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Arabic has no uppercase, and forcing it costs nothing visually but
+     breaks letter shaping in some faces. Turn it off in RTL. */
+  :root:lang(ar) .site-shell .spec {
+    font-size: 0.75rem;
+    text-transform: none;
+    letter-spacing: 0.02em;
+  }
+}
+
+.site-shell ::selection {
+  background: var(--color-amber);
+  color: var(--color-void);
+}
+
+/* ==================================================================
+   Band inversion
+   ------------------------------------------------------------------
+   The rhythm of the page is dark, dark, light, dark. A section marked
+   `data-tone="light"` flips the whole reading scale inside itself —
+   text, greys, card surface, and the orange, which has to darken by a
+   lot to stay legible against near-white. Nothing else changes: the
+   same components render on both grounds.
+   ================================================================== */
+.site-shell [data-tone="light"] {
+  --color-ink: #131211;
+  --color-bone: #f2f3f2;
+  --color-paper: #ffffff;
+  --color-grey-700: #2a2723;
+  --color-grey-600: #45413b; /* 8.6:1 on the plate */
+  --color-grey-500: #6b655c; /* 5.1:1 */
+  --color-grey-400: #8a8479;
+  --color-grey-300: #c4bfb4;
+  --color-grey-200: #ddd9d0;
+  --color-grey-100: #e8e5dd;
+
+  --color-amber-deep: #b23c0f; /* 5.3:1 — the orange that can carry text */
+  --color-amber-wash: #f8e7de;
+  --color-emerald-deep: #b23c0f;
+  --color-emerald-wash: #f8e7de;
+  --color-azure-deep: #b23c0f;
+  --color-azure-wash: #f8e7de;
+  --color-violet-deep: #b23c0f;
+  --color-violet-wash: #f8e7de;
+  --color-rose-deep: #b23c0f;
+  --color-rose-wash: #f8e7de;
+
   color: var(--color-ink);
 }
 
 /* ==================================================================
    Accent plumbing
    ------------------------------------------------------------------
-   A section sets `--a`, `--a-deep` and `--a-wash` once, and everything
-   inside it — rules, dots, rails, glows, hover borders — reads from
-   those three variables. That is what lets one `Section` component
-   change the whole colour of a band without any component knowing
-   which hue it is wearing.
+   Unchanged in shape from the system it replaces: a section sets `--a`,
+   `--a-deep` and `--a-wash` once and everything inside reads from
+   those three. All five values now point at the same orange, so the
+   mechanism is dormant — but it is still wired, and putting a second
+   colour back is five lines here and nothing anywhere else.
    ================================================================== */
 [data-accent] {
   --a: var(--color-amber);
@@ -188,7 +591,59 @@ body {
 }
 
 .border-a {
-  border-color: color-mix(in oklab, var(--a) 45%, transparent);
+  border-color: color-mix(in oklab, var(--a) 55%, transparent);
+}
+
+/* --- Variants for the accent aliases -------------------------------
+   Tailwind generates variants from theme colours. `--a` is not one —
+   it is set at runtime by `[data-accent]` — so `hover:text-a` and its
+   siblings have to be declared by hand. Unlayered on purpose: each of
+   these has to beat the layered colour utility it is overriding. */
+.site-shell .hover\:text-a:hover,
+.site-shell .hover\:text-a:focus-visible {
+  color: var(--a-deep);
+}
+
+.site-shell .group:hover .group-hover\:text-a,
+.site-shell .group:focus-visible .group-hover\:text-a {
+  color: var(--a-deep);
+}
+
+.site-shell .hover\:border-a:hover,
+.site-shell .hover\:border-a:focus-within,
+.site-shell .focus\:border-a:focus {
+  border-color: color-mix(in oklab, var(--a) 55%, transparent);
+}
+
+.site-shell .hover\:bg-a-wash:hover {
+  background-color: var(--a-wash);
+}
+
+/* ==================================================================
+   Structure
+   ------------------------------------------------------------------
+   A hairline is the only divider in this system. There are no soft
+   shadows and no rounded corners to separate one thing from another,
+   so the rules have to be visible enough to do that job on their own.
+   ================================================================== */
+.site-shell .rule {
+  border-color: color-mix(in oklab, var(--color-ink) 14%, transparent);
+}
+
+/* The plate a card sits on: a square, a hairline, and a surface one
+   step off the ground. On hover the orange takes the top edge. */
+.site-shell .plate {
+  position: relative;
+  background: var(--color-paper);
+  border: 1px solid color-mix(in oklab, var(--color-ink) 13%, transparent);
+  transition:
+    border-color 320ms ease,
+    background-color 320ms ease;
+}
+
+.site-shell .plate:hover,
+.site-shell .plate:focus-within {
+  border-color: color-mix(in oklab, var(--a, var(--color-amber)) 55%, transparent);
 }
 
 /* ==================================================================
@@ -244,192 +699,104 @@ body {
   }
 }
 
-@keyframes ros-stamp-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+/* --- The pinned statement stack -------------------------------------
+   The signature scroll device: a section taller than the viewport with
+   a sticky frame inside it, through which a handful of very large
+   statements are pushed one at a time. Progress is written to
+   `--p` by JavaScript and the bar reads it. */
+.site-shell .pinned {
+  position: sticky;
+  top: 0;
+  display: flex;
+  min-height: 100svh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
-.stamp-in {
-  animation: ros-stamp-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-/* --- Colour field: the soft light behind the hero and the CTA ------ */
-@keyframes ros-drift-a {
-  0%,
-  100% {
-    transform: translate3d(-4%, -3%, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(6%, 5%, 0) scale(1.15);
-  }
-}
-
-@keyframes ros-drift-b {
-  0%,
-  100% {
-    transform: translate3d(5%, 4%, 0) scale(1.1);
-  }
-  50% {
-    transform: translate3d(-6%, -5%, 0) scale(0.92);
-  }
-}
-
-@keyframes ros-drift-c {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(0.95);
-  }
-  33% {
-    transform: translate3d(-7%, 4%, 0) scale(1.12);
-  }
-  66% {
-    transform: translate3d(7%, -4%, 0) scale(1.02);
-  }
-}
-
-.field {
-  position: relative;
-  isolation: isolate;
-}
-
-.field > .blob {
+.site-shell .statement {
   position: absolute;
-  z-index: -1;
-  border-radius: 9999px;
-  filter: blur(80px);
-  pointer-events: none;
-  will-change: transform;
-  opacity: 0.55;
-}
-
-.blob-a {
-  animation: ros-drift-a 24s ease-in-out infinite;
-}
-
-.blob-b {
-  animation: ros-drift-b 30s ease-in-out infinite;
-}
-
-.blob-c {
-  animation: ros-drift-c 36s ease-in-out infinite;
-}
-
-/* --- Rulings ------------------------------------------------------- */
-.dot-rule {
-  background-image: radial-gradient(
-    circle at 1px 1px,
-    rgba(20, 24, 29, 0.07) 1px,
-    transparent 0
-  );
-  background-size: 26px 26px;
-  -webkit-mask-image: radial-gradient(
-    ellipse 85% 65% at 50% 0%,
-    #000 8%,
-    transparent 78%
-  );
-  mask-image: radial-gradient(
-    ellipse 85% 65% at 50% 0%,
-    #000 8%,
-    transparent 78%
-  );
-}
-
-.grid-rule {
-  background-image:
-    linear-gradient(to right, rgba(20, 24, 29, 0.045) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(20, 24, 29, 0.045) 1px, transparent 1px);
-  background-size: 68px 68px;
-  -webkit-mask-image: radial-gradient(
-    ellipse 90% 70% at 50% 0%,
-    #000 20%,
-    transparent 82%
-  );
-  mask-image: radial-gradient(
-    ellipse 90% 70% at 50% 0%,
-    #000 20%,
-    transparent 82%
-  );
-}
-
-/* --- A hairline that carries the section's colour ------------------ */
-.edge-lit {
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in oklab, var(--a) 80%, transparent) 22%,
-    color-mix(in oklab, var(--a) 40%, transparent) 60%,
-    transparent
-  );
-}
-
-/* --- Cards --------------------------------------------------------- */
-.glow-card {
-  position: relative;
-  isolation: isolate;
-  transition:
-    transform 420ms cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 420ms cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 300ms ease;
-}
-
-.glow-card::before {
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  border-radius: inherit;
+  max-width: 22ch;
+  padding-inline: 1.5rem;
+  text-align: center;
   opacity: 0;
-  background: radial-gradient(
-    17rem circle at var(--mx, 50%) var(--my, 0%),
-    color-mix(in oklab, var(--a) 16%, transparent),
-    transparent 62%
-  );
-  transition: opacity 320ms ease;
-  content: "";
+  transform: translateY(2.5rem);
+  transition:
+    opacity 520ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 520ms cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
 }
 
-.glow-card:hover {
-  transform: translateY(-4px);
-}
-
-.glow-card:hover::before,
-.glow-card:focus-within::before {
+.site-shell .statement[data-state="in"] {
   opacity: 1;
+  transform: none;
+  pointer-events: auto;
 }
 
-/* A colour bar that grows across the top of a card on hover. */
-.card-bar::after {
+.site-shell .statement[data-state="out"] {
+  opacity: 0;
+  transform: translateY(-2.5rem);
+}
+
+/* The hairline under the stack that fills as the section is crossed.
+
+   It is the only in-flow child of the pinned frame — the statements
+   themselves are absolutely positioned so they can stack on top of one
+   another — so `margin-top: auto` is what drops it to the foot of the
+   frame, under the statement rather than floating over it. */
+.site-shell .pin-track {
+  position: relative;
+  margin-top: auto;
+  margin-bottom: 12vh;
+  height: 2px;
+  width: min(18rem, 60vw);
+  background: color-mix(in oklab, var(--color-ink) 16%, transparent);
+}
+
+.site-shell .pin-track::after {
   position: absolute;
-  inset-block-start: 0;
+  inset-block: 0;
   inset-inline-start: 0;
-  height: 3px;
-  width: 100%;
-  border-start-start-radius: inherit;
-  border-start-end-radius: inherit;
-  background: var(--a);
-  transform: scaleX(0);
-  transform-origin: inline-start;
-  transition: transform 480ms cubic-bezier(0.16, 1, 0.3, 1);
+  width: calc(var(--p, 0) * 100%);
+  background: var(--color-amber);
   content: "";
 }
 
-.glow-card:hover.card-bar::after,
-.glow-card:focus-within.card-bar::after {
-  transform: scaleX(1);
+/* --- Words that light up as the section is read ---------------------
+   The light plate uses this: the copy starts at the muted grey and each
+   word crosses to full ink as the scroll passes it. `--lit` is the
+   index of the last word that has crossed. */
+.site-shell .lit-word {
+  color: color-mix(in oklab, var(--color-ink) 26%, transparent);
+  transition: color 260ms linear;
 }
 
-/* --- Pointer-tracked 3D tilt. Angles come from JS. ------------------ */
-.tilt {
-  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
-  transform-style: preserve-3d;
-  transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
-  will-change: transform;
+.site-shell .lit-word[data-lit="true"] {
+  color: var(--color-ink);
+}
+
+/* --- The image that holds still while its text scrolls -------------- */
+.site-shell .sticky-frame {
+  position: sticky;
+  top: 12vh;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  background: var(--color-grey-200);
+}
+
+.site-shell .sticky-frame > * {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 620ms ease;
+}
+
+.site-shell .sticky-frame > [data-active="true"] {
+  opacity: 1;
 }
 
 /* --- Marquee ------------------------------------------------------- */
@@ -462,45 +829,18 @@ body {
   -webkit-mask-image: linear-gradient(
     90deg,
     transparent,
-    #000 10%,
-    #000 90%,
+    #000 8%,
+    #000 92%,
     transparent
   );
-  mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
-}
-
-/* --- Animated gradient type ---------------------------------------- */
-@keyframes ros-sheen {
-  0% {
-    background-position: 0% center;
-  }
-  100% {
-    background-position: 200% center;
-  }
-}
-
-.sheen {
-  background: linear-gradient(
-    100deg,
-    var(--color-amber-deep),
-    var(--color-rose-deep) 18%,
-    var(--color-violet-deep) 36%,
-    var(--color-azure-deep) 54%,
-    var(--color-emerald-deep) 72%,
-    var(--color-amber-deep) 90%
-  );
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: ros-sheen 12s linear infinite;
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
 }
 
 /* --- Word cycling in the hero -------------------------------------- */
 @keyframes ros-word-in {
   from {
     opacity: 0;
-    transform: translateY(0.5em) rotateX(-40deg);
+    transform: translateY(0.4em);
   }
   to {
     opacity: 1;
@@ -510,7 +850,7 @@ body {
 
 .word-in {
   display: inline-block;
-  animation: ros-word-in 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: ros-word-in 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* --- Status dot ---------------------------------------------------- */
@@ -535,21 +875,6 @@ body {
   content: "";
 }
 
-/* --- Rails that draw themselves in --------------------------------- */
-@keyframes ros-draw {
-  from {
-    transform: scaleY(0);
-  }
-  to {
-    transform: scaleY(1);
-  }
-}
-
-.draw-down.is-in {
-  transform-origin: top;
-  animation: ros-draw 1000ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
 /* --- Bars that grow to their value --------------------------------- */
 @keyframes ros-grow-x {
   from {
@@ -565,6 +890,21 @@ body {
   animation: ros-grow-x 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* --- Rails that draw themselves in --------------------------------- */
+@keyframes ros-draw {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.draw-down.is-in {
+  transform-origin: top;
+  animation: ros-draw 1000ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 /* --- Underline that grows from the leading edge -------------------- */
 .link-line {
   position: relative;
@@ -572,7 +912,7 @@ body {
 
 .link-line::after {
   position: absolute;
-  inset-block-end: -2px;
+  inset-block-end: -3px;
   inset-inline-start: 0;
   height: 1.5px;
   width: 100%;
@@ -589,15 +929,19 @@ body {
   transform-origin: inline-start;
 }
 
-/* --- A slowly rotating decorative ring ------------------------------ */
-@keyframes ros-spin {
+@keyframes ros-stamp-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
   to {
-    transform: rotate(360deg);
+    opacity: 1;
+    transform: none;
   }
 }
 
-.spin-slow {
-  animation: ros-spin 26s linear infinite;
+.stamp-in {
+  animation: ros-stamp-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* --- Disclosure panels open with a slide ---------------------------- */
@@ -652,31 +996,13 @@ details[open] .chev {
   }
 
   .stamp-in,
-  .blob-a,
-  .blob-b,
-  .blob-c,
   .marquee-track,
-  .sheen,
   .word-in,
   .ping::after,
   .draw-down.is-in,
   .grow-x.is-in,
-  .spin-slow,
   details[open] > .disclosure-body {
     animation: none;
-  }
-
-  .sheen {
-    color: var(--color-amber-deep);
-    -webkit-text-fill-color: var(--color-amber-deep);
-  }
-
-  .glow-card:hover {
-    transform: none;
-  }
-
-  .tilt {
-    transform: none;
   }
 
   .grow-x.is-in,
@@ -684,10 +1010,141 @@ details[open] .chev {
     transform: none;
   }
 
+  /* The pinned stack is a scroll effect, not a decoration: with motion
+     off it stops being sticky and every statement is simply on the
+     page, in order, at rest. */
+  .site-shell .pinned {
+    position: static;
+    min-height: 0;
+    display: block;
+    padding-block: 3rem;
+  }
+
+  .site-shell .pin-track {
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+
+  .site-shell .statement {
+    position: static;
+    opacity: 1;
+    transform: none;
+    max-width: none;
+    margin-inline: auto;
+    padding-block: 2rem;
+    pointer-events: auto;
+  }
+
+  .site-shell .lit-word {
+    color: var(--color-ink);
+  }
+
+  .site-shell .btn:hover .btn-corner,
+  .site-shell .btn:focus-visible .btn-corner {
+    width: 13px;
+    height: 13px;
+  }
+
+  .site-shell .sticky-frame {
+    position: static;
+  }
+
   *,
   *::before,
   *::after {
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==================================================================
+   Cards
+   ------------------------------------------------------------------
+   The names survive from the light system because the pricing page
+   reaches for `.glow-card` and `.card-bar` directly, but the behaviour
+   is rebuilt: no rounding, no drop shadow, no soft glow. A square, a
+   hairline, and an orange rule that draws itself across the top edge
+   on hover.
+   ================================================================== */
+.site-shell .glow-card {
+  position: relative;
+  isolation: isolate;
+  background: var(--color-paper);
+  transition:
+    border-color 320ms ease,
+    background-color 320ms ease,
+    transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.site-shell .glow-card::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  opacity: 0;
+  background: radial-gradient(
+    20rem circle at var(--mx, 50%) var(--my, 0%),
+    color-mix(in oklab, var(--a) 11%, transparent),
+    transparent 65%
+  );
+  transition: opacity 320ms ease;
+  content: "";
+  pointer-events: none;
+}
+
+.site-shell .glow-card:hover::before,
+.site-shell .glow-card:focus-within::before {
+  opacity: 1;
+}
+
+.site-shell .glow-card:hover {
+  transform: translateY(-3px);
+}
+
+/* The orange rule across the top edge. */
+.site-shell .card-bar::after {
+  position: absolute;
+  inset-block-start: -1px;
+  inset-inline-start: 0;
+  height: 2px;
+  width: 100%;
+  background: var(--a);
+  transform: scaleX(0);
+  transform-origin: inline-start;
+  transition: transform 480ms cubic-bezier(0.16, 1, 0.3, 1);
+  content: "";
+}
+
+.site-shell .glow-card:hover.card-bar::after,
+.site-shell .glow-card:focus-within.card-bar::after {
+  transform: scaleX(1);
+}
+
+/* Pointer-tracked 3D tilt. Angles come from JS. */
+.tilt {
+  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transform-style: preserve-3d;
+  transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+
+/* A hairline that carries the section's colour, used at the top edge
+   of a band to separate it from the one above. */
+.edge-lit {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--a) 70%, transparent) 20%,
+    color-mix(in oklab, var(--a) 22%, transparent) 62%,
+    transparent
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-shell .glow-card:hover {
+    transform: none;
+  }
+
+  .tilt {
+    transform: none;
   }
 }
 
@@ -854,3 +1311,11 @@ body:has(.ros-console) {
 .ros-console .tabular-nums {
   line-height: 1.45;
 }
+
+/* The shared focus ring rounds its corners for the console. Nothing in
+   the marketing system has a radius, so square it back inside the shell. */
+.site-shell
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  border-radius: 0;
+}
+

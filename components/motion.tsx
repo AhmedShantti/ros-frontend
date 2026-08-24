@@ -387,7 +387,7 @@ export function ScrollProgress() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] origin-[left_center] bg-linear-to-r from-amber via-rose to-violet rtl:origin-[right_center]"
+      className="bg-a pointer-events-none absolute inset-x-0 bottom-0 h-[2px] origin-[left_center] rtl:origin-[right_center]"
       style={{ transform: `scaleX(${progress})` }}
     />
   );
@@ -411,12 +411,176 @@ export function GrowBar({
   return (
     <div
       ref={ref}
-      className={`bg-ink/8 h-2 w-full overflow-hidden rounded-full ${trackClassName ?? ""}`}
+      className={`bg-ink/12 h-1.5 w-full overflow-hidden ${trackClassName ?? ""}`}
     >
       <div
-        className={`grow-x h-full rounded-full ${inView ? "is-in" : ""} ${className ?? ""}`}
+        className={`grow-x h-full ${inView ? "is-in" : ""} ${className ?? ""}`}
         style={{ width: `${Math.max(0, Math.min(1, fraction)) * 100}%` }}
       />
     </div>
+  );
+}
+
+/* ==================================================================
+   Scroll-driven sections
+   ------------------------------------------------------------------
+   The three devices the industrial layout is built out of. All three
+   are driven by one measurement — how far a tall section has travelled
+   past the top of the viewport — so they share a single hook and a
+   single rAF-throttled scroll listener each.
+   ================================================================== */
+
+/**
+ * How far a tall section has been scrolled through, as 0 → 1.
+ *
+ * 0 is "the section's top has just reached the top of the viewport" and
+ * 1 is "its bottom is about to leave". The section has to be taller than
+ * the viewport for this to have any range, which is the point: these
+ * sections buy their scroll distance with height.
+ */
+export function useSectionProgress<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    let raf = 0;
+
+    const measure = () => {
+      raf = 0;
+      const r = el.getBoundingClientRect();
+      // The travel available is the section's height minus the one
+      // viewport of it that is always on screen. A section that is not
+      // taller than the viewport has no travel and reads as 0.
+      const travel = r.height - window.innerHeight;
+      if (travel <= 0) {
+        setProgress(0);
+        return;
+      }
+      setProgress(Math.min(Math.max(-r.top / travel, 0), 1));
+    };
+
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(measure);
+    };
+
+    measure();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  return { ref, progress } as const;
+}
+
+/**
+ * The pinned statement stack.
+ *
+ * A section several viewports tall with a sticky frame inside it. As the
+ * page scrolls, one very large statement at a time is pushed through
+ * that frame, and a hairline underneath fills to show how much of the
+ * stack is left. It is the one place on the site where scrolling is
+ * spent on a single sentence rather than on more content, so it carries
+ * the claims that have to land rather than the ones that have to inform.
+ *
+ * Under a reduce-motion preference the CSS un-sticks the frame and every
+ * statement is simply on the page in order — no pinning, no fading, and
+ * no scroll distance spent on an effect that will not run.
+ */
+export function PinnedStatements({
+  items,
+  className,
+}: {
+  items: readonly string[];
+  className?: string;
+}) {
+  const { ref, progress } = useSectionProgress<HTMLDivElement>();
+  const reduce = usePrefersReducedMotion();
+
+  // Each statement owns an equal slice of the travel. Nudging by half a
+  // slice centres the first one rather than having it already leaving as
+  // the section arrives.
+  const active = Math.min(
+    Math.floor(progress * items.length),
+    items.length - 1,
+  );
+
+  return (
+    <div
+      ref={ref}
+      className={className}
+      style={{ height: `${items.length * 100}svh` }}
+    >
+      <div className="pinned">
+        {items.map((line, i) => (
+          <p
+            key={line}
+            className="statement font-display display-lg text-ink"
+            data-state={
+              reduce ? "in" : i === active ? "in" : i < active ? "out" : "next"
+            }
+            aria-hidden={!reduce && i !== active}
+          >
+            {line}
+          </p>
+        ))}
+
+        <div
+          aria-hidden
+          className="pin-track"
+          style={{ ["--p" as string]: progress }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Copy that lights up one word at a time as the section is read.
+ *
+ * The text starts at a quarter-strength grey and each word crosses to
+ * full ink as the scroll reaches it. Used once, on the inverted plate,
+ * where a long paragraph of method needs a reason to be read to the end.
+ *
+ * The words are wrapped in spans for the colour, but the sentence is
+ * still one text node's worth of content to a screen reader, so nothing
+ * is announced word by word.
+ */
+export function LitText({
+  text,
+  className,
+}: {
+  text: string;
+  className?: string;
+}) {
+  const { ref, inView } = useInView<HTMLParagraphElement>({
+    rootMargin: "0px 0px -40% 0px",
+  });
+  const reduce = usePrefersReducedMotion();
+  const words = useMemo(() => text.split(/\s+/), [text]);
+
+  return (
+    <p ref={ref} className={className}>
+      {words.map((w, i) => (
+        <span
+          key={`${w}-${i}`}
+          className="lit-word"
+          data-lit={reduce || inView ? "true" : "false"}
+          style={{
+            transitionDelay: reduce ? "0ms" : `${Math.min(i * 26, 900)}ms`,
+          }}
+        >
+          {w}
+          {i < words.length - 1 ? " " : ""}
+        </span>
+      ))}
+    </p>
   );
 }

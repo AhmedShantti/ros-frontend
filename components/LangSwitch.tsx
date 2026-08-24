@@ -26,8 +26,8 @@ export function LangSwitch({ size = "sm" }: { size?: "sm" | "lg" }) {
       role="group"
       aria-label={t.nav.langAria}
       className={cx(
-        "border-ink/12 flex items-center rounded-full border",
-        size === "lg" ? "gap-1 p-1" : "gap-0.5 p-0.5",
+        "border-ink/20 flex items-center border",
+        size === "lg" ? "gap-1 p-1" : "gap-px p-px",
       )}
     >
       {options.map((o) => {
@@ -40,13 +40,11 @@ export function LangSwitch({ size = "sm" }: { size?: "sm" | "lg" }) {
             aria-pressed={active}
             onClick={() => setLang(o.code)}
             className={cx(
-              "rounded-full font-medium transition-colors",
-              size === "lg"
-                ? "px-4 py-2 text-sm"
-                : "px-2.5 py-1 text-[0.7rem] tracking-wide",
+              "font-display transition-colors",
+              size === "lg" ? "ui-nav px-5 py-2.5" : "ui-small px-2.5 py-1.5",
               active
-                ? "bg-a-wash text-a"
-                : "text-grey-400 hover:text-a hover:bg-a-wash/60",
+                ? "bg-amber text-void"
+                : "text-grey-400 hover:text-ink hover:bg-ink/8",
             )}
           >
             {size === "lg" ? o.full : o.short}

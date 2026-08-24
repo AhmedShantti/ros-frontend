@@ -33,10 +33,14 @@ export function DriftCalculator() {
     [lang],
   );
 
+  /* Three cost levels, one colour. The escalation is carried by the
+     density of the bar rather than by hue: the controlled target is a
+     neutral rule because it is the baseline rather than the problem,
+     and the orange arrives as the number gets worse. */
   const rows = [
-    { label: t.drift.targetLabel, rate: TARGET, bar: "bg-emerald" },
-    { label: t.drift.typicalLabel, rate: TYPICAL, bar: "bg-amber" },
-    { label: t.drift.poorLabel, rate: POOR, bar: "bg-rose" },
+    { label: t.drift.targetLabel, rate: TARGET, bar: "bg-ink/25" },
+    { label: t.drift.typicalLabel, rate: TYPICAL, bar: "bg-amber/55" },
+    { label: t.drift.poorLabel, rate: POOR, bar: "bg-amber" },
   ];
 
   const lostMonthly = revenue * (TYPICAL - TARGET);
@@ -57,7 +61,7 @@ export function DriftCalculator() {
             className="text-grey-600 flex flex-wrap items-baseline justify-between gap-2 text-sm"
           >
             <span>{t.drift.revenueLabel}</span>
-            <span className="font-display text-ink text-2xl font-semibold tabular-nums">
+            <span className="font-display text-ink text-3xl">
               {fmt.format(revenue)}
             </span>
           </label>
@@ -89,9 +93,9 @@ export function DriftCalculator() {
                       {fmt.format(cogs)}
                     </span>
                   </div>
-                  <div className="bg-ink/8 mt-2 h-2.5 w-full overflow-hidden rounded-full">
+                  <div className="bg-ink/10 mt-2.5 h-2 w-full overflow-hidden">
                     <div
-                      className={`h-full rounded-full transition-[width] duration-500 ease-out ${row.bar}`}
+                      className={`h-full transition-[width] duration-500 ease-out ${row.bar}`}
                       style={{ width: `${(row.rate / POOR) * 100}%` }}
                     />
                   </div>
@@ -100,7 +104,7 @@ export function DriftCalculator() {
             })}
           </ul>
 
-          <div className="border-ink/12 mt-10 rounded-xl border border-dashed p-5">
+          <div className="border-ink/15 mt-10 border border-dashed p-5">
             <p className="spec text-a">{t.drift.workedTitle}</p>
             <p className="text-grey-600 mt-2.5 text-sm leading-relaxed">
               {t.drift.workedText}
@@ -110,14 +114,9 @@ export function DriftCalculator() {
 
         <Reveal delay={120} as="aside" className="h-fit">
           <div
-            data-accent="rose"
-            className="field bg-paper border-ink/10 relative overflow-hidden rounded-2xl border p-7 shadow-lg sm:p-8"
+            data-accent="amber"
+            className="bg-paper border-ink/12 relative overflow-hidden border p-7 sm:p-8"
           >
-            <span
-              aria-hidden
-              className="blob blob-b bg-rose -top-24 h-56 w-72 opacity-30"
-              style={{ insetInlineEnd: "-3rem" }}
-            />
             <span
               aria-hidden
               className="edge-lit pointer-events-none absolute inset-x-0 top-0 h-px"
@@ -125,16 +124,16 @@ export function DriftCalculator() {
 
             <p className="spec text-a relative">{t.drift.lostLabel}</p>
 
-            <p className="font-display text-ink relative mt-4 text-4xl leading-none font-semibold tabular-nums sm:text-5xl">
+            <p className="font-display text-ink relative mt-5 text-5xl leading-none sm:text-6xl">
               {fmt.format(lostMonthly)}
             </p>
             <p className="text-grey-500 relative mt-1.5 text-sm">
               {t.drift.monthly}
             </p>
 
-            <div className="border-ink/10 relative my-6 border-t" />
+            <div className="border-ink/12 relative my-7 border-t" />
 
-            <p className="font-display text-rose-deep relative text-3xl leading-none font-semibold tabular-nums">
+            <p className="font-display text-a relative text-4xl leading-none">
               {fmt.format(lostAnnual)}
             </p>
             <p className="text-grey-500 relative mt-1.5 text-sm">

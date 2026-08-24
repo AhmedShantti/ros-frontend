@@ -102,11 +102,12 @@ export function SaleCascade() {
       <div className="lg:sticky lg:top-24 lg:self-start">
         <div className="relative mx-auto max-w-[320px]">
           <div
-            className="bg-paper text-ink px-6 pt-6 pb-8 shadow-xl"
+            data-tone="light"
+            className="bg-cream text-ink px-6 pt-6 pb-8 shadow-xl"
             style={{ mask: ZIGZAG, WebkitMask: ZIGZAG }}
           >
             <div className="text-center">
-              <p className="font-display text-lg font-semibold">{d.title}</p>
+              <p className="font-display text-xl">{d.title}</p>
               <p className="spec text-grey-500 mt-1.5" dir="ltr">
                 {d.order}
               </p>
@@ -133,7 +134,7 @@ export function SaleCascade() {
 
             <div className="flex items-end justify-between">
               <span className="spec text-grey-500">{d.totalLabel}</span>
-              <span className="font-display flex items-baseline gap-1 text-3xl font-semibold">
+              <span className="font-display flex items-baseline gap-1 text-4xl leading-none">
                 {d.total}
                 <span className="text-grey-500 text-xs font-normal">
                   {d.currency}
@@ -147,7 +148,8 @@ export function SaleCascade() {
           </div>
 
           <span
-            className="border-rose-deep text-rose-deep bg-rose-wash absolute -top-3 rotate-[-9deg] rounded border-2 px-2 py-1 text-[0.62rem] font-bold tracking-wider"
+            data-tone="light"
+            className="border-a text-a bg-cream spec absolute -top-3 rotate-[-9deg] border-2 px-2 py-1"
             style={{ insetInlineEnd: "-0.75rem" }}
           >
             {d.offline}
@@ -159,7 +161,7 @@ export function SaleCascade() {
       <div>
         <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="font-display text-ink text-xl font-semibold sm:text-2xl">
+            <h2 className="font-display text-ink text-2xl sm:text-3xl">
               {t.hero.effectsTitle}
             </h2>
             <p className="text-grey-500 mt-1.5 text-sm">{t.hero.effectsHint}</p>
@@ -167,7 +169,7 @@ export function SaleCascade() {
           <button
             type="button"
             onClick={() => setRunId((n) => n + 1)}
-            className="border-ink/15 text-grey-600 hover:border-amber hover:text-amber-deep rounded-full border px-3.5 py-1.5 text-xs transition-colors"
+            className="border-ink/20 text-grey-500 hover:border-a hover:text-a spec border px-3.5 py-2 transition-colors"
           >
             {t.ui.replay}
           </button>
@@ -177,7 +179,7 @@ export function SaleCascade() {
           {/* The travelling light that marks how far the cascade has run. */}
           <span
             aria-hidden
-            className="from-amber via-rose to-violet absolute top-0 w-px bg-linear-to-b transition-[height] duration-500 ease-out"
+            className="bg-amber absolute top-0 w-px transition-[height] duration-500 ease-out"
             style={{
               insetInlineStart: "-1px",
               height: `${Math.min(revealed / (total + 1), 1) * 100}%`,
@@ -218,7 +220,7 @@ export function SaleCascade() {
         <div
           data-accent="amber"
           className={cx(
-            "border-a bg-a-wash mt-7 rounded-xl border p-5 transition-all duration-700",
+            "border-a bg-a-wash mt-8 border p-5 transition-all duration-700",
             done ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
           )}
         >

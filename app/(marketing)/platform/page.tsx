@@ -80,7 +80,7 @@ export default function PlatformPage() {
                 <div className="mb-4">
                   <SpecTag id={p.spec} />
                 </div>
-                <h2 className="font-display text-ink text-xl leading-snug font-semibold">
+                <h2 className="font-display text-ink text-xl">
                   {p.name}
                 </h2>
                 <p className="text-grey-600 mt-3.5 text-sm leading-relaxed">
@@ -177,7 +177,7 @@ export default function PlatformPage() {
                   <div className="flex items-center gap-3">
                     <span
                       dir="ltr"
-                      className="bg-a text-bone font-display flex h-9 items-center rounded-md px-2.5 text-sm font-semibold"
+                      className="bg-amber text-void font-display flex h-9 items-center px-3 text-sm"
                     >
                       {p.code}
                     </span>

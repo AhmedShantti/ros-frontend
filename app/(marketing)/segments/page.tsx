@@ -35,11 +35,11 @@ export default function SegmentsPage() {
             <Reveal key={s.tag} delay={i * 80} kind={i % 2 ? "right" : "left"}>
               <GlowCard accent={SEGMENT_HUES[i]} className="p-7">
                 <div className="flex items-start gap-4">
-                  <span className="bg-a-wash text-a font-display border-a flex h-12 w-12 shrink-0 items-center justify-center rounded-full border text-base font-semibold">
+                  <span className="bg-a-wash text-a font-display border-a flex h-12 w-12 shrink-0 items-center justify-center border text-lg">
                     {s.tag}
                   </span>
                   <div>
-                    <h2 className="font-display text-ink text-xl leading-snug font-semibold">
+                    <h2 className="font-display text-ink text-xl">
                       {s.name}
                     </h2>
                     <p className="text-grey-600 mt-1.5 text-sm leading-relaxed">
@@ -131,7 +131,7 @@ export default function SegmentsPage() {
       <Section accent="rose" tone="cream">
         <div className="max-w-3xl">
           <Reveal>
-            <h2 className="font-display text-ink text-[1.75rem] leading-[1.12] font-semibold tracking-[-0.02em] text-balance sm:text-[2.6rem]">
+            <h2 className="font-display text-ink text-[1.75rem] text-balance sm:text-[2.6rem]">
               {t.segments.incumbent.title}
             </h2>
           </Reveal>

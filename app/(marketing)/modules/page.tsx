@@ -60,7 +60,7 @@ export default function ModulesPage() {
                       <SpecTag id={m.spec} />
                     </div>
 
-                    <h3 className="font-display text-ink text-xl leading-snug font-semibold">
+                    <h3 className="font-display text-ink text-xl">
                       {m.name}
                     </h3>
 

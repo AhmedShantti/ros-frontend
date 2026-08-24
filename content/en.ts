@@ -48,7 +48,7 @@ export const en = {
     langAria: "Language",
     overlayTitle: "Where to",
     overlayNote:
-      "Every page traces back to ROS-SRS-001 v1.0 — 612 functional and 148 non-functional requirements.",
+      "Every page traces back to ROS-SRS-001 v1.0 — 212 functional and 148 non-functional requirements.",
   },
 
   ui: {
@@ -61,12 +61,12 @@ export const en = {
 
   hero: {
     eyebrow: "Restaurant Operating System · v1.0",
-    titleA: "A cash register records",
-    titleB: "that the customer paid 120.",
-    titleC: "TRENDOW records the other nine things that just happened.",
-    lede: "Sales, kitchen, recipes, inventory, purchasing, staff, cash, tax and reporting in one system with one clock. Arabic by design. Sells with the internet down.",
+    titleA: "A Complete",
+    titleB: "Restaurant Operating System.",
+    titleC: "Everything you need to manage your restaurant, in one system.",
+    lede: "From sales and kitchen operations to inventory, purchasing, employees and reporting, the system brings your entire operation together — giving you greater control, clearer visibility and faster decisions. Keep your restaurant running, even when the internet goes down.",
     ctaPrimary: "Book a demo",
-    ctaSecondary: "See the modules",
+    ctaSecondary: "Explore the system",
     /** Cycles under the headline. One list, one place on the page. */
     cycle: [
       "the kitchen",
@@ -84,7 +84,7 @@ export const en = {
 
     /** The four figures under the hero. `to` drives the count-up. */
     stats: [
-      { to: 612, suffix: "", k: "Functional requirements" },
+      { to: 212, suffix: "", k: "Functional requirements" },
       { to: 148, suffix: "", k: "Non-functional requirements" },
       { to: 72, suffix: " h", k: "Offline with no server" },
       { to: 17, suffix: "", k: "Modules, one transaction" },
@@ -165,14 +165,14 @@ export const en = {
   /** The centred wordmark band that sits in the middle of the home page. */
   brand: {
     kicker: "The system behind the counter",
-    line: "One sale. Nine effects. Seventeen modules. One clock.",
-    sub: "Arabic-first by construction, not by translation. Seventy-two hours of trading with no server. Every number on this site traceable to a requirement in the baseline.",
+    line: "One sale. An entire operation moving with it.",
+    sub: "Every order reaches the kitchen, updates inventory, calculates cost and records payments and reporting — automatically, inside one connected system. And it keeps trading when the internet goes down.",
     marks: [
-      "Arabic-first",
-      "Offline-first",
-      "Recipe-linked",
-      "Country packs",
-      "Hash-chained audit",
+      "Designed for Arabic",
+      "Works offline",
+      "Recipe-linked inventory",
+      "Multi-branch",
+      "Complete reporting",
     ],
   },
 
@@ -206,9 +206,9 @@ export const en = {
 
   numbers: {
     eyebrow: "The diagnosis",
-    title: "Four numbers separate a profitable restaurant from a failing one",
-    lede: "A well-run independent restaurant in MENA runs at a net margin between 6% and 12%. A poorly-run one, indistinguishable from the outside, runs at negative margin and does not know it until the cash runs out.",
-    note: "The difference is rarely the food. It is whether the operator can see these weekly instead of learning them from an accountant sixty days after month-end.",
+    title: "Four numbers can decide whether a restaurant profits or quietly drains itself",
+    lede: "Sales can look strong and the operation can look stable while profit erodes in the details nobody sees.",
+    note: "Food cost, labour, waste and margin are not just percentages. They are the indicators that show where your restaurant earns and where it loses value.",
     items: [
       {
         k: "Food cost %",
@@ -239,8 +239,8 @@ export const en = {
 
   drift: {
     eyebrow: "The arithmetic",
-    title: "What an uncontrolled food cost costs you",
-    lede: "Move the slider to your monthly revenue. The drift below is entirely ordinary in an operation without recipe-linked inventory.",
+    title: "Don't let cost eat your profit",
+    lede: "The system surfaces food-cost shifts and variance the moment they happen, so you can step in at the right time and protect your margin. Move the slider to your monthly revenue.",
     revenueLabel: "Monthly revenue",
     targetLabel: "Target food cost 30% — controlled",
     typicalLabel: "Typical uncontrolled 34.5%",
@@ -260,27 +260,27 @@ export const en = {
   diff: {
     eyebrow: "Why not the alternatives",
     title: "Four things we will not compromise",
-    lede: "Everything else in this category is table stakes. These four are the product.",
+    lede: "Built to work in real operating conditions, not only ideal ones — so your restaurant gets more continuity, tighter control and genuine readiness to grow.",
     items: [
       {
-        n: "Arabic-first, not Arabic-translated",
+        n: "Arabic by design, not by translation",
         spec: "FR-LOC-001",
-        text: "The design system is authored right-to-left and mirrored to English, not the reverse. Bidirectional text is tested as a first-class concern, numerals are configurable between Western and Arabic-Indic, and typography is chosen for Arabic legibility on thermal printers and low-DPI POS screens.",
+        text: "An interface built for Arabic from the start, with a natural, clear experience rather than a translated copy of a foreign system. The result: faster use, easier training and fewer mistakes inside the operation.",
       },
       {
-        n: "Offline is an operating mode, not a queue",
+        n: "Offline operation, with no interruption",
         spec: "FR-OFF-001",
-        text: "Full order entry, kitchen routing, payment across every tender type, receipt printing, shift open and close, and inventory depletion all work with no server. Conflict resolution on reconnect is deterministic. No lost sales, no duplicated money.",
+        text: "Even when the connection drops, the system keeps recording orders, sending them to the kitchen, capturing payments, printing receipts and managing shifts, then syncs the data automatically when the internet returns. Because the peak hour does not wait for the connection to come back.",
       },
       {
-        n: "Recipe-linked inventory in the entry tier",
+        n: "Inventory moves with every sale",
         spec: "FR-CST-001",
-        text: "Selling a burger deducts its ingredients — expanded recursively through sub-recipes and modifier deltas. This is not a premium module, because a restaurant that never experiences it never experiences the product.",
+        text: "Each item's ingredients are deducted automatically from its recorded recipe, so you keep a sharper view of consumption, cost and waste, and your decisions rest on actual data.",
       },
       {
-        n: "Country rules are data, not code",
+        n: "Ready to expand, not tied to one market",
         spec: "FR-LOC-020",
-        text: "Tax logic, invoice layout, fiscal transmission, rounding, receipt legal text and reporting formats live in signed, versioned country packs. Adding a country is a configuration and certification exercise, not a development project.",
+        text: "Taxes, currencies, invoices, languages and each country's settings are handled as flexible configuration inside the system, not as constants fixed in the code. Which means expanding to a new branch or a new market does not require rebuilding the system.",
       },
     ],
   },
@@ -288,7 +288,7 @@ export const en = {
   compare: {
     eyebrow: "Competitive landscape",
     title: "Who we are actually up against",
-    lede: "Seven vendors and one spreadsheet. The structural weaknesses below are what the four differentiators are aimed at — each is a gap in a competitor's architecture, not a gap in their marketing.",
+    lede: "Between a system that depends on the internet, another that still needs a spreadsheet, and a third that never links selling to stock, the same problem repeats: an operation that is never complete. Ours was built to close those gaps from the ground up, inside one connected system.",
     cols: ["Strength", "Structural weakness we exploit"],
     firstCol: "Competitor",
     rows: [
@@ -338,7 +338,7 @@ export const en = {
   economics: {
     eyebrow: "Unit economics",
     title: "The targets the business is underwritten on",
-    lede: "Stated here because a product specification that hides its commercial model is describing a feature set, not a venture.",
+    lede: "These targets do not only describe what the system does; they define how it becomes a product that can grow, sustain itself and return real money.",
     items: [
       { k: "Average revenue per branch", v: "USD 120 / month" },
       { k: "Gross margin", v: "≥ 78%" },
@@ -347,17 +347,17 @@ export const en = {
       { k: "Gross monthly churn", v: "≤ 2.0%" },
       { k: "Net revenue retention", v: "≥ 108%" },
     ],
-    riskLabel: "Recorded risk",
+    riskLabel: "A risk that has to be priced in",
     riskText:
-      "Churn in Segment A is structurally high because restaurant failure rates are high. Modelling it at Segment B levels produces a plan that will not survive contact with reality — so Segment A is treated as a low-touch, self-service channel that must be profitable at first-month margin, not at lifetime margin.",
+      "Restaurants are a high-risk sector by nature, and the closure rates in it demand a model that does not rely on deferred profit. So the service is designed to be low-cost and able to return money from a customer from the start, rather than waiting on a margin that only materialises over years.",
   },
 
   modules: {
     eyebrow: "Seventeen modules, one transaction",
     title: "Modules",
-    lede: "Bounded contexts with boundaries enforced in CI. A module never imports another module's internals and never queries another module's tables — which is why the numbers reconcile.",
+    lede: "Seventeen modules that work independently inside one system, with no direct data overlap and no reliance on each other's tables. The result: a steadier system, and consistent numbers you can rely on.",
     pageLede:
-      "Every module below carries a code from the requirement identification scheme in SRS §1.5. The tags trace each capability back to its requirement family across the 612 functional and 148 non-functional requirements in the baseline.",
+      "The bigger the system gets, the more each part has to stay clear and independent. So every module runs inside tight boundaries, without tangling directly into the others — keeping the numbers consistent, the operation steadier and expansion less risky. Every capability is tied to its requirements in the baseline, across 212 functional and 148 non-functional requirements, which makes each part documented, traceable and built on a foundation you can depend on.",
     groups: [
       {
         id: "operations",
@@ -381,7 +381,7 @@ export const en = {
         group: "operations",
         spec: "FR-POS",
         name: "Point of Sale",
-        line: "Where the data originates — so speed is a correctness requirement, not a preference.",
+        line: "Where the data starts, so it is built to be fast and clear — every second at the register shows up directly in the customer's experience and the flow of service.",
         points: [
           "Dine-in, takeaway, delivery, drive-through, pickup and aggregator-injected orders",
           "Order numbers drawn from a locally-held block of 500, renewed at 80% — no server required",
@@ -395,7 +395,7 @@ export const en = {
         group: "operations",
         spec: "FR-KDS",
         name: "Kitchen Display",
-        line: "Answers one question, at a glance, from two metres: what do I make next?",
+        line: "Reduces the work to one clear question: what has to be prepared now, and at which station? So priorities stay obvious even under pressure.",
         points: [
           "Stations for grill, fryer, cold line, hot line, beverage, barista, dessert, bakery, shawarma, packaging and pass",
           "Routing resolved by line override, modifier rule, item, category, then branch fallback",
@@ -409,7 +409,7 @@ export const en = {
         group: "operations",
         spec: "FR-MNU",
         name: "Menu & Recipes",
-        line: "Where the sellable world meets the physical one.",
+        line: "Links what you actually sell to the ingredients and recipes behind it, so every sale is countable and traceable from the ground up.",
         points: [
           "Menu → category → item → variant, with breakfast, delivery, late-night and Ramadan menus",
           "Item names configurable per surface: POS button, kitchen ticket, customer receipt, aggregator listing",
@@ -423,7 +423,7 @@ export const en = {
         group: "operations",
         spec: "FR-INV",
         name: "Inventory",
-        line: "Makes the gap between what should be there and what is there both computable and explicable.",
+        line: "It does not just show the quantity; it exposes the gap between what should be there and what actually is, so you see where the problem starts before it turns into a loss.",
         points: [
           "Purchase, base and recipe units with conversion factors; base unit immutable after the first movement",
           "FIFO, weighted average or standard costing, configurable per item",
@@ -437,7 +437,7 @@ export const en = {
         group: "operations",
         spec: "FR-PRC",
         name: "Purchasing & Suppliers",
-        line: "A controlled procure-to-pay cycle without corporate bureaucracy.",
+        line: "A disciplined, clear purchasing cycle from request to receipt, with no excess complexity and no steps that slow the operation down.",
         points: [
           "Requisition → quotation → purchase order → goods receipt → supplier invoice → payment",
           "Simple mode collapses ordering and receiving into one action for a café that buys at the market",
@@ -451,7 +451,7 @@ export const en = {
         group: "operations",
         spec: "FR-CST",
         name: "Costing, Waste & Profit",
-        line: "The analytical heart, and the reason to pay for this instead of a cheaper till.",
+        line: "The analytical heart of the system; it turns operating data into numbers that show where you earn, where the margin erodes, and what needs a decision.",
         points: [
           "COGS computed on completion and snapshotted — never retroactively rewritten",
           "Theoretical versus actual usage, with recorded waste shown separately so unexplained variance is isolated",
@@ -466,7 +466,7 @@ export const en = {
         group: "business",
         spec: "FR-HRM",
         name: "Workforce",
-        line: "An employee is a person in a job. A user is a credential. Conflating them breaks both.",
+        line: "One file linking the employee to their job, attendance and shifts, so managing the team stays clear and the data stays consistent, without duplication.",
         points: [
           "Scheduling validated against rest, consecutive days, weekly hours and required certification",
           "Clock-in by terminal PIN, geofenced mobile, or biometric device",
@@ -480,7 +480,7 @@ export const en = {
         group: "business",
         spec: "FR-SEC",
         name: "Roles & Approvals",
-        line: "RBAC for what, ABAC for where — both must be satisfied.",
+        line: "Every employee sees only what they need, and every sensitive action passes through the right approval — tighter control, and less room for mistakes and overrides.",
         points: [
           "Fourteen predefined roles from Owner to Kitchen Staff, cloneable but not deletable",
           "Assignments scoped to a tenant, brand, branch set or single branch; permissions never leak across scopes",
@@ -494,7 +494,7 @@ export const en = {
         group: "business",
         spec: "FR-FIN",
         name: "Cash & Tax",
-        line: "Every unit of currency attributable to a person, a shift and a drawer.",
+        line: "Every cash movement tied to the person, the shift and the drawer, so you know who took it, when, and where each transaction went.",
         points: [
           "Drawer → session → declared float → blind close → variance, approved by someone other than the owner of the session",
           "Card, wallet, voucher and aggregator payout reconciliation against settlement statements",
@@ -508,7 +508,7 @@ export const en = {
         group: "business",
         spec: "FR-BRN",
         name: "Branches & Central Kitchen",
-        line: "Run many locations as one business.",
+        line: "Run several branches and operating sites as one business, with a central view connecting performance and operations across every location.",
         points: [
           "Each branch holds its own stock, drawers, roster, hours, timezone, currency and country pack",
           "Central menu, pricing and recipes with controlled per-branch deviation, and a report of who deviates",
@@ -522,7 +522,7 @@ export const en = {
         group: "business",
         spec: "FR-CRM",
         name: "Customers & Loyalty",
-        line: "Capture the relationship where the customer offers it, then act on it.",
+        line: "Turn every visit into a deeper understanding of your customer; understand their relationship with the restaurant, then build an experience that brings them back.",
         points: [
           "Phone in E.164 as primary identifier; a customer created at the counter in under 15 seconds",
           "Loyalty held as an append-only ledger, never a mutable balance — that is how double redemption is caught",
@@ -536,7 +536,7 @@ export const en = {
         group: "business",
         spec: "FR-RPT",
         name: "Reporting",
-        line: "Exception over enumeration. Every number drillable. Reports arrive; they are not fetched.",
+        line: "Data you can understand, numbers you can trace, and reports that reach you on time — leading to a decision, not to more questions.",
         points: [
           "Any figure opens to the transactions behind it within four interactions",
           "The morning brief, readable on a phone in under 30 seconds, delivered at a configurable hour",
@@ -551,7 +551,7 @@ export const en = {
         group: "platform",
         spec: "FR-AUD",
         name: "Audit & Compliance",
-        line: "Not prevention — detectability. A log that could have been silently edited proves nothing.",
+        line: "Every change leaves a clear, retrievable trace: who did what, when, and what changed — oversight that does not rest on guesswork.",
         points: [
           "An immutable entry for every state-changing operation, with before and after state",
           "Entries hash-chained per tenant; a scheduled job verifies the chain and raises a security alert on any break",
@@ -565,7 +565,7 @@ export const en = {
         group: "platform",
         spec: "FR-OFF",
         name: "Offline & Sync",
-        line: "Availability for capturing the sale, consistency for posting it. Confusing the two is where offline POS goes wrong.",
+        line: "Keep selling and operating when the internet drops, then let the system sync the data when the connection returns — without losing a single hour of trading.",
         points: [
           "Four modes — online, degraded, offline with a LAN, fully isolated — detected continuously, never interrupting an order",
           "POS and KDS discover each other by mDNS and elect a LAN coordinator, so the kitchen runs with no internet",
@@ -579,7 +579,7 @@ export const en = {
         group: "platform",
         spec: "FR-LOC",
         name: "Localisation & Country Packs",
-        line: "Arabic is the authored direction. A country is a signed bundle, not a branch in the code.",
+        line: "Arabic is an original part of the design, and each country's requirements are handled flexibly inside the system — ready for your market today, and the next one tomorrow.",
         points: [
           "Arabic and English first-class on POS, KDS, dashboard, receipts, tickets, exports and error messages",
           "Numerals switchable between Western and Arabic-Indic, set separately for screen and for print",
@@ -593,7 +593,7 @@ export const en = {
         group: "platform",
         spec: "FR-INT",
         name: "External Integrations",
-        line: "A failing partner degrades a connector, never the business.",
+        line: "Connect the system to the services your restaurant needs without becoming dependent on them; integration widens what you can do, it does not control how you operate.",
         points: [
           "Every external system behind an anti-corruption layer; external data structures never reach the domain",
           "Outbound effects dispatched through the transactional outbox, and idempotent by construction",
@@ -607,7 +607,7 @@ export const en = {
         group: "platform",
         spec: "FR-PLT",
         name: "Platform & Tenancy",
-        line: "Tenant → brand → branch. Isolation enforced by the database, not by remembering a WHERE clause.",
+        line: "Every business, its branches and its data run inside an independent, isolated space — one platform able to serve many businesses without mixing them.",
         points: [
           "Row-level security on every tenant-scoped table, forced, and independent of application filtering",
           "A generated CI suite attempts cross-tenant reads on every table and fails the build on any success",
@@ -622,9 +622,9 @@ export const en = {
   segments: {
     eyebrow: "Who it's for",
     title: "Four operations, four different first weeks",
-    lede: "The needs overlap. The buying behaviour, the price sensitivity and the first feature that matters do not.",
+    lede: "The needs may overlap, but buying behaviour, price sensitivity and the feature that catches attention first differ completely from one segment to another.",
     pageLede:
-      "TRENDOW is sold to four segments. Each one is onboarded differently, because the thing that makes it stay is different.",
+      "TRENDOW is sold to four segments, each with a different onboarding that leads with whatever makes it see the value from day one.",
     profileLabel: "Profile",
     painLabel: "Primary pain",
     buyingLabel: "Buying behaviour",
@@ -763,7 +763,7 @@ export const en = {
       {
         name: "Offline operation",
         spec: "FR-OFF-001",
-        text: "Four modes — online, degraded, offline with a LAN, fully isolated. During a partition TRENDOW chooses availability for capturing the sale and consistency for posting it. Order numbers come from a reserved local block, so there are no sequence gaps to explain to a tax authority.",
+        text: "Your restaurant keeps selling even when the connection stops. Four operating modes keep the work going: online, degraded, offline with a LAN, and fully isolated. When the internet is lost, orders keep running locally with numbers and sequence drawn from a pre-reserved block, then sync automatically when the network returns — no data loss, no gaps in the sequence, and no interruption to trading or fiscal compliance.",
         rows: [
           ["Sales available with the cloud down", "≥ 99.99%"],
           ["Fully isolated operation, no degradation", "≥ 72 hours"],
@@ -776,7 +776,7 @@ export const en = {
       {
         name: "Arabic & country packs",
         spec: "FR-LOC-001",
-        text: "Arabic and English are first-class on every surface: POS, kitchen, dashboard, receipts, tickets, exports and error messages. Country packs carry the tax rules, invoice layout, fiscal transmission, currency, rounding and legal receipt text — Egypt's ETA, Saudi ZATCA and the UAE FTA among them.",
+        text: "One system, ready to work the way each market works. Arabic and English are both native experiences inside the system, from the cashier and kitchen screens to the dashboard, receipts, reports and error strings. It also supports independent packs per country covering the invoice and receipt, local terminology, currency, taxes and legal text — including the requirements of Egypt's ETA, Saudi ZATCA and the UAE Federal Tax Authority.",
         rows: [
           ["Interface languages", "Arabic + English, RTL authored first"],
           ["Numerals", "Western or Arabic-Indic, screen and print separately"],
@@ -789,7 +789,7 @@ export const en = {
       {
         name: "Audit & access",
         spec: "FR-AUD-001",
-        text: "Every state-changing operation writes an immutable audit entry carrying actor, device, business time, system time and — when support is acting on a tenant's behalf — who impersonated whom. Entries are hash-chained, so tampering by anyone with database access becomes detectable rather than merely discouraged.",
+        text: "Every movement inside the system leaves a trace that cannot be tampered with. Every state change is recorded in an immutable audit entry carrying the actor's identity, the device, business time, system time, and even who made the change during support sessions. Entries are tied into a hash chain that makes any tampering attempt detectable — even by someone with direct database access.",
         rows: [
           ["Sensitive actions producing an audit entry", "100%"],
           ["Audit chain", "SHA-256, verified on a schedule"],
@@ -802,7 +802,7 @@ export const en = {
       {
         name: "Integrations",
         spec: "FR-INT-001",
-        text: "Every external system sits behind an anti-corruption layer, a circuit breaker and an idempotency key, so a failing partner degrades a connector rather than the business. Connector health is visible: last success, error rate, queue depth.",
+        text: "An outside partner going down should not take your business down. Every integration runs behind an anti-corruption layer, a circuit breaker and an idempotency key, so the impact of any failure stays confined to that connector rather than the whole system. And each integration's health stays visible to you through its last success, error rate and queue depth — so you know the state of every connector before it turns into an operating problem.",
         rows: [
           ["Payments", "Network International · Geidea · PayTabs · Fawry"],
           ["Aggregators", "Talabat · HungerStation · Jahez · Careem · Deliveroo"],
@@ -816,7 +816,7 @@ export const en = {
 
     arch: {
       title: "Architecture, stated plainly",
-      text: "TRENDOW is a modular monolith: one deployable artefact, modules with boundaries enforced in CI, communicating over an in-process event bus inside a single transaction. Microservices solve an organisational problem a nine-engineer team does not have, and would turn one atomic sale into a saga whose every failure mode looks like theft to a restaurant owner.",
+      text: "The strength of a system shows not only in what it does, but in its ability to stay steady as the operation grows. TRENDOW is built as one coherent modular system: a single deployable artefact, independent modules with clear boundaries, communicating over an in-process event bus inside a single transaction. Rather than loading a nine-engineer team with the complexity of microservices, the sale stays one atomic, connected operation — because what looks like a technical failure in other systems can mean a lost order and lost money to a restaurant owner.",
       spec: "ADR-001 · SRS §5.2",
       stack: [
         ["Core API", "NestJS · TypeScript · modular monolith"],
@@ -1206,7 +1206,7 @@ export const en = {
   spec: {
     eyebrow: "The document",
     title: "Everything on this site points back to one baselined specification",
-    lede: "ROS-SRS-001 version 1.0, baselined on 4 August 2026. 612 functional and 148 non-functional requirements, written to be independently verifiable — a requirement that cannot be tested is not a requirement, and has been either rewritten or moved to the vision section.",
+    lede: "ROS-SRS-001 version 1.0, baselined on 4 August 2026. 212 functional and 148 non-functional requirements, written to be independently verifiable — a requirement that cannot be tested is not a requirement, and has been either rewritten or moved to the vision section.",
     note: "This page is the reference key for the tags used everywhere else on the site.",
 
     controlTitle: "Document control",
@@ -1222,7 +1222,7 @@ export const en = {
       ["Standard basis", "IEEE 830-1998 · ISO/IEC/IEEE 29148:2018"],
       ["Architecture notation", "C4 Model · UML 2.5 · BPMN 2.0"],
       ["Primary language", "English technical, Arabic business summaries"],
-      ["Functional requirements", "612"],
+      ["Functional requirements", "212"],
       ["Non-functional requirements", "148"],
       ["Classification", "Confidential — internal and investor distribution"],
     ],
@@ -1669,7 +1669,14 @@ export const en = {
     messagePlaceholder: "Current POS, spreadsheets, notebook — whatever it is.",
     submit: "Request the demo",
     sending: "Sending",
-    successTitle: "Request recorded",
+    /* The body always said nothing was sent; the title said the opposite,
+       and a title is what people read. */
+    successTitle: "Nothing was sent",
+    sentTitle: "Request sent",
+    sentText:
+      "Your details reached us. Someone will be in touch to arrange the demo.",
+    sendFailed:
+      "That did not send. Check your connection and try again, or call us instead.",
     successText:
       "This site is a frontend prototype, so nothing was actually sent. Wire this form to your CRM or an email service to make it live.",
     reset: "Send another",
@@ -1684,18 +1691,18 @@ export const en = {
 
   cta: {
     title: "Your food cost is a number you can know on Tuesday",
-    text: "Not sixty days after month-end, from an accountant, about a business that ended two months ago.",
+    text: "Don't wait for month-end to find out where your profit went. The system tracks food cost while you trade, so you catch any shift early and decide before it turns into a loss.",
     button: "Book a demo",
     secondary: "See pricing",
   },
 
   footer: {
     tagline: "Restaurant Operating System",
-    built: "A frontend prototype built from the baselined Software Requirements Specification. No backend, no database — every figure on this site is quoted from the document.",
+    built: "One connected system that ties the details of the operation together and keeps working offline, without depending on a central database — so operations stay stable, data stays available, and decisions stay clearer at all times.",
     indexTitle: "Every page",
     countsTitle: "What the baseline contains",
     top: "Back to top",
-    docNote: "ROS-SRS-001 · 612 functional and 148 non-functional requirements",
+    docNote: "ROS-SRS-001 · 212 functional and 148 non-functional requirements",
     rights: "All rights reserved.",
   },
 

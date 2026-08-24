@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { useI18n } from "@/lib/i18n";
 import {
+  Button,
   DataTable,
   PageHero,
   Section,
@@ -57,11 +57,11 @@ function Tier({
       onPointerMove={onPointerMove}
       className={cx(
         "glow-card card-bar bg-paper relative flex h-full flex-col overflow-hidden rounded-2xl border p-7",
-        featured ? "border-a shadow-lg" : "border-ink/10 shadow-2xs",
+        featured ? "border-a" : "border-ink/12",
       )}
     >
       {featured ? (
-        <span className="spec bg-a text-bone absolute top-4 end-4 rounded-full px-2.5 py-1">
+        <span className="spec bg-amber text-void absolute top-4 end-4 px-2.5 py-1">
           {popularLabel}
         </span>
       ) : null}
@@ -97,17 +97,13 @@ function Tier({
         ))}
       </ul>
 
-      <Link
+      <Button
         href="/contact"
-        className={cx(
-          "mt-9 rounded-full px-5 py-3 text-center text-sm font-medium transition-all duration-300 hover:-translate-y-0.5",
-          featured
-            ? "bg-ink text-bone hover:bg-a-deep"
-            : "border-ink/20 text-ink hover:border-a hover:text-a border",
-        )}
+        variant={featured ? "primary" : "ghost"}
+        className="mt-9 self-start"
       >
         {ctaLabel}
-      </Link>
+      </Button>
     </article>
   );
 }
@@ -166,7 +162,7 @@ export default function PricingPage() {
             {t.pricing.addons.map(([name, price, note]) => (
               <div
                 key={name}
-                className="hover:bg-a-wash/60 grid gap-1 px-1 py-4 transition-colors sm:grid-cols-[minmax(0,1fr)_auto] sm:items-baseline sm:gap-6"
+                className="hover:bg-ink/4 grid gap-1 px-1 py-4 transition-colors sm:grid-cols-[minmax(0,1fr)_auto] sm:items-baseline sm:gap-6"
               >
                 <div>
                   <dt className="text-ink text-sm font-medium">{name}</dt>
