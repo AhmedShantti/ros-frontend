@@ -1,0 +1,44 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(sed -n *)",
+      "Bash(wc *)",
+      "Bash(du *)",
+      "Bash(sort *)",
+      "Bash(uniq *)",
+      "Bash(echo *)",
+      "Bash(grep *)",
+      "Bash(rg *)",
+
+      "Bash(git status*)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git show *)",
+      "Bash(git branch*)",
+      "Bash(git rev-parse *)",
+      "Bash(git ls-files *)",
+      "Bash(git --no-pager *)",
+
+      "Bash(npm run *)",
+      "Bash(npx tsc *)",
+      "Bash(npx next build*)",
+      "Bash(npx next lint*)",
+
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(git status*)",
+      "PowerShell(git --no-pager *)",
+      "PowerShell(npm run *)",
+      "PowerShell(npx tsc *)",
+      "PowerShell(npx next build*)"
+    ]
+  }
+}

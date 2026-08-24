@@ -119,3 +119,41 @@ export function nextScopeStep(
   if (!chosen.branch && counts.branches > 1 && scope === "branch_set") return "branch";
   return "done";
 }
+
+// ---------------------------------------------------------------------------
+// Which console role a real account most resembles
+// ---------------------------------------------------------------------------
+
+/**
+ * The API issues flat permission codes; the console renders against named
+ * roles. There is no mapping between them on the wire, so the closest role
+ * is the one whose permission set overlaps the granted codes best.
+ *
+ * This decides what the navigation *shows*, nothing more — FR-SEC-045 is
+ * explicit that the server authorises every request regardless. An account
+ * with no codes yet (no tenant selected) falls back to the narrowest role,
+ * so the console never renders more than the server would allow.
+ */
+export function roleFromPermissions(codes: readonly string[]): RoleKey {
+  if (codes.length === 0) return "cashier";
+
+  const granted = new Set(codes.map((code) => code.toLowerCase().replace(/[:/]/g, ".")));
+
+  let best: RoleKey = "cashier";
+  let bestScore = -Infinity;
+
+  for (const [key, definition] of Object.entries(ROLE_DEFINITIONS)) {
+    const wanted = definition.permissions as readonly string[];
+    const overlap = wanted.filter((permission) => granted.has(permission)).length;
+    // Penalise a role that claims far more than the account was granted, so
+    // one shared permission does not promote a cashier to owner.
+    const score = overlap - Math.abs(wanted.length - granted.size) * 0.05;
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = key as RoleKey;
+    }
+  }
+
+  return best;
+}

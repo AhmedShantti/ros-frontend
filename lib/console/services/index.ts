@@ -1,21 +1,29 @@
 /**
  * Service registry — the single swap point for the backend.
  *
- * Every page reaches its data through `services`. To move from mocks to a
- * live API, implement `ServiceRegistry` against HTTP and change the one
- * assignment below. No page, component, or hook needs to be touched.
+ * Every page reaches its data through `services`. Which implementation that
+ * is depends on one environment variable:
  *
- *   import { httpServices } from "./http";
- *   export const services: ServiceRegistry = httpServices;
+ *   NEXT_PUBLIC_API_URL=http://192.168.1.43:3000   → the live backend
+ *   (unset)                                        → in-memory demo data
  *
- * See BACKEND_INTEGRATION.md for the endpoint map and the conventions the
- * HTTP implementation is expected to honour.
+ * Force one or the other with `NEXT_PUBLIC_API_MODE=http|mock`. Next reads
+ * both at build time, so a change needs `next dev` restarted.
+ *
+ * No page, component, or hook chooses; they all import `services` and get
+ * whichever is configured. See BACKEND_INTEGRATION.md for the endpoint map
+ * and for which domains the backend does not serve yet.
  */
 
+import { DATA_MODE } from "@/lib/api/config";
 import type { ServiceRegistry } from "./types";
 import { mockServices } from "./mock";
+import { httpServices } from "./http";
 
-export const services: ServiceRegistry = mockServices;
+export const services: ServiceRegistry = DATA_MODE === "http" ? httpServices : mockServices;
+
+export { API_COVERAGE } from "./http";
+export { DATA_MODE, API_BASE_URL, describeTarget } from "@/lib/api/config";
 
 export { ServiceError } from "./types";
 export type {

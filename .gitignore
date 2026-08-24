@@ -10,3 +10,12 @@ next-env.d.ts
 # Personal, machine-local tool permissions. Project-wide settings would
 # go in .claude/settings.json, which is committed.
 .claude/settings.local.json
+
+# `.env*.local` does not cover a backup like `.env.local.bak`, which is
+# exactly the file most likely to carry real addresses and credentials.
+.env.local*
+*.env.bak
+
+# An 8 MB design document is not source. Keep it in the working tree,
+# out of the history.
+*.pdf
