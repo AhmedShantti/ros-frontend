@@ -11,17 +11,27 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  AlertTriangle,
+  Check,
   ChefHat,
   ChevronDown,
   LayoutGrid,
+  RefreshCw,
   RotateCcw,
   ScanLine,
+  Wifi,
   WifiOff,
 } from "lucide-react";
 import { branches, terminals } from "@/lib/console/mock/org";
 import { useI18n } from "@/lib/console/providers";
-import { formatMoney, formatTime, tx as pick } from "@/lib/console/format";
+import { formatMoney, formatNumber, formatTime, tx as pick } from "@/lib/console/format";
 import { useLive } from "@/lib/console/live/store";
+import { DATA_MODE } from "@/lib/api/config";
+import {
+  pendingCount,
+  useBrowserConnectivity,
+  useConnectivityStore,
+} from "@/store/connectivity";
 import {
   Badge,
   Button,
@@ -113,13 +123,7 @@ export function TerminalBar() {
 
       <div className="flex-1" />
 
-      <span
-        className="text-fg-subtle hidden items-center gap-1.5 text-xs sm:inline-flex"
-        title={t("term.offlineNote")}
-      >
-        <WifiOff size={13} />
-        {t("term.offline")}
-      </span>
+      <ConnectivityBadge />
       <Link
         href="/dashboard"
         className="border-line bg-raised text-fg-muted hover:bg-sunken hover:text-fg inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium"
@@ -188,5 +192,80 @@ function TerminalLink({
       {icon}
       {children}
     </Link>
+  );
+}
+
+/**
+ * What the link is actually doing.
+ *
+ * This was six lines of hard-coded markup showing one state forever, beside a
+ * fully built connectivity store with six states, a persisted outbound queue
+ * and copy in both languages — none of which anything imported. A terminal
+ * that always says the same thing about the network is worse than one that
+ * says nothing, because staff stop reading it.
+ *
+ * With no backend configured the honest answer is still "working locally":
+ * there is no link to lose, and reporting "online" would be a claim about a
+ * server that does not exist. Once an API is configured the real state is
+ * shown, with the count of writes still waiting to reach it.
+ */
+function ConnectivityBadge() {
+  const { t, fmt } = useI18n();
+  useBrowserConnectivity();
+
+  const state = useConnectivityStore((s) => s.state);
+  const hydrated = useConnectivityStore((s) => s.hydrated);
+  const pending = useConnectivityStore(pendingCount);
+
+  // No API configured: the store is describing a link that is not there.
+  if (DATA_MODE !== "http") {
+    return (
+      <span
+        className="text-fg-subtle hidden items-center gap-1.5 text-xs sm:inline-flex"
+        title={t("term.offlineNote")}
+      >
+        <WifiOff size={13} />
+        {t("term.offline")}
+      </span>
+    );
+  }
+
+  // Before rehydration the queue length is unknown; showing a count that then
+  // corrects itself is worse than showing none for a frame.
+  if (!hydrated) return null;
+
+  const look = {
+    online: { icon: <Wifi size={13} />, label: t("sync.online"), tone: "text-fg-subtle" },
+    degraded: { icon: <Wifi size={13} />, label: t("sync.degraded"), tone: "text-warn" },
+    offline: { icon: <WifiOff size={13} />, label: t("sync.offline"), tone: "text-bad" },
+    syncing: {
+      icon: <RefreshCw size={13} className="animate-spin" />,
+      label: t("sync.syncing"),
+      tone: "text-fg-muted",
+    },
+    conflict: {
+      icon: <AlertTriangle size={13} />,
+      label: t("sync.conflict"),
+      tone: "text-bad",
+    },
+    synced: { icon: <Check size={13} />, label: t("sync.synced"), tone: "text-good" },
+  }[state];
+
+  return (
+    <span
+      className={cx(
+        "hidden items-center gap-1.5 text-xs sm:inline-flex",
+        look.tone,
+      )}
+      title={state === "offline" ? t("sync.offlineNote") : undefined}
+    >
+      {look.icon}
+      {look.label}
+      {pending > 0 ? (
+        <span className="text-fg-subtle">
+          · {t("sync.pending").replace("{n}", formatNumber(pending, fmt, 0))}
+        </span>
+      ) : null}
+    </span>
   );
 }

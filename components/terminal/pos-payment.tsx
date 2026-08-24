@@ -3,18 +3,27 @@
 /**
  * Payment, receipt and refund.
  *
+ * FR-POS-061 — split payment across tenders, with the balance always shown.
+ *
  * The running balance is the whole design. Split tenders, split bills and
  * partial payments all reduce to "what is still owed", displayed at all
  * times, so a cashier is never guessing whether the last tap registered —
  * which is the state that produces double charges.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Banknote, CreditCard, Printer, Smartphone, Ticket, Undo2 } from "lucide-react";
-import type { Order, TenderType } from "@/lib/console/types";
+import type { CountryPack, Order, TaxClassCode, TenderType } from "@/lib/console/types";
 import { branchById } from "@/lib/console/mock/org";
+import { menuItemById } from "@/lib/console/mock/catalogue";
 import { countryPacks } from "@/lib/console/mock/platform";
-import { formatDateTime, formatMoney, money, tx as pick } from "@/lib/console/format";
+import {
+  formatDateTime,
+  formatMoney,
+  minorFromInput,
+  money,
+  tx as pick,
+} from "@/lib/console/format";
 import { TENDER_TYPE, ORDER_TYPE } from "@/lib/console/labels";
 import { useI18n } from "@/lib/console/providers";
 import { useLive } from "@/lib/console/live/store";
@@ -53,6 +62,20 @@ export function PaymentSheet({ order, onClose }: { order: Order; onClose: () => 
   const [tender, setTender] = useState<TenderType>("cash");
   const [amount, setAmount] = useState("");
   const [parties, setParties] = useState(1);
+  /**
+   * FR-POS-060 — one tap, one payment.
+   *
+   * A ref rather than state, because state updates are batched and a second
+   * tap can land in the same batch as the first, reading the old value and
+   * dispatching again. A ref is written synchronously inside the handler, so
+   * the second tap sees it however fast it arrives.
+   *
+   * Cash had accidental cover — clearing the field made `tenderedMinor <
+   * share` true and disabled the button on re-render. Card had none: its
+   * `disabled` only ever checked `share <= 0`, so a double-tap wrote two
+   * payment records against the same order.
+   */
+  const paying = useRef(false);
 
   const balance = balanceOf(order);
   const settled = order.state === "completed";
@@ -60,9 +83,32 @@ export function PaymentSheet({ order, onClose }: { order: Order; onClose: () => 
   // FR-POS-063 — cash settles to the smallest coin actually in circulation.
   const cashRounding = roundCash(balance, pack);
   const dueNow = tender === "cash" ? cashRounding.rounded : balance;
-  const share = parties > 1 ? Math.ceil(dueNow.amount / parties) : dueNow.amount;
+  /**
+   * FR-POS-062 — an equal split stays equal as it is paid down.
+   *
+   * `dueNow` is the *remaining* balance, so dividing it by the original party
+   * count made every share smaller than the last: four covers of 100 became
+   * 100, then 75, then 50. The divisor has to shrink with the balance, so it
+   * is the number of shares still outstanding.
+   *
+   * Derived from what has been paid rather than tracked separately, because a
+   * counter would drift the moment a payment was refunded or an item added.
+   */
+  const total = order.grandTotal.amount;
+  const paidShares =
+    parties > 1 && total > 0
+      ? Math.min(parties - 1, Math.round((order.paidTotal.amount / total) * parties))
+      : 0;
+  const remainingShares = Math.max(1, parties - paidShares);
+  const share =
+    parties > 1 ? Math.ceil(dueNow.amount / remainingShares) : dueNow.amount;
 
-  const tenderedMinor = Math.max(0, Math.round(Number(amount || 0) * 100));
+  /**
+   * Unreadable input reads as nothing tendered rather than as NaN. The old
+   * form made `tenderedMinor` NaN, and `NaN < share` is `false` — which
+   * *enabled* the Take Payment button on invalid input instead of holding it.
+   */
+  const tenderedMinor = minorFromInput(amount) ?? 0;
   const changeDue = tender === "cash" ? Math.max(0, tenderedMinor - share) : 0;
   const step = cashIncrement(order.currency);
 
@@ -89,6 +135,8 @@ export function PaymentSheet({ order, onClose }: { order: Order; onClose: () => 
             variant="primary"
             disabled={share <= 0 || (tender === "cash" && tenderedMinor < share)}
             onClick={() => {
+              if (paying.current) return;
+              paying.current = true;
               dispatch({
                 type: "ORDER_PAY",
                 orderId: order.id,
@@ -99,6 +147,12 @@ export function PaymentSheet({ order, onClose }: { order: Order; onClose: () => 
                 cardScheme: tender === "card" ? "Visa" : null,
               });
               setAmount("");
+              // Released on the next frame: the dispatch has been applied by
+              // then, so the button's own `disabled` takes over from here and
+              // a legitimate second payment on a split bill is not blocked.
+              requestAnimationFrame(() => {
+                paying.current = false;
+              });
             }}
           >
             {t("pos.takePayment")} · {formatMoney(money(share, order.currency), fmt)}
@@ -321,10 +375,7 @@ export function ReceiptSheet({ order, onClose }: { order: Order; onClose: () => 
           {order.serviceChargeTotal.amount > 0 ? (
             <Row label={t("pos.serviceCharge")} value={formatMoney(order.serviceChargeTotal, fmt)} />
           ) : null}
-          <Row
-            label={`${t("pos.tax")} ${pack?.pricingMode === "tax_inclusive" ? `(${t("pos.taxIncluded")})` : ""}`}
-            value={formatMoney(order.taxTotal, fmt)}
-          />
+          <TaxBreakdown order={order} pack={pack} />
           {order.roundingAdjustment.amount !== 0 ? (
             <Row label={t("pos.rounding")} value={formatMoney(order.roundingAdjustment, fmt)} />
           ) : null}
@@ -391,7 +442,8 @@ function RefundSheet({ order, onClose }: { order: Order; onClose: () => void }) 
   const [reason, setReason] = useState("");
   const [returnToStock, setReturnToStock] = useState(false);
 
-  const amountMinor = Math.min(refundable, Math.max(0, Math.round(Number(amount || 0) * 100)));
+  const parsedRefund = minorFromInput(amount);
+  const amountMinor = parsedRefund === null ? null : Math.min(refundable, parsedRefund);
   const originalTender = order.payments[0]?.tender ?? "cash";
 
   return (
@@ -404,8 +456,11 @@ function RefundSheet({ order, onClose }: { order: Order; onClose: () => void }) 
           <Button onClick={onClose}>{t("common.cancel")}</Button>
           <Button
             variant="danger"
-            disabled={amountMinor <= 0 || reason.trim().length === 0}
+            disabled={
+              amountMinor === null || amountMinor <= 0 || reason.trim().length === 0
+            }
             onClick={() => {
+              if (amountMinor === null) return;
               dispatch({
                 type: "ORDER_REFUND",
                 orderId: order.id,
@@ -416,7 +471,8 @@ function RefundSheet({ order, onClose }: { order: Order; onClose: () => void }) 
               onClose();
             }}
           >
-            {t("pos.refund")} · {formatMoney(money(amountMinor, order.currency), fmt)}
+            {t("pos.refund")} ·{" "}
+            {formatMoney(money(amountMinor ?? 0, order.currency), fmt)}
           </Button>
         </>
       }
@@ -445,5 +501,108 @@ function RefundSheet({ order, onClose }: { order: Order; onClose: () => void }) 
         />
       </div>
     </Modal>
+  );
+}
+
+/**
+ * FR-FIN-020 — the receipt carries the breakdown the country pack requires.
+ *
+ * A single summed "Tax" line is only honest when every line on the order sits
+ * in the same class. The Egypt pack defines four — standard 14%, reduced 5%,
+ * zero-rated, exempt — and a mixed order (hot food beside bottled water) was
+ * printing one undifferentiated figure, which is exactly the number a fiscal
+ * authority cannot check.
+ *
+ * The lines already carry their class, so the breakdown is a grouping rather
+ * than a new calculation: nothing here re-derives tax, it only reports what
+ * the engine already worked out per line.
+ *
+ * An order that really is single-class still prints one row, so the common
+ * case does not get longer for the sake of the general one.
+ */
+function TaxBreakdown({
+  order,
+  pack,
+}: {
+  order: Order;
+  pack: CountryPack | undefined;
+}) {
+  const { t, tx, fmt } = useI18n();
+  const inclusive = pack?.pricingMode === "tax_inclusive";
+  const suffix = inclusive ? ` (${t("pos.taxIncluded")})` : "";
+
+  const groups = useMemo(() => {
+    const byClass = new Map<TaxClassCode, { taxable: number; tax: number }>();
+
+    for (const line of order.lines) {
+      if (line.state === "voided") continue;
+      // The class lives on the menu item, not on the line — the line carries
+      // the tax it was charged, and the item says which class charged it.
+      const code = menuItemById.get(line.menuItemId)?.taxClass ?? "standard";
+      const entry = byClass.get(code) ?? { taxable: 0, tax: 0 };
+      entry.taxable += line.lineTotal.amount;
+      entry.tax += line.taxAmount.amount;
+      byClass.set(code, entry);
+    }
+
+    // Ordered by the pack rather than by encounter, so two receipts from the
+    // same branch always list their classes the same way round.
+    const order_ = pack?.taxClasses.map((c) => c.code) ?? [...byClass.keys()];
+    return order_
+      .filter((code) => byClass.has(code))
+      .map((code) => {
+        const definition = pack?.taxClasses.find((c) => c.code === code);
+        const entry = byClass.get(code)!;
+        return {
+          code,
+          label: definition?.label ?? { en: code, ar: code },
+          rate: definition?.rate ?? null,
+          ...entry,
+        };
+      });
+  }, [order.lines, pack]);
+
+  // The service charge is taxed at the standard rate but is not a line, so
+  // it is whatever the total does not account for.
+  const lineTax = groups.reduce((sum, g) => sum + g.tax, 0);
+  const otherTax = order.taxTotal.amount - lineTax;
+
+  if (groups.length <= 1 && otherTax === 0) {
+    return (
+      <Row
+        label={`${t("pos.tax")}${suffix}`}
+        value={formatMoney(order.taxTotal, fmt)}
+      />
+    );
+  }
+
+  return (
+    <>
+      <Row label={`${t("pos.tax")}${suffix}`} value={formatMoney(order.taxTotal, fmt)} />
+      {groups.map((group) => (
+        <div
+          key={group.code}
+          className="text-fg-subtle flex justify-between ps-3 text-[0.7rem]"
+        >
+          <span>
+            {tx(group.label)}
+            {group.rate === null ? "" : ` ${group.rate}%`}
+            {" · "}
+            {formatMoney(money(group.taxable, order.currency), fmt)}
+          </span>
+          <span className="tabular-nums">
+            {formatMoney(money(group.tax, order.currency), fmt)}
+          </span>
+        </div>
+      ))}
+      {otherTax !== 0 ? (
+        <div className="text-fg-subtle flex justify-between ps-3 text-[0.7rem]">
+          <span>{t("pos.serviceCharge")}</span>
+          <span className="tabular-nums">
+            {formatMoney(money(otherTax, order.currency), fmt)}
+          </span>
+        </div>
+      ) : null}
+    </>
   );
 }

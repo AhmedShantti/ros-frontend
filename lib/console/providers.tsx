@@ -55,6 +55,7 @@ const KEY_ROLE = "ros.console.role";
 const KEY_BRAND = "ros.console.brand";
 const KEY_BRANCH = "ros.console.branch";
 const KEY_AUTH = "ros.console.auth";
+const KEY_MFA = "ros.console.mfa";
 
 export const THEME_STORAGE_KEY = KEY_THEME;
 
@@ -252,6 +253,18 @@ function SessionProvider({ children }: { children: ReactNode }) {
   const [authenticated, setAuthenticated] = useState(false);
   const [brandId, setBrandIdState] = useState<string | null>(null);
   const [branchId, setBranchIdState] = useState<string | null>(null);
+  /**
+   * FR-SEC-024 — whether this session actually cleared the MFA challenge.
+   *
+   * `buildSession` has always taken this, and `signIn` has always declared it
+   * in its type — but the implementation ignored the argument and the session
+   * was built with a hardcoded `true`. Every session therefore claimed to
+   * have passed a check that only the MFA screen performs.
+   *
+   * Nothing gates on it yet, so this changes no behaviour today. It changes
+   * whether the field can be trusted the moment something does.
+   */
+  const [mfaSatisfied, setMfaSatisfied] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -260,6 +273,7 @@ function SessionProvider({ children }: { children: ReactNode }) {
       setRoleKey(storedRole as RoleKey);
     }
     setAuthenticated(read(KEY_AUTH) === "true");
+    setMfaSatisfied(read(KEY_MFA) === "true");
 
     const storedBrand = read(KEY_BRAND);
     const storedBranch = read(KEY_BRANCH);
@@ -270,8 +284,8 @@ function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const session = useMemo(
-    () => (authenticated ? buildSession(roleKey, true) : null),
-    [authenticated, roleKey],
+    () => (authenticated ? buildSession(roleKey, mfaSatisfied) : null),
+    [authenticated, roleKey, mfaSatisfied],
   );
 
   const definition = ROLE_DEFINITIONS[roleKey];
@@ -338,18 +352,22 @@ function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = useCallback(
-    (next: RoleKey) => {
+    (next: RoleKey, satisfiedMfa: boolean) => {
       setRoleKey(next);
       setAuthenticated(true);
+      setMfaSatisfied(satisfiedMfa);
       write(KEY_ROLE, next);
       write(KEY_AUTH, "true");
+      write(KEY_MFA, satisfiedMfa ? "true" : "false");
     },
     [],
   );
 
   const signOut = useCallback(() => {
     setAuthenticated(false);
+    setMfaSatisfied(false);
     write(KEY_AUTH, "false");
+    write(KEY_MFA, "false");
   }, []);
 
   const value = useMemo<SessionValue>(() => {

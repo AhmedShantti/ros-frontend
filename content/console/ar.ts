@@ -42,6 +42,11 @@ export const consoleAr: ConsoleCopy = {
   "auth.mfaBack": "استخدام حساب آخر",
   "auth.pinNote": "مصادقة رمز PIN مرتبطة بالجهاز ولا تمنح الوصول إلى لوحة التحكم أبدًا.",
   "auth.notSignedIn": "لم تسجّل الدخول.",
+  "auth.liveApi": "تسجيل الدخول إلى الخادم المباشر على",
+  "auth.mustReset": "يجب على هذا الحساب تعيين كلمة مرور جديدة قبل تسجيل الدخول التالي.",
+  "auth.chooseTenant": "اختر المنشأة",
+  "auth.chooseTenantHint": "هذا الحساب يعمل لأكثر من منشأة. لا تُقرأ أي بيانات قبل اختيار واحدة.",
+  "auth.errorNetwork": "لم يستجب الخادم. تحقّق من عنوان الواجهة ومن إمكانية الوصول إليه من هذا الجهاز.",
 
   // -- Navigation ----------------------------------------------------------
   "nav.dashboard": "لوحة المعلومات",
@@ -1060,7 +1065,7 @@ export const consoleAr: ConsoleCopy = {
   "auth.pointOffline": "اثنتان وسبعون ساعة عمل بلا خادم، ثم مزامنة لا تُضيع شيئًا ولا تكرر شيئًا.",
   "auth.pointArabic": "العربية والإنجليزية درجة أولى على كل سطح — مكتوبة من اليمين ثم تُعكس إلى الإنجليزية.",
   "auth.pointAudit": "كل عملية تغيّر الحالة تكتب قيد تدقيق مسلسلًا بالتجزئة لا يستطيع العبث إخفاءه.",
-  "auth.docNote": "ROS-SRS-001 v1.0 · ٦١٢ وظيفي · ١٤٨ غير وظيفي",
+  "auth.docNote": "ROS-SRS-001 v1.0 · ٢١٢ وظيفي · ١٤٨ غير وظيفي",
   "auth.backToSite": "عودة إلى الموقع",
 
   // -- Users and roles, added -------------------------------------------
@@ -1118,6 +1123,8 @@ export const consoleAr: ConsoleCopy = {
   "shift.open": "فتح وردية",
   "shift.cashier": "الكاشير",
   "shift.openingFloat": "الرصيد الافتتاحي",
+  "shift.floatInvalid": "أدخل الرصيد الافتتاحي كرقم.",
+  "shift.countInvalid": "أحد الأعداد ليس رقمًا. صحّحه قبل الإقفال.",
   "shift.openedAt": "وقت الفتح",
   "shift.cashSales": "مبيعات نقدية",
   "shift.cashRefunds": "مرتجعات نقدية",
@@ -1164,6 +1171,14 @@ export const consoleAr: ConsoleCopy = {
   "pos.eightySixed": "موقوف",
   "pos.eightySixReason": "لماذا أُوقف الصنف؟",
   "pos.restore": "إعادة التفعيل",
+  "pos.overrideOnce": "اعتماد لهذا الطلب",
+  "pos.overrideApprover": "المدير المعتمِد",
+  "pos.overrideChoose": "اختر مديرًا",
+  "pos.overrideNote":
+    "يسمح بهذا الصنف في الطلب الحالي فقط، ويبقى موقوفًا في كل طلب آخر على هذا الجهاز.",
+  "pos.overrideActive": "مُعتمَد لهذا الطلب",
+  "pos.overrideActiveNote":
+    "اعتمد مدير هذا الصنف للطلب المفتوح، ويظل الإيقاف ساريًا في ما عداه.",
   "pos.remaining": "متبقٍ {n}",
   "pos.noRecipe": "بلا وصفة",
   "pos.selectTable": "اختر طاولة",
@@ -1399,6 +1414,8 @@ export const consoleAr: ConsoleCopy = {
   "auth.deviceRegisteredTitle": "تم تسجيل الجهاز",
   "auth.deviceRegisteredBody": "أصبح هذا الجهاز مقترنًا، ومعرّفه يُرفق بكل معاملة يسجّلها.",
   "auth.deviceId": "معرّف الجهاز",
+  "auth.deviceKiosk": "كشك طلب ذاتي",
+  "auth.deviceDemoNote": "لا يوجد خادم مهيّأ، لذلك لم يُربط أي جهاز. اضبط NEXT_PUBLIC_API_URL ثم سجّل مرة أخرى لربط هذا الجهاز فعليًا.",
   "auth.openPos": "فتح نقطة البيع",
 
   "auth.posPinTitle": "أدخل رمزك",

@@ -42,7 +42,8 @@ export default function ResetPasswordPage() {
     await new Promise((resolve) => window.setTimeout(resolve, 420));
     // A real reset returns a fresh session. The demo signs in as the owner,
     // which is the account the reset link in the seeded mailbox belongs to.
-    signIn(DEMO_ACCOUNTS[0]!.roleKey, true);
+    // A password reset is not a second factor.
+    signIn(DEMO_ACCOUNTS[0]!.roleKey, false);
     router.replace("/dashboard");
   }
 

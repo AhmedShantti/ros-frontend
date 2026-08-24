@@ -67,3 +67,21 @@ export const scopeSelectionSchema = z.object({
   branchId: z.string().nullable(),
 });
 export type ScopeSelectionInput = z.infer<typeof scopeSelectionSchema>;
+
+/**
+ * FR-SEC-030 — pairing a terminal to a branch.
+ *
+ * The pairing code is the credential here: it is issued in the console by
+ * someone who already has the right to add a terminal, which is what stops a
+ * device registering itself.
+ */
+export const registerDeviceSchema = z.object({
+  pairingCode: z
+    .string()
+    .trim()
+    .regex(/^\d{8}$/, "Enter the eight-digit pairing code."),
+  deviceName: z.string().trim().min(2).max(48),
+  deviceType: z.enum(["pos", "kds", "kiosk"]),
+  printerAttached: z.boolean(),
+});
+export type RegisterDeviceInput = z.infer<typeof registerDeviceSchema>;

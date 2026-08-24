@@ -91,11 +91,15 @@ export default function MovementsPage() {
       render: (movement) => formatNumber(Number(movement.balanceAfter.value), fmt, 1),
     },
     {
-      key: "totalCost",
+      key: "unitCost",
       header: t("inv.unitCost"),
       numeric: true,
       secondary: true,
-      render: (movement) => formatMoney(movement.totalCost, fmt, true),
+      // Was rendering `totalCost` under a "Unit cost" heading — out by the
+      // size of the movement, and worst where it mattered most, on the
+      // biggest ones. `unitCost` now carries the figure the item's costing
+      // method actually produced, rather than the static catalogue price.
+      render: (movement) => formatMoney(movement.unitCost, fmt, true),
     },
     {
       key: "performedBy",

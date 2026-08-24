@@ -20,6 +20,7 @@
  *   synced     transient, shown for a beat after the queue empties
  */
 
+import { useEffect } from "react";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
@@ -185,3 +186,42 @@ export const pendingCount = (s: ConnectivityStore) =>
 
 export const conflictCount = (s: ConnectivityStore) =>
   s.queue.filter((q) => q.status === "conflict").length;
+
+/**
+ * Keeps the store in step with the browser's own view of the link.
+ *
+ * Without this the store was never written to by anything, which is why the
+ * terminal bar showed one hard-coded state forever. `navigator.onLine` is a
+ * coarse signal — it reports the interface, not whether the API answers — but
+ * it is the one the browser is certain about, and losing the interface is the
+ * case the design cares about most.
+ *
+ * A simulated state set from the dev tools wins: someone demonstrating the
+ * offline path should not have it corrected out from under them.
+ */
+export function useBrowserConnectivity(): void {
+  const setState = useConnectivityStore((s) => s.setState);
+  const drain = useConnectivityStore((s) => s.drain);
+
+  useEffect(() => {
+    const apply = () => {
+      if (useConnectivityStore.getState().simulated) return;
+      if (navigator.onLine) {
+        // Coming back with work queued means draining, not "online" —
+        // `drain()` moves it on and lands on online when the queue empties.
+        if (useConnectivityStore.getState().queue.length > 0) drain();
+        else setState("online");
+      } else {
+        setState("offline");
+      }
+    };
+
+    apply();
+    window.addEventListener("online", apply);
+    window.addEventListener("offline", apply);
+    return () => {
+      window.removeEventListener("online", apply);
+      window.removeEventListener("offline", apply);
+    };
+  }, [setState, drain]);
+}

@@ -85,6 +85,7 @@ export default function MfaPage() {
     setError(null);
     setVerifying(true);
     window.setTimeout(() => {
+      // The one place that can honestly claim this.
       signIn(role ?? "owner", true);
       clearPendingRole();
       router.replace("/dashboard");

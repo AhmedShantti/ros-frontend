@@ -40,6 +40,11 @@ export const consoleEn = {
   "auth.mfaBack": "Use a different account",
   "auth.pinNote": "PIN authentication is terminal-bound and never grants dashboard access.",
   "auth.notSignedIn": "You are not signed in.",
+  "auth.liveApi": "Signing in against the live backend at",
+  "auth.mustReset": "This account must set a new password before its next sign-in.",
+  "auth.chooseTenant": "Choose a business",
+  "auth.chooseTenantHint": "This account works for more than one. The console reads nothing until one is selected.",
+  "auth.errorNetwork": "The backend did not answer. Check the API address and that it is reachable from this device.",
 
   // -- Navigation ----------------------------------------------------------
   "nav.dashboard": "Dashboard",
@@ -1063,7 +1068,7 @@ export const consoleEn = {
   "auth.pointOffline": "Seventy-two hours of trading with no server, then a sync that loses nothing and duplicates nothing.",
   "auth.pointArabic": "Arabic and English are first-class on every surface — authored right-to-left, mirrored to English.",
   "auth.pointAudit": "Every state-changing operation writes a hash-chained audit entry that tampering cannot hide.",
-  "auth.docNote": "ROS-SRS-001 v1.0 · 612 functional · 148 non-functional",
+  "auth.docNote": "ROS-SRS-001 v1.0 · 212 functional · 148 non-functional",
   "auth.backToSite": "Back to the site",
 
   // -- Users and roles, added -------------------------------------------
@@ -1121,6 +1126,8 @@ export const consoleEn = {
   "shift.open": "Open shift",
   "shift.cashier": "Cashier",
   "shift.openingFloat": "Opening float",
+  "shift.floatInvalid": "Enter the opening float as a number.",
+  "shift.countInvalid": "One or more counts is not a number. Correct them before closing.",
   "shift.openedAt": "Opened",
   "shift.cashSales": "Cash sales",
   "shift.cashRefunds": "Cash refunds",
@@ -1167,6 +1174,14 @@ export const consoleEn = {
   "pos.eightySixed": "86'd",
   "pos.eightySixReason": "Why is it off?",
   "pos.restore": "Bring back",
+  "pos.overrideOnce": "Approve for this order",
+  "pos.overrideApprover": "Manager approving",
+  "pos.overrideChoose": "Choose a manager",
+  "pos.overrideNote":
+    "Lets this item onto the order in hand only. It stays 86'd for every other order on this terminal.",
+  "pos.overrideActive": "Approved for this order",
+  "pos.overrideActiveNote":
+    "A manager has cleared this item for the open order. The 86 is still in force everywhere else.",
   "pos.remaining": "{n} left",
   "pos.noRecipe": "No recipe",
   "pos.selectTable": "Pick a table",
@@ -1402,6 +1417,8 @@ export const consoleEn = {
   "auth.deviceRegisteredTitle": "Device registered",
   "auth.deviceRegisteredBody": "This terminal is now paired. Its identifier is included on every transaction it records.",
   "auth.deviceId": "Device identifier",
+  "auth.deviceKiosk": "Self-order kiosk",
+  "auth.deviceDemoNote": "No backend is configured, so nothing was paired. Set NEXT_PUBLIC_API_URL and register again to bind this terminal for real.",
   "auth.openPos": "Open the point of sale",
 
   "auth.posPinTitle": "Enter your PIN",

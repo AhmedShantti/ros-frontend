@@ -256,3 +256,52 @@ export function initials(value: string): string {
 export function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
+
+// ---------------------------------------------------------------------------
+// Reading numbers back out of a form
+// ---------------------------------------------------------------------------
+
+/**
+ * A number typed by a person, or `null` if they have not typed one yet.
+ *
+ * The idiom this replaces was `Number(value || 0)`, which reads as a default
+ * but is not one: `||` only substitutes for the empty string, so anything
+ * unparseable still reaches `Number` and comes back `NaN`. From there it
+ * poisons silently, because NaN survives arithmetic and *fails* every
+ * comparison — `Math.max(0, NaN)` is NaN, and `Math.abs(NaN) > 2000` is
+ * `false`, which is how a variance large enough to need a manager slipped
+ * through an approval gate rather than tripping it.
+ *
+ * Returning `null` rather than `0` is the point: a field that cannot be read
+ * is not a field containing zero, and the caller has to decide which it is.
+ * `disabled` on the submit button is usually the right answer.
+ *
+ * `inputMode="decimal"` does not help — it is a hint to a mobile keyboard and
+ * restricts nothing typed, pasted or autofilled.
+ */
+export function numberFromInput(value: string | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  // Arabic-Indic digits reach these fields on an Arabic keyboard and `Number`
+  // does not read them.
+  const western = trimmed.replace(/[\u0660-\u0669]/g, (d) =>
+    String(d.charCodeAt(0) - 0x0660),
+  ).replace(/[\u06f0-\u06f9]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+  const parsed = Number(western);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** A money field as minor units, clamped at zero. `null` if unreadable. */
+export function minorFromInput(value: string | null | undefined): number | null {
+  const parsed = numberFromInput(value);
+  if (parsed === null) return null;
+  return Math.max(0, Math.round(parsed * 100));
+}
+
+/** A whole-number field — a denomination count — clamped at zero. */
+export function countFromInput(value: string | null | undefined): number | null {
+  const parsed = numberFromInput(value);
+  if (parsed === null) return null;
+  return Math.max(0, Math.floor(parsed));
+}

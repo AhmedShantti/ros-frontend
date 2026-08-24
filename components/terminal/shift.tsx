@@ -16,7 +16,14 @@ import { Banknote, ClipboardCheck, Lock, Wallet } from "lucide-react";
 import { activeEmployees } from "@/lib/console/mock/workforce";
 import { branchById } from "@/lib/console/mock/org";
 import type { DenominationCount, TenderType } from "@/lib/console/types";
-import { formatMoney, formatTime, money, tx as pick } from "@/lib/console/format";
+import {
+  countFromInput,
+  formatMoney,
+  formatTime,
+  minorFromInput,
+  money,
+  tx as pick,
+} from "@/lib/console/format";
 import { useI18n } from "@/lib/console/providers";
 import { useLive } from "@/lib/console/live/store";
 import { completedOrdersOf } from "@/lib/console/live/reducer";
@@ -64,7 +71,13 @@ export function ShiftGate() {
   const [float, setFloat] = useState("1000");
 
   const currency = branchById.get(state.branchId)?.currency ?? "EGP";
-  const floatMinor = Math.max(0, Math.round(Number(float || 0) * 100));
+  /**
+   * `null` when the field cannot be read as a number, which is a different
+   * thing from a float of zero and has to stay different: opening a shift on
+   * a NaN float makes every variance figure for the rest of the session
+   * meaningless, and nothing downstream would ever flag it.
+   */
+  const floatMinor = minorFromInput(float);
   const chosen = employeeId || roster[0]?.id || "";
 
   return (
@@ -84,19 +97,29 @@ export function ShiftGate() {
 
           <Field
             label={`${t("shift.openingFloat")} (${currency})`}
-            hint={formatMoney(money(floatMinor, currency), fmt)}
+            hint={
+              floatMinor === null
+                ? t("shift.floatInvalid")
+                : formatMoney(money(floatMinor, currency), fmt)
+            }
           >
-            <Input inputMode="decimal" value={float} onChange={(e) => setFloat(e.target.value)} />
+            <Input
+              inputMode="decimal"
+              value={float}
+              onChange={(e) => setFloat(e.target.value)}
+              aria-invalid={float.trim() !== "" && floatMinor === null}
+            />
           </Field>
 
           <Button
             variant="primary"
             className="w-full"
             icon={<Wallet size={15} />}
-            disabled={!chosen}
-            onClick={() =>
-              dispatch({ type: "SHIFT_OPEN", employeeId: chosen, openingFloatMinor: floatMinor })
-            }
+            disabled={!chosen || floatMinor === null}
+            onClick={() => {
+              if (floatMinor === null) return;
+              dispatch({ type: "SHIFT_OPEN", employeeId: chosen, openingFloatMinor: floatMinor });
+            }}
           >
             {t("shift.open")}
           </Button>
@@ -123,7 +146,7 @@ function DrawerPanel({ onClose }: { onClose: () => void }) {
 
   if (!session) return null;
   const currency = session.openingFloat.currency;
-  const amountMinor = Math.max(0, Math.round(Number(amount || 0) * 100));
+  const amountMinor = minorFromInput(amount);
   const overLimit = session.expectedCash.amount > state.settings.drawerLimitMinor;
 
   return (
@@ -157,7 +180,12 @@ function DrawerPanel({ onClose }: { onClose: () => void }) {
           </Select>
         </Field>
         <Field label={`${t("shift.amount")} (${currency})`}>
-          <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <Input
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            aria-invalid={amount.trim() !== "" && amountMinor === null}
+          />
         </Field>
         <Field label={t("shift.reason")}>
           <Input value={reason} onChange={(e) => setReason(e.target.value)} />
@@ -166,8 +194,11 @@ function DrawerPanel({ onClose }: { onClose: () => void }) {
           <Button
             variant="primary"
             className="flex-1"
-            disabled={amountMinor <= 0 || reason.trim().length === 0}
+            disabled={
+              amountMinor === null || amountMinor <= 0 || reason.trim().length === 0
+            }
             onClick={() => {
+              if (amountMinor === null) return;
               dispatch({ type: "SHIFT_CASH", kind, amountMinor, reason: reason.trim() });
               setAmount("");
               setReason("");
@@ -290,8 +321,20 @@ function CloseShiftPanel({ onClose }: { onClose: () => void }) {
   const currency = session.openingFloat.currency;
   const blind = session.blindCount;
 
+  /**
+   * A count field that cannot be read is tracked rather than coerced.
+   *
+   * Reading it as zero would understate the drawer; reading it as NaN — which
+   * is what `Number(x || 0)` did — made `counted` NaN, and `Math.abs(NaN) >
+   * 2000` is `false`. The approval gate below was therefore *satisfied* by
+   * unreadable input rather than tripped by it, which is the wrong way round
+   * for a control whose whole job is to catch a discrepancy.
+   */
+  const invalidCounts = DENOMINATIONS.filter(
+    (value) => (counts[value] ?? "").trim() !== "" && countFromInput(counts[value]) === null,
+  );
   const counted = DENOMINATIONS.reduce(
-    (sum, value) => sum + value * Math.max(0, Number(counts[value] || 0)),
+    (sum, value) => sum + value * (countFromInput(counts[value]) ?? 0),
     0,
   );
   const expected = session.expectedCash.amount;
@@ -302,7 +345,7 @@ function CloseShiftPanel({ onClose }: { onClose: () => void }) {
 
   const denominations: DenominationCount[] = DENOMINATIONS.map((value) => ({
     value,
-    count: Math.max(0, Number(counts[value] || 0)),
+    count: countFromInput(counts[value]) ?? 0,
   })).filter((d) => d.count > 0);
 
   return (
@@ -321,7 +364,9 @@ function CloseShiftPanel({ onClose }: { onClose: () => void }) {
           ) : (
             <Button
               variant="primary"
-              disabled={needsApproval && (!reason.trim() || !approver)}
+              disabled={
+                invalidCounts.length > 0 || (needsApproval && (!reason.trim() || !approver))
+              }
               onClick={() => {
                 dispatch({
                   type: "SHIFT_CLOSE",
@@ -363,7 +408,7 @@ function CloseShiftPanel({ onClose }: { onClose: () => void }) {
             />
             <span className="text-fg-subtle w-20 shrink-0 text-end text-xs tabular-nums">
               {formatMoney(
-                money(value * Math.max(0, Number(counts[value] || 0)), currency),
+                money(value * (countFromInput(counts[value]) ?? 0), currency),
                 fmt,
               )}
             </span>

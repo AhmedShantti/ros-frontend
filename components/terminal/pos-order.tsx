@@ -25,7 +25,7 @@ import {
 import type { Id, Order, OrderLine } from "@/lib/console/types";
 import { menuItemById } from "@/lib/console/mock/catalogue";
 import { activeEmployees } from "@/lib/console/mock/workforce";
-import { formatMoney, formatTime, money } from "@/lib/console/format";
+import { formatMoney, formatTime, money, numberFromInput } from "@/lib/console/format";
 import { ORDER_LINE_STATE, ORDER_STATE, ORDER_TYPE } from "@/lib/console/labels";
 import { useI18n } from "@/lib/console/providers";
 import { useLive } from "@/lib/console/live/store";
@@ -47,6 +47,13 @@ import {
   cx,
 } from "@/components/console/ui";
 
+/**
+ * FR-POS-046 — every discount carries a reason chosen from this list.
+ *
+ * A configurable list rather than free text: the reason is what makes the
+ * discount report readable, and free text produces twenty spellings of
+ * "staff" that no report can group.
+ */
 const DISCOUNT_REASONS = [
   { en: "Staff discount", ar: "خصم موظفين" },
   { en: "Service recovery", ar: "تعويض خدمة" },
@@ -662,9 +669,16 @@ function DiscountSheet({
     [],
   );
 
-  const value = Math.max(0, Math.min(100, Number(percent || 0)));
+  /**
+   * `null` when the field is unreadable, so the approval threshold below is
+   * asked a real question. `Number(percent || 0)` produced NaN, and
+   * `NaN > threshold` is `false` — the gate was bypassed rather than tripped,
+   * and the NaN then flowed into the order totals behind it.
+   */
+  const parsed = numberFromInput(percent);
+  const value = parsed === null ? null : Math.max(0, Math.min(100, parsed));
   const threshold = state.settings.discountApprovalThreshold;
-  const needsApproval = value > threshold;
+  const needsApproval = value !== null && value > threshold;
   const reason = DISCOUNT_REASONS.find((r) => r.en === reasonEn)!;
 
   return (
@@ -677,8 +691,9 @@ function DiscountSheet({
           <Button onClick={onClose}>{t("common.cancel")}</Button>
           <Button
             variant="primary"
-            disabled={value <= 0 || (needsApproval && !approver)}
+            disabled={value === null || value <= 0 || (needsApproval && !approver)}
             onClick={() => {
+              if (value === null) return;
               const approvedByName = managers.find((m) => m.id === approver)?.name ?? null;
               const discount = {
                 percentage: value,
