@@ -1013,6 +1013,8 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         syncState: "local",
         aggregatorRef: null,
         notes: null,
+        // No server, so no optimistic-concurrency token to carry.
+        version: null,
       };
 
       let next: LiveState = {

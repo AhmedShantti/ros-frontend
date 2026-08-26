@@ -37,6 +37,26 @@ export const resetPasswordSchema = z
   });
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
+/**
+ * FR-SEC — changing your own password proves the current one first, which is
+ * what stops an unattended session being used to lock its owner out.
+ */
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, V.required),
+    password: strongPassword,
+    confirm: z.string().min(1, V.required),
+  })
+  .refine((v) => v.password === v.confirm, {
+    message: V.passwordMismatch,
+    path: ["confirm"],
+  })
+  .refine((v) => v.password !== v.currentPassword, {
+    message: V.passwordReused,
+    path: ["password"],
+  });
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
 export const mfaSchema = z.object({
   code: digitsOnly(6),
 });

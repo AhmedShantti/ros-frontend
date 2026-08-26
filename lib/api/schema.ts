@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 93 paths, 72 request DTOs.
+ * `api/openapi.json`. 95 paths, 73 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -55,6 +55,25 @@ export interface AssignRoleDto {
 
 export interface BindTerminalDto {
   terminalId: string;
+}
+
+export interface CapturePaymentDto {
+  /** The amount this Payment applies toward the order, in MINOR units, as an exact integer string (ADR-008 — never a JSON number). For CASH, the EXACT amount being settled — never the cash-rounded figure, which the server derives from `tenderedAmountMinor` and the order's pinned country pack. */
+  amountMinor: string;
+  /** Optional. */
+  authorizationCode?: string;
+  /** Optional, only when the cashier supplies it (FR-POS-066 permitted metadata). */
+  cardScheme?: string;
+  cashSessionId: string;
+  /** FR-OFF-015 — the ULID the device assigned to this Payment. */
+  id?: string;
+  /** Optional. Exactly 4 digits when present — never more (FR-POS-066). */
+  last4?: string;
+  tender: "cash" | "manual_external_card";
+  /** REQUIRED for CASH; refused for MANUAL_EXTERNAL_CARD. */
+  tenderedAmountMinor?: string;
+  /** REQUIRED for MANUAL_EXTERNAL_CARD; refused for CASH. The cashier's own record of the already-completed EXTERNAL terminal transaction — never a ROS-side integrated-terminal session id (FR-POS-064 is not implemented). */
+  terminalReference?: string;
 }
 
 export interface ChangeBaseUnitDto {
@@ -1974,6 +1993,92 @@ export type OrdersController_findOneResponse = {
   version: number;
 };
 
+/** `POST /orders/{businessDay}/{id}/fire` — Fire eligible pending lines to production (explicit MVP Fire — no auto-Fire). — The order after Fire, including every line (previously-fired and newly-fired alike). */
+export type OrdersController_fireResponse = {
+  branchId: string;
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  businessDay: string;
+  channel: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
+  closedBy: string | null;
+  completedAt: string | null;
+  /** FR-LOC-021 — the pack version this order was priced under, pinned. */
+  countryPackVersion: number;
+  createdAt: string;
+  /** ISO 4217 currency code. */
+  currency: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  discountTotal: string;
+  firstFiredAt: string | null;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  grandTotal: string;
+  guestCount: number | null;
+  id: string;
+  /** Present only where the endpoint populates line snapshots. */
+  lines: ({
+    course: number | null;
+    createdAt: string;
+    firedAt: string | null;
+    id: string;
+    isComp: boolean;
+    /** Opaque localized-name snapshot (locale -> name), persisted at capture time. */
+    itemNameSnapshot: Record<string, unknown>;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineDiscount: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineSubtotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineTotal: string;
+    menuItemId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    modifierTotal: string;
+    notes: string | null;
+    priceEntryId: string | null;
+    priceListId: string | null;
+    /** Opaque pricing-rule provenance snapshot. */
+    priceRule: Record<string, unknown>;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    readyAt: string | null;
+    recipeVersionId: string | null;
+    seatNumber: number | null;
+    sequence: number;
+    state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxAmount: string;
+    taxClassId: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    unitCostSnapshot: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitPrice: string;
+    variantId: string;
+  })[];
+  notes: string | null;
+  openedAt: string;
+  openedBy: string;
+  orderNumber: string;
+  orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
+  originDeviceTime: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  paidTotal: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  roundingAdjustment: string;
+  servedBy: string | null;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  serviceChargeTotal: string;
+  state: "draft" | "open" | "held" | "parked" | "partially_paid" | "completed" | "cancelled" | "partially_refunded" | "refunded";
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  subtotal: string;
+  tableId: string | null;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  taxTotal: string;
+  terminalId: string | null;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  tipTotal: string;
+  updatedAt: string;
+  /** Optimistic-concurrency version; also the ETag validator (§24.6.4). */
+  version: number;
+};
+
 /** `POST /orders/{businessDay}/{id}/lines` — Capture a line on an open order. — The newly captured line and the order it now belongs to. */
 export type OrdersController_addLineResponse = {
   line: {
@@ -2229,6 +2334,124 @@ export type OrdersController_voidLineResponse = {
 };
 
 export type OrdersController_voidLineBody = VoidOrderLineDto;
+
+/** `POST /orders/{businessDay}/{id}/payments` — Capture a partial CASH or manual/external-card payment (full settlement is refused — Completion does not exist yet). — The newly captured Payment and the order it now belongs to (paidTotal/roundingAdjustment/state/version updated). */
+export type OrdersController_capturePaymentResponse = {
+  order: {
+    branchId: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    channel: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
+    closedBy: string | null;
+    completedAt: string | null;
+    /** FR-LOC-021 — the pack version this order was priced under, pinned. */
+    countryPackVersion: number;
+    createdAt: string;
+    /** ISO 4217 currency code. */
+    currency: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discountTotal: string;
+    firstFiredAt: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grandTotal: string;
+    guestCount: number | null;
+    id: string;
+    /** Present only where the endpoint populates line snapshots. */
+    lines: ({
+      course: number | null;
+      createdAt: string;
+      firedAt: string | null;
+      id: string;
+      isComp: boolean;
+      /** Opaque localized-name snapshot (locale -> name), persisted at capture time. */
+      itemNameSnapshot: Record<string, unknown>;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineDiscount: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineSubtotal: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineTotal: string;
+      menuItemId: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      modifierTotal: string;
+      notes: string | null;
+      priceEntryId: string | null;
+      priceListId: string | null;
+      /** Opaque pricing-rule provenance snapshot. */
+      priceRule: Record<string, unknown>;
+      /** Decimal quantity as a string (preserves exact precision). */
+      quantity: string;
+      readyAt: string | null;
+      recipeVersionId: string | null;
+      seatNumber: number | null;
+      sequence: number;
+      state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      taxAmount: string;
+      taxClassId: string | null;
+      /** Decimal quantity as a string (preserves exact precision). */
+      unitCostSnapshot: string | null;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      unitPrice: string;
+      variantId: string;
+    })[];
+    notes: string | null;
+    openedAt: string;
+    openedBy: string;
+    orderNumber: string;
+    orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
+    originDeviceTime: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    paidTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    roundingAdjustment: string;
+    servedBy: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    serviceChargeTotal: string;
+    state: "draft" | "open" | "held" | "parked" | "partially_paid" | "completed" | "cancelled" | "partially_refunded" | "refunded";
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    subtotal: string;
+    tableId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+    terminalId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    tipTotal: string;
+    updatedAt: string;
+    /** Optimistic-concurrency version; also the ETag validator (§24.6.4). */
+    version: number;
+  };
+  payment: {
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    amount: string;
+    authorizationCode: string | null;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    cardLast4: string | null;
+    cardScheme: string | null;
+    cashSessionId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    changeGiven: string | null;
+    createdAt: string;
+    /** ISO 4217 currency code. */
+    currency: string;
+    employeeId: string;
+    id: string;
+    orderId: string;
+    paymentTerminalTxnRef: string | null;
+    processedAt: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    roundingAdjustment: string;
+    tender: "cash" | "manual_external_card";
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    tenderedAmount: string | null;
+    terminalId: string;
+  };
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  remainingBalance: string;
+};
+
+export type OrdersController_capturePaymentBody = CapturePaymentDto;
 
 /** `GET /org/branches` — All branches in the tenant. */
 export type OrganisationController_listBranchesResponse = ({
@@ -2946,8 +3169,10 @@ export const ROUTES = {
   OrdersController_list: { method: "GET", path: "/orders" },
   OrdersController_create: { method: "POST", path: "/orders" },
   OrdersController_findOne: { method: "GET", path: "/orders/{businessDay}/{id}" },
+  OrdersController_fire: { method: "POST", path: "/orders/{businessDay}/{id}/fire" },
   OrdersController_addLine: { method: "POST", path: "/orders/{businessDay}/{id}/lines" },
   OrdersController_voidLine: { method: "DELETE", path: "/orders/{businessDay}/{id}/lines/{lineId}" },
+  OrdersController_capturePayment: { method: "POST", path: "/orders/{businessDay}/{id}/payments" },
   OrganisationController_listBranches: { method: "GET", path: "/org/branches" },
   OrganisationController_createBranch: { method: "POST", path: "/org/branches" },
   OrganisationController_getBranch: { method: "GET", path: "/org/branches/{branchId}" },

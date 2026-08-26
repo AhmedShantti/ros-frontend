@@ -3,174 +3,141 @@
 /**
  * Stock levels — SRS FR-INV-010.
  *
- * On-hand here is the live figure the terminals have been moving, not a
- * nightly snapshot: fire a course on the POS and the ingredient balances on
- * this screen change with it.
+ * On-hand is read through `services`, so against a backend it is the ledger
+ * projection and in demo mode it is the in-memory store. This screen used to
+ * read `mock/stock-items` and the live reducer directly, which meant that
+ * with a real API configured it showed fixture items at fixture balances —
+ * numbers that belonged to nothing.
  *
  * Negative balances are shown, never clamped. A negative is a signal that a
- * receipt was not entered, and hiding it only delays the investigation.
+ * receipt was not entered, and hiding it only delays the investigation. The
+ * backend computes both that list (FR-INV-014) and the reorder list
+ * (FR-INV-066), so neither is re-derived here.
  */
 
 import { useMemo, useState } from "react";
-import type { Localised, StockItem } from "@/lib/console/types";
-import { stockItems } from "@/lib/console/mock/stock-items";
-import { branchById } from "@/lib/console/mock/org";
-import { stockLevels } from "@/lib/console/mock/inventory";
-import { useI18n } from "@/lib/console/providers";
-import { useLive } from "@/lib/console/live/store";
-import { stockKey } from "@/lib/console/live/state";
-import { formatMoney, formatNumber, money, unitLabel } from "@/lib/console/format";
+import { PackageSearch, Settings2, TriangleAlert } from "lucide-react";
+import type { StockLevel } from "@/lib/console/types";
+import { services } from "@/lib/console/services";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAction } from "@/lib/console/actions";
+import { useI18n, usePermission, useSession } from "@/lib/console/providers";
+import { formatMoney, formatNumber, formatQuantity, unitLabel } from "@/lib/console/format";
 import { STOCK_STATUS } from "@/lib/console/labels";
-import { CellStack, DataTable, type Column } from "@/components/console/data-table";
-import { PageBody, PageHeader, SearchInput, Toolbar } from "@/components/console/page";
-import { LiveNotice, TerminalLinks } from "@/components/console/live-panels";
+import { CellStack, CollectionTable, DataTable, type Column } from "@/components/console/data-table";
+import { CollectionToolbar, PageBody, PageHeader, Section, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
-import { TileGrid } from "@/components/console/page";
-import { Badge, cx } from "@/components/console/ui";
-
-interface Row {
-  item: StockItem;
-  name: Localised;
-  onHand: number;
-  reorderPoint: number;
-  par: number;
-  value: number;
-  status: keyof typeof STOCK_STATUS;
-  delta: number;
-}
+import { AsyncPanel, Gate } from "@/components/console/states";
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  CardHeader,
+  DescList,
+  DescRow,
+  Drawer,
+  Field,
+  Input,
+  Select,
+  Toast,
+  cx,
+} from "@/components/console/ui";
 
 export default function StockLevelsPage() {
+  return (
+    <Gate permissions={["inventory.view"]}>
+      <StockLevelsScreen />
+    </Gate>
+  );
+}
+
+function StockLevelsScreen() {
   const { t, tx, fmt } = useI18n();
-  const { state } = useLive();
-  const [term, setTerm] = useState("");
+  const { scope } = useSession();
+  const canConfigure = usePermission("inventory.item.manage");
 
-  const branch = branchById.get(state.branchId);
-  const currency = branch?.currency ?? "EGP";
+  const [configuring, setConfiguring] = useState<StockLevel | null>(null);
+  const [message, setMessage] = useTransientMessage();
 
-  const rows = useMemo<Row[]>(() => {
-    // The seeded rows carry the thresholds; the live store carries the balance.
-    const thresholds = new Map(
-      stockLevels
-        .filter((level) => level.locationId === state.branchId)
-        .map((level) => [level.itemId, level]),
-    );
+  const collection = useCollection<StockLevel>(
+    (query) => services.inventory.levels.list(query),
+    { scope, pageSize: 50 },
+  );
 
-    return stockItems
-      .map((item) => {
-        const onHand = state.stock[stockKey(state.branchId, item.id)] ?? 0;
-        const seeded = thresholds.get(item.id);
-        const reorderPoint = seeded?.reorderPoint ?? 0;
-        const par = seeded?.parLevel ?? 0;
-        const moved = state.movements
-          .filter((m) => m.itemId === item.id && m.locationId === state.branchId)
-          .reduce((s, m) => s + Number(m.quantity.value), 0);
-
-        const status: Row["status"] =
-          onHand < 0
-            ? "negative"
-            : onHand === 0 || onHand < reorderPoint * 0.4
-              ? "critical"
-              : onHand < reorderPoint
-                ? "low"
-                : par > 0 && onHand > par
-                  ? "overstocked"
-                  : "ok";
-
-        return {
-          item,
-          name: item.name,
-          onHand,
-          reorderPoint,
-          par,
-          value: onHand * item.unitCost.amount,
-          status,
-          delta: moved,
-        };
-      })
-      .filter((row) => {
-        if (!term.trim()) return true;
-        const needle = term.trim().toLowerCase();
-        return (
-          row.item.sku.toLowerCase().includes(needle) ||
-          row.name.en.toLowerCase().includes(needle) ||
-          row.name.ar.includes(term.trim())
-        );
-      })
-      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.item.sku.localeCompare(b.item.sku));
-  }, [state, term]);
+  /**
+   * FR-INV-066 and FR-INV-014 are server-side computations, not filters over
+   * the page above. Asking for them separately is what makes them correct
+   * across the whole tenant rather than across whatever page is loaded.
+   */
+  const lowStock = useAsync(
+    () => services.inventory.lowStock({ scope }),
+    [scope.tenantId, scope.branchId],
+  );
+  const negative = useAsync(
+    () => services.inventory.negativeStock({ scope }),
+    [scope.tenantId, scope.branchId],
+  );
 
   const totals = useMemo(() => {
-    const value = rows.reduce((s, row) => s + row.value, 0);
+    const rows = collection.rows;
     return {
-      value,
-      negative: rows.filter((row) => row.status === "negative").length,
-      low: rows.filter((row) => row.status === "low" || row.status === "critical").length,
-      moved: rows.filter((row) => row.delta !== 0).length,
+      value: rows.reduce((sum, row) => sum + row.value.amount, 0),
+      currency: rows[0]?.value.currency ?? "EGP",
     };
-  }, [rows]);
+  }, [collection.rows]);
 
-  const columns: Column<Row>[] = [
-    {
-      key: "sku",
-      header: t("inv.sku"),
-      render: (row) => (
-        <CellStack primary={tx(row.name)} secondary={<span className="font-mono">{row.item.sku}</span>} />
-      ),
-    },
-    {
-      key: "onHand",
-      header: t("inv.onHand"),
-      numeric: true,
-      render: (row) => (
-        <span className={cx(row.onHand < 0 && "text-bad font-semibold")}>
-          {formatNumber(row.onHand, fmt, row.item.baseUnit === "pc" ? 0 : 1)}{" "}
-          <span className="text-fg-subtle text-xs">{unitLabel(row.item.baseUnit, fmt.locale)}</span>
-        </span>
-      ),
-    },
-    {
-      key: "delta",
-      header: t("live.todayOnDevice"),
-      numeric: true,
-      hint: t("live.seededNote"),
-      render: (row) =>
-        row.delta === 0 ? (
-          <span className="text-fg-subtle">—</span>
-        ) : (
-          <span className={row.delta < 0 ? "text-bad" : "text-good"}>
-            {row.delta > 0 ? "+" : ""}
-            {formatNumber(row.delta, fmt, 1)}
+  const columns = useMemo<Column<StockLevel>[]>(
+    () => [
+      {
+        key: "sku",
+        header: t("inv.sku"),
+        render: (row) => (
+          <CellStack
+            primary={tx(row.itemName)}
+            secondary={<span className="font-mono">{row.sku}</span>}
+          />
+        ),
+      },
+      {
+        key: "location",
+        header: t("common.location"),
+        secondary: true,
+        render: (row) => tx(row.locationName),
+      },
+      {
+        key: "onHand",
+        header: t("inv.onHand"),
+        numeric: true,
+        render: (row) => (
+          <span className={cx(Number(row.onHand.value) < 0 && "text-bad font-semibold")}>
+            {formatQuantity(row.onHand, fmt)}
           </span>
         ),
-    },
-    {
-      key: "reorderPoint",
-      header: t("inv.reorderPoint"),
-      numeric: true,
-      secondary: true,
-      render: (row) => formatNumber(row.reorderPoint, fmt),
-    },
-    {
-      key: "par",
-      header: t("inv.par"),
-      numeric: true,
-      secondary: true,
-      render: (row) => formatNumber(row.par, fmt),
-    },
-    {
-      key: "value",
-      header: t("inv.stockValue"),
-      numeric: true,
-      render: (row) => formatMoney(money(row.value, currency), fmt, true),
-    },
-    {
-      key: "status",
-      header: t("common.status"),
-      render: (row) => (
-        <Badge tone={STOCK_STATUS[row.status].tone}>{tx(STOCK_STATUS[row.status].label)}</Badge>
-      ),
-    },
-  ];
+      },
+      {
+        key: "reorderPoint",
+        header: t("inv.reorderPoint"),
+        numeric: true,
+        secondary: true,
+        render: (row) => formatNumber(row.reorderPoint, fmt),
+      },
+      {
+        key: "value",
+        header: t("inv.stockValue"),
+        numeric: true,
+        render: (row) => formatMoney(row.value, fmt, true),
+      },
+      {
+        key: "status",
+        header: t("common.status"),
+        render: (row) => (
+          <Badge tone={STOCK_STATUS[row.status].tone}>{tx(STOCK_STATUS[row.status].label)}</Badge>
+        ),
+      },
+    ],
+    [t, tx, fmt],
+  );
 
   return (
     <>
@@ -178,46 +145,355 @@ export default function StockLevelsPage() {
         title={t("inv.levelsTitle")}
         subtitle={t("inv.levelsSubtitle")}
         spec="FR-INV-010"
-        actions={<TerminalLinks />}
-        meta={<span>{tx(branch?.name)}</span>}
       />
 
       <PageBody>
-        <LiveNotice />
-
         <TileGrid>
           <MetricTile
             label={t("inv.stockValue")}
-            value={formatMoney(money(totals.value, currency), fmt, true)}
+            value={formatMoney({ amount: totals.value, currency: totals.currency }, fmt, true)}
           />
-          <MetricTile label={t("live.todayOnDevice")} value={String(totals.moved)} />
+          <MetricTile label={t("inv.levelsTitle")} value={formatNumber(collection.total, fmt)} />
           <MetricTile
             label={tx(STOCK_STATUS.low.label)}
-            value={String(totals.low)}
-            spec="FR-INV-012"
+            value={formatNumber(lowStock.data?.length ?? 0, fmt)}
+            spec="FR-INV-066"
           />
           <MetricTile
             label={tx(STOCK_STATUS.negative.label)}
-            value={String(totals.negative)}
-            spec="FR-INV-013"
+            value={formatNumber(negative.data?.length ?? 0, fmt)}
+            spec="FR-INV-014"
             footer={<span className="text-fg-subtle text-xs">{t("inv.negativeNote")}</span>}
           />
         </TileGrid>
 
-        <Toolbar>
-          <SearchInput value={term} onChange={setTerm} placeholder={t("common.searchPlaceholder")} />
-        </Toolbar>
+        <CollectionToolbar collection={collection} />
 
-        <DataTable
+        <CollectionTable
+          collection={collection}
           columns={columns}
-          rows={rows}
-          rowKey={(row) => row.item.id}
-          filtered={term.trim().length > 0}
-          onClearFilters={() => setTerm("")}
+          rowKey={(row) => `${row.itemId}-${row.locationId}`}
           caption={t("inv.levelsTitle")}
+          onRowClick={canConfigure ? setConfiguring : undefined}
+          activeRowKey={
+            configuring ? `${configuring.itemId}-${configuring.locationId}` : null
+          }
           dense
         />
+
+        <Section title={t("inv.reorderTitle")}>
+          <Card>
+            <CardHeader
+              title={t("inv.reorderTitle")}
+              hint={t("inv.reorderNote")}
+              spec="FR-INV-066"
+            />
+            <AsyncPanel
+              state={lowStock}
+              isEmpty={(rows) => rows.length === 0}
+              empty={
+                <Callout tone="good" icon={<PackageSearch size={14} />}>
+                  {t("inv.reorderClear")}
+                </Callout>
+              }
+            >
+              {(rows) => (
+                <DataTable
+                  columns={[
+                    {
+                      key: "item",
+                      header: t("inv.sku"),
+                      render: (row) => <CellStack primary={tx(row.itemName)} />,
+                    },
+                    {
+                      key: "location",
+                      header: t("common.location"),
+                      secondary: true,
+                      render: (row) => tx(row.locationName),
+                    },
+                    {
+                      key: "onHand",
+                      header: t("inv.onHand"),
+                      numeric: true,
+                      render: (row) => formatQuantity(row.onHand, fmt),
+                    },
+                    {
+                      key: "point",
+                      header: t("inv.reorderPoint"),
+                      numeric: true,
+                      render: (row) =>
+                        row.reorderPoint ? formatQuantity(row.reorderPoint, fmt) : "—",
+                    },
+                    {
+                      key: "order",
+                      header: t("inv.reorderQuantity"),
+                      numeric: true,
+                      render: (row) =>
+                        row.reorderQuantity ? formatQuantity(row.reorderQuantity, fmt) : "—",
+                    },
+                  ]}
+                  rows={rows}
+                  rowKey={(row) => `${row.stockItemId}-${row.locationId}`}
+                  caption={t("inv.reorderTitle")}
+                  dense
+                />
+              )}
+            </AsyncPanel>
+          </Card>
+        </Section>
+
+        <Section title={tx(STOCK_STATUS.negative.label)}>
+          <Card>
+            <CardHeader
+              title={tx(STOCK_STATUS.negative.label)}
+              hint={t("inv.negativeNote")}
+              spec="FR-INV-014"
+            />
+            <AsyncPanel
+              state={negative}
+              isEmpty={(rows) => rows.length === 0}
+              empty={
+                <Callout tone="good" icon={<PackageSearch size={14} />}>
+                  {t("inv.negativeClear")}
+                </Callout>
+              }
+            >
+              {(rows) => (
+                <>
+                  <Callout tone="warn" icon={<TriangleAlert size={14} />} className="mb-3">
+                    {t("inv.negativeAction")}
+                  </Callout>
+                  <DataTable
+                    columns={[
+                      {
+                        key: "item",
+                        header: t("inv.sku"),
+                        render: (row) => <CellStack primary={tx(row.itemName)} />,
+                      },
+                      {
+                        key: "location",
+                        header: t("common.location"),
+                        secondary: true,
+                        render: (row) => tx(row.locationName),
+                      },
+                      {
+                        key: "onHand",
+                        header: t("inv.onHand"),
+                        numeric: true,
+                        render: (row) => (
+                          <span className="text-bad font-semibold">
+                            {formatQuantity(row.onHand, fmt)}
+                          </span>
+                        ),
+                      },
+                    ]}
+                    rows={rows}
+                    rowKey={(row) => `${row.stockItemId}-${row.locationId}`}
+                    caption={tx(STOCK_STATUS.negative.label)}
+                    dense
+                  />
+                </>
+              )}
+            </AsyncPanel>
+          </Card>
+        </Section>
+
+        <ReconciliationCard />
       </PageBody>
+
+      <ReorderConfigDrawer
+        level={configuring}
+        onClose={() => setConfiguring(null)}
+        onSaved={() => {
+          setConfiguring(null);
+          setMessage(t("inv.reorderSaved"));
+          lowStock.reload();
+          collection.reload();
+        }}
+      />
+
+      <Toast message={message} />
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * FR-INV-011/051 — the ledger against the projection it should equal.
+ *
+ * A divergence means a movement was written without the projection being
+ * updated, which is the kind of fault that silently corrupts every costing
+ * report downstream. It is worth a panel of its own even when it is empty.
+ */
+function ReconciliationCard() {
+  const { t, tx, fmt } = useI18n();
+  const report = useAsync(() => services.inventory.reconciliation(), []);
+
+  return (
+    <Section title={t("inv.reconciliationTitle")}>
+      <Card>
+        <CardHeader
+          title={t("inv.reconciliationTitle")}
+          hint={t("inv.reconciliationNote")}
+          spec="FR-INV-011"
+        />
+
+        <AsyncPanel state={report}>
+          {(data) => (
+            <div className="space-y-3">
+              <Callout tone={data.reconciled ? "good" : "bad"}>
+                {data.reconciled ? t("inv.reconciled") : t("inv.notReconciled")}
+              </Callout>
+
+              {data.note ? <p className="text-fg-subtle text-xs">{data.note}</p> : null}
+
+              {data.divergences.length > 0 ? (
+                <DataTable
+                  columns={[
+                    {
+                      key: "item",
+                      header: t("inv.sku"),
+                      render: (row) => <CellStack primary={tx(row.itemName)} />,
+                    },
+                    {
+                      key: "location",
+                      header: t("common.location"),
+                      secondary: true,
+                      render: (row) => tx(row.locationName),
+                    },
+                    {
+                      key: "ledger",
+                      header: t("inv.ledger"),
+                      numeric: true,
+                      render: (row) => formatQuantity(row.ledger, fmt),
+                    },
+                    {
+                      key: "projected",
+                      header: t("inv.projected"),
+                      numeric: true,
+                      render: (row) => formatQuantity(row.projected, fmt),
+                    },
+                  ]}
+                  rows={data.divergences}
+                  rowKey={(row) => `${row.stockItemId}-${row.locationId}`}
+                  caption={t("inv.reconciliationTitle")}
+                  dense
+                />
+              ) : null}
+            </div>
+          )}
+        </AsyncPanel>
+      </Card>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** FR-INV-065 — per-location reorder point and quantity for one item. */
+function ReorderConfigDrawer({
+  level,
+  onClose,
+  onSaved,
+}: {
+  level: StockLevel | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t, tx, locale } = useI18n();
+  const action = useAction();
+  const [reorderPoint, setPoint] = useState("");
+  const [reorderQuantity, setQuantity] = useState("");
+
+  // Seeded from the row each time the drawer opens on a different item.
+  const key = level ? `${level.itemId}-${level.locationId}` : "";
+  const [seededFor, setSeededFor] = useState("");
+  if (level && seededFor !== key) {
+    setSeededFor(key);
+    setPoint(String(level.reorderPoint ?? 0));
+    setQuantity(String(level.reorderQuantity ?? 0));
+  }
+
+  if (!level) return null;
+
+  const valid =
+    Number.isFinite(Number(reorderPoint)) && Number.isFinite(Number(reorderQuantity));
+
+  async function save() {
+    if (!level || !valid) return;
+    await action.run(
+      () =>
+        services.inventory.setReorderConfig(level.itemId, {
+          locationId: level.locationId,
+          reorderPoint: reorderPoint.trim(),
+          reorderQuantity: reorderQuantity.trim(),
+        }),
+      { onSuccess: onSaved },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={tx(level.itemName)}
+      subtitle={
+        <span className="font-mono text-xs" dir="ltr">
+          {level.sku}
+        </span>
+      }
+      footer={
+        <div className="flex gap-2">
+          <Button variant="primary" loading={action.pending} disabled={!valid} onClick={save}>
+            {t("common.save")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Callout tone="muted" icon={<Settings2 size={14} />}>
+          {t("inv.reorderConfigNote")}
+        </Callout>
+
+        <DescList>
+          <DescRow label={t("common.location")}>{tx(level.locationName)}</DescRow>
+          <DescRow label={t("inv.onHand")} mono>
+            {formatQuantity(level.onHand, { locale, arabicIndicNumerals: false })}
+          </DescRow>
+        </DescList>
+
+        <Field
+          label={t("inv.reorderPoint")}
+          hint={`${t("inv.reorderPointHint")} · ${unitLabel(level.onHand.unit, locale)}`}
+          required
+        >
+          <Input
+            inputMode="decimal"
+            dir="ltr"
+            value={reorderPoint}
+            onChange={(event) => setPoint(event.target.value)}
+          />
+        </Field>
+
+        <Field
+          label={t("inv.reorderQuantity")}
+          hint={t("inv.reorderQuantityHint")}
+          required
+        >
+          <Input
+            inputMode="decimal"
+            dir="ltr"
+            value={reorderQuantity}
+            onChange={(event) => setQuantity(event.target.value)}
+          />
+        </Field>
+      </div>
+    </Drawer>
   );
 }

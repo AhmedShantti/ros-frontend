@@ -144,6 +144,12 @@ export interface Warehouse {
   tenantId: Id;
   name: Localised;
   code: string;
+  /**
+   * What kind of store this is. The API models it explicitly; deriving it
+   * from whether a branch is attached loses `virtual`, which is a real
+   * option and not the same thing as "central".
+   */
+  warehouseType: "branch" | "central" | "virtual";
   attachedBranchId: Id | null;
   countryCode: CountryCode;
   active: boolean;
@@ -301,6 +307,46 @@ export interface MenuCategory {
 }
 
 export type TaxClassCode = "standard" | "reduced" | "zero" | "exempt";
+
+/**
+ * A menu — FR-MNU-001/002/003.
+ *
+ * A branch may have several assigned (breakfast, all-day, delivery) and the
+ * one in force is resolved by `priority`, highest first. Two menus sharing a
+ * priority make that resolution non-deterministic, which the API reports as
+ * an ambiguity warning rather than silently picking one.
+ */
+export interface Menu {
+  id: Id;
+  tenantId: Id;
+  name: Localised;
+  /** Highest wins when several menus are assigned to the same branch. */
+  priority: number;
+  /** FR-MNU-002 — dine-in, takeaway, delivery… vocabulary owned by Sales. */
+  orderTypes: string[];
+  /** Branch ids this menu is assigned to (C-01). */
+  branchIds: Id[];
+  active: boolean;
+  createdAt: IsoDateTime;
+}
+
+/** FR-MNU-003 — which menus a branch resolves to, and whether that is safe. */
+export interface MenuResolution {
+  menus: Menu[];
+  ambiguous: boolean;
+  warning: string | null;
+}
+
+/** SRS §7.3 #7 — what stops the catalogue being sellable. */
+export interface CatalogueCompleteness {
+  sellable: boolean;
+  /** Active variants with no price entry in any list. */
+  unpricedVariants: { menuItemId: Id; variantId: Id }[];
+  /** Active menu items with zero active variants. */
+  itemsWithoutActiveVariant: Id[];
+  /** (active list × active variant) pairs lacking a price. */
+  activeListGaps: { priceListId: Id; priceListName: string; menuItemVariantId: Id }[];
+}
 
 export interface MenuItemVariant {
   id: Id;
@@ -1021,6 +1067,14 @@ export interface Order {
   syncState: SyncState;
   aggregatorRef: string | null;
   notes: string | null;
+  /**
+   * Optimistic-concurrency token, and the ETag validator (SRS §24.6.4).
+   *
+   * Sent back as `if-match` on every mutation, so a second terminal editing
+   * the same order is refused with 412 rather than silently overwriting.
+   * Null in demo mode, where there is no server to disagree with.
+   */
+  version: number | null;
 }
 
 export type TicketState = "queued" | "started" | "ready" | "bumped" | "recalled";

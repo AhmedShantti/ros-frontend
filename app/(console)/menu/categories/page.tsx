@@ -26,6 +26,7 @@ import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
 import { Badge, Button, Toast, cx } from "@/components/console/ui";
+import { RecordDrawer } from "@/components/console/record-drawer";
 
 export default function MenuCategoriesPage() {
   return (
@@ -38,6 +39,7 @@ export default function MenuCategoriesPage() {
 function CategoriesScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
+  const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();
 
   const collection = useCollection<MenuCategory>(
@@ -125,7 +127,7 @@ function CategoriesScreen() {
           <Button
             variant="primary"
             icon={<Plus size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
+            onClick={() => setCreating(true)}
           >
             {t("common.new")}
           </Button>
@@ -176,6 +178,28 @@ function CategoriesScreen() {
           dense
         />
       </PageBody>
+      <RecordDrawer
+        open={creating}
+        title={t("menu.newCategory")}
+        fields={[
+          { name: "name", label: t("common.name"), required: true, maxLength: 120 },
+          { name: "colour", label: t("org.colour"), placeholder: "#0f6f7a", ltr: true },
+          { name: "sortOrder", label: t("menu.sortOrder"), kind: "number", initial: "0" },
+        ]}
+        onClose={() => setCreating(false)}
+        onSubmit={(values) =>
+          services.catalogue.categories.create({
+            name: { en: values.name.trim(), ar: values.name.trim() },
+            colour: values.colour.trim() || undefined,
+            sortOrder: Number(values.sortOrder) || 0,
+          })
+        }
+        onDone={() => {
+          setCreating(false);
+          setMessage(t("menu.categoryCreated"));
+          collection.reload();
+        }}
+      />
 
       <Toast message={message} />
     </>

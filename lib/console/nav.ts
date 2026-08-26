@@ -11,6 +11,7 @@
 
 import {
   AlertTriangle,
+  BookOpen,
   ArrowLeftRight,
   Banknote,
   Boxes,
@@ -113,6 +114,7 @@ export const NAV_SECTIONS: NavSection[] = [
     labelKey: "nav.menu",
     icon: Utensils,
     items: [
+      { href: "/menu/menus", labelKey: "nav.menus", icon: BookOpen, permissions: ["menu.view"] },
       { href: "/menu/categories", labelKey: "nav.categories", icon: Layers, permissions: ["menu.view"] },
       { href: "/menu/items", labelKey: "nav.items", icon: Utensils, permissions: ["menu.view"], matchPrefix: true },
       { href: "/menu/modifiers", labelKey: "nav.modifiers", icon: Tags, permissions: ["menu.view"] },

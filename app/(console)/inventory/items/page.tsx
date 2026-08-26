@@ -22,7 +22,6 @@ import { useI18n, useSession } from "@/lib/console/providers";
 import { formatMoney, formatNumber, unitLabel } from "@/lib/console/format";
 import { COSTING_METHOD, STORAGE, labelOf } from "@/lib/console/labels";
 import { supplierById } from "@/lib/console/mock/purchasing";
-import { stockItems } from "@/lib/console/mock/stock-items";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
@@ -36,6 +35,7 @@ import {
   Drawer,
   Toast,
 } from "@/components/console/ui";
+import { RecordDrawer } from "@/components/console/record-drawer";
 
 export default function StockItemsPage() {
   return (
@@ -49,6 +49,7 @@ function StockItemsScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [selected, setSelected] = useState<StockItem | null>(null);
+  const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();
 
   const collection = useCollection<StockItem>(
@@ -56,15 +57,16 @@ function StockItemsScreen() {
     { scope, initialSort: "sku", pageSize: 25 },
   );
 
-  // Categories come from the master itself rather than a fixed list, so a new
-  // category appears in the filter the moment an item uses it.
+  // Categories come from the loaded rows rather than a fixed list, so a new
+  // category appears in the filter the moment an item uses it. Reading the
+  // fixtures here offered categories no live item belongs to.
   const categories = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const item of stockItems) {
+    for (const item of collection.rows) {
       if (!seen.has(item.category.en)) seen.set(item.category.en, tx(item.category));
     }
     return [...seen.entries()].map(([value, label]) => ({ value, label }));
-  }, [tx]);
+  }, [collection.rows, tx]);
 
   const totals = useMemo(() => {
     const rows = collection.rows;
@@ -151,11 +153,7 @@ function StockItemsScreen() {
         subtitle={t("inv.itemsSubtitle")}
         spec="FR-INV-001"
         actions={
-          <Button
-            variant="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
-          >
+          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
             {t("common.new")}
           </Button>
         }
@@ -215,6 +213,50 @@ function StockItemsScreen() {
       </PageBody>
 
       <ItemDrawer item={selected} onClose={() => setSelected(null)} />
+      <RecordDrawer
+        open={creating}
+        title={t("inv.newItem")}
+        note={t("inv.newItemUnitNote")}
+        fields={[
+          { name: "name", label: t("common.name"), required: true, maxLength: 120 },
+          { name: "sku", label: t("inv.sku"), required: true, maxLength: 40, ltr: true },
+          {
+            name: "baseUnitId",
+            label: t("inv.baseUnitId"),
+            hint: t("inv.baseUnitIdHint"),
+            required: true,
+            ltr: true,
+          },
+          {
+            name: "costingMethod",
+            label: t("inv.costingMethod"),
+            kind: "select",
+            required: true,
+            options: [
+              { value: "weighted_average", label: t("inv.costingWeighted") },
+              { value: "fifo", label: t("inv.costingFifo") },
+              { value: "standard", label: t("inv.costingStandard") },
+            ],
+          },
+        ]}
+        onClose={() => setCreating(false)}
+        onSubmit={(values) =>
+          services.inventory.items.create({
+            name: { en: values.name.trim(), ar: values.name.trim() },
+            sku: values.sku.trim(),
+            // The API keys units by id and publishes no unit catalogue, so
+            // the id is typed rather than picked. See BACKEND_INTEGRATION.md.
+            baseUnit: values.baseUnitId.trim() as never,
+            costingMethod: values.costingMethod as never,
+          })
+        }
+        onDone={() => {
+          setCreating(false);
+          setMessage(t("inv.itemCreated"));
+          collection.reload();
+        }}
+      />
+
       <Toast message={message} />
     </>
   );

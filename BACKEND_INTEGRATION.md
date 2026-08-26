@@ -45,38 +45,46 @@ A failure at any of these surfaces as `NETWORK_UNREACHABLE`. A CORS rejection
 is indistinguishable from a dead host in JavaScript — the browser hands the
 page the same opaque "Failed to fetch" — so the error's `detail` names both.
 
-### CORS: the current blocker
+### CORS: resolved on the deployed backend
 
-`npm run api:check` probes this. Today it reports:
+`npm run api:check` probes this. Against `https://ros-zchd.onrender.com` it
+now reports:
 
 ```
 Browser access (CORS)
-  FAIL No Access-Control-Allow-Origin — a browser will block every call.
-  FAIL Cross-Origin-Resource-Policy: same-origin — the browser discards the response.
+  OK   Access-Control-Allow-Origin: http://127.0.0.1:3000
+  NOTE Cross-Origin-Resource-Policy: same-origin
+  OK   Preflight allows authorization, idempotency-key and if-match
 ```
 
-Node's `fetch` ignores CORS, so every other check can pass while the console
-still reads nothing in a browser. There are two ways forward.
+The last line is the one that matters and was not previously checked. Every
+authenticated call sends `authorization`; `POST /orders`, its lines and
+`POST /cash-sessions` also send `idempotency-key`; order writes send
+`if-match`. A preflight that admits the origin but not those headers blocks
+every write while looking correct.
 
-**Fix the backend (do this before production).** Two lines in `main.ts`:
+**`Cross-Origin-Resource-Policy: same-origin` is not a blocker**, and this
+document previously said it was. Per the Fetch standard the CORP check only
+runs when a response's tainting is `opaque` — `no-cors` subresource loads
+such as images, scripts and fonts. Every request this app makes is a
+`cors`-mode fetch that receives a valid `Access-Control-Allow-Origin`, so its
+tainting is `cors` and CORP is never consulted. Relax it only if something
+starts loading assets from the API cross-origin:
 
 ```ts
-app.enableCors({ origin: true, credentials: false });
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 ```
 
-Both are needed. Helmet's default `Cross-Origin-Resource-Policy: same-origin`
-makes the browser discard the response even when the CORS headers are right.
 No cookies are used — the client sends `credentials: "omit"` — so
 `Access-Control-Allow-Credentials` is not required.
 
-**Or route around it (works today, no backend change).** Point the app at
-this server and let it forward:
+**If a deployment ever lacks CORS**, route around it. Point the app at this
+server and let it forward:
 
 ```ini
 # .env.local
 NEXT_PUBLIC_API_URL=/api/ros
-API_PROXY_TARGET=http://192.168.1.43:3000
+API_PROXY_TARGET=https://ros-zchd.onrender.com
 ```
 
 `next.config.ts` rewrites `/api/ros/:path*` to the backend. The browser then
@@ -100,7 +108,7 @@ npm run api:types
 | File | Contents |
 | --- | --- |
 | `lib/api/schema.ts` | Request DTOs, one response type per operation, and a route table |
-| `lib/api/endpoints.ts` | 131 typed calls, grouped by tag: `api.catalogue.listItems()` |
+| `lib/api/endpoints.ts` | 133 typed calls, grouped by tag: `api.catalogue.listItems()` |
 
 Drop in a new spec export, re-run, and `tsc --noEmit` will point at every
 call the backend has changed under you.
@@ -158,18 +166,26 @@ reloads mid-service must come back signed in.
 `API_COVERAGE` in `lib/console/services/http.ts` is the authoritative list and
 is printed to the browser console at start-up. In summary:
 
-**Live** — organisation (tenants, brands, branches, warehouses, central
-kitchens, locations), catalogue (categories, items, modifier groups, price
-lists, recipes, 86 toggle), inventory (items, levels, batches, movements,
-waste, counts, transfers), sales orders, operations (open orders, terminals,
-stations, tables), security roles.
+**Live** — every one of the document's 133 operations is reachable through
+the registry. That covers: authentication and password reset, tenants,
+terminals (register, bind, fingerprint, revoke), RBAC (roles, permissions,
+membership assignment), organisation (brands, branches, warehouses, central
+kitchens, operating hours, print routing, station routing, brand
+reassignment), catalogue (menus and their branch assignment, categories,
+items, placements, variants, modifier groups and modifiers, price lists and
+entries, availability 86, completeness), inventory (items, levels, batches,
+movements, counts and count lines, transfers and receipts, waste, reason
+codes, reorder configuration, low stock, negative stock, reconciliation),
+production (recipe versions, publish, substitute groups, completeness),
+sales (list, open, add line, void pre-fire line, fire, capture payment) and
+treasury (open cash session).
 
 **Still demo data** — dashboard, costing, purchasing, workforce, finance,
 governance, platform, catalogue combos, inventory adjustments, kitchen queue,
-security users. The spec's own description is explicit that these are absent
-from the backend, not merely undocumented, so the console keeps its demo data
-for them rather than showing empty screens. Nothing mixes invented rows into
-a domain the backend does serve.
+security users. These are not unfinished wiring: the document has no
+endpoints for them at all. The console keeps its demo data rather than
+showing empty screens, and nothing mixes invented rows into a domain the
+backend does serve.
 
 ## Shape differences worth knowing
 
@@ -209,6 +225,43 @@ Each is marked `// gap:` at the point it bites.
 | Per-role permissions are not exposed | `/auth/permissions` returns the *caller's* effective codes, so `roles.list()` can only fill the caller's own. |
 | Roles are flat codes, console roles are named | `roleFromPermissions()` picks the closest named role for **navigation only**; the server authorises every request regardless (FR-SEC-045). |
 | No branch seat count / area | Read from the opaque `address` blob if present, otherwise zero. |
+| No unit catalogue, and `baseUnitId` is required | Creating a stock item asks for a real `inventory.uom` id, because there is no endpoint to offer a picker from. |
+| No item→modifier-group read | `POST /items/{id}/modifier-groups` attaches; nothing lists what is attached, so the item drawer can add but not show. |
+| No tenant-wide membership index | `GET /auth/tenants` returns only the *caller's* memberships, so roles can be assigned to the signed-in account and no other. |
+| No terminal app version / queue depth | `appVersion` reads "—" and `queuedOperations` zero; both are device-side figures the REST surface does not carry. |
+| No pairing-code concept | The device screen lists real terminals to bind to instead. See `app/(auth)/register-device/page.tsx`. |
+| Country pack must be activated for pricing | `POST /orders` answers 422 `CountryPackUnavailableError` until an activated, signed country pack is in force. The POS surfaces the backend's own message. |
+
+## The POS against this backend
+
+The demo POS in `components/terminal/pos-*.tsx` runs on the in-memory engine
+in `lib/console/live/` and simulates the whole SRS — discounts, comps,
+splits, refunds, courses, table state, KDS tickets. The backend implements
+six order operations and none of that.
+
+Bridging one onto the other would produce a till whose discount button does
+nothing to the server, so `app/(terminal)/pos/page.tsx` chooses between them
+by `DATA_MODE`:
+
+| Mode | Screen | Behaviour |
+| --- | --- | --- |
+| `mock` | `pos-*.tsx` | The full simulation, unchanged |
+| `http` | `pos-live.tsx` | Open cash session → open order → add line → void pre-fire line → fire → capture **partial** payment |
+
+`pos-live.tsx` lists what the API cannot do rather than hiding those
+controls, because a till that appears to take a discount and does not is
+worse than one that says it cannot.
+
+Two refusals are deliberate on the backend's side and are passed through
+verbatim rather than worked around:
+
+- **Full settlement.** `POST /payments` rejects a payment that would close
+  the order; Completion is not implemented.
+- **Post-fire voids.** Only pre-fire voids exist. After Fire the line belongs
+  to the kitchen and there is no endpoint to take it back.
+
+Order writes carry `if-match: <version>`, so a second terminal editing the
+same order is refused with 412 rather than silently overwriting.
 
 ## Adding an endpoint the backend has just built
 

@@ -20,8 +20,32 @@ import { PosMenu } from "@/components/terminal/pos-menu";
 import { PosOrderPane } from "@/components/terminal/pos-order";
 import { PaymentSheet } from "@/components/terminal/pos-payment";
 import { SegmentedControl, Spinner } from "@/components/console/ui";
+import { DATA_MODE } from "@/lib/api/config";
+import { LivePos } from "@/components/terminal/pos-live";
 
+/**
+ * Two tills, chosen by whether a backend is configured.
+ *
+ * The demo POS below runs on the in-memory engine and simulates the whole
+ * SRS: discounts, comps, splits, courses, table state, KDS tickets. The
+ * backend implements six order operations and none of that, so bridging one
+ * onto the other would give a till whose discount button does nothing to the
+ * server. `LivePos` renders exactly what the API can perform and names the
+ * rest as unavailable.
+ */
 export default function PosPage() {
+  if (DATA_MODE === "http") {
+    return (
+      <>
+        <TerminalBar />
+        <LivePos />
+      </>
+    );
+  }
+  return <DemoPos />;
+}
+
+function DemoPos() {
   const { t } = useI18n();
   const { state, activeOrder, ready } = useLive();
   const [pane, setPane] = useState<"menu" | "floor">("floor");

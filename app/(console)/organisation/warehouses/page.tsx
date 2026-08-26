@@ -21,12 +21,12 @@ import { services } from "@/lib/console/services";
 import { useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatNumber } from "@/lib/console/format";
-import { branchById } from "@/lib/console/mock/org";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
 import { Badge, Button, Callout, Toast } from "@/components/console/ui";
+import { RecordDrawer } from "@/components/console/record-drawer";
 
 export default function WarehousesPage() {
   return (
@@ -38,8 +38,15 @@ export default function WarehousesPage() {
 
 function WarehousesScreen() {
   const { t, tx, fmt } = useI18n();
-  const { scope } = useSession();
+  const { scope, availableBranches } = useSession();
+  // Branch names come from the session, which is the real list against a
+  // backend and the fixtures in demo mode.
+  const branchIndex = useMemo(
+    () => new Map(availableBranches.map((branch) => [branch.id, branch])),
+    [availableBranches],
+  );
   const canManage = usePermission("org.manage");
+  const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();
 
   const collection = useCollection<Warehouse>(
@@ -75,7 +82,7 @@ function WarehousesScreen() {
           if (row.attachedBranchId === null) {
             return <Badge tone="accent">{t("org.standalone")}</Badge>;
           }
-          const branch = branchById.get(row.attachedBranchId);
+          const branch = branchIndex.get(row.attachedBranchId);
           return branch ? (
             <span className="text-sm">{tx(branch.name)}</span>
           ) : (
@@ -117,7 +124,7 @@ function WarehousesScreen() {
             <Button
               variant="primary"
               icon={<Plus size={14} />}
-              onClick={() => setMessage(t("common.notInBuild"))}
+              onClick={() => setCreating(true)}
             >
               {t("common.new")}
             </Button>
@@ -160,6 +167,36 @@ function WarehousesScreen() {
 
         <Callout tone="muted">{t("org.warehouseNote")}</Callout>
       </PageBody>
+      <RecordDrawer
+        open={creating}
+        title={t("org.newWarehouse")}
+        fields={[
+          { name: "name", label: t("common.name"), required: true, maxLength: 120 },
+          {
+            name: "warehouseType",
+            label: t("org.warehouseType"),
+            kind: "select",
+            required: true,
+            options: [
+              { value: "central", label: t("org.warehouseCentral") },
+              { value: "branch", label: t("org.warehouseBranch") },
+              { value: "virtual", label: t("org.warehouseVirtual") },
+            ],
+          },
+        ]}
+        onClose={() => setCreating(false)}
+        onSubmit={(values) =>
+          services.organisation.warehouses.create({
+            name: { en: values.name.trim(), ar: values.name.trim() },
+            warehouseType: values.warehouseType as "central" | "branch" | "virtual",
+          })
+        }
+        onDone={() => {
+          setCreating(false);
+          setMessage(t("org.warehouseCreated"));
+          collection.reload();
+        }}
+      />
 
       <Toast message={message} />
     </>

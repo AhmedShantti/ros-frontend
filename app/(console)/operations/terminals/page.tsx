@@ -26,7 +26,7 @@ import { useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatDateTime, formatNumber, formatRelative } from "@/lib/console/format";
 import { TERMINAL_STATUS, labelOf } from "@/lib/console/labels";
-import { branchById } from "@/lib/console/mock/org";
+import { ServiceError } from "@/lib/console/services";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
@@ -58,14 +58,46 @@ export default function TerminalsPage() {
 
 function TerminalsScreen() {
   const { t, tx, fmt } = useI18n();
-  const { scope } = useSession();
+  const { scope, availableBranches } = useSession();
   const [selected, setSelected] = useState<Terminal | null>(null);
   const [message, setMessage] = useTransientMessage();
+  const [revoking, setRevoking] = useState(false);
 
   const collection = useCollection<Terminal>(
     (query) => services.operations.terminals(query),
     { scope, initialSort: "-queuedOperations", pageSize: 25 },
   );
+
+  /**
+   * Branch names come from the session's branch list, which is the real one
+   * against a backend and the fixtures in demo mode. Reading them from the
+   * fixtures unconditionally — as this screen used to — renders "—" for every
+   * live terminal, because a live `branchId` matches no fixture row.
+   */
+  const branchName = useMemo(() => {
+    const index = new Map(availableBranches.map((branch) => [branch.id, branch]));
+    return (branchId: string) => {
+      const branch = index.get(branchId);
+      return branch ? tx(branch.name) : null;
+    };
+  }, [availableBranches, tx]);
+
+  /** FR-SEC-030 — revoking is how a lost device stops being able to sell. */
+  async function revoke(terminal: Terminal) {
+    setRevoking(true);
+    try {
+      await services.operations.setTerminalStatus(terminal.id, "revoked");
+      setMessage(t("terminals.revoked"));
+      setSelected(null);
+      await collection.reload();
+    } catch (error) {
+      setMessage(
+        error instanceof ServiceError ? error.message : t("common.actionFailed"),
+      );
+    } finally {
+      setRevoking(false);
+    }
+  }
 
   const totals = useMemo(() => {
     const rows = collection.rows;
@@ -98,8 +130,8 @@ function TerminalsScreen() {
         header: t("common.branch"),
         secondary: true,
         render: (row) => {
-          const branch = branchById.get(row.branchId);
-          return branch ? tx(branch.name) : <span className="text-fg-subtle">—</span>;
+          const name = branchName(row.branchId);
+          return name ?? <span className="text-fg-subtle">—</span>;
         },
       },
       {
@@ -176,7 +208,7 @@ function TerminalsScreen() {
         },
       },
     ],
-    [t, tx, fmt],
+    [t, tx, fmt, branchName],
   );
 
   return (
@@ -254,8 +286,10 @@ function TerminalsScreen() {
 
       <TerminalDrawer
         terminal={selected}
+        branchName={selected ? branchName(selected.branchId) : null}
+        revoking={revoking}
         onClose={() => setSelected(null)}
-        onRevoke={() => setMessage(t("common.notInBuild"))}
+        onRevoke={revoke}
       />
       <Toast message={message} />
     </>
@@ -266,12 +300,16 @@ function TerminalsScreen() {
 
 function TerminalDrawer({
   terminal,
+  branchName,
+  revoking,
   onClose,
   onRevoke,
 }: {
   terminal: Terminal | null;
+  branchName: string | null;
+  revoking: boolean;
   onClose: () => void;
-  onRevoke: () => void;
+  onRevoke: (terminal: Terminal) => void;
 }) {
   const { t, tx, fmt } = useI18n();
   const canManage = usePermission("ops.terminal.manage");
@@ -279,7 +317,6 @@ function TerminalDrawer({
   if (!terminal) return null;
 
   const status = labelOf(TERMINAL_STATUS, terminal.status);
-  const branch = branchById.get(terminal.branchId);
   const online = terminal.status === "online";
 
   return (
@@ -294,7 +331,7 @@ function TerminalDrawer({
       }
       footer={
         canManage && terminal.status !== "revoked" ? (
-          <Button variant="danger" onClick={onRevoke}>
+          <Button variant="danger" loading={revoking} onClick={() => onRevoke(terminal)}>
             {t("terminals.revoke")}
           </Button>
         ) : null
@@ -317,7 +354,7 @@ function TerminalDrawer({
           <DescRow label={t("terminals.kind")}>
             {tx(TERMINAL_KIND_LABEL[terminal.kind])}
           </DescRow>
-          <DescRow label={t("common.branch")}>{branch ? tx(branch.name) : "—"}</DescRow>
+          <DescRow label={t("common.branch")}>{branchName ?? "—"}</DescRow>
           <DescRow label={t("terminals.version")} mono>
             <span dir="ltr">{terminal.appVersion}</span>
           </DescRow>

@@ -19,7 +19,8 @@ import { Plus } from "lucide-react";
 import type { Modifier, ModifierGroup, RecipeDelta } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useCollection, useTransientMessage } from "@/lib/console/hooks";
-import { useI18n, useSession } from "@/lib/console/providers";
+import { useAction } from "@/lib/console/actions";
+import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatMoney, formatNumber, formatQuantity } from "@/lib/console/format";
 import { MODIFIER_KIND, labelOf } from "@/lib/console/labels";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
@@ -33,7 +34,11 @@ import {
   DescList,
   DescRow,
   Drawer,
+  Field,
+  Input,
+  Select,
   Toast,
+  Toggle,
 } from "@/components/console/ui";
 
 export default function MenuModifiersPage() {
@@ -48,6 +53,7 @@ function ModifiersScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [selected, setSelected] = useState<ModifierGroup | null>(null);
+  const [creatingGroup, setCreatingGroup] = useState(false);
   const [message, setMessage] = useTransientMessage();
 
   const collection = useCollection<ModifierGroup>(
@@ -127,11 +133,7 @@ function ModifiersScreen() {
         subtitle={t("menu.modifiersSubtitle")}
         spec="FR-MNU-013"
         actions={
-          <Button
-            variant="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
-          >
+          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreatingGroup(true)}>
             {t("common.new")}
           </Button>
         }
@@ -185,7 +187,24 @@ function ModifiersScreen() {
         />
       </PageBody>
 
-      <GroupDrawer group={selected} onClose={() => setSelected(null)} />
+      <GroupDrawer
+        group={selected}
+        onClose={() => setSelected(null)}
+        onChanged={(note) => {
+          setMessage(note);
+          collection.reload();
+        }}
+      />
+
+      <NewGroupDrawer
+        open={creatingGroup}
+        onClose={() => setCreatingGroup(false)}
+        onCreated={() => {
+          setCreatingGroup(false);
+          setMessage(t("menu.groupCreated"));
+          collection.reload();
+        }}
+      />
       <Toast message={message} />
     </>
   );
@@ -196,11 +215,15 @@ function ModifiersScreen() {
 function GroupDrawer({
   group,
   onClose,
+  onChanged,
 }: {
   group: ModifierGroup | null;
   onClose: () => void;
+  onChanged: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
+  const canManage = usePermission("menu.manage");
+  const [adding, setAdding] = useState(false);
   if (!group) return null;
 
   return (
@@ -231,13 +254,36 @@ function GroupDrawer({
         </DescList>
 
         <section>
-          <h3 className="text-fg mb-2 text-sm font-semibold">{t("nav.modifiers")}</h3>
-          <ul className="divide-line divide-y">
-            {group.modifiers.map((modifier) => (
-              <ModifierRow key={modifier.id} modifier={modifier} />
-            ))}
-          </ul>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="text-fg text-sm font-semibold">{t("nav.modifiers")}</h3>
+            {canManage ? (
+              <Button variant="ghost" icon={<Plus size={13} />} onClick={() => setAdding(true)}>
+                {t("common.add")}
+              </Button>
+            ) : null}
+          </div>
+
+          {group.modifiers.length === 0 ? (
+            <Callout tone="muted">{t("menu.noModifiers")}</Callout>
+          ) : (
+            <ul className="divide-line divide-y">
+              {group.modifiers.map((modifier) => (
+                <ModifierRow key={modifier.id} modifier={modifier} />
+              ))}
+            </ul>
+          )}
         </section>
+
+        <NewModifierDrawer
+          open={adding}
+          groupId={group.id}
+          currency={group.modifiers[0]?.priceDelta.currency ?? "EGP"}
+          onClose={() => setAdding(false)}
+          onCreated={() => {
+            setAdding(false);
+            onChanged(t("menu.modifierAdded"));
+          }}
+        />
 
         <Callout tone="muted">{t("menu.recipeDeltaHint")}</Callout>
       </div>
@@ -299,5 +345,193 @@ function RecipeDeltaRow({ entry }: { entry: RecipeDelta }) {
       <span className="text-fg-muted">{tx(entry.componentName)}</span>
       <span className="font-mono">{description}</span>
     </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * `POST /catalogue/modifier-groups/{id}/modifiers`.
+ *
+ * `kind` is required by the DTO and has no default the server will accept:
+ * FR-POS-021 needs to know whether a modifier adds, removes or substitutes,
+ * because that is what decides how the line depletes stock. So the field is
+ * a choice here, not a hidden constant.
+ */
+function NewModifierDrawer({
+  open,
+  groupId,
+  currency,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  groupId: string;
+  currency: Modifier["priceDelta"]["currency"];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<Modifier["kind"]>("addition");
+  const [priceDelta, setPriceDelta] = useState("0");
+  const [isDefault, setIsDefault] = useState(false);
+
+  if (!open) return null;
+
+  const parsed = Number(priceDelta);
+  const valid = name.trim() !== "" && Number.isFinite(parsed);
+
+  async function create() {
+    if (!valid) return;
+    await action.run(
+      () =>
+        services.catalogue.addModifier(groupId, {
+          name: { en: name.trim(), ar: name.trim() },
+          kind,
+          priceDelta: { amount: Math.round(parsed * 100), currency },
+          isDefault,
+        }),
+      { onSuccess: onCreated },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={t("menu.newModifier")}
+      footer={
+        <div className="flex gap-2">
+          <Button variant="primary" loading={action.pending} disabled={!valid} onClick={create}>
+            {t("common.create")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Field label={t("common.name")} required>
+          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
+        </Field>
+
+        <Field label={t("menu.modifierKind")} hint={t("menu.modifierKindHint")} required>
+          <Select
+            value={kind}
+            onChange={(event) => setKind(event.target.value as Modifier["kind"])}
+          >
+            {(["addition", "removal", "substitution"] as const).map((value) => (
+              <option key={value} value={value}>
+                {tx(labelOf(MODIFIER_KIND, value).label)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field label={t("menu.priceDelta")} hint={currency}>
+          <Input
+            inputMode="decimal"
+            dir="ltr"
+            value={priceDelta}
+            onChange={(event) => setPriceDelta(event.target.value)}
+          />
+        </Field>
+
+        <Toggle checked={isDefault} onChange={setIsDefault} label={t("menu.default")} />
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** `POST /catalogue/modifier-groups` — the reusable group itself. */
+function NewGroupDrawer({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction();
+  const [name, setName] = useState("");
+  const [minSelections, setMin] = useState("0");
+  const [maxSelections, setMax] = useState("1");
+  const [required, setRequired] = useState(false);
+
+  if (!open) return null;
+
+  async function create() {
+    if (!name.trim()) return;
+    await action.run(
+      () =>
+        services.catalogue.modifierGroups.create({
+          name: { en: name.trim(), ar: name.trim() },
+          minSelections: Number(minSelections) || 0,
+          maxSelections: Number(maxSelections) || 1,
+          required,
+        }),
+      { onSuccess: onCreated },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={t("menu.newGroup")}
+      footer={
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            loading={action.pending}
+            disabled={!name.trim()}
+            onClick={create}
+          >
+            {t("common.create")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Field label={t("common.name")} required>
+          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
+        </Field>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={t("menu.minSelections")}>
+            <Input
+              inputMode="numeric"
+              dir="ltr"
+              value={minSelections}
+              onChange={(event) => setMin(event.target.value)}
+            />
+          </Field>
+          <Field label={t("menu.maxSelections")}>
+            <Input
+              inputMode="numeric"
+              dir="ltr"
+              value={maxSelections}
+              onChange={(event) => setMax(event.target.value)}
+            />
+          </Field>
+        </div>
+
+        <Toggle checked={required} onChange={setRequired} label={t("menu.required")} />
+      </div>
+    </Drawer>
   );
 }

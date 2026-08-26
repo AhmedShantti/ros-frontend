@@ -30,6 +30,7 @@ export const V = {
   digits: (n: number) => `validation.digits:${n}`,
   passwordWeak: "validation.passwordWeak",
   passwordMismatch: "validation.passwordMismatch",
+  passwordReused: "validation.passwordReused",
   url: "validation.url",
   date: "validation.date",
   dateOrder: "validation.dateOrder",

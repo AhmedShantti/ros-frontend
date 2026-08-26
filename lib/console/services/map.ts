@@ -26,6 +26,7 @@ import type {
   Batch,
   Branch,
   Brand,
+  CatalogueCompleteness,
   CentralKitchen,
   CountLine,
   CountSession,
@@ -33,9 +34,11 @@ import type {
   Currency,
   Id,
   Localised,
+  Menu,
   MenuCategory,
   MenuItem,
   MenuItemVariant,
+  MenuResolution,
   Modifier,
   ModifierGroup,
   ModifierKind,
@@ -216,6 +219,20 @@ export function quantity(
   return { value: value === null || value === undefined ? "0" : String(value), unit: unitOf(unitId) };
 }
 
+/**
+ * Same thing, but for a unit already resolved to its code.
+ *
+ * The computed inventory reports (low stock, negative stock, reconciliation)
+ * carry no unit at all — the quantity is implicitly in the stock item's own
+ * base unit, which the caller already has from the item table.
+ */
+export function quantityOf(
+  value: string | number | null | undefined,
+  unit: UnitCode,
+): Quantity {
+  return { value: value === null || value === undefined ? "0" : String(value), unit };
+}
+
 // ---------------------------------------------------------------------------
 // Scalars
 // ---------------------------------------------------------------------------
@@ -320,6 +337,7 @@ export function toWarehouse(row: WireWarehouse, tenantId: Id): Warehouse {
     tenantId,
     name: localised(row.name),
     code: row.warehouseType.toUpperCase().slice(0, 3),
+    warehouseType: row.warehouseType,
     attachedBranchId: row.branchId,
     countryCode: countryOf(null),
     active: true, // gap: warehouses have no status on the API.
@@ -463,6 +481,51 @@ export function toRole(row: WireRole, permissions: Role["permissions"] = []): Ro
 // ---------------------------------------------------------------------------
 // Catalogue
 // ---------------------------------------------------------------------------
+
+type WireMenu = S.CatalogueController_listMenusResponse[number];
+
+export function toMenu(row: WireMenu, tenantId: Id, branchIds: Id[] = []): Menu {
+  return {
+    id: row.id,
+    tenantId,
+    name: localised(row.name),
+    priority: row.priority,
+    orderTypes: row.orderTypes ?? [],
+    branchIds,
+    active: row.isActive,
+    createdAt: row.createdAt,
+  };
+}
+
+export function toMenuResolution(
+  response: S.CatalogueController_resolveMenusResponse,
+  tenantId: Id,
+): MenuResolution {
+  return {
+    menus: response.menus.map((row) => toMenu(row, tenantId)),
+    ambiguous: response.ambiguous,
+    // The document declares `warning` present only when ambiguous is true.
+    warning: response.ambiguous ? (response.warning ?? null) : null,
+  };
+}
+
+export function toCompleteness(
+  response: S.CatalogueController_completenessReportResponse,
+): CatalogueCompleteness {
+  return {
+    sellable: response.sellable,
+    unpricedVariants: (response.unpricedVariants ?? []).map((row) => ({
+      menuItemId: row.menuItemId,
+      variantId: row.variantId,
+    })),
+    itemsWithoutActiveVariant: response.itemsWithoutActiveVariant ?? [],
+    activeListGaps: (response.activeListGaps ?? []).map((row) => ({
+      priceListId: row.priceListId,
+      priceListName: row.priceListName,
+      menuItemVariantId: row.menuItemVariantId,
+    })),
+  };
+}
 
 type WireCategory = S.CatalogueController_listCategoriesResponse[number];
 
@@ -1019,5 +1082,6 @@ export function toOrder(row: WireOrder, context: OrderContext): Order {
     syncState: "synced",
     aggregatorRef: null,
     notes: row.notes,
+    version: row.version,
   };
 }

@@ -432,6 +432,10 @@ export const sales = {
   findOne: (businessDay: string, id: string) =>
     http.get<S.OrdersController_findOneResponse>("/orders/{businessDay}/{id}", { params: { businessDay, id } }),
 
+  /** `POST /orders/{businessDay}/{id}/fire` — Fire eligible pending lines to production (explicit MVP Fire — no auto-Fire). — The order after Fire, including every line (previously-fired and newly-fired alike). */
+  fire: (businessDay: string, id: string, options: { ifMatch?: string | number } = {}) =>
+    http.post<S.OrdersController_fireResponse>("/orders/{businessDay}/{id}/fire", { params: { businessDay, id }, ifMatch: options.ifMatch, idempotent: true }),
+
   /** `POST /orders/{businessDay}/{id}/lines` — Capture a line on an open order. — The newly captured line and the order it now belongs to. */
   addLine: (businessDay: string, id: string, body: S.AddOrderLineDto, options: { ifMatch?: string | number } = {}) =>
     http.post<S.OrdersController_addLineResponse>("/orders/{businessDay}/{id}/lines", { params: { businessDay, id }, body, ifMatch: options.ifMatch, idempotent: true }),
@@ -439,6 +443,10 @@ export const sales = {
   /** `DELETE /orders/{businessDay}/{id}/lines/{lineId}` — Void a pre-fire line (the ordinary cashier correction). — The voided line and the order it belongs to. */
   voidLine: (businessDay: string, id: string, lineId: string, body: S.VoidOrderLineDto, options: { ifMatch?: string | number } = {}) =>
     http.delete<S.OrdersController_voidLineResponse>("/orders/{businessDay}/{id}/lines/{lineId}", { params: { businessDay, id, lineId }, body, ifMatch: options.ifMatch }),
+
+  /** `POST /orders/{businessDay}/{id}/payments` — Capture a partial CASH or manual/external-card payment (full settlement is refused — Completion does not exist yet). — The newly captured Payment and the order it now belongs to (paidTotal/roundingAdjustment/state/version updated). */
+  capturePayment: (businessDay: string, id: string, body: S.CapturePaymentDto, options: { ifMatch?: string | number } = {}) =>
+    http.post<S.OrdersController_capturePaymentResponse>("/orders/{businessDay}/{id}/payments", { params: { businessDay, id }, body, ifMatch: options.ifMatch, idempotent: true }),
 
 };
 

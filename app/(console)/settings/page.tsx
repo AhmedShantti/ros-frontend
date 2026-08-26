@@ -16,6 +16,7 @@ import { countryPacks } from "@/lib/console/mock/platform";
 import { formatMoney, money } from "@/lib/console/format";
 import { PageBody, PageHeader, Section } from "@/components/console/page";
 import { TerminalLinks } from "@/components/console/live-panels";
+import { ChangePasswordCard } from "@/components/console/change-password";
 import {
   Button,
   Callout,
@@ -179,6 +180,10 @@ export default function SettingsPage() {
               <DescRow label={t("cp.taxEngine")}>{pack?.taxEngine ?? "—"}</DescRow>
             </DescList>
           </Card>
+        </Section>
+
+        <Section title={t("set.security")}>
+          <ChangePasswordCard />
         </Section>
 
         <Section title={t("set.demo")}>

@@ -17,12 +17,10 @@
 import { useMemo, useState } from "react";
 import type { StockAdjustment } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection } from "@/lib/console/hooks";
+import { useAsync, useCollection } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { formatDateTime, formatMoney, formatNumber, formatQuantity } from "@/lib/console/format";
 import { APPROVAL_STATE, labelOf } from "@/lib/console/labels";
-import { adjustmentReasons } from "@/lib/console/mock/inventory";
-import { stockLocations } from "@/lib/console/mock/org";
 import {
   CellStack,
   CollectionTable,
@@ -46,6 +44,13 @@ function AdjustmentsScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [selected, setSelected] = useState<StockAdjustment | null>(null);
+
+  // Locations and reason codes from the service, so both filters offer
+  // values that exist on the backend rather than fixture ones.
+  const locationList = useAsync(() => services.organisation.locations(), []);
+  const locations = locationList.data ?? [];
+  const reasonList = useAsync(() => services.inventory.reasonCodes(), []);
+  const reasonCodes = reasonList.data ?? [];
 
   const collection = useCollection<StockAdjustment>(
     (query) => services.inventory.adjustments.list(query),
@@ -169,9 +174,9 @@ function AdjustmentsScreen() {
             {
               key: "reasonCode",
               label: t("common.reason"),
-              options: adjustmentReasons.map((reason) => ({
+              options: reasonCodes.map((reason) => ({
                 value: reason.code,
-                label: tx(reason.name),
+                label: tx(reason.label),
               })),
             },
             {
@@ -185,7 +190,7 @@ function AdjustmentsScreen() {
             {
               key: "locationId",
               label: t("common.location"),
-              options: stockLocations.map((location) => ({
+              options: locations.map((location) => ({
                 value: location.id,
                 label: tx(location.name),
               })),

@@ -9,21 +9,40 @@
  * exactly backwards.
  */
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Check, Lock, X } from "lucide-react";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { DEMO_ACCOUNTS } from "@/lib/console/mock/accounts";
-import { Button, Card, Input } from "@/components/console/ui";
+import { api } from "@/lib/api/endpoints";
+import { DATA_MODE } from "@/lib/api/config";
+import { ServiceError } from "@/lib/console/services";
+import { Button, Callout, Card, Input } from "@/components/console/ui";
 import { Form, FormField, useZodForm } from "@/components/console/form";
 import { resetPasswordSchema, type ResetPasswordInput } from "@/schemas/auth";
 
 export default function ResetPasswordPage() {
+  // `useSearchParams` suspends during prerender; the boundary keeps the
+  // route statically renderable instead of forcing it dynamic.
+  return (
+    <Suspense fallback={<Card className="ros-fade-in">&nbsp;</Card>}>
+      <ResetPasswordForm />
+    </Suspense>
+  );
+}
+
+function ResetPasswordForm() {
   const router = useRouter();
   const { t } = useI18n();
   const { signIn } = useSession();
+  const searchParams = useSearchParams();
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const live = DATA_MODE === "http";
+  /** The single-use token from the emailed link. */
+  const token = searchParams.get("token") ?? "";
 
   const form = useZodForm(resetPasswordSchema, {
     defaultValues: { password: "", confirm: "" },
@@ -37,14 +56,51 @@ export default function ResetPasswordPage() {
     { key: "auth.ruleDigit" as const, met: /\d/.test(password) },
   ];
 
-  async function onSubmit(_values: ResetPasswordInput) {
+  async function onSubmit(values: ResetPasswordInput) {
     setSubmitting(true);
-    await new Promise((resolve) => window.setTimeout(resolve, 420));
-    // A real reset returns a fresh session. The demo signs in as the owner,
-    // which is the account the reset link in the seeded mailbox belongs to.
-    // A password reset is not a second factor.
-    signIn(DEMO_ACCOUNTS[0]!.roleKey, false);
-    router.replace("/dashboard");
+    setSubmitError(null);
+
+    if (!live) {
+      await new Promise((resolve) => window.setTimeout(resolve, 420));
+      // A real reset returns no session. The demo signs in as the owner,
+      // which is the account the reset link in the seeded mailbox belongs to.
+      // A password reset is not a second factor.
+      signIn(DEMO_ACCOUNTS[0]!.roleKey, false);
+      router.replace("/dashboard");
+      return;
+    }
+
+    try {
+      await api.password.reset({ token, newPassword: values.password });
+      // The endpoint revokes every session, this one included, so there is
+      // nothing to carry forward — the new password is used at sign-in.
+      router.replace("/login?reset=1");
+    } catch (error) {
+      setSubmitError(
+        error instanceof ServiceError ? error.message : t("auth.errorNetwork"),
+      );
+      setSubmitting(false);
+    }
+  }
+
+  // A link that arrived without its token cannot be completed, and saying so
+  // now beats a rejection after the user has chosen a password.
+  if (live && !token) {
+    return (
+      <Card className="ros-fade-in">
+        <h1 className="text-fg text-lg font-semibold">{t("auth.resetTitle")}</h1>
+        <Callout tone="bad" className="mt-3">
+          {t("auth.resetNoToken")}
+        </Callout>
+        <Link
+          href="/forgot-password"
+          className="text-fg-muted hover:text-fg mt-4 inline-flex items-center gap-1.5 text-xs transition-colors"
+        >
+          <ArrowLeft size={12} className="rtl:rotate-180" aria-hidden />
+          {t("auth.forgotTitle")}
+        </Link>
+      </Card>
+    );
   }
 
   return (
@@ -52,7 +108,7 @@ export default function ResetPasswordPage() {
       <h1 className="text-fg text-lg font-semibold">{t("auth.resetTitle")}</h1>
       <p className="text-fg-muted mt-1.5 text-xs leading-relaxed">{t("auth.resetLede")}</p>
 
-      <Form form={form} onSubmit={onSubmit} className="mt-5">
+      <Form form={form} onSubmit={onSubmit} submitError={submitError} className="mt-5">
         <FormField<ResetPasswordInput> name="password" label={t("auth.newPassword")} required>
           {({ id, ...aria }) => (
             <Input

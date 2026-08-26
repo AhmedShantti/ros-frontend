@@ -37,12 +37,20 @@ import type {
   Tenant,
 } from "./types";
 import type { PermissionKey, RoleKey } from "./permissions";
-import { ROLE_DEFINITIONS } from "./permissions";
+import { ALL_PERMISSIONS, ROLE_DEFINITIONS } from "./permissions";
 import { buildSession } from "./mock/governance";
-import { ACTIVE_TENANT_ID, branches, brands, tenants } from "./mock/org";
+import {
+  ACTIVE_TENANT_ID,
+  branches as mockBranches,
+  brands as mockBrands,
+  tenants,
+} from "./mock/org";
 import type { FormatOptions } from "./format";
 import { tx } from "./format";
 import type { Scope } from "./services";
+import { DATA_MODE } from "@/lib/api/config";
+import { signOut as apiSignOut } from "@/lib/api/auth";
+import { useLiveOrgContext, type LiveOrgContext } from "./live-session";
 
 // ---------------------------------------------------------------------------
 // Storage keys
@@ -236,6 +244,12 @@ interface SessionValue {
   availableBranches: Branch[];
   /** True when the role is pinned to one branch and cannot widen its view. */
   scopeLocked: boolean;
+  /**
+   * The live organisation context, when the app is talking to a backend.
+   * `ready` is false while it loads, which is what the shell waits on before
+   * it renders a scope switcher that would otherwise be empty.
+   */
+  org: LiveOrgContext;
   signIn: (roleKey: RoleKey, mfaSatisfied: boolean) => void;
   signOut: () => void;
   setRole: (roleKey: RoleKey) => void;
@@ -283,16 +297,41 @@ function SessionProvider({ children }: { children: ReactNode }) {
     setHydrated(true);
   }, []);
 
+  const live = DATA_MODE === "http";
+
   const session = useMemo(
     () => (authenticated ? buildSession(roleKey, mfaSatisfied) : null),
     [authenticated, roleKey, mfaSatisfied],
   );
 
+  // The real tenant, brands, branches and permission codes behind the token.
+  // In demo mode this stays inert and everything below falls back to the
+  // fixtures, exactly as before.
+  const org = useLiveOrgContext(authenticated);
+
   const definition = ROLE_DEFINITIONS[roleKey];
 
-  // A branch-scoped role sees exactly one branch. A brand-scoped role may
-  // move between the branches of its brands. FR-SEC-002/004.
-  const scopeLocked = definition.defaultScope === "branch";
+  /**
+   * Which org the switchers offer.
+   *
+   * Against a backend these MUST be the real rows: `services` filters every
+   * list by `scope.branchId`, so offering a fixture id here would filter
+   * real data down to nothing without reporting an error.
+   */
+  const brands = live ? org.brands : mockBrands;
+  const branches = live ? org.branches : mockBranches;
+
+  /**
+   * A branch-scoped role sees exactly one branch. A brand-scoped role may
+   * move between the branches of its brands. FR-SEC-002/004.
+   *
+   * Live, the role is a *guess* — `roleFromPermissions` picks the closest
+   * fixture role to the granted codes — and the branch it would pin to is a
+   * fixture id that does not exist on the backend. So nothing is pinned:
+   * the user picks from the real branches and the server authorises the
+   * request, which is where the decision belongs anyway (FR-SEC-045).
+   */
+  const scopeLocked = live ? false : definition.defaultScope === "branch";
 
   const effectiveBrandId = scopeLocked
     ? (branches.find((b) => b.id === (session?.branchId ?? branchId))?.brandId ?? brandId)
@@ -301,6 +340,8 @@ function SessionProvider({ children }: { children: ReactNode }) {
   const effectiveBranchId = scopeLocked ? (session?.branchId ?? branchId) : branchId;
 
   const availableBrands = useMemo(() => {
+    // Live: the backend already returns only the brands this token may read.
+    if (live) return brands;
     if (definition.defaultScope === "tenant") return brands;
     const assignment = session?.user.assignments[0];
     if (!assignment || assignment.scopeIds.length === 0) return brands;
@@ -313,11 +354,12 @@ function SessionProvider({ children }: { children: ReactNode }) {
     );
     const allowed = new Set([...brandIds, ...branchBrandIds]);
     return allowed.size === 0 ? brands : brands.filter((b) => allowed.has(b.id));
-  }, [definition.defaultScope, session]);
+  }, [live, brands, branches, definition.defaultScope, session]);
 
   const availableBranches = useMemo(() => {
     let list = branches;
     if (effectiveBrandId) list = list.filter((b) => b.brandId === effectiveBrandId);
+    if (live) return list;
     const assignment = session?.user.assignments[0];
     if (assignment && assignment.scopeLevel === "branch_set" && assignment.scopeIds.length > 0) {
       const allowed = new Set(assignment.scopeIds);
@@ -327,7 +369,28 @@ function SessionProvider({ children }: { children: ReactNode }) {
       list = branches.filter((b) => b.id === effectiveBranchId);
     }
     return list;
-  }, [effectiveBrandId, effectiveBranchId, scopeLocked, session]);
+  }, [live, branches, effectiveBrandId, effectiveBranchId, scopeLocked, session]);
+
+  /**
+   * Drop a stored scope that this tenant does not contain.
+   *
+   * `ros.console.brand` / `.branch` survive a sign-out, so a browser that
+   * once ran the demo carries fixture ids into a live session — where they
+   * match no row, and `project()` filters every table to empty with nothing
+   * on screen to explain it. Anything the real org does not list is cleared.
+   */
+  useEffect(() => {
+    if (!live || !org.ready) return;
+
+    if (brandId && !org.brands.some((b) => b.id === brandId)) {
+      setBrandIdState(null);
+      write(KEY_BRAND, "all");
+    }
+    if (branchId && !org.branches.some((b) => b.id === branchId)) {
+      setBranchIdState(null);
+      write(KEY_BRANCH, "all");
+    }
+  }, [live, org.ready, org.brands, org.branches, brandId, branchId]);
 
   const setBrandId = useCallback((next: string | null) => {
     setBrandIdState(next);
@@ -368,11 +431,51 @@ function SessionProvider({ children }: { children: ReactNode }) {
     setMfaSatisfied(false);
     write(KEY_AUTH, "false");
     write(KEY_MFA, "false");
+    // The scope belonged to the session that just ended; carrying it into
+    // the next one is how a fixture id ends up scoping a live tenant.
+    setBrandIdState(null);
+    setBranchIdState(null);
+    write(KEY_BRAND, "all");
+    write(KEY_BRANCH, "all");
+
+    if (DATA_MODE === "http") {
+      // Revokes the refresh token server-side and clears the stored pair.
+      // Fire-and-forget: `apiSignOut` already swallows a token that cannot
+      // be revoked twice, and the UI must not wait on the network to sign
+      // someone out.
+      void apiSignOut();
+    }
   }, []);
 
+  /**
+   * What `can()` actually consults.
+   *
+   * Live, the authority is `GET /auth/permissions`. But the server issues its
+   * own flat codes and there is no published mapping to this console's
+   * catalogue, so trusting the granted set blindly would hide the entire
+   * navigation the moment the two vocabularies differ. The set is therefore
+   * only believed once it demonstrably speaks the same language — at least
+   * one granted code matching a key we know. Otherwise the role heuristic
+   * stands in, which is what shipped before this and is no less safe:
+   * hiding a control is presentation, and the server authorises regardless
+   * (FR-SEC-045).
+   */
+  const granted = useMemo(() => {
+    if (!live || !org.ready || org.permissions.size === 0) return null;
+
+    const normalise = (code: string) => code.toLowerCase().replace(/[:/]/g, ".");
+    const codes = new Set([...org.permissions].map(normalise));
+    const shared = ALL_PERMISSIONS.some((key) => codes.has(key));
+
+    return shared ? codes : null;
+  }, [live, org.ready, org.permissions]);
+
   const value = useMemo<SessionValue>(() => {
-    const permissions = session?.permissions ?? new Set<PermissionKey>();
-    const tenant = tenants.find((t) => t.id === ACTIVE_TENANT_ID)!;
+    const rolePermissions = session?.permissions ?? new Set<PermissionKey>();
+    const has = (permission: PermissionKey) =>
+      granted ? granted.has(permission) : rolePermissions.has(permission);
+
+    const tenant = (live ? org.tenant : null) ?? tenants.find((t) => t.id === ACTIVE_TENANT_ID)!;
 
     return {
       session,
@@ -384,27 +487,33 @@ function SessionProvider({ children }: { children: ReactNode }) {
       brand: brands.find((b) => b.id === effectiveBrandId) ?? null,
       branch: branches.find((b) => b.id === effectiveBranchId) ?? null,
       scope: {
-        tenantId: ACTIVE_TENANT_ID,
+        tenantId: tenant.id,
         brandId: effectiveBrandId,
         branchId: effectiveBranchId,
       },
       availableBrands,
       availableBranches,
       scopeLocked,
+      org,
       signIn,
       signOut,
       setRole,
       setBrandId,
       setBranchId,
-      can: (permission) => permissions.has(permission),
-      canAny: (list) => list.length === 0 || list.some((p) => permissions.has(p)),
-      canAll: (list) => list.every((p) => permissions.has(p)),
+      can: has,
+      canAny: (list) => list.length === 0 || list.some(has),
+      canAll: (list) => list.every(has),
     };
   }, [
     session,
     hydrated,
     authenticated,
     roleKey,
+    live,
+    org,
+    granted,
+    brands,
+    branches,
     effectiveBrandId,
     effectiveBranchId,
     availableBrands,

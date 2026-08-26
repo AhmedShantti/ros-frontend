@@ -17,17 +17,17 @@
 
 import { useMemo, useState } from "react";
 import { Ban, CheckCircle2, Plus } from "lucide-react";
-import type { MenuItem } from "@/lib/console/types";
+import type { MenuCategory, MenuItem, MenuItemVariant } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatDuration, formatMoney, formatNumber } from "@/lib/console/format";
 import { STATION_TYPE, TAX_CLASS, labelOf } from "@/lib/console/labels";
-import { menuCategories } from "@/lib/console/mock/catalogue";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
-import { Gate } from "@/components/console/states";
+import { AsyncPanel, Gate } from "@/components/console/states";
 import {
   Badge,
   Button,
@@ -36,7 +36,9 @@ import {
   DescRow,
   Drawer,
   Field,
+  Input,
   Modal,
+  Select,
   Textarea,
   Toast,
   cx,
@@ -57,7 +59,21 @@ function MenuItemsScreen() {
 
   const [selected, setSelected] = useState<MenuItem | null>(null);
   const [pending86, setPending86] = useState<MenuItem | null>(null);
+  const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();
+
+  /**
+   * Categories come from the service, not from `mock/catalogue`.
+   *
+   * Reading them from the fixtures — as this screen used to — meant a live
+   * item's category cell rendered blank and the category filter offered ids
+   * that match nothing on the backend.
+   */
+  const categoryPage = useAsync(
+    () => services.catalogue.categories.list({ limit: 500, scope }),
+    [scope.tenantId, scope.brandId, scope.branchId],
+  );
+  const categories = useMemo(() => categoryPage.data?.rows ?? [], [categoryPage.data]);
 
   const collection = useCollection<MenuItem>(
     (query) => services.catalogue.items.list(query),
@@ -107,7 +123,7 @@ function MenuItemsScreen() {
         header: t("common.category"),
         secondary: true,
         render: (row) => {
-          const category = menuCategories.find((c) => c.id === row.categoryId);
+          const category = categories.find((c) => c.id === row.categoryId);
           return category ? (
             <span className="text-fg-muted text-xs">{tx(category.name)}</span>
           ) : (
@@ -168,7 +184,7 @@ function MenuItemsScreen() {
         ),
       },
     ],
-    [t, tx, fmt],
+    [t, tx, fmt, categories],
   );
 
   return (
@@ -178,11 +194,7 @@ function MenuItemsScreen() {
         subtitle={t("menu.itemsSubtitle")}
         spec="FR-MNU-005"
         actions={
-          <Button
-            variant="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
-          >
+          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
             {t("common.new")}
           </Button>
         }
@@ -211,7 +223,7 @@ function MenuItemsScreen() {
             {
               key: "categoryId",
               label: t("common.category"),
-              options: menuCategories.map((category) => ({
+              options: categories.map((category) => ({
                 value: category.id,
                 label: tx(category.name),
               })),
@@ -257,9 +269,25 @@ function MenuItemsScreen() {
       <ItemDrawer
         item={selected}
         canToggle={canToggle}
+        categories={categories}
         onClose={() => setSelected(null)}
         onRestore={(item) => setAvailability(item, true)}
         onRequest86={(item) => setPending86(item)}
+        onChanged={(note) => {
+          setMessage(note);
+          collection.reload();
+        }}
+      />
+
+      <NewItemDrawer
+        open={creating}
+        categories={categories}
+        onClose={() => setCreating(false)}
+        onCreated={() => {
+          setCreating(false);
+          setMessage(t("menu.itemCreated"));
+          collection.reload();
+        }}
       />
 
       <Eighty6Modal
@@ -302,31 +330,69 @@ function VariantPrice({ item }: { item: MenuItem }) {
 function ItemDrawer({
   item,
   canToggle,
+  categories,
   onClose,
   onRestore,
   onRequest86,
+  onChanged,
 }: {
   item: MenuItem | null;
   canToggle: boolean;
+  categories: MenuCategory[];
   onClose: () => void;
   onRestore: (item: MenuItem) => void;
   onRequest86: (item: MenuItem) => void;
+  onChanged: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
+  const canManage = usePermission("menu.manage");
+  const action = useAction();
+  const [addingVariant, setAddingVariant] = useState(false);
+
+  /**
+   * The list row carries no variants — `GET /catalogue/items` returns none,
+   * they hang off `/items/{id}/variants`. `items.get()` fans those calls
+   * out, so the drawer refetches rather than rendering the list's stub.
+   */
+  const detail = useAsync(
+    async () => (item ? services.catalogue.items.get(item.id) : null),
+    [item?.id],
+  );
+
   if (!item) return null;
 
-  const tax = labelOf(TAX_CLASS, item.taxClass);
-  const station = labelOf(STATION_TYPE, item.stationType);
+  const current = detail.data ?? item;
+  const tax = labelOf(TAX_CLASS, current.taxClass);
+  const station = labelOf(STATION_TYPE, current.stationType);
+
+  async function place(categoryId: string) {
+    if (!item) return;
+    await action.run(() => services.catalogue.placeItem(item.id, categoryId), {
+      onSuccess: () => {
+        detail.reload();
+        onChanged(t("menu.itemPlaced"));
+      },
+    });
+  }
+
+  async function toggleVariant(variantId: string, next: boolean) {
+    await action.run(() => services.catalogue.setVariantActive(variantId, next), {
+      onSuccess: () => {
+        detail.reload();
+        onChanged(next ? t("menu.variantActivated") : t("menu.variantDeactivated"));
+      },
+    });
+  }
 
   return (
     <Drawer
       open
       onClose={onClose}
-      title={`${item.imageEmoji} ${tx(item.name)}`}
-      subtitle={tx(item.description) || undefined}
+      title={`${current.imageEmoji} ${tx(current.name)}`}
+      subtitle={tx(current.description) || undefined}
       footer={
         canToggle ? (
-          item.available ? (
+          current.available ? (
             <Button variant="danger" icon={<Ban size={14} />} onClick={() => onRequest86(item)}>
               {t("menu.toggle86")}
             </Button>
@@ -343,15 +409,17 @@ function ItemDrawer({
       }
     >
       <div className="space-y-5">
-        {!item.available && item.unavailableReason ? (
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        {!current.available && current.unavailableReason ? (
           <Callout tone="bad" title={t("menu.unavailable")}>
-            {item.unavailableReason}
+            {current.unavailableReason}
           </Callout>
         ) : null}
 
         <DescList>
-          <DescRow label={t("menu.kitchenName")}>{tx(item.kitchenName)}</DescRow>
-          <DescRow label={t("menu.receiptName")}>{tx(item.receiptName)}</DescRow>
+          <DescRow label={t("menu.kitchenName")}>{tx(current.kitchenName)}</DescRow>
+          <DescRow label={t("menu.receiptName")}>{tx(current.receiptName)}</DescRow>
           <DescRow label={t("menu.station")}>
             <Badge tone={station.tone}>{tx(station.label)}</Badge>
           </DescRow>
@@ -359,47 +427,103 @@ function ItemDrawer({
             <Badge tone={tax.tone}>{tx(tax.label)}</Badge>
           </DescRow>
           <DescRow label={t("menu.prepTime")} mono>
-            {formatDuration(item.prepTimeSeconds, fmt)}
+            {formatDuration(current.prepTimeSeconds, fmt)}
           </DescRow>
           <DescRow label={t("menu.remainingSellable")} mono>
-            {item.remainingSellable === null
+            {current.remainingSellable === null
               ? "—"
-              : formatNumber(item.remainingSellable, fmt)}
+              : formatNumber(current.remainingSellable, fmt)}
           </DescRow>
           <DescRow label={t("menu.sortOrder")} mono>
-            {formatNumber(item.sortOrder, fmt)}
+            {formatNumber(current.sortOrder, fmt)}
           </DescRow>
         </DescList>
 
+        {canManage ? (
+          <Field label={t("menu.category")} hint={t("menu.placementHint")}>
+            <Select
+              value={current.categoryId}
+              disabled={action.pending}
+              onChange={(event) => place(event.target.value)}
+            >
+              <option value="">—</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {tx(category.name)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+
         <section>
-          <h3 className="text-fg mb-2 text-sm font-semibold">{t("menu.variants")}</h3>
-          <ul className="divide-line divide-y">
-            {item.variants.map((variant) => (
-              <li key={variant.id} className="flex items-center justify-between gap-4 py-2.5">
-                <div className="min-w-0">
-                  <p className="text-fg truncate text-sm">{tx(variant.name)}</p>
-                  {variant.barcode ? (
-                    <p className="text-fg-subtle mt-0.5 font-mono text-xs" dir="ltr">
-                      {variant.barcode}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  {!variant.available ? <Badge tone="bad">{t("menu.unavailable")}</Badge> : null}
-                  <span className="text-fg font-mono text-sm tabular-nums">
-                    {formatMoney(variant.basePrice, fmt)}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="text-fg text-sm font-semibold">{t("menu.variants")}</h3>
+            {canManage ? (
+              <Button variant="ghost" icon={<Plus size={13} />} onClick={() => setAddingVariant(true)}>
+                {t("common.add")}
+              </Button>
+            ) : null}
+          </div>
+
+          {current.variants.length === 0 ? (
+            <Callout tone="muted">{t("menu.noVariants")}</Callout>
+          ) : (
+            <ul className="divide-line divide-y">
+              {current.variants.map((variant) => (
+                <li key={variant.id} className="flex items-center justify-between gap-4 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-fg truncate text-sm">{tx(variant.name)}</p>
+                    {variant.barcode ? (
+                      <p className="text-fg-subtle mt-0.5 font-mono text-xs" dir="ltr">
+                        {variant.barcode}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {!variant.available ? <Badge tone="bad">{t("menu.unavailable")}</Badge> : null}
+                    <span className="text-fg font-mono text-sm tabular-nums">
+                      {formatMoney(variant.basePrice, fmt)}
+                    </span>
+                    {canManage ? (
+                      <Button
+                        variant="ghost"
+                        disabled={action.pending}
+                        onClick={() => toggleVariant(variant.id, !variant.available)}
+                      >
+                        {variant.available ? t("common.deactivate") : t("common.activate")}
+                      </Button>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
-        {item.allergens.length > 0 ? (
+        <ModifierGroupLinker
+          itemId={current.id}
+          canManage={canManage}
+          onLinked={() => onChanged(t("menu.groupLinked"))}
+        />
+
+        <NewVariantDrawer
+          open={addingVariant}
+          itemId={current.id}
+          currency={current.variants[0]?.basePrice.currency ?? "EGP"}
+          onClose={() => setAddingVariant(false)}
+          onCreated={() => {
+            setAddingVariant(false);
+            detail.reload();
+            onChanged(t("menu.variantAdded"));
+          }}
+        />
+
+        {current.allergens.length > 0 ? (
           <section>
             <h3 className="text-fg mb-2 text-sm font-semibold">{t("menu.allergens")}</h3>
             <div className="flex flex-wrap gap-1.5">
-              {item.allergens.map((allergen) => (
+              {current.allergens.map((allergen) => (
                 <Badge key={allergen} tone="warn">
                   {allergen}
                 </Badge>
@@ -409,9 +533,9 @@ function ItemDrawer({
         ) : null}
 
         <div className="flex flex-wrap gap-1.5">
-          {item.isCombo ? <Badge tone="accent">{t("nav.combos")}</Badge> : null}
-          {item.isOpenPrice ? <Badge tone="muted">{t("menu.openPrice")}</Badge> : null}
-          {item.isWeighed ? <Badge tone="muted">{t("menu.weighed")}</Badge> : null}
+          {current.isCombo ? <Badge tone="accent">{t("nav.combos")}</Badge> : null}
+          {current.isOpenPrice ? <Badge tone="muted">{t("menu.openPrice")}</Badge> : null}
+          {current.isWeighed ? <Badge tone="muted">{t("menu.weighed")}</Badge> : null}
         </div>
       </div>
     </Drawer>
@@ -467,5 +591,251 @@ function Eighty6Modal({
         />
       </Field>
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * FR-MNU-010 — attach a reusable modifier group to this item.
+ *
+ * The API has no endpoint to read an item's attached groups back, only one
+ * to attach. So this lists the tenant's groups and confirms the attachment,
+ * rather than claiming to show current state it cannot see.
+ */
+function ModifierGroupLinker({
+  itemId,
+  canManage,
+  onLinked,
+}: {
+  itemId: string;
+  canManage: boolean;
+  onLinked: () => void;
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const [groupId, setGroupId] = useState("");
+
+  const groups = useAsync(() => services.catalogue.modifierGroups.list({ limit: 200 }), []);
+
+  if (!canManage) return null;
+
+  async function link() {
+    if (!groupId) return;
+    await action.run(() => services.catalogue.linkModifierGroup(itemId, groupId), {
+      onSuccess: () => {
+        setGroupId("");
+        onLinked();
+      },
+    });
+  }
+
+  return (
+    <section>
+      <h3 className="text-fg mb-2 text-sm font-semibold">{t("menu.modifierGroups")}</h3>
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+      <AsyncPanel state={groups} isEmpty={(page) => page.rows.length === 0}>
+        {(page) => (
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <Field label={t("menu.attachGroup")} hint={t("menu.attachGroupHint")}>
+                <Select
+                  value={groupId}
+                  onChange={(event) => setGroupId(event.target.value)}
+                  disabled={action.pending}
+                >
+                  <option value="">—</option>
+                  {page.rows.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {tx(group.name)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+            <Button
+              variant="secondary"
+              disabled={!groupId || action.pending}
+              loading={action.pending}
+              onClick={link}
+            >
+              {t("common.add")}
+            </Button>
+          </div>
+        )}
+      </AsyncPanel>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** FR-MNU-006 — a sellable size or portion of an item. */
+function NewVariantDrawer({
+  open,
+  itemId,
+  currency,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  itemId: string;
+  currency: MenuItemVariant["basePrice"]["currency"];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction();
+  const [name, setName] = useState("");
+  const [barcode, setBarcode] = useState("");
+
+  if (!open) return null;
+
+  async function create() {
+    if (!name.trim()) return;
+    await action.run(
+      () =>
+        services.catalogue.addVariant(itemId, {
+          name: { en: name.trim(), ar: name.trim() },
+          barcode: barcode.trim() || null,
+          basePrice: { amount: 0, currency },
+        }),
+      { onSuccess: onCreated },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={t("menu.newVariant")}
+      footer={
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            loading={action.pending}
+            disabled={!name.trim()}
+            onClick={create}
+          >
+            {t("common.create")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Callout tone="muted">{t("menu.variantPriceNote")}</Callout>
+
+        <Field label={t("common.name")} required>
+          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
+        </Field>
+
+        <Field label={t("menu.barcode")}>
+          <Input
+            dir="ltr"
+            value={barcode}
+            onChange={(event) => setBarcode(event.target.value)}
+            maxLength={64}
+          />
+        </Field>
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** `POST /catalogue/items`, then `POST /items/{id}/placements` for its category. */
+function NewItemDrawer({
+  open,
+  categories,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  categories: MenuCategory[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const [name, setName] = useState("");
+  const [kitchenName, setKitchenName] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+
+  if (!open) return null;
+
+  async function create() {
+    if (!name.trim()) return;
+    await action.run(
+      async () => {
+        const created = await services.catalogue.items.create({
+          name: { en: name.trim(), ar: name.trim() },
+          kitchenName: kitchenName.trim()
+            ? { en: kitchenName.trim(), ar: kitchenName.trim() }
+            : undefined,
+        });
+        // C-02 — an item is only reachable on a menu once it is placed in a
+        // category, so the two calls belong to one user action.
+        if (categoryId) await services.catalogue.placeItem(created.id, categoryId);
+        return created;
+      },
+      { onSuccess: onCreated },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={t("menu.newItem")}
+      footer={
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            loading={action.pending}
+            disabled={!name.trim()}
+            onClick={create}
+          >
+            {t("common.create")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Field label={t("common.name")} required>
+          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
+        </Field>
+
+        <Field label={t("menu.kitchenName")} hint={t("menu.kitchenNameHint")}>
+          <Input
+            value={kitchenName}
+            onChange={(event) => setKitchenName(event.target.value)}
+            maxLength={120}
+          />
+        </Field>
+
+        <Field label={t("menu.category")} hint={t("menu.placementHint")}>
+          <Select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+            <option value="">—</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {tx(category.name)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+    </Drawer>
   );
 }

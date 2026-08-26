@@ -17,11 +17,10 @@
 import { useMemo, useState } from "react";
 import type { Batch } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection } from "@/lib/console/hooks";
+import { useAsync, useCollection } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { formatDate, formatMoney, formatNumber, formatQuantity } from "@/lib/console/format";
 import { BATCH_STATUS, labelOf } from "@/lib/console/labels";
-import { stockLocations } from "@/lib/console/mock/org";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
@@ -40,6 +39,10 @@ function BatchesScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [selected, setSelected] = useState<Batch | null>(null);
+
+  // Locations from the service, so the filter offers ids that exist.
+  const locationList = useAsync(() => services.organisation.locations(), []);
+  const locations = locationList.data ?? [];
 
   const collection = useCollection<Batch>(
     (query) => services.inventory.batches.list(query),
@@ -181,7 +184,7 @@ function BatchesScreen() {
             {
               key: "locationId",
               label: t("common.location"),
-              options: stockLocations.map((location) => ({
+              options: locations.map((location) => ({
                 value: location.id,
                 label: tx(location.name),
               })),

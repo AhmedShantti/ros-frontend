@@ -14,6 +14,7 @@ import type {
   Id,
   KitchenTicket,
   Localised,
+  Menu,
   MenuItem,
   Order,
   Page,
@@ -31,15 +32,25 @@ import type {
   FinanceService,
   GovernanceService,
   InventoryService,
+  LowStockRow,
+  OperatingHours,
   OperationsService,
+  PrintRoutingRule,
+  ProductionService,
+  OrderMutationService,
   OrganisationService,
   PlatformService,
   PurchasingService,
   ReadonlyCollectionService,
+  ReasonCode,
+  RecipeVersion,
   SalesService,
   Scope,
   ScopedQuery,
   SecurityService,
+  StationRoutingRule,
+  TreasuryService,
+  SubstituteGroup,
   ServiceRegistry,
   WorkforceService,
 } from "./types";
@@ -344,6 +355,7 @@ const warehousesCollection: CollectionService<Warehouse> = makeCollection<Wareho
     tenantId: tenants[0]!.id,
     name: (input.name as Localised) ?? { en: "New warehouse", ar: "مستودع جديد" },
     code: input.code ?? "WH-NEW",
+    warehouseType: input.warehouseType ?? (input.attachedBranchId ? "branch" : "central"),
     attachedBranchId: input.attachedBranchId ?? null,
     countryCode: input.countryCode ?? "EG",
     active: true,
@@ -367,6 +379,52 @@ const centralKitchensCollection: CollectionService<CentralKitchen> = makeCollect
   }),
 });
 
+/**
+ * Branch configuration fixtures.
+ *
+ * Every branch opens 10:00–23:00 seven days a week with a 04:00 business-day
+ * cutover, which is the shape FR-FIN-024 cares about: a sale at 01:30 belongs
+ * to the previous trading day, not to the calendar one.
+ */
+const demoOperatingHours: OperatingHours[] = branches.flatMap((branch) =>
+  [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
+    id: `oh_${branch.id}_${dayOfWeek}`,
+    branchId: branch.id,
+    dayOfWeek,
+    opensAt: "10:00",
+    closesAt: "23:00",
+    businessDayCutover: branch.businessDayBoundary || "04:00",
+    overnight: false,
+  })),
+);
+
+const demoPrintRouting: PrintRoutingRule[] = branches.flatMap((branch) => [
+  {
+    id: `pr_${branch.id}_receipt`,
+    branchId: branch.id,
+    documentType: "receipt",
+    printerTarget: "front-counter",
+    stationId: null,
+  },
+  {
+    id: `pr_${branch.id}_kitchen`,
+    branchId: branch.id,
+    documentType: "kitchen_ticket",
+    printerTarget: "kitchen-1",
+    stationId: stations.find((station) => station.branchId === branch.id)?.id ?? null,
+  },
+]);
+
+const demoStationRouting: StationRoutingRule[] = stations.map((station, index) => ({
+  id: `srr_${station.id}`,
+  branchId: station.branchId,
+  stationId: station.id,
+  categoryId: menuCategories[index % menuCategories.length]?.id ?? null,
+  menuItemId: null,
+  modifierId: null,
+  priority: 10 + index,
+}));
+
 const organisation: OrganisationService = {
   tenants: staticCollection({
     rows: tenants,
@@ -381,6 +439,83 @@ const organisation: OrganisationService = {
   centralKitchens: centralKitchensCollection,
   async locations() {
     return transport(() => stockLocations);
+  },
+
+  async reassignBranchBrand(branchId, brandId) {
+    return transport(() => {
+      const index = branches.findIndex((row) => row.id === branchId);
+      if (index === -1) throw new ServiceError("NOT_FOUND", "That branch no longer exists.", 404);
+      branches[index] = { ...branches[index]!, brandId };
+    });
+  },
+
+  // -- Branch configuration --------------------------------------------------
+
+  async operatingHours(branchId) {
+    return transport(() => demoOperatingHours.filter((row) => row.branchId === branchId));
+  },
+
+  async addOperatingHours(branchId, input) {
+    return transport(() => {
+      const created: OperatingHours = {
+        id: `oh_${branchId}_${demoOperatingHours.length + 1}`,
+        branchId,
+        dayOfWeek: input.dayOfWeek,
+        opensAt: input.opensAt,
+        closesAt: input.closesAt,
+        businessDayCutover: input.businessDayCutover ?? "04:00",
+        // An interval that closes before it opens has crossed midnight.
+        overnight: input.closesAt <= input.opensAt,
+      };
+      demoOperatingHours.push(created);
+      return created;
+    });
+  },
+
+  async printRouting(branchId) {
+    return transport(() => demoPrintRouting.filter((row) => row.branchId === branchId));
+  },
+
+  async addPrintRouting(branchId, input) {
+    return transport(() => {
+      const created: PrintRoutingRule = {
+        id: `pr_${branchId}_${demoPrintRouting.length + 1}`,
+        branchId,
+        documentType: input.documentType,
+        printerTarget: input.printerTarget,
+        stationId: input.stationId ?? null,
+      };
+      demoPrintRouting.push(created);
+      return created;
+    });
+  },
+
+  async stationRoutingRules(branchId) {
+    return transport(() =>
+      demoStationRouting
+        .filter((row) => row.branchId === branchId)
+        .sort((a, b) => b.priority - a.priority),
+    );
+  },
+
+  async addStationRoutingRule(branchId, input) {
+    return transport(() => {
+      const created: StationRoutingRule = {
+        id: `srr_${branchId}_${demoStationRouting.length + 1}`,
+        branchId,
+        stationId: input.stationId,
+        categoryId: input.categoryId ?? null,
+        menuItemId: input.menuItemId ?? null,
+        modifierId: input.modifierId ?? null,
+        priority: input.priority ?? 10,
+      };
+      demoStationRouting.push(created);
+      return created;
+    });
+  },
+
+  async station(stationId) {
+    return transport(() => stations.find((row) => row.id === stationId) ?? null);
   },
 };
 
@@ -407,7 +542,54 @@ const ordersCollection: CollectionService<Order> = makeCollection<Order>({
   },
 });
 
-const sales: SalesService = { orders: readonlyOf(ordersCollection) };
+/**
+ * The demo has no order engine behind `services` — the POS drives the live
+ * reducer in `lib/console/live/` instead, which is a far richer simulation
+ * than these five endpoints. So rather than build a second, worse one here,
+ * each mutation says plainly that this path needs a backend.
+ */
+function noBackend(action: string): never {
+  throw new ServiceError(
+    "NO_BACKEND",
+    "Demo mode cannot do that — the POS runs on its own local engine here.",
+    501,
+    `${action} needs NEXT_PUBLIC_API_URL pointed at the backend.`,
+  );
+}
+
+const orderMutations: OrderMutationService = {
+  async open() {
+    noBackend("Opening an order through the service layer");
+  },
+  async get(_businessDay, orderId) {
+    const found = await ordersCollection.get(orderId);
+    if (!found) throw new ServiceError("NOT_FOUND", "That order no longer exists.", 404);
+    return found;
+  },
+  async addLine() {
+    noBackend("Capturing an order line");
+  },
+  async voidLine() {
+    noBackend("Voiding an order line");
+  },
+  async fire() {
+    noBackend("Firing an order");
+  },
+  async capturePayment() {
+    noBackend("Capturing a payment");
+  },
+};
+
+const sales: SalesService = {
+  orders: readonlyOf(ordersCollection),
+  mutations: orderMutations,
+};
+
+const treasury: TreasuryService = {
+  async openCashSession() {
+    noBackend("Opening a cash session");
+  },
+};
 
 const openOrdersCollection: CollectionService<Order> = makeCollection<Order>({
   rows: openOrders,
@@ -464,6 +646,17 @@ const operations: OperationsService = {
   kitchenQueue: (q) => ticketsCollection.list(q),
   terminals: (q) => terminalsCollection.list(q),
   stations: (q) => stationsCollection.list(q),
+
+  setTerminalStatus: (terminalId, status) =>
+    terminalsCollection.update(terminalId, {
+      // The demo dataset speaks the console's vocabulary, not the API's.
+      status: status === "revoked" ? "revoked" : status === "disabled" ? "offline" : "online",
+    }),
+
+  createTable: (branchId, input) => tablesCollection.create({ ...input, branchId }),
+  updateTable: (tableId, patch) => tablesCollection.update(tableId, patch),
+  createStation: (branchId, input) => stationsCollection.create({ ...input, branchId }),
+  updateStation: (stationId, patch) => stationsCollection.update(stationId, patch),
 };
 
 // ---------------------------------------------------------------------------
@@ -517,6 +710,67 @@ const itemsCollection: CollectionService<MenuItem> = makeCollection<MenuItem>({
     sortOrder: menuItems.length + 1,
     colour: input.colour ?? "#0f6f7a",
     imageEmoji: input.imageEmoji ?? "🍽️",
+  }),
+});
+
+/**
+ * Demo menus — FR-MNU-001/002.
+ *
+ * The fixture set has categories and items but never had the menus above
+ * them, because nothing rendered menus until the backend's seven menu
+ * endpoints were wired. Three is enough to exercise the screen: a default
+ * all-day menu on every branch, a breakfast menu that outranks it in the
+ * morning, and a delivery menu assigned to one branch only.
+ */
+const demoMenus: Menu[] = [
+  {
+    id: "menu_all_day",
+    tenantId: tenants[0]!.id,
+    name: { en: "All-day menu", ar: "قائمة اليوم الكامل" },
+    priority: 10,
+    orderTypes: ["dine_in", "takeaway"],
+    branchIds: branches.map((branch) => branch.id),
+    active: true,
+    createdAt: new Date("2025-01-06T08:00:00Z").toISOString(),
+  },
+  {
+    id: "menu_breakfast",
+    tenantId: tenants[0]!.id,
+    name: { en: "Breakfast", ar: "الإفطار" },
+    priority: 50,
+    orderTypes: ["dine_in"],
+    branchIds: branches.slice(0, 2).map((branch) => branch.id),
+    active: true,
+    createdAt: new Date("2025-02-11T06:00:00Z").toISOString(),
+  },
+  {
+    id: "menu_delivery",
+    tenantId: tenants[0]!.id,
+    name: { en: "Delivery", ar: "التوصيل" },
+    priority: 30,
+    orderTypes: ["delivery"],
+    branchIds: branches.slice(0, 1).map((branch) => branch.id),
+    active: false,
+    createdAt: new Date("2025-03-02T10:00:00Z").toISOString(),
+  },
+];
+
+const menusCollection: CollectionService<Menu> = makeCollection<Menu>({
+  rows: demoMenus,
+  idOf: (m) => m.id,
+  search: (m) => [m.name],
+  branchOf: (m) => (m.branchIds.length === 0 ? null : (m.branchIds[0] ?? null)),
+  filters: { active: (m) => m.active },
+  sorters: { name: (m) => m.name.en, priority: (m) => m.priority },
+  factory: (input, id) => ({
+    id,
+    tenantId: tenants[0]!.id,
+    name: (input.name as Localised) ?? { en: "New menu", ar: "قائمة جديدة" },
+    priority: input.priority ?? 10,
+    orderTypes: input.orderTypes ?? ["dine_in"],
+    branchIds: input.branchIds ?? [],
+    active: true,
+    createdAt: new Date().toISOString(),
   }),
 });
 
@@ -634,6 +888,8 @@ const catalogue: CatalogueService = {
       instructions: { en: "", ar: "" },
     }),
   }),
+  menus: menusCollection,
+
   async toggleAvailability(itemId, available, reason) {
     return transport(() => {
       const index = menuItems.findIndex((m) => m.id === itemId);
@@ -649,6 +905,195 @@ const catalogue: CatalogueService = {
       return updated;
     });
   },
+
+  // -- Menu assignment -------------------------------------------------------
+
+  async assignMenuToBranch(menuId, branchId) {
+    return transport(() => {
+      const menu = demoMenus.find((row) => row.id === menuId);
+      if (!menu) throw new ServiceError("NOT_FOUND", "That menu no longer exists.", 404);
+      if (!menu.branchIds.includes(branchId)) menu.branchIds = [...menu.branchIds, branchId];
+    });
+  },
+
+  async unassignMenuFromBranch(menuId, branchId) {
+    return transport(() => {
+      const menu = demoMenus.find((row) => row.id === menuId);
+      if (!menu) throw new ServiceError("NOT_FOUND", "That menu no longer exists.", 404);
+      menu.branchIds = menu.branchIds.filter((id) => id !== branchId);
+    });
+  },
+
+  async resolveBranchMenus(branchId) {
+    return transport(() => {
+      const assigned = demoMenus
+        .filter((menu) => menu.active && menu.branchIds.includes(branchId))
+        .sort((a, b) => b.priority - a.priority);
+
+      // FR-MNU-003 — equal priorities make the winner non-deterministic.
+      const priorities = assigned.map((menu) => menu.priority);
+      const ambiguous = new Set(priorities).size !== priorities.length;
+
+      return {
+        menus: assigned,
+        ambiguous,
+        warning: ambiguous
+          ? "Two or more menus share a priority; resolution order is not deterministic."
+          : null,
+      };
+    });
+  },
+
+  async setMenuActive(menuId, active) {
+    return menusCollection.update(menuId, { active });
+  },
+
+  // -- Item composition ------------------------------------------------------
+
+  async placeItem(itemId, categoryId) {
+    return transport(() => {
+      const index = menuItems.findIndex((m) => m.id === itemId);
+      if (index === -1) throw new ServiceError("NOT_FOUND", "That item no longer exists.", 404);
+      menuItems[index] = { ...menuItems[index]!, categoryId };
+    });
+  },
+
+  async unplaceItem(itemId) {
+    return transport(() => {
+      const index = menuItems.findIndex((m) => m.id === itemId);
+      if (index === -1) throw new ServiceError("NOT_FOUND", "That item no longer exists.", 404);
+      menuItems[index] = { ...menuItems[index]!, categoryId: "" };
+    });
+  },
+
+  async addVariant(itemId, input) {
+    return transport(() => {
+      const index = menuItems.findIndex((m) => m.id === itemId);
+      if (index === -1) throw new ServiceError("NOT_FOUND", "That item no longer exists.", 404);
+
+      const variant = {
+        id: `var_${itemId}_${menuItems[index]!.variants.length + 1}`,
+        name: input.name ?? { en: "New variant", ar: "خيار جديد" },
+        basePrice: input.basePrice ?? { amount: 0, currency: "EGP" as const },
+        barcode: input.barcode ?? null,
+        recipeId: null,
+        available: true,
+      };
+
+      menuItems[index] = {
+        ...menuItems[index]!,
+        variants: [...menuItems[index]!.variants, variant],
+      };
+      return variant;
+    });
+  },
+
+  async setVariantActive(variantId, active) {
+    return transport(() => {
+      for (let index = 0; index < menuItems.length; index += 1) {
+        const item = menuItems[index]!;
+        if (!item.variants.some((variant) => variant.id === variantId)) continue;
+        menuItems[index] = {
+          ...item,
+          variants: item.variants.map((variant) =>
+            variant.id === variantId ? { ...variant, available: active } : variant,
+          ),
+        };
+        return;
+      }
+      throw new ServiceError("NOT_FOUND", "That variant no longer exists.", 404);
+    });
+  },
+
+  async linkModifierGroup(itemId, groupId) {
+    return transport(() => {
+      if (!menuItems.some((m) => m.id === itemId)) {
+        throw new ServiceError("NOT_FOUND", "That item no longer exists.", 404);
+      }
+      const group = modifierGroups.find((row) => row.id === groupId);
+      if (!group) throw new ServiceError("NOT_FOUND", "That group no longer exists.", 404);
+
+      // `MenuItem` carries no list of attached groups, and the API has no
+      // endpoint to read one back either — the attachment is only observable
+      // as the group's own count, so that is what moves.
+      group.attachedItemCount += 1;
+    });
+  },
+
+  async addModifier(groupId, input) {
+    return transport(() => {
+      const group = modifierGroups.find((row) => row.id === groupId);
+      if (!group) throw new ServiceError("NOT_FOUND", "That group no longer exists.", 404);
+
+      const modifier = {
+        id: `mod_${groupId}_${group.modifiers.length + 1}`,
+        name: input.name ?? { en: "New modifier", ar: "إضافة جديدة" },
+        kind: input.kind ?? ("addition" as const),
+        priceDelta: input.priceDelta ?? { amount: 0, currency: "EGP" as const },
+        recipeDelta: input.recipeDelta ?? [],
+        isDefault: input.isDefault ?? false,
+      };
+
+      group.modifiers = [...group.modifiers, modifier];
+      return modifier;
+    });
+  },
+
+  // -- Pricing ---------------------------------------------------------------
+
+  async setPrice(priceListId, variantId, price) {
+    return transport(() => {
+      const list = priceLists.find((row) => row.id === priceListId);
+      if (!list) throw new ServiceError("NOT_FOUND", "That price list no longer exists.", 404);
+
+      const owner = menuItems.find((item) =>
+        item.variants.some((variant) => variant.id === variantId),
+      );
+
+      const existing = list.entries.find((entry) => entry.variantId === variantId);
+      const entry = {
+        menuItemId: owner?.id ?? "",
+        variantId,
+        itemName: owner?.name ?? { en: "", ar: "" },
+        price,
+        previousPrice: existing?.price ?? null,
+      };
+
+      list.entries = existing
+        ? list.entries.map((row) => (row.variantId === variantId ? entry : row))
+        : [...list.entries, entry];
+      list.entryCount = list.entries.length;
+
+      return entry;
+    });
+  },
+
+  async priceEntries(priceListId) {
+    return transport(() => priceLists.find((row) => row.id === priceListId)?.entries ?? []);
+  },
+
+  // -- Readiness -------------------------------------------------------------
+
+  async completeness() {
+    return transport(() => {
+      const unpricedVariants = menuItems.flatMap((item) =>
+        item.variants
+          .filter((variant) => variant.available && variant.basePrice.amount === 0)
+          .map((variant) => ({ menuItemId: item.id, variantId: variant.id })),
+      );
+
+      const itemsWithoutActiveVariant = menuItems
+        .filter((item) => item.available && item.variants.every((v) => !v.available))
+        .map((item) => item.id);
+
+      return {
+        sellable: unpricedVariants.length === 0 && itemsWithoutActiveVariant.length === 0,
+        unpricedVariants,
+        itemsWithoutActiveVariant,
+        activeListGaps: [],
+      };
+    });
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -657,6 +1102,21 @@ const catalogue: CatalogueService = {
 
 const locationBranch = (locationId: Id): Id | null =>
   branchById.has(locationId) ? locationId : null;
+
+/** Demo reason codes — FR-INV-013. The fixtures reference these by id. */
+const demoReasonCodes: ReasonCode[] = [
+  { id: "rsn_spoilage", code: "SPOIL", category: "waste", label: { en: "Spoilage", ar: "تلف" } },
+  { id: "rsn_breakage", code: "BREAK", category: "waste", label: { en: "Breakage", ar: "كسر" } },
+  { id: "rsn_staff_meal", code: "STAFF", category: "waste", label: { en: "Staff meal", ar: "وجبة موظفين" } },
+  { id: "rsn_count", code: "COUNT", category: "adjustment", label: { en: "Count adjustment", ar: "تسوية جرد" } },
+  { id: "rsn_transfer", code: "XFER", category: "discrepancy", label: { en: "Transfer discrepancy", ar: "فرق تحويل" } },
+];
+
+/** Per-item, per-location reorder configuration — FR-INV-065. */
+const demoReorderConfig = new Map<string, { reorderPoint: string; reorderQuantity: string }>();
+
+const nameOfLocation = (locationId: Id): Localised =>
+  stockLocations.find((row) => row.id === locationId)?.name ?? { en: locationId, ar: locationId };
 
 const inventory: InventoryService = {
   items: makeCollection({
@@ -845,6 +1305,131 @@ const inventory: InventoryService = {
       notes: input.notes ?? null,
     }),
   }),
+
+  // -- Counting --------------------------------------------------------------
+
+  async recordCount(lineId, countedQuantity) {
+    return transport(() => {
+      for (const session of countSessions) {
+        const line = session.lines.find((row) => row.id === lineId);
+        if (!line) continue;
+
+        line.counted = { value: countedQuantity, unit: line.expected.unit };
+        const expected = Number(line.expected.value);
+        const counted = Number(countedQuantity);
+        line.varianceQty = counted - expected;
+        line.variancePercent = expected === 0 ? 0 : (line.varianceQty / expected) * 100;
+        // FR-INV-042 — a variance past the tolerance is flagged for recount.
+        line.flagged = Math.abs(line.variancePercent) > 5;
+        return;
+      }
+      throw new ServiceError("NOT_FOUND", "That count line no longer exists.", 404);
+    });
+  },
+
+  // -- Transfers -------------------------------------------------------------
+
+  async receiveTransfer(input) {
+    return transport(() => {
+      const transfer = transfers.find((row) => row.id === input.transferReferenceId);
+      if (!transfer) {
+        throw new ServiceError("NOT_FOUND", "That transfer no longer exists.", 404);
+      }
+      transfer.status = "received";
+      transfer.receivedAt = new Date().toISOString();
+    });
+  },
+
+  // -- Reorder configuration -------------------------------------------------
+
+  async setReorderConfig(itemId, input) {
+    return transport(() => {
+      demoReorderConfig.set(`${itemId}:${input.locationId}`, {
+        reorderPoint: input.reorderPoint,
+        reorderQuantity: input.reorderQuantity,
+      });
+    });
+  },
+
+  // -- Reason codes ----------------------------------------------------------
+
+  async reasonCodes() {
+    return transport(() => [...demoReasonCodes]);
+  },
+
+  async createReasonCode(input) {
+    return transport(() => {
+      if (demoReasonCodes.some((row) => row.code === input.code)) {
+        throw new ServiceError("CONFLICT", "That reason code already exists.", 409);
+      }
+      const created: ReasonCode = {
+        id: `rsn_${input.code.toLowerCase()}`,
+        code: input.code,
+        category: input.category,
+        label: input.label,
+      };
+      demoReasonCodes.push(created);
+      return created;
+    });
+  },
+
+  // -- Computed reports ------------------------------------------------------
+
+  async lowStock(query = {}) {
+    return transport(() => {
+      const rows = stockLevels
+        .map((level): LowStockRow | null => {
+          // A per-location override set through `setReorderConfig` wins over
+          // the fixture's own figure, so the demo reflects what was just set.
+          const config = demoReorderConfig.get(`${level.itemId}:${level.locationId}`);
+          const point = config ? config.reorderPoint : String(level.reorderPoint);
+          if (point === "" || Number(level.onHand.value) > Number(point)) return null;
+
+          const quantity = config ? config.reorderQuantity : String(level.reorderQuantity);
+
+          return {
+            stockItemId: level.itemId,
+            itemName: level.itemName,
+            locationId: level.locationId,
+            locationName: nameOfLocation(level.locationId),
+            onHand: level.onHand,
+            reorderPoint: { value: point, unit: level.onHand.unit },
+            reorderQuantity: { value: quantity, unit: level.onHand.unit },
+          };
+        })
+        .filter((row): row is LowStockRow => row !== null);
+
+      const branchId = query.scope?.branchId;
+      return branchId ? rows.filter((row) => row.locationId === branchId) : rows;
+    });
+  },
+
+  async negativeStock(query = {}) {
+    return transport(() => {
+      const rows = stockLevels
+        .filter((level) => Number(level.onHand.value) < 0)
+        .map((level) => ({
+          stockItemId: level.itemId,
+          itemName: level.itemName,
+          locationId: level.locationId,
+          locationName: nameOfLocation(level.locationId),
+          onHand: level.onHand,
+        }));
+
+      const branchId = query.scope?.branchId;
+      return branchId ? rows.filter((row) => row.locationId === branchId) : rows;
+    });
+  },
+
+  async reconciliation() {
+    return transport(() => ({
+      // The demo ledger and its projection are generated from one source,
+      // so they agree by construction — which is the honest answer here.
+      reconciled: true,
+      note: "Demo data: the ledger and the projection are generated together, so they cannot diverge.",
+      divergences: [],
+    }));
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1295,6 +1880,34 @@ const governance: GovernanceService = {
 // ---------------------------------------------------------------------------
 
 const security: SecurityService = {
+  async memberships() {
+    return transport(() =>
+      tenants.map((tenant) => ({
+        membershipId: `mem_${tenant.id}`,
+        tenantId: tenant.id,
+        tenantName: tenant.name.en,
+        status: "active",
+      })),
+    );
+  },
+
+  async assignRole(membershipId, roleId) {
+    return transport(() => {
+      const role = roles.find((row) => row.id === roleId);
+      if (!role) throw new ServiceError("NOT_FOUND", "That role no longer exists.", 404);
+      // The demo has no membership table; the visible effect is the count.
+      role.userCount += 1;
+    });
+  },
+
+  async removeRole(membershipId, roleId) {
+    return transport(() => {
+      const role = roles.find((row) => row.id === roleId);
+      if (!role) throw new ServiceError("NOT_FOUND", "That role no longer exists.", 404);
+      role.userCount = Math.max(0, role.userCount - 1);
+    });
+  },
+
   users: makeCollection({
     rows: users,
     idOf: (u) => u.id,
@@ -1428,10 +2041,188 @@ const dashboardService: DashboardService = {
 };
 
 // ---------------------------------------------------------------------------
+// Production — recipe versions and substitute groups
+// ---------------------------------------------------------------------------
+
+/**
+ * Version history for the demo recipes.
+ *
+ * The fixtures carry one flat `Recipe` each with a `version` number, so a
+ * plausible history is derived from it: every version below the current one
+ * is superseded, and the current one takes the recipe's own status.
+ */
+const demoVersions = new Map<Id, RecipeVersion[]>();
+
+function versionsOf(recipeId: Id): RecipeVersion[] {
+  const existing = demoVersions.get(recipeId);
+  if (existing) return existing;
+
+  const recipe = recipes.find((row) => row.id === recipeId);
+  if (!recipe) return [];
+
+  const history: RecipeVersion[] = Array.from({ length: recipe.version }, (_unused, index) => {
+    const version = index + 1;
+    const current = version === recipe.version;
+    return {
+      id: `${recipe.id}_v${version}`,
+      recipeId: recipe.id,
+      version,
+      status: current
+        ? recipe.status === "published"
+          ? ("published" as const)
+          : ("draft" as const)
+        : ("superseded" as const),
+      yieldQuantity: recipe.yieldQuantity,
+      yieldPercentage: recipe.yieldPercentage,
+      prepTimeSeconds: recipe.prepTimeSeconds,
+      lines: current ? recipe.lines : [],
+      instructions: recipe.instructions,
+      effectiveFrom: recipe.effectiveFrom,
+      createdAt: recipe.costComputedAt,
+      publishedBy: current && recipe.status === "published" ? employees[0]!.id : null,
+    };
+  }).reverse(); // newest first, as the API returns them
+
+  demoVersions.set(recipeId, history);
+  return history;
+}
+
+const demoSubstituteGroups: SubstituteGroup[] = [
+  {
+    id: "sub_oils",
+    tenantId: tenants[0]!.id,
+    name: "Cooking oils",
+    memberIds: stockItems.slice(0, 2).map((item) => item.id),
+  },
+];
+
+const production: ProductionService = {
+  async versions(recipeId) {
+    return transport(() => versionsOf(recipeId));
+  },
+
+  async createVersion(recipeId, input) {
+    return transport(() => {
+      const history = versionsOf(recipeId);
+      if (history.length === 0) {
+        // GAP-1: an unknown recipe is a 404 — nothing is auto-created.
+        throw new ServiceError("NOT_FOUND", "That recipe no longer exists.", 404);
+      }
+
+      const next: RecipeVersion = {
+        id: `${recipeId}_v${history[0]!.version + 1}`,
+        recipeId,
+        version: history[0]!.version + 1,
+        status: "draft",
+        yieldQuantity: { value: input.yieldQuantity, unit: history[0]!.yieldQuantity.unit },
+        yieldPercentage: Number(input.yieldPercentage ?? "100"),
+        prepTimeSeconds: input.prepTimeSeconds ?? 0,
+        lines: [],
+        instructions: input.instructions ?? { en: "", ar: "" },
+        effectiveFrom: input.effectiveFrom ?? null,
+        createdAt: new Date().toISOString(),
+        publishedBy: null,
+      };
+
+      demoVersions.set(recipeId, [next, ...history]);
+      return next;
+    });
+  },
+
+  async replaceLines(recipeId, version, lines) {
+    return transport(() => {
+      const target = versionsOf(recipeId).find((row) => row.version === version);
+      if (!target) throw new ServiceError("NOT_FOUND", "That version no longer exists.", 404);
+      if (target.status === "published") {
+        throw new ServiceError("CONFLICT", "A published version cannot be edited.", 409);
+      }
+
+      target.lines = lines.map((line, index) => ({
+        id: `${target.id}_l${index + 1}`,
+        sequence: line.sequence,
+        componentType: line.componentType,
+        componentId: line.stockItemId ?? line.subRecipeId ?? "",
+        componentName:
+          stockItems.find((item) => item.id === line.stockItemId)?.name ??
+          { en: "Component", ar: "مكوّن" },
+        quantity: { value: line.quantity, unit: "g" },
+        wastagePercentage: Number(line.wastagePercentage ?? "0"),
+        isOptional: line.isOptional ?? false,
+        unitCost: { amount: 0, currency: "EGP" },
+        lineCost: { amount: 0, currency: "EGP" },
+      }));
+    });
+  },
+
+  async publishVersion(recipeId, version) {
+    return transport(() => {
+      const history = versionsOf(recipeId);
+      const target = history.find((row) => row.version === version);
+      if (!target) throw new ServiceError("NOT_FOUND", "That version no longer exists.", 404);
+
+      // SRS §26.3 — demote the incumbent, promote the target, one step.
+      const incumbent = history.find((row) => row.status === "published");
+      if (incumbent && incumbent.version !== version) incumbent.status = "superseded";
+
+      target.status = "published";
+      target.publishedBy = employees[0]!.id;
+
+      return { supersededVersionId: incumbent?.id ?? null };
+    });
+  },
+
+  async requiringCompletion(branchId) {
+    return transport(() => {
+      const incomplete = recipes.filter((recipe) => !recipe.complete);
+      return {
+        branchId: branchId ?? null,
+        sellableVariantCount: menuItems.reduce((sum, item) => sum + item.variants.length, 0),
+        absentCount: 0,
+        incompleteCount: incomplete.length,
+        entries: incomplete.map((recipe) => ({
+          menuItemId: recipe.targetId ?? "",
+          variantId: recipe.targetId ?? "",
+          reason: "incomplete_recipe" as const,
+          recipeVersionId: `${recipe.id}_v${recipe.version}`,
+          detail: ["Recipe has no published complete version."],
+        })),
+      };
+    });
+  },
+
+  async substituteGroups() {
+    return transport(() => [...demoSubstituteGroups]);
+  },
+
+  async createSubstituteGroup(name, stockItemIds) {
+    return transport(() => {
+      const created: SubstituteGroup = {
+        id: `sub_${demoSubstituteGroups.length + 1}`,
+        tenantId: tenants[0]!.id,
+        name,
+        memberIds: stockItemIds ?? [],
+      };
+      demoSubstituteGroups.push(created);
+      return created;
+    });
+  },
+
+  async addSubstituteMember(groupId, stockItemId) {
+    return transport(() => {
+      const group = demoSubstituteGroups.find((row) => row.id === groupId);
+      if (!group) throw new ServiceError("NOT_FOUND", "That group no longer exists.", 404);
+      if (!group.memberIds.includes(stockItemId)) group.memberIds.push(stockItemId);
+    });
+  },
+};
+
+// ---------------------------------------------------------------------------
 
 export const mockServices: ServiceRegistry = {
   dashboard: dashboardService,
   sales,
+  production,
+  treasury,
   operations,
   catalogue,
   inventory,

@@ -14,18 +14,19 @@
  * change nobody can review (FR-MNU-025).
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import type { PriceList, PriceListEntry } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { formatDate, formatMoney, formatNumber, formatPercent } from "@/lib/console/format";
 import { ORDER_TYPE, PRICE_LIST_SCOPE, labelOf } from "@/lib/console/labels";
 import { CellStack, CollectionTable, DataTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
-import { Gate } from "@/components/console/states";
+import { AsyncPanel, Gate } from "@/components/console/states";
 import {
   Badge,
   Button,
@@ -33,6 +34,9 @@ import {
   DescList,
   DescRow,
   Drawer,
+  Field,
+  Input,
+  Select,
   Toast,
   cx,
 } from "@/components/console/ui";
@@ -49,6 +53,7 @@ function PricingScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [selected, setSelected] = useState<PriceList | null>(null);
+  const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();
 
   const collection = useCollection<PriceList>(
@@ -145,11 +150,7 @@ function PricingScreen() {
         subtitle={t("menu.pricingSubtitle")}
         spec="FR-POS-040"
         actions={
-          <Button
-            variant="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
-          >
+          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
             {t("common.new")}
           </Button>
         }
@@ -209,7 +210,23 @@ function PricingScreen() {
         />
       </PageBody>
 
-      <PriceListDrawer list={selected} onClose={() => setSelected(null)} />
+      <PriceListDrawer
+        list={selected}
+        onClose={() => setSelected(null)}
+        onChanged={() => {
+          setMessage(t("menu.priceSaved"));
+          collection.reload();
+        }}
+      />
+      <NewPriceListDrawer
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={() => {
+          setCreating(false);
+          setMessage(t("menu.priceListCreated"));
+          collection.reload();
+        }}
+      />
       <Toast message={message} />
     </>
   );
@@ -217,8 +234,30 @@ function PricingScreen() {
 
 // ---------------------------------------------------------------------------
 
-function PriceListDrawer({ list, onClose }: { list: PriceList | null; onClose: () => void }) {
+function PriceListDrawer({
+  list,
+  onClose,
+  onChanged,
+}: {
+  list: PriceList | null;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
   const { t, tx, fmt } = useI18n();
+  const [editing, setEditing] = useState<PriceListEntry | null>(null);
+
+  /**
+   * Entries are fetched, not read off the list row.
+   *
+   * `GET /catalogue/price-lists` returns list metadata only — the entries
+   * live behind `/price-lists/{id}/entries`, so a drawer that rendered
+   * `list.entries` showed an empty table against a real backend no matter
+   * how many prices the list held.
+   */
+  const entries = useAsync(
+    async () => (list ? services.catalogue.priceEntries(list.id) : []),
+    [list?.id],
+  );
 
   const columns = useMemo<Column<PriceListEntry>[]>(
     () => [
@@ -316,20 +355,214 @@ function PriceListDrawer({ list, onClose }: { list: PriceList | null; onClose: (
           </DescRow>
         </DescList>
 
-        {list.entries.length > 0 ? (
-          <section>
-            <h3 className="text-fg mb-2 text-sm font-semibold">{t("menu.entries")}</h3>
-            <DataTable
-              columns={columns}
-              rows={list.entries}
-              rowKey={(row) => `${row.menuItemId}-${row.variantId}`}
-              caption={t("menu.entries")}
-              dense
-            />
-          </section>
-        ) : (
-          <Callout tone="muted">{t("menu.noEntries")}</Callout>
-        )}
+        <section>
+          <h3 className="text-fg mb-2 text-sm font-semibold">{t("menu.entries")}</h3>
+          <AsyncPanel
+            state={entries}
+            isEmpty={(rows) => rows.length === 0}
+            empty={<Callout tone="muted">{t("menu.noEntries")}</Callout>}
+          >
+            {(rows) => (
+              <DataTable
+                columns={columns}
+                rows={rows}
+                rowKey={(row) => `${row.menuItemId}-${row.variantId}`}
+                caption={t("menu.entries")}
+                onRowClick={setEditing}
+                dense
+              />
+            )}
+          </AsyncPanel>
+        </section>
+
+        <PriceEditor
+          priceListId={list.id}
+          entry={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            entries.reload();
+            onChanged();
+          }}
+        />
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * FR-MNU-023/024 — set one variant's price within one list.
+ *
+ * The endpoint is an upsert ("set", not "update"), so the same form serves a
+ * new price and a correction. The amount is typed in major units because
+ * that is what a person reads off a menu; it is converted to the exact minor
+ * integer the API wants before it leaves.
+ */
+function PriceEditor({
+  priceListId,
+  entry,
+  onClose,
+  onSaved,
+}: {
+  priceListId: string;
+  entry: PriceListEntry | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t, tx, fmt } = useI18n();
+  const action = useAction();
+  const [amount, setAmount] = useState("");
+
+  useEffect(() => {
+    if (entry) setAmount((entry.price.amount / 100).toFixed(2));
+  }, [entry]);
+
+  if (!entry) return null;
+
+  const parsed = Number(amount);
+  const valid = Number.isFinite(parsed) && parsed >= 0 && amount.trim() !== "";
+
+  async function save() {
+    if (!entry || !valid) return;
+    await action.run(
+      () =>
+        services.catalogue.setPrice(priceListId, entry.variantId, {
+          amount: Math.round(parsed * 100),
+          currency: entry.price.currency,
+        }),
+      { onSuccess: onSaved },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={tx(entry.itemName) || t("menu.price")}
+      subtitle={
+        <span className="font-mono text-xs" dir="ltr">
+          {entry.variantId}
+        </span>
+      }
+      footer={
+        <div className="flex gap-2">
+          <Button variant="primary" loading={action.pending} disabled={!valid} onClick={save}>
+            {t("common.save")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Field
+          label={t("menu.price")}
+          hint={`${entry.price.currency} · ${t("menu.priceHint")}`}
+          required
+        >
+          <Input
+            inputMode="decimal"
+            dir="ltr"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+          />
+        </Field>
+
+        <DescList>
+          <DescRow label={t("menu.currentPrice")}>{formatMoney(entry.price, fmt)}</DescRow>
+        </DescList>
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** `POST /catalogue/price-lists` — a new list, scoped and prioritised. */
+function NewPriceListDrawer({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction();
+  const [name, setName] = useState("");
+  const [listScope, setListScope] = useState<"tenant" | "brand" | "branch">("tenant");
+  const [priority, setPriority] = useState("10");
+
+  if (!open) return null;
+
+  async function create() {
+    if (!name.trim()) return;
+    await action.run(
+      () =>
+        services.catalogue.priceLists.create({
+          name: { en: name.trim(), ar: name.trim() },
+          scope: listScope,
+          priority: Number(priority) || 0,
+        }),
+      { onSuccess: onCreated },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={t("menu.newPriceList")}
+      footer={
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            loading={action.pending}
+            disabled={!name.trim()}
+            onClick={create}
+          >
+            {t("common.create")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Field label={t("common.name")} required>
+          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
+        </Field>
+
+        <Field label={t("menu.scope")}>
+          <Select
+            value={listScope}
+            onChange={(event) =>
+              setListScope(event.target.value as "tenant" | "brand" | "branch")
+            }
+          >
+            <option value="tenant">{t("menu.scopeTenant")}</option>
+            <option value="brand">{t("menu.scopeBrand")}</option>
+            <option value="branch">{t("menu.scopeBranch")}</option>
+          </Select>
+        </Field>
+
+        <Field label={t("menu.priority")} hint={t("menu.priorityHint")}>
+          <Input
+            inputMode="numeric"
+            dir="ltr"
+            value={priority}
+            onChange={(event) => setPriority(event.target.value)}
+          />
+        </Field>
       </div>
     </Drawer>
   );

@@ -14,15 +14,15 @@
  * variance reports where nobody owns it.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Plus } from "lucide-react";
 import type { Transfer, TransferLine } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatDateTime, formatMoney, formatNumber, formatQuantity } from "@/lib/console/format";
 import { TRANSFER_STATUS, labelOf } from "@/lib/console/labels";
-import { stockLocations } from "@/lib/console/mock/org";
 import {
   CellStack,
   CollectionTable,
@@ -32,7 +32,7 @@ import {
 } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
-import { Gate } from "@/components/console/states";
+import { AsyncPanel, Gate } from "@/components/console/states";
 import {
   Badge,
   Button,
@@ -40,6 +40,9 @@ import {
   DescList,
   DescRow,
   Drawer,
+  Field,
+  Input,
+  Select,
   Toast,
 } from "@/components/console/ui";
 
@@ -55,7 +58,12 @@ function TransfersScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [selected, setSelected] = useState<Transfer | null>(null);
+  const [dispatching, setDispatching] = useState(false);
   const [message, setMessage] = useTransientMessage();
+
+  // Locations come from the service so the filters offer real ids.
+  const locationList = useAsync(() => services.organisation.locations(), []);
+  const locations = locationList.data ?? [];
 
   const collection = useCollection<Transfer>(
     (query) => services.inventory.transfers.list(query),
@@ -159,11 +167,7 @@ function TransfersScreen() {
         subtitle={t("inv.transfersSubtitle")}
         spec="FR-INV-030"
         actions={
-          <Button
-            variant="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
-          >
+          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setDispatching(true)}>
             {t("common.new")}
           </Button>
         }
@@ -198,7 +202,7 @@ function TransfersScreen() {
             {
               key: "fromLocationId",
               label: t("inv.from"),
-              options: stockLocations.map((location) => ({
+              options: locations.map((location) => ({
                 value: location.id,
                 label: tx(location.name),
               })),
@@ -206,7 +210,7 @@ function TransfersScreen() {
             {
               key: "toLocationId",
               label: t("inv.to"),
-              options: stockLocations.map((location) => ({
+              options: locations.map((location) => ({
                 value: location.id,
                 label: tx(location.name),
               })),
@@ -228,8 +232,22 @@ function TransfersScreen() {
       <TransferDrawer
         transfer={selected}
         onClose={() => setSelected(null)}
-        onReceive={() => setMessage(t("common.notInBuild"))}
+        onChanged={(note) => {
+          setMessage(note);
+          collection.reload();
+        }}
       />
+
+      <DispatchTransferDrawer
+        open={dispatching}
+        onClose={() => setDispatching(false)}
+        onDispatched={() => {
+          setDispatching(false);
+          setMessage(t("inv.transferDispatched"));
+          collection.reload();
+        }}
+      />
+
       <Toast message={message} />
     </>
   );
@@ -240,14 +258,15 @@ function TransfersScreen() {
 function TransferDrawer({
   transfer,
   onClose,
-  onReceive,
+  onChanged,
 }: {
   transfer: Transfer | null;
   onClose: () => void;
-  onReceive: () => void;
+  onChanged: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
   const canReceive = usePermission("inventory.transfer.receive");
+  const [receiving, setReceiving] = useState(false);
 
   const columns = useMemo<Column<TransferLine>[]>(
     () => [
@@ -317,7 +336,7 @@ function TransferDrawer({
       }
       footer={
         canReceive && (transfer.status === "dispatched" || transfer.status === "in_transit") ? (
-          <Button variant="primary" onClick={onReceive}>
+          <Button variant="primary" onClick={() => setReceiving(true)}>
             {t("inv.receiveTransfer")}
           </Button>
         ) : null
@@ -358,6 +377,287 @@ function TransferDrawer({
             dense
           />
         </section>
+
+        <ReceiveTransferDrawer
+          transfer={transfer}
+          open={receiving}
+          onClose={() => setReceiving(false)}
+          onReceived={() => {
+            setReceiving(false);
+            onChanged(t("inv.transferReceived"));
+          }}
+        />
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * FR-INV-032 — receive a dispatched transfer.
+ *
+ * The received quantity is entered rather than assumed. When it differs from
+ * what was dispatched the server writes a discrepancy adjustment alongside
+ * the `transfer_in` leg, and that adjustment needs a reason code — so the
+ * field appears exactly when the numbers disagree.
+ */
+function ReceiveTransferDrawer({
+  transfer,
+  open,
+  onClose,
+  onReceived,
+}: {
+  transfer: Transfer;
+  open: boolean;
+  onClose: () => void;
+  onReceived: () => void;
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+
+  const line = transfer.lines[0];
+  const [received, setReceived] = useState(line?.dispatched.value ?? "");
+  const [reasonCodeId, setReasonCodeId] = useState("");
+
+  const reasons = useAsync(() => services.inventory.reasonCodes(), []);
+
+  useEffect(() => {
+    if (open && line) setReceived(line.dispatched.value);
+  }, [open, line]);
+
+  if (!open || !line) return null;
+
+  const short = Number(received) !== Number(line.dispatched.value);
+  const valid = received.trim() !== "" && Number.isFinite(Number(received));
+
+  async function receive() {
+    if (!valid) return;
+    await action.run(
+      () =>
+        services.inventory.receiveTransfer({
+          transferReferenceId: transfer.id,
+          toLocationId: transfer.toLocationId,
+          receivedQuantity: received.trim(),
+          discrepancyReasonCodeId: short ? reasonCodeId || undefined : undefined,
+        }),
+      { onSuccess: onReceived },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={t("inv.receiveTransfer")}
+      subtitle={
+        <span className="font-mono text-xs" dir="ltr">
+          {transfer.reference}
+        </span>
+      }
+      footer={
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            loading={action.pending}
+            disabled={!valid || (short && !reasonCodeId)}
+            onClick={receive}
+          >
+            {t("inv.receiveTransfer")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <DescList>
+          <DescRow label={t("inv.from")}>{tx(transfer.fromLocationName)}</DescRow>
+          <DescRow label={t("inv.to")}>{tx(transfer.toLocationName)}</DescRow>
+          <DescRow label={t("common.name")}>{tx(line.itemName)}</DescRow>
+          <DescRow label={t("inv.dispatched")} mono>
+            <span dir="ltr">{line.dispatched.value}</span>
+          </DescRow>
+        </DescList>
+
+        <Field label={t("inv.received")} required>
+          <Input
+            inputMode="decimal"
+            dir="ltr"
+            value={received}
+            onChange={(event) => setReceived(event.target.value)}
+          />
+        </Field>
+
+        {short ? (
+          <>
+            <Callout tone="warn">{t("inv.discrepancyNote")}</Callout>
+
+            <AsyncPanel state={reasons} isEmpty={(rows) => rows.length === 0}>
+              {(rows) => (
+                <Field label={t("inv.reason")} required>
+                  <Select
+                    value={reasonCodeId}
+                    onChange={(event) => setReasonCodeId(event.target.value)}
+                  >
+                    <option value="">—</option>
+                    {rows.map((reason) => (
+                      <option key={reason.id} value={reason.id}>
+                        {tx(reason.label)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+            </AsyncPanel>
+          </>
+        ) : null}
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** FR-INV-030 — dispatch a transfer, writing the `transfer_out` leg. */
+function DispatchTransferDrawer({
+  open,
+  onClose,
+  onDispatched,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onDispatched: () => void;
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const [fromLocationId, setFrom] = useState("");
+  const [toLocationId, setTo] = useState("");
+  const [itemId, setItemId] = useState("");
+  const [quantity, setQuantity] = useState("");
+
+  const locations = useAsync(() => services.organisation.locations(), []);
+  const items = useAsync(() => services.inventory.items.list({ limit: 500 }), []);
+
+  useEffect(() => {
+    const rows = locations.data;
+    if (!rows || rows.length === 0) return;
+    if (!fromLocationId) setFrom(rows[0]!.id);
+    if (!toLocationId) setTo(rows[1]?.id ?? rows[0]!.id);
+  }, [locations.data, fromLocationId, toLocationId]);
+
+  if (!open) return null;
+
+  const valid =
+    fromLocationId !== "" &&
+    toLocationId !== "" &&
+    fromLocationId !== toLocationId &&
+    itemId !== "" &&
+    quantity.trim() !== "" &&
+    Number.isFinite(Number(quantity));
+
+  async function dispatch() {
+    if (!valid) return;
+    await action.run(
+      () =>
+        services.inventory.transfers.create({
+          fromLocationId,
+          toLocationId,
+          lines: [
+            {
+              id: "",
+              itemId,
+              itemName: { en: "", ar: "" },
+              dispatched: { value: quantity.trim(), unit: "pc" },
+              received: null,
+              discrepancy: 0,
+              unitCost: { amount: 0, currency: "EGP" },
+            },
+          ],
+        }),
+      { onSuccess: onDispatched },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={t("inv.newTransfer")}
+      footer={
+        <div className="flex gap-2">
+          <Button variant="primary" loading={action.pending} disabled={!valid} onClick={dispatch}>
+            {t("inv.dispatch")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <AsyncPanel state={locations} isEmpty={(rows) => rows.length === 0}>
+          {(rows) => (
+            <div className="space-y-4">
+              <Field label={t("inv.from")} required>
+                <Select value={fromLocationId} onChange={(event) => setFrom(event.target.value)}>
+                  {rows.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {tx(location.name)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+
+              <Field
+                label={t("inv.to")}
+                required
+                error={
+                  fromLocationId && fromLocationId === toLocationId
+                    ? t("inv.sameLocation")
+                    : undefined
+                }
+              >
+                <Select value={toLocationId} onChange={(event) => setTo(event.target.value)}>
+                  {rows.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {tx(location.name)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+          )}
+        </AsyncPanel>
+
+        <AsyncPanel state={items} isEmpty={(page) => page.rows.length === 0}>
+          {(page) => (
+            <Field label={t("inv.item")} required>
+              <Select value={itemId} onChange={(event) => setItemId(event.target.value)}>
+                <option value="">—</option>
+                {page.rows.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {tx(item.name)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+        </AsyncPanel>
+
+        <Field label={t("inv.quantity")} required>
+          <Input
+            inputMode="decimal"
+            dir="ltr"
+            value={quantity}
+            onChange={(event) => setQuantity(event.target.value)}
+          />
+        </Field>
       </div>
     </Drawer>
   );

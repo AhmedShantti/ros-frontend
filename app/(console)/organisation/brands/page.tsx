@@ -20,7 +20,6 @@ import { services } from "@/lib/console/services";
 import { useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatNumber } from "@/lib/console/format";
-import { branches } from "@/lib/console/mock/org";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
@@ -34,6 +33,7 @@ import {
   Drawer,
   Toast,
 } from "@/components/console/ui";
+import { RecordDrawer } from "@/components/console/record-drawer";
 
 export default function BrandsPage() {
   return (
@@ -48,6 +48,7 @@ function BrandsScreen() {
   const { scope } = useSession();
   const canManage = usePermission("org.manage");
   const [selected, setSelected] = useState<Brand | null>(null);
+  const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();
 
   const collection = useCollection<Brand>(
@@ -114,7 +115,7 @@ function BrandsScreen() {
             <Button
               variant="primary"
               icon={<Plus size={14} />}
-              onClick={() => setMessage(t("common.notInBuild"))}
+              onClick={() => setCreating(true)}
             >
               {t("common.new")}
             </Button>
@@ -157,6 +158,28 @@ function BrandsScreen() {
       </PageBody>
 
       <BrandDrawer brand={selected} onClose={() => setSelected(null)} />
+      <RecordDrawer
+        open={creating}
+        title={t("org.newBrand")}
+        fields={[
+          { name: "name", label: t("common.name"), required: true, maxLength: 120 },
+          { name: "code", label: t("common.code"), maxLength: 8, ltr: true },
+          { name: "colour", label: t("org.colour"), placeholder: "#0f6f7a", ltr: true },
+        ]}
+        onClose={() => setCreating(false)}
+        onSubmit={(values) =>
+          services.organisation.brands.create({
+            name: { en: values.name.trim(), ar: values.name.trim() },
+            code: values.code.trim() || undefined,
+            colour: values.colour.trim() || undefined,
+          })
+        }
+        onDone={() => {
+          setCreating(false);
+          setMessage(t("org.brandCreated"));
+          collection.reload();
+        }}
+      />
       <Toast message={message} />
     </>
   );
@@ -166,9 +189,13 @@ function BrandsScreen() {
 
 function BrandDrawer({ brand, onClose }: { brand: Brand | null; onClose: () => void }) {
   const { t, tx, fmt } = useI18n();
+  // The session's branch list is the real one against a backend and the
+  // fixtures in demo mode. Reading the fixtures unconditionally, as this
+  // drawer used to, listed neither correctly once an API was configured.
+  const { availableBranches } = useSession();
   if (!brand) return null;
 
-  const brandBranches = branches.filter((branch) => branch.brandId === brand.id);
+  const brandBranches = availableBranches.filter((branch) => branch.brandId === brand.id);
 
   return (
     <Drawer

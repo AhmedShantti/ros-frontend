@@ -35,6 +35,13 @@ function loadEnvLocal() {
 
 loadEnvLocal();
 
+/**
+ * Cold starts are the normal case on a sleeping free-tier host: the first
+ * request after an idle period took 23s against Render. Ten seconds turned
+ * that into "the API is unreachable", which is exactly the wrong diagnosis.
+ */
+const PROBE_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_API_TIMEOUT_MS ?? 45_000);
+
 const args = process.argv.slice(2);
 
 function arg(name) {
@@ -74,7 +81,7 @@ async function call(label, path, { method = "GET", body, token } = {}) {
         ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
 
     const ms = Date.now() - started;
@@ -111,9 +118,10 @@ async function call(label, path, { method = "GET", body, token } = {}) {
  * The check that catches the "connected but the browser reads nothing" case.
  *
  * `fetch` from Node ignores CORS entirely, so every call above can pass while
- * the console still fails in a browser. Two headers decide it: the API must
- * echo an allowed origin, and Helmet's default `same-origin` resource policy
- * must be relaxed, or the browser discards the response regardless.
+ * the console still fails in a browser. Two things decide it: the API must
+ * echo an allowed origin, and its preflight must admit the headers this
+ * client sends — `authorization` on every authenticated call, plus
+ * `idempotency-key` and `if-match` on order and cash-session writes.
  */
 async function checkCors() {
   console.log("");
@@ -124,7 +132,7 @@ async function checkCors() {
   try {
     const response = await fetch(`${base}/health`, {
       headers: { origin, accept: "application/json" },
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
 
     const allowOrigin = response.headers.get("access-control-allow-origin");
@@ -141,10 +149,54 @@ async function checkCors() {
       console.log(`  OK   Access-Control-Allow-Origin: ${allowOrigin}`);
     }
 
+    /**
+     * CORP is a note here, not a failure.
+     *
+     * This check used to fail the run on `Cross-Origin-Resource-Policy:
+     * same-origin`, which was wrong. Per the Fetch standard, the CORP check
+     * only runs when a response's tainting is "opaque" — that is, for
+     * `no-cors` subresource loads (images, scripts, fonts). Every request
+     * this app makes is a `cors`-mode fetch that gets a valid
+     * `Access-Control-Allow-Origin` back, so its tainting is "cors" and CORP
+     * is never consulted. Helmet's default therefore does not block the
+     * console, and reporting it as a blocker sent people to fix a
+     * non-problem while the real cause went unlooked-at.
+     *
+     * It is still worth relaxing for anything that loads assets from the API
+     * cross-origin, which is why it is printed at all.
+     */
     if (resourcePolicy && resourcePolicy !== "cross-origin") {
+      console.log(`  NOTE Cross-Origin-Resource-Policy: ${resourcePolicy}`);
+      console.log("       Does not block this app: CORP is only enforced on no-cors (opaque)");
+      console.log("       responses, and every call here is a CORS-mode fetch with a valid ACAO.");
+      console.log("       Relax it only if something loads assets from the API cross-origin:");
+      console.log("         helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } })");
+    }
+
+    // What actually would block the browser: the headers this client sends.
+    const preflight = await fetch(`${base}/auth/login`, {
+      method: "OPTIONS",
+      headers: {
+        origin,
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization,content-type,idempotency-key,if-match",
+      },
+    });
+    const allowedHeaders = (
+      preflight.headers.get("access-control-allow-headers") ?? ""
+    ).toLowerCase();
+
+    const missing = ["authorization", "content-type", "idempotency-key", "if-match"].filter(
+      (header) => !allowedHeaders.includes(header),
+    );
+
+    if (missing.length > 0) {
       failures += 1;
-      console.error(`  FAIL Cross-Origin-Resource-Policy: ${resourcePolicy} — the browser discards the response.`);
-      console.error("       Fix in the backend:  helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } })");
+      console.error(`  FAIL Preflight rejects: ${missing.join(", ")}`);
+      console.error("       Every authenticated call sends `authorization`; orders and cash");
+      console.error("       sessions also send `idempotency-key`, and order writes `if-match`.");
+    } else {
+      console.log("  OK   Preflight allows authorization, idempotency-key and if-match");
     }
   } catch (error) {
     failures += 1;

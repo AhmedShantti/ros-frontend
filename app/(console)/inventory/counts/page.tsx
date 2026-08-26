@@ -14,11 +14,12 @@
  * errors net to zero and still mean two items are wrong.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import type { CountLine, CountSession } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import {
   formatDateTime,
@@ -26,9 +27,9 @@ import {
   formatNumber,
   formatPercent,
   formatQuantity,
+  unitLabel,
 } from "@/lib/console/format";
 import { COUNT_MODE, COUNT_STATUS, labelOf } from "@/lib/console/labels";
-import { stockLocations } from "@/lib/console/mock/org";
 import {
   CellStack,
   CollectionTable,
@@ -38,7 +39,7 @@ import {
 } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
-import { Gate } from "@/components/console/states";
+import { AsyncPanel, Gate } from "@/components/console/states";
 import {
   Badge,
   Button,
@@ -46,7 +47,11 @@ import {
   DescList,
   DescRow,
   Drawer,
+  Field,
+  Input,
+  Select,
   Toast,
+  Toggle,
 } from "@/components/console/ui";
 
 /** FR-INV-042 — the expected figure stays hidden until the count is in. */
@@ -66,7 +71,12 @@ function CountsScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [selected, setSelected] = useState<CountSession | null>(null);
+  const [opening, setOpening] = useState(false);
   const [message, setMessage] = useTransientMessage();
+
+  // Locations come from the service so the filter offers real ids.
+  const locationList = useAsync(() => services.organisation.locations(), []);
+  const locations = locationList.data ?? [];
 
   const collection = useCollection<CountSession>(
     (query) => services.inventory.counts.list(query),
@@ -175,11 +185,7 @@ function CountsScreen() {
         subtitle={t("inv.countsSubtitle")}
         spec="FR-INV-042"
         actions={
-          <Button
-            variant="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
-          >
+          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setOpening(true)}>
             {t("common.new")}
           </Button>
         }
@@ -225,7 +231,7 @@ function CountsScreen() {
             {
               key: "locationId",
               label: t("common.location"),
-              options: stockLocations.map((location) => ({
+              options: locations.map((location) => ({
                 value: location.id,
                 label: tx(location.name),
               })),
@@ -247,8 +253,22 @@ function CountsScreen() {
       <CountDrawer
         session={selected}
         onClose={() => setSelected(null)}
-        onPost={() => setMessage(t("common.notInBuild"))}
+        onChanged={(note) => {
+          setMessage(note);
+          collection.reload();
+        }}
       />
+
+      <OpenCountDrawer
+        open={opening}
+        onClose={() => setOpening(false)}
+        onOpened={() => {
+          setOpening(false);
+          setMessage(t("inv.countOpened"));
+          collection.reload();
+        }}
+      />
+
       <Toast message={message} />
     </>
   );
@@ -259,15 +279,40 @@ function CountsScreen() {
 function CountDrawer({
   session,
   onClose,
-  onPost,
+  onChanged,
 }: {
   session: CountSession | null;
   onClose: () => void;
-  onPost: () => void;
+  onChanged: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
   const canPost = usePermission("inventory.count.post");
-  const hidden = session ? expectedIsHidden(session) : false;
+  const canCount = usePermission("inventory.count.perform");
+  const action = useAction();
+  const [editing, setEditing] = useState<CountLine | null>(null);
+
+  /**
+   * Lines are fetched, not read off the row: `GET /inventory/counts` has no
+   * list endpoint for them, they hang off `/counts/{id}/lines`, and
+   * `counts.get()` is what fans that out.
+   */
+  const detail = useAsync(
+    async () => (session ? services.inventory.counts.get(session.id) : null),
+    [session?.id],
+  );
+
+  const current = detail.data ?? session;
+  const hidden = current ? expectedIsHidden(current) : false;
+
+  async function post() {
+    if (!session) return;
+    await action.run(() => services.inventory.counts.update(session.id, { status: "posted" }), {
+      onSuccess: () => {
+        detail.reload();
+        onChanged(t("inv.countPosted"));
+      },
+    });
+  }
 
   const columns = useMemo<Column<CountLine>[]>(() => {
     const base: Column<CountLine>[] = [
@@ -353,30 +398,31 @@ function CountDrawer({
     return base;
   }, [t, tx, fmt, hidden]);
 
-  if (!session) return null;
+  if (!session || !current) return null;
 
-  const status = labelOf(COUNT_STATUS, session.status);
-  const mode = labelOf(COUNT_MODE, session.mode);
+  const status = labelOf(COUNT_STATUS, current.status);
+  const mode = labelOf(COUNT_MODE, current.mode);
 
   return (
     <Drawer
       open
       onClose={onClose}
-      title={session.reference}
-      subtitle={tx(session.scope)}
+      title={current.reference}
+      subtitle={tx(current.scope)}
       footer={
-        canPost && session.status === "submitted" ? (
-          <Button variant="primary" onClick={onPost}>
+        canPost && (current.status === "submitted" || current.status === "counting") ? (
+          <Button variant="primary" loading={action.pending} onClick={post}>
             {t("inv.postCount")}
           </Button>
         ) : null
       }
     >
       <div className="space-y-5">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
         {hidden ? <Callout tone="accent">{t("inv.blindNote")}</Callout> : null}
 
         <DescList>
-          <DescRow label={t("common.location")}>{tx(session.locationName)}</DescRow>
+          <DescRow label={t("common.location")}>{tx(current.locationName)}</DescRow>
           <DescRow label={t("inv.mode")}>
             <Badge tone={mode.tone}>{tx(mode.label)}</Badge>
           </DescRow>
@@ -385,21 +431,21 @@ function CountDrawer({
               {tx(status.label)}
             </Badge>
           </DescRow>
-          <DescRow label={t("inv.countedBy")}>{tx(session.countedByName)}</DescRow>
-          <DescRow label={t("common.created")}>{formatDateTime(session.openedAt, fmt)}</DescRow>
+          <DescRow label={t("inv.countedBy")}>{tx(current.countedByName)}</DescRow>
+          <DescRow label={t("common.created")}>{formatDateTime(current.openedAt, fmt)}</DescRow>
           <DescRow label={t("inv.submitted")}>
-            {session.submittedAt ? formatDateTime(session.submittedAt, fmt) : "—"}
+            {current.submittedAt ? formatDateTime(current.submittedAt, fmt) : "—"}
           </DescRow>
           <DescRow label={t("inv.posted")}>
-            {session.postedAt ? formatDateTime(session.postedAt, fmt) : "—"}
+            {current.postedAt ? formatDateTime(current.postedAt, fmt) : "—"}
           </DescRow>
           <DescRow label={t("inv.flagged")} mono>
-            {formatNumber(session.flaggedCount, fmt)} / {formatNumber(session.lineCount, fmt)}
+            {formatNumber(current.flaggedCount, fmt)} / {formatNumber(current.lineCount, fmt)}
           </DescRow>
           {!hidden ? (
             <DescRow label={t("inv.netVariance")} mono>
-              <DeltaCell value={session.netVarianceValue.amount}>
-                {formatMoney(session.netVarianceValue, fmt)}
+              <DeltaCell value={current.netVarianceValue.amount}>
+                {formatMoney(current.netVarianceValue, fmt)}
               </DeltaCell>
             </DescRow>
           ) : null}
@@ -409,13 +455,190 @@ function CountDrawer({
           <h3 className="text-fg mb-2 text-sm font-semibold">{t("inv.countLines")}</h3>
           <DataTable
             columns={columns}
-            rows={session.lines}
+            rows={current.lines}
             rowKey={(row) => row.id}
             caption={t("inv.countLines")}
             emptyTitle={t("inv.countLines")}
+            onRowClick={canCount && current.status !== "posted" ? setEditing : undefined}
             dense
           />
+
+          <RecordCountDrawer
+            line={editing}
+            onClose={() => setEditing(null)}
+            onSaved={() => {
+              setEditing(null);
+              detail.reload();
+              onChanged(t("inv.countRecorded"));
+            }}
+          />
         </section>
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * FR-INV-042 — record what was actually on the shelf for one line.
+ *
+ * The expected figure stays hidden while a blind count is in progress, so
+ * this form deliberately shows the counter nothing to anchor against.
+ */
+function RecordCountDrawer({
+  line,
+  onClose,
+  onSaved,
+}: {
+  line: CountLine | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t, tx, locale } = useI18n();
+  const action = useAction();
+  const [counted, setCounted] = useState("");
+
+  useEffect(() => {
+    if (line) setCounted(line.counted?.value ?? "");
+  }, [line]);
+
+  if (!line) return null;
+
+  const valid = counted.trim() !== "" && Number.isFinite(Number(counted));
+
+  async function save() {
+    if (!line || !valid) return;
+    await action.run(() => services.inventory.recordCount(line.id, counted.trim()), {
+      onSuccess: onSaved,
+    });
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={tx(line.itemName)}
+      subtitle={
+        <span className="font-mono text-xs" dir="ltr">
+          {line.sku}
+        </span>
+      }
+      footer={
+        <div className="flex gap-2">
+          <Button variant="primary" loading={action.pending} disabled={!valid} onClick={save}>
+            {t("common.save")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Field
+          label={t("inv.counted")}
+          hint={`${t("inv.countedHint")} · ${unitLabel(line.expected.unit, locale)}`}
+          required
+        >
+          <Input
+            inputMode="decimal"
+            dir="ltr"
+            value={counted}
+            onChange={(event) => setCounted(event.target.value)}
+          />
+        </Field>
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** FR-INV-041 — open a session and freeze expected quantities for its scope. */
+function OpenCountDrawer({
+  open,
+  onClose,
+  onOpened,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onOpened: () => void;
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const [locationId, setLocationId] = useState("");
+  const [blind, setBlind] = useState(true);
+
+  const locations = useAsync(() => services.organisation.locations(), []);
+
+  useEffect(() => {
+    const rows = locations.data;
+    if (rows && rows.length > 0 && !locationId) setLocationId(rows[0]!.id);
+  }, [locations.data, locationId]);
+
+  if (!open) return null;
+
+  async function create() {
+    if (!locationId) return;
+    await action.run(
+      () => services.inventory.counts.create({ locationId, mode: blind ? "blind" : "open" }),
+      { onSuccess: onOpened },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={t("inv.newCount")}
+      footer={
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            loading={action.pending}
+            disabled={!locationId}
+            onClick={create}
+          >
+            {t("common.create")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Callout tone="muted">{t("inv.newCountNote")}</Callout>
+
+        <AsyncPanel state={locations} isEmpty={(rows) => rows.length === 0}>
+          {(rows) => (
+            <Field label={t("common.location")} required>
+              <Select
+                value={locationId}
+                onChange={(event) => setLocationId(event.target.value)}
+                disabled={action.pending}
+              >
+                {rows.map((location) => (
+                  <option key={location.id} value={location.id}>
+                    {tx(location.name)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+        </AsyncPanel>
+
+        <Toggle
+          checked={blind}
+          onChange={setBlind}
+          label={t("inv.blindCount")}
+          hint={t("inv.blindNote")}
+        />
       </div>
     </Drawer>
   );

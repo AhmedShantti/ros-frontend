@@ -16,6 +16,7 @@
 import { api } from "./endpoints";
 import { ServiceError } from "../console/services/types";
 import { setDefaultCurrency } from "../console/services/map";
+import { appVersion, deviceFingerprint, deviceOs } from "./device";
 import {
   clearSession,
   getTenantId,
@@ -81,6 +82,69 @@ export async function bindTerminal(terminalId: string): Promise<void> {
   const bound = await api.terminals.bind({ terminalId });
   setTokens(bound);
   setTerminalId(terminalId);
+}
+
+export type TerminalRow = S.TerminalController_listResponse[number];
+
+/** Terminals registered to this tenant — the list a device picks itself from. */
+export async function listTerminals(): Promise<TerminalRow[]> {
+  return api.terminals.list();
+}
+
+/**
+ * Registers a new terminal against a branch.
+ *
+ * The device's own fingerprint goes on the create call, so the terminal is
+ * usable from this device immediately without a second round trip.
+ */
+export async function registerTerminal(input: {
+  branchId: string;
+  name: string;
+  terminalType: "pos" | "kds" | "kiosk" | "handheld";
+}): Promise<TerminalRow> {
+  return api.terminals.register({
+    branchId: input.branchId,
+    name: input.name,
+    terminalType: input.terminalType,
+    deviceFingerprint: deviceFingerprint(),
+    os: deviceOs(),
+    appVersion: appVersion(),
+  });
+}
+
+/**
+ * Binds this session to a terminal and enrols the device against it.
+ *
+ * The fingerprint call is idempotent and secondary: a terminal that is bound
+ * but whose device is not yet enrolled still works, so a failure there must
+ * not undo a successful bind.
+ */
+export async function bindTerminalFromThisDevice(terminalId: string): Promise<void> {
+  await bindTerminal(terminalId);
+  try {
+    await api.terminals.addFingerprint(terminalId, {
+      deviceFingerprint: deviceFingerprint(),
+      os: deviceOs(),
+      appVersion: appVersion(),
+    });
+  } catch {
+    // Already enrolled, or the caller may not enrol devices. Neither is a
+    // reason to tell someone their terminal did not bind — it did.
+  }
+}
+
+/** The terminal the current token is bound to, if any. */
+export async function currentTerminal(): Promise<string | null> {
+  const response = await api.terminals.currentTerminal();
+  return response.terminalId;
+}
+
+/** FR-SEC-030 — disable or revoke a terminal from the console. */
+export async function setTerminalStatus(
+  terminalId: string,
+  status: "active" | "disabled" | "revoked",
+): Promise<TerminalRow> {
+  return api.terminals.setStatus(terminalId, { status });
 }
 
 /**

@@ -21,11 +21,10 @@ import { useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import type { Batch } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatDate, formatMoney, formatNumber, formatQuantity } from "@/lib/console/format";
 import { BATCH_STATUS, labelOf } from "@/lib/console/labels";
-import { stockLocations } from "@/lib/console/mock/org";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
@@ -62,6 +61,10 @@ function ExpiryScreen() {
   const { scope } = useSession();
   const canRecordWaste = usePermission("inventory.waste.record");
   const [message, setMessage] = useTransientMessage();
+
+  // Locations from the service, so the filter offers ids that exist.
+  const locationList = useAsync(() => services.organisation.locations(), []);
+  const locations = locationList.data ?? [];
 
   // Nearest expiry first — the list is a queue, so the order is the whole
   // point and is not offered as a sortable preference.
@@ -251,7 +254,7 @@ function ExpiryScreen() {
             {
               key: "locationId",
               label: t("common.location"),
-              options: stockLocations.map((location) => ({
+              options: locations.map((location) => ({
                 value: location.id,
                 label: tx(location.name),
               })),

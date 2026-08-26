@@ -358,6 +358,8 @@ export const orders: Order[] = (() => {
       aggregatorRef:
         orderType === "aggregator" ? `${pick(rng, AGGREGATORS)}-${String(700000 + i * 13)}` : null,
       notes: chance(rng, 0.08) ? "Ring the bell on delivery." : null,
+      // No server, so no optimistic-concurrency token to carry.
+      version: null,
     });
   }
 

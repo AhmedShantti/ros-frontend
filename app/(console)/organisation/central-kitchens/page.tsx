@@ -22,7 +22,6 @@ import { services } from "@/lib/console/services";
 import { useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatNumber } from "@/lib/console/format";
-import { branchById } from "@/lib/console/mock/org";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
@@ -36,6 +35,7 @@ import {
   Drawer,
   Toast,
 } from "@/components/console/ui";
+import { RecordDrawer } from "@/components/console/record-drawer";
 
 export default function CentralKitchensPage() {
   return (
@@ -50,6 +50,7 @@ function CentralKitchensScreen() {
   const { scope } = useSession();
   const canManage = usePermission("org.manage");
   const [selected, setSelected] = useState<CentralKitchen | null>(null);
+  const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();
 
   const collection = useCollection<CentralKitchen>(
@@ -119,7 +120,7 @@ function CentralKitchensScreen() {
             <Button
               variant="primary"
               icon={<Plus size={14} />}
-              onClick={() => setMessage(t("common.notInBuild"))}
+              onClick={() => setCreating(true)}
             >
               {t("common.new")}
             </Button>
@@ -168,6 +169,22 @@ function CentralKitchensScreen() {
       </PageBody>
 
       <KitchenDrawer kitchen={selected} onClose={() => setSelected(null)} />
+      <RecordDrawer
+        open={creating}
+        title={t("org.newKitchen")}
+        fields={[{ name: "name", label: t("common.name"), required: true, maxLength: 120 }]}
+        onClose={() => setCreating(false)}
+        onSubmit={(values) =>
+          services.organisation.centralKitchens.create({
+            name: { en: values.name.trim(), ar: values.name.trim() },
+          })
+        }
+        onDone={() => {
+          setCreating(false);
+          setMessage(t("org.kitchenCreated"));
+          collection.reload();
+        }}
+      />
       <Toast message={message} />
     </>
   );
@@ -183,6 +200,11 @@ function KitchenDrawer({
   onClose: () => void;
 }) {
   const { t, tx, fmt } = useI18n();
+  const { availableBranches } = useSession();
+  const branchIndex = useMemo(
+    () => new Map(availableBranches.map((branch) => [branch.id, branch])),
+    [availableBranches],
+  );
   if (!kitchen) return null;
 
   return (
@@ -216,7 +238,7 @@ function KitchenDrawer({
             <h3 className="text-fg mb-2 text-sm font-semibold">{t("org.serves")}</h3>
             <ul className="divide-line divide-y">
               {kitchen.servesBranchIds.map((branchId) => {
-                const branch = branchById.get(branchId);
+                const branch = branchIndex.get(branchId);
                 return (
                   <li key={branchId} className="py-2.5">
                     <p className="text-fg text-sm">{branch ? tx(branch.name) : branchId}</p>

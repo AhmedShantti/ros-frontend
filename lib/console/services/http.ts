@@ -32,6 +32,7 @@
 
 import { api } from "@/lib/api/endpoints";
 import { getTenantId } from "@/lib/api/session";
+import { ulid } from "@/lib/api/ulid";
 import type * as S from "@/lib/api/schema";
 
 import type {
@@ -41,6 +42,7 @@ import type {
   CentralKitchen,
   CountSession,
   Id,
+  Menu,
   MenuCategory,
   MenuItem,
   ModifierGroup,
@@ -81,7 +83,14 @@ import * as map from "./map";
 // Coverage
 // ---------------------------------------------------------------------------
 
-/** Which registry members reach the API, and which are still demo data. */
+/**
+ * Which registry members reach the API, and which are still demo data.
+ *
+ * Every one of the document's 133 operations is now reachable through this
+ * registry. What remains under `demo` is not unfinished wiring — it is the
+ * set of domains the backend does not implement at all, and inventing rows
+ * for them here would be worse than saying so.
+ */
 export const API_COVERAGE = {
   live: [
     "organisation.tenants",
@@ -90,12 +99,28 @@ export const API_COVERAGE = {
     "organisation.warehouses",
     "organisation.centralKitchens",
     "organisation.locations",
+    "organisation.reassignBranchBrand",
+    "organisation.operatingHours",
+    "organisation.printRouting",
+    "organisation.stationRoutingRules",
+    "organisation.station",
     "catalogue.categories",
     "catalogue.items",
+    "catalogue.menus",
     "catalogue.modifierGroups",
     "catalogue.priceLists",
     "catalogue.recipes",
     "catalogue.toggleAvailability",
+    "catalogue.assignMenuToBranch",
+    "catalogue.resolveBranchMenus",
+    "catalogue.placeItem",
+    "catalogue.addVariant",
+    "catalogue.setVariantActive",
+    "catalogue.linkModifierGroup",
+    "catalogue.addModifier",
+    "catalogue.setPrice",
+    "catalogue.priceEntries",
+    "catalogue.completeness",
     "inventory.items",
     "inventory.levels",
     "inventory.batches",
@@ -103,14 +128,32 @@ export const API_COVERAGE = {
     "inventory.waste",
     "inventory.counts",
     "inventory.transfers",
+    "inventory.recordCount",
+    "inventory.receiveTransfer",
+    "inventory.setReorderConfig",
+    "inventory.reasonCodes",
+    "inventory.lowStock",
+    "inventory.negativeStock",
+    "inventory.reconciliation",
+    "production.versions",
+    "production.publishVersion",
+    "production.requiringCompletion",
+    "production.substituteGroups",
     "sales.orders",
+    "sales.mutations",
+    "treasury.openCashSession",
     "operations.openOrders",
     "operations.terminals",
     "operations.stations",
     "operations.tables",
+    "operations.setTerminalStatus",
+    "operations.createTable",
+    "operations.createStation",
     "security.roles",
+    "security.memberships",
+    "security.assignRole",
   ],
-  /** No endpoint exists yet — these still serve demo data. */
+  /** No endpoint exists in the document — these still serve demo data. */
   demo: [
     "dashboard",
     "costing",
@@ -420,7 +463,9 @@ const warehouses: CollectionService<Warehouse> = {
     const row = await api.organisation.createWarehouse({
       name: map.toPlainName(input.name, "New warehouse"),
       branchId: input.attachedBranchId ?? undefined,
-      warehouseType: input.attachedBranchId ? "branch" : "central",
+      // Honour an explicit choice; fall back to inferring from the branch
+      // only when the caller did not state one.
+      warehouseType: input.warehouseType ?? (input.attachedBranchId ? "branch" : "central"),
     });
     invalidateOrg();
     return map.toWarehouse(row, getTenantId() ?? "");
@@ -491,6 +536,243 @@ const organisation: OrganisationService = {
   warehouses,
   centralKitchens,
   locations: () => locations(),
+
+  async reassignBranchBrand(branchId, brandId) {
+    await api.organisation.reassignBranchBrand(branchId, { brandId });
+    invalidateOrg();
+  },
+
+  // -- Branch configuration --------------------------------------------------
+
+  async operatingHours(branchId) {
+    const rows = await api.organisation.listOperatingHours(branchId);
+    return rows.map((row) => ({
+      id: row.id,
+      branchId: row.branchId,
+      dayOfWeek: row.dayOfWeek,
+      opensAt: row.opensAt,
+      closesAt: row.closesAt,
+      businessDayCutover: row.businessDayCutover,
+      overnight: row.overnight,
+    }));
+  },
+
+  async addOperatingHours(branchId, input) {
+    const row = await api.organisation.createOperatingHours(branchId, {
+      dayOfWeek: input.dayOfWeek,
+      opensAt: input.opensAt,
+      closesAt: input.closesAt,
+      businessDayCutover: input.businessDayCutover,
+    });
+    return {
+      id: row.id,
+      branchId: row.branchId,
+      dayOfWeek: row.dayOfWeek,
+      opensAt: row.opensAt,
+      closesAt: row.closesAt,
+      businessDayCutover: row.businessDayCutover,
+      overnight: row.overnight,
+    };
+  },
+
+  async printRouting(branchId) {
+    const rows = await api.organisation.listPrintRouting(branchId);
+    return rows.map((row) => ({
+      id: row.id,
+      branchId: row.branchId,
+      documentType: row.documentType,
+      printerTarget: row.printerTarget,
+      stationId: row.stationId,
+    }));
+  },
+
+  async addPrintRouting(branchId, input) {
+    const row = await api.organisation.createPrintRouting(branchId, {
+      documentType: input.documentType,
+      printerTarget: input.printerTarget,
+      stationId: input.stationId,
+    });
+    return {
+      id: row.id,
+      branchId: row.branchId,
+      documentType: row.documentType,
+      printerTarget: row.printerTarget,
+      stationId: row.stationId,
+    };
+  },
+
+  async stationRoutingRules(branchId) {
+    const rows = await api.organisation.listStationRoutingRules(branchId);
+    return rows.map((row) => ({
+      id: row.id,
+      branchId: row.branchId,
+      stationId: row.stationId,
+      categoryId: row.categoryId,
+      menuItemId: row.menuItemId,
+      modifierId: row.modifierId,
+      priority: row.priority,
+    }));
+  },
+
+  async addStationRoutingRule(branchId, input) {
+    const row = await api.organisation.createStationRoutingRule(branchId, {
+      stationId: input.stationId,
+      categoryId: input.categoryId,
+      menuItemId: input.menuItemId,
+      modifierId: input.modifierId,
+      priority: input.priority,
+    });
+    return {
+      id: row.id,
+      branchId: row.branchId,
+      stationId: row.stationId,
+      categoryId: row.categoryId,
+      menuItemId: row.menuItemId,
+      modifierId: row.modifierId,
+      priority: row.priority,
+    };
+  },
+
+  async station(stationId) {
+    return map.toStation(await api.organisation.getStation(stationId));
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Production — recipe versions and substitute groups (SRS ch.17, §26.3)
+// ---------------------------------------------------------------------------
+
+/** Wire recipe-version rows carry ids only; names are joined in from stock. */
+async function toRecipeVersion(
+  row: S.ProductionController_listVersionsResponse[number],
+  recipeId: Id,
+): Promise<import("./types").RecipeVersion> {
+  const items = await stockItemIndex().catch(() => new Map<Id, StockItem>());
+
+  return {
+    id: row.id,
+    recipeId,
+    version: row.version,
+    status: row.status,
+    yieldQuantity: map.quantity(row.yieldQuantity, row.yieldUnitId),
+    yieldPercentage: Number(row.yieldPercentage ?? "100"),
+    prepTimeSeconds: row.prepTimeSeconds ?? 0,
+    instructions: map.localised(row.instructions),
+    effectiveFrom: row.effectiveFrom,
+    createdAt: row.createdAt,
+    publishedBy: row.publishedBy ?? null,
+    lines: (row.lines ?? []).map((line) => {
+      const item = line.stockItemId ? items.get(line.stockItemId) : undefined;
+      return {
+        id: line.id,
+        sequence: line.sequence,
+        componentType: line.componentType,
+        componentId: line.stockItemId ?? line.subRecipeId ?? "",
+        componentName: item?.name ?? {
+          en: line.subRecipeId ? "Sub-recipe" : (line.stockItemId ?? "—"),
+          ar: line.subRecipeId ? "وصفة فرعية" : (line.stockItemId ?? "—"),
+        },
+        quantity: map.quantity(line.quantity, line.unitId),
+        wastagePercentage: Number(line.wastagePercentage ?? "0"),
+        isOptional: line.isOptional,
+        // gap: D-17-05 — the API never populates per-line cost in this phase.
+        unitCost: map.money("0"),
+        lineCost: map.money("0"),
+      };
+    }),
+  };
+}
+
+const production: import("./types").ProductionService = {
+  async versions(recipeId) {
+    const rows = await api.production.listVersions(recipeId);
+    return Promise.all(rows.map((row) => toRecipeVersion(row, recipeId)));
+  },
+
+  async createVersion(recipeId, input) {
+    const row = await api.production.createVersion(recipeId, {
+      yieldQuantity: input.yieldQuantity,
+      yieldUnitId: input.yieldUnitId,
+      yieldPercentage: input.yieldPercentage,
+      prepTimeSeconds: input.prepTimeSeconds,
+      instructions: input.instructions ? map.toNameMap(input.instructions) : undefined,
+      effectiveFrom: input.effectiveFrom,
+      lines: input.lines?.map((line) => ({
+        sequence: line.sequence,
+        componentType: line.componentType,
+        stockItemId: line.stockItemId,
+        subRecipeId: line.subRecipeId,
+        substituteGroupId: line.substituteGroupId,
+        quantity: line.quantity,
+        unitId: line.unitId,
+        wastagePercentage: line.wastagePercentage,
+        isOptional: line.isOptional,
+      })),
+    });
+    return toRecipeVersion(row, recipeId);
+  },
+
+  async replaceLines(recipeId, version, lines) {
+    await api.production.replaceLines(recipeId, String(version), {
+      lines: lines.map((line) => ({
+        sequence: line.sequence,
+        componentType: line.componentType,
+        stockItemId: line.stockItemId,
+        subRecipeId: line.subRecipeId,
+        substituteGroupId: line.substituteGroupId,
+        quantity: line.quantity,
+        unitId: line.unitId,
+        wastagePercentage: line.wastagePercentage,
+        isOptional: line.isOptional,
+      })),
+    });
+  },
+
+  async publishVersion(recipeId, version) {
+    const result = await api.production.publish(recipeId, String(version));
+    return { supersededVersionId: result.supersededVersionId ?? null };
+  },
+
+  async requiringCompletion(branchId) {
+    const report = await api.production.recipesRequiringCompletion({ branchId });
+    return {
+      branchId: report.branchId,
+      sellableVariantCount: report.sellableVariantCount,
+      absentCount: report.absentCount,
+      incompleteCount: report.incompleteCount,
+      entries: report.entries.map((entry) => ({
+        menuItemId: entry.menuItemId,
+        variantId: entry.variantId,
+        reason: entry.reason,
+        recipeVersionId: entry.recipeVersionId,
+        detail: entry.detail ?? [],
+      })),
+    };
+  },
+
+  async substituteGroups() {
+    const rows = await api.production.listGroups();
+    return rows.map((row) => ({
+      id: row.id,
+      tenantId: row.tenantId,
+      name: row.name,
+      memberIds: (row.members ?? []).map((member) => member.stockItemId),
+    }));
+  },
+
+  async createSubstituteGroup(name, stockItemIds) {
+    const row = await api.production.createGroup({ name, stockItemIds });
+    return {
+      id: row.id,
+      tenantId: getTenantId() ?? "",
+      name: row.name,
+      memberIds: stockItemIds ?? [],
+    };
+  },
+
+  async addSubstituteMember(groupId, stockItemId) {
+    await api.production.addGroupMember(groupId, { stockItemId });
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -850,6 +1132,76 @@ const recipes: CollectionService<Recipe> = {
   },
 };
 
+/**
+ * Menus — FR-MNU-001/002/003.
+ *
+ * Branch assignment is a separate list per menu, so `list()` fans out one
+ * call per menu to fill `branchIds`. That is the same shape the assignment
+ * editor needs, and a tenant has a handful of menus, not thousands.
+ */
+const menus: CollectionService<Menu> = {
+  async list(query = {}) {
+    const tenantId = tenantOf(query);
+    const rows = await menusRaw();
+
+    const branchIds = await Promise.all(
+      rows.map((row) => api.catalogue.listMenuBranches(row.id).catch(() => [] as string[])),
+    );
+
+    const mapped = rows.map((row, index) => map.toMenu(row, tenantId, branchIds[index] ?? []));
+
+    return project(mapped, query, {
+      search: (row) => [row.name],
+      // A menu assigned to no branch belongs to every scope, so it stays
+      // visible rather than vanishing the moment a branch is picked.
+      branchOf: (row) => (row.branchIds.length === 0 ? null : (row.branchIds[0] ?? null)),
+      filters: { active: (row) => row.active },
+      sorters: { name: (row) => row.name.en, priority: (row) => row.priority },
+    });
+  },
+
+  async get(id) {
+    const tenantId = getTenantId() ?? "";
+    const [row, branchIds] = await Promise.all([
+      api.catalogue.getMenu(id),
+      api.catalogue.listMenuBranches(id).catch(() => [] as string[]),
+    ]);
+    return map.toMenu(row, tenantId, branchIds);
+  },
+
+  async create(input) {
+    const row = await api.catalogue.createMenu({
+      name: map.toNameMap(input.name),
+      priority: input.priority,
+      orderTypes: input.orderTypes,
+    });
+    invalidateCatalogue();
+    return map.toMenu(row, getTenantId() ?? "");
+  },
+
+  async update(id, patch) {
+    const row = await api.catalogue.updateMenu(id, {
+      name: patch.name ? map.toNameMap(patch.name) : undefined,
+      priority: patch.priority,
+      orderTypes: patch.orderTypes,
+    });
+
+    // `isActive` is its own audited endpoint, not a field on the patch DTO.
+    if (patch.active !== undefined) {
+      await api.catalogue.setMenuActive(id, { isActive: patch.active });
+    }
+
+    invalidateCatalogue();
+    return map.toMenu(row, getTenantId() ?? "", patch.branchIds ?? []);
+  },
+
+  async remove(id) {
+    // C-09: a menu that has priced a sale is deactivated, never deleted.
+    await api.catalogue.setMenuActive(id, { isActive: false });
+    invalidateCatalogue();
+  },
+};
+
 const catalogue: CatalogueService = {
   categories,
   items,
@@ -857,6 +1209,129 @@ const catalogue: CatalogueService = {
   combos: mockServices.catalogue.combos,
   priceLists,
   recipes,
+  menus,
+
+  // -- Menu assignment -------------------------------------------------------
+
+  async assignMenuToBranch(menuId, branchId) {
+    await api.catalogue.assignBranch(menuId, { branchId });
+    invalidateCatalogue();
+  },
+
+  async unassignMenuFromBranch(menuId, branchId) {
+    await api.catalogue.unassignBranch(menuId, branchId);
+    invalidateCatalogue();
+  },
+
+  async resolveBranchMenus(branchId) {
+    const response = await api.catalogue.resolveMenus(branchId);
+    return map.toMenuResolution(response, getTenantId() ?? "");
+  },
+
+  async setMenuActive(menuId, active) {
+    const row = await api.catalogue.setMenuActive(menuId, { isActive: active });
+    invalidateCatalogue();
+    return map.toMenu(row, getTenantId() ?? "");
+  },
+
+  // -- Item composition ------------------------------------------------------
+
+  async placeItem(itemId, categoryId) {
+    await api.catalogue.placeItem(itemId, { categoryId });
+    invalidateCatalogue();
+  },
+
+  async unplaceItem(itemId, categoryId) {
+    await api.catalogue.unplaceItem(itemId, categoryId);
+    invalidateCatalogue();
+  },
+
+  async addVariant(itemId, input) {
+    const row = await api.catalogue.addVariant(itemId, {
+      name: map.toNameMap(input.name),
+      barcode: input.barcode ?? undefined,
+    });
+    invalidateCatalogue();
+    return map.toVariant(row, input.basePrice ?? null);
+  },
+
+  async setVariantActive(variantId, active) {
+    await api.catalogue.setVariantActive(variantId, { isActive: active });
+    invalidateCatalogue();
+  },
+
+  async linkModifierGroup(itemId, groupId, options = {}) {
+    await api.catalogue.linkModifierGroup(itemId, {
+      modifierGroupId: groupId,
+      sortOrder: options.sortOrder,
+    });
+    invalidateCatalogue();
+  },
+
+  async addModifier(groupId, input) {
+    const row = await api.catalogue.addModifier(groupId, {
+      name: map.toNameMap(input.name),
+      // The DTO requires a kind on every new modifier — there is no
+      // heuristic default the server will accept.
+      kind: input.kind ?? "addition",
+      priceDelta:
+        input.priceDelta === undefined ? undefined : String(input.priceDelta.amount),
+      isDefault: input.isDefault,
+    });
+    invalidateCatalogue();
+    return map.toModifier(row);
+  },
+
+  // -- Pricing ---------------------------------------------------------------
+
+  async setPrice(priceListId, variantId, price) {
+    const row = await api.catalogue.setPriceEntry(priceListId, {
+      menuItemVariantId: variantId,
+      price: map.toDecimal(price),
+      currency: price.currency,
+    });
+    // A changed price invalidates the per-variant price cache the item list
+    // reads, otherwise the table shows the old figure for another 20s.
+    pricesByVariant.invalidate();
+    invalidateCatalogue();
+    return map.toPriceEntry(row);
+  },
+
+  async priceEntries(priceListId) {
+    const [entries, itemRows] = await Promise.all([
+      api.catalogue.listPriceEntries(priceListId),
+      menuItemsRaw().catch(() => []),
+    ]);
+
+    // An entry references a variant; the console shows the item it belongs
+    // to, so the variant → item mapping is resolved once for the whole list.
+    const variantLists = await Promise.all(
+      itemRows.map((item) =>
+        api.catalogue
+          .listVariants(item.id)
+          .then((variants) => ({ item, variants }))
+          .catch(() => ({ item, variants: [] })),
+      ),
+    );
+
+    const owner = new Map<Id, { itemId: Id; name: ReturnType<typeof map.localised> }>();
+    for (const { item, variants } of variantLists) {
+      for (const variant of variants) {
+        owner.set(variant.id, { itemId: item.id, name: map.localised(item.names) });
+      }
+    }
+
+    return entries.map((entry) => {
+      const match = owner.get(entry.menuItemVariantId);
+      return map.toPriceEntry(entry, match?.name, match?.itemId ?? "");
+    });
+  },
+
+  // -- Readiness -------------------------------------------------------------
+
+  async completeness() {
+    return map.toCompleteness(await api.catalogue.completenessReport());
+  },
 
   /** FR-MNU-030 — an 86 is an availability rule, created or cleared. */
   async toggleAvailability(itemId, available, reason) {
@@ -1225,6 +1700,24 @@ const adjustments: CollectionService<StockAdjustment> = {
   },
 };
 
+/**
+ * The computed inventory reports return ids only, so each one is joined
+ * against the cached item and location tables before the UI sees it —
+ * otherwise every row reads as a pair of UUIDs.
+ */
+async function namers() {
+  const [items, locs] = await Promise.all([
+    stockItemIndex().catch(() => new Map<Id, StockItem>()),
+    locationIndex().catch(() => new Map<Id, StockLocation>()),
+  ]);
+  return {
+    item: (id: Id) => items.get(id)?.name ?? { en: id, ar: id },
+    location: (id: Id) => locs.get(id)?.name ?? { en: id, ar: id },
+    /** The item's own base unit is the only sensible unit for its quantities. */
+    unit: (id: Id) => items.get(id)?.baseUnit ?? "pc",
+  };
+}
+
 const inventory: InventoryService = {
   items: stockItems,
   levels,
@@ -1234,6 +1727,120 @@ const inventory: InventoryService = {
   transfers,
   waste,
   adjustments,
+
+  // -- Counting --------------------------------------------------------------
+
+  async recordCount(lineId, countedQuantity) {
+    await api.inventory.recordCount(lineId, { countedQuantity });
+  },
+
+  // -- Transfers -------------------------------------------------------------
+
+  async receiveTransfer(input) {
+    await api.inventory.receive({
+      transferReferenceId: input.transferReferenceId,
+      toLocationId: input.toLocationId,
+      receivedQuantity: input.receivedQuantity,
+      discrepancyReasonCodeId: input.discrepancyReasonCodeId,
+    });
+    invalidateInventory();
+  },
+
+  // -- Reorder configuration -------------------------------------------------
+
+  async setReorderConfig(itemId, input) {
+    await api.inventory.setReorderConfig(itemId, {
+      locationId: input.locationId,
+      reorderPoint: input.reorderPoint,
+      reorderQuantity: input.reorderQuantity,
+    });
+    invalidateInventory();
+  },
+
+  // -- Reason codes ----------------------------------------------------------
+
+  async reasonCodes() {
+    const rows = await reasonCodesRaw();
+    return rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      category: row.category,
+      label: map.localised(row.label, { en: row.code, ar: row.code }),
+    }));
+  },
+
+  async createReasonCode(input) {
+    const row = await api.inventory.createReasonCode({
+      code: input.code,
+      category: input.category,
+      label: map.toNameMap(input.label),
+    });
+    reasonCodesRaw.invalidate();
+    return {
+      id: row.id,
+      code: row.code,
+      category: row.category,
+      label: map.localised(row.label, { en: row.code, ar: row.code }),
+    };
+  },
+
+  // -- Computed reports ------------------------------------------------------
+
+  async lowStock(query = {}) {
+    const [rows, name] = await Promise.all([api.inventory.lowStock(), namers()]);
+
+    const mapped = rows.map((row) => ({
+      stockItemId: row.stockItemId,
+      itemName: name.item(row.stockItemId),
+      locationId: row.locationId,
+      locationName: name.location(row.locationId),
+      onHand: map.quantityOf(row.quantityOnHand, name.unit(row.stockItemId)),
+      reorderPoint:
+        row.reorderPoint === null
+          ? null
+          : map.quantityOf(row.reorderPoint, name.unit(row.stockItemId)),
+      reorderQuantity:
+        row.reorderQuantity === null
+          ? null
+          : map.quantityOf(row.reorderQuantity, name.unit(row.stockItemId)),
+    }));
+
+    // The endpoint is tenant-wide; a branch-scoped console shows its own.
+    const branchId = query.scope?.branchId;
+    return branchId ? mapped.filter((row) => row.locationId === branchId) : mapped;
+  },
+
+  async negativeStock(query = {}) {
+    const [rows, name] = await Promise.all([api.inventory.negativeStock(), namers()]);
+
+    const mapped = rows.map((row) => ({
+      stockItemId: row.stockItemId,
+      itemName: name.item(row.stockItemId),
+      locationId: row.locationId,
+      locationName: name.location(row.locationId),
+      onHand: map.quantityOf(row.quantityOnHand, name.unit(row.stockItemId)),
+    }));
+
+    const branchId = query.scope?.branchId;
+    return branchId ? mapped.filter((row) => row.locationId === branchId) : mapped;
+  },
+
+  async reconciliation() {
+    const [report, name] = await Promise.all([api.inventory.reconcile(), namers()]);
+
+    return {
+      reconciled: report.reconciled,
+      note: report.note,
+      divergences: report.divergences.map((row) => ({
+        stockItemId: row.stockItemId,
+        itemName: name.item(row.stockItemId),
+        locationId: row.locationId,
+        locationName: name.location(row.locationId),
+        ledger: map.quantityOf(row.ledger, name.unit(row.stockItemId)),
+        projected: map.quantityOf(row.projected, name.unit(row.stockItemId)),
+      })),
+    };
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1317,7 +1924,149 @@ const orders: ReadonlyCollectionService<Order> = {
   },
 };
 
-const sales: SalesService = { orders };
+/**
+ * The write half of the order lifecycle.
+ *
+ * Two things are non-obvious and both come from the document:
+ *
+ *  - Every mutation is keyed by `(businessDay, id)`, not by id alone. The
+ *    business day is part of the primary key, because a trading day runs
+ *    past midnight (FR-FIN-024) and the partition is by day.
+ *  - Ids are minted here, not by the server (FR-OFF-015). A ULID rather
+ *    than a UUID so `GET /orders`' keyset cursor pages chronologically.
+ */
+const orderMutations: import("./types").OrderMutationService = {
+  async open(input) {
+    const tenantId = getTenantId() ?? "";
+    const branchesById = await branchIndex().catch(() => new Map<Id, Branch>());
+
+    const row = await api.sales.create({
+      id: ulid(),
+      orderType: input.orderType,
+      channel: input.channel ?? "pos",
+      tableId: input.tableId,
+      guestCount: input.guestCount,
+      notes: input.notes,
+      // Optional on a terminal-bound session, where the token carries it.
+      terminalId: input.terminalId,
+      openedByEmployeeId: input.openedByEmployeeId,
+      // The device's own clock reading. It is recorded, never used to decide
+      // which business day the sale lands in — the server does that.
+      originDeviceTime: new Date().toISOString(),
+    });
+
+    return map.toOrder(row, {
+      tenantId,
+      branchName: branchesById.get(row.branchId)?.name,
+    });
+  },
+
+  async get(businessDay, orderId) {
+    const tenantId = getTenantId() ?? "";
+    const [row, branchesById] = await Promise.all([
+      api.sales.findOne(businessDay, orderId),
+      branchIndex().catch(() => new Map<Id, Branch>()),
+    ]);
+    return map.toOrder(row, { tenantId, branchName: branchesById.get(row.branchId)?.name });
+  },
+
+  async addLine(businessDay, orderId, input, options = {}) {
+    const response = await api.sales.addLine(
+      businessDay,
+      orderId,
+      {
+        id: ulid(),
+        menuItemId: input.menuItemId,
+        variantId: input.variantId,
+        quantity: input.quantity,
+        modifiers: input.modifiers?.map((modifier) => ({
+          modifierId: modifier.modifierId,
+          quantity: modifier.quantity,
+        })),
+        notes: input.notes,
+        course: input.course,
+        seatNumber: input.seatNumber,
+      },
+      { ifMatch: options.ifMatch },
+    );
+
+    return hydrateOrder(response.order);
+  },
+
+  async voidLine(businessDay, orderId, lineId, reasonCodeId, options = {}) {
+    const response = await api.sales.voidLine(
+      businessDay,
+      orderId,
+      lineId,
+      { reasonCodeId },
+      { ifMatch: options.ifMatch },
+    );
+    return hydrateOrder(response.order);
+  },
+
+  async fire(businessDay, orderId, options = {}) {
+    const row = await api.sales.fire(businessDay, orderId, { ifMatch: options.ifMatch });
+    return hydrateOrder(row);
+  },
+
+  async capturePayment(businessDay, orderId, input, options = {}) {
+    const response = await api.sales.capturePayment(
+      businessDay,
+      orderId,
+      {
+        id: ulid(),
+        cashSessionId: input.cashSessionId,
+        tender: input.tender,
+        amountMinor: input.amountMinor,
+        // The document is strict about which of these two is allowed:
+        // tendered is required for cash and refused for card, and the
+        // terminal reference is the exact mirror of that.
+        tenderedAmountMinor:
+          input.tender === "cash" ? input.tenderedAmountMinor : undefined,
+        terminalReference:
+          input.tender === "manual_external_card" ? input.terminalReference : undefined,
+        cardScheme: input.cardScheme,
+        last4: input.last4,
+        authorizationCode: input.authorizationCode,
+      },
+      { ifMatch: options.ifMatch },
+    );
+    return hydrateOrder(response.order);
+  },
+};
+
+/** Every mutation answers with an order row; they all need the same joins. */
+async function hydrateOrder(row: Parameters<typeof map.toOrder>[0]): Promise<Order> {
+  const tenantId = getTenantId() ?? "";
+  const branchesById = await branchIndex().catch(() => new Map<Id, Branch>());
+  return map.toOrder(row, { tenantId, branchName: branchesById.get(row.branchId)?.name });
+}
+
+const sales: SalesService = { orders, mutations: orderMutations };
+
+// ---------------------------------------------------------------------------
+// Treasury
+// ---------------------------------------------------------------------------
+
+const treasury: import("./types").TreasuryService = {
+  async openCashSession(input) {
+    const response = await api.treasury.openCashSession({
+      // Both ids are the device's (FR-OFF-015), and independent duplicate
+      // protection beneath the mandatory idempotency key.
+      cashSessionId: ulid(),
+      shiftId: ulid(),
+      drawerId: input.drawerId,
+      openingFloat: input.openingFloat,
+      notes: input.notes,
+    });
+
+    return {
+      cashSessionId: response.cashSession.id,
+      shiftId: response.shift.id,
+      created: response.created,
+    };
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Operations
@@ -1389,6 +2138,50 @@ const operations: OperationsService = {
       sorters: { name: (row) => row.name.en, capacityPerHour: (row) => row.capacityPerHour },
     });
   },
+
+  async setTerminalStatus(terminalId, status) {
+    return map.toTerminal(await api.terminals.setStatus(terminalId, { status }));
+  },
+
+  async createTable(branchId, input) {
+    const row = await api.organisation.createTable(branchId, {
+      label: input.label ?? "New table",
+      seatCapacity: input.capacity,
+      section: input.area ? map.toPlainName(input.area) : undefined,
+    });
+    return map.toTable(row);
+  },
+
+  async updateTable(tableId, patch) {
+    const row = await api.organisation.updateTable(tableId, {
+      label: patch.label,
+      seatCapacity: patch.capacity,
+      section: patch.area ? map.toPlainName(patch.area) : undefined,
+    });
+    return map.toTable(row);
+  },
+
+  async createStation(branchId, input) {
+    const row = await api.organisation.createStation(branchId, {
+      name: map.toPlainName(input.name, "New station"),
+      displayColour: input.colour,
+      // The API keeps station capacity in a free-form blob; the console
+      // reads `perHour` back out of it in `map.toStation`.
+      capacityConfig:
+        input.capacityPerHour === undefined ? undefined : { perHour: input.capacityPerHour },
+    });
+    return map.toStation(row);
+  },
+
+  async updateStation(stationId, patch) {
+    const row = await api.organisation.updateStation(stationId, {
+      name: patch.name ? map.toPlainName(patch.name) : undefined,
+      displayColour: patch.colour,
+      capacityConfig:
+        patch.capacityPerHour === undefined ? undefined : { perHour: patch.capacityPerHour },
+    });
+    return map.toStation(row);
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1446,6 +2239,24 @@ const security: SecurityService = {
   // No user index endpoint; memberships are reachable only by id.
   users: mockServices.security.users,
   roles,
+
+  async memberships() {
+    const rows = await api.tenants.listTenants();
+    return rows.map((row) => ({
+      membershipId: row.membershipId,
+      tenantId: row.tenant.id,
+      tenantName: row.tenant.legalName,
+      status: row.status,
+    }));
+  },
+
+  async assignRole(membershipId, roleId) {
+    await api.rbac.assignRole(membershipId, { roleId });
+  },
+
+  async removeRole(membershipId, roleId) {
+    await api.rbac.removeRole(membershipId, roleId);
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1453,6 +2264,8 @@ const security: SecurityService = {
 // ---------------------------------------------------------------------------
 
 export const httpServices: ServiceRegistry = {
+  production,
+  treasury,
   // Live.
   organisation,
   catalogue,
