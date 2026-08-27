@@ -423,6 +423,17 @@ export const kitchenTickets: KitchenTicket[] = (() => {
         notes: line.notes,
       }));
 
+      const state: TicketState = lines.every((l) => l.state === "ready" || l.state === "served")
+        ? "ready"
+        : pick(rng, TICKET_STATE_POOL);
+
+      // A ticket someone has taken on was picked up somewhere between firing
+      // and now; a queued one has not been touched, so it has no start.
+      const startedAt =
+        state === "queued"
+          ? null
+          : new Date(new Date(firedAt).getTime() + int(rng, 10, Math.max(20, elapsed)) * 1000).toISOString();
+
       out.push({
         id: seqId("tkt", n),
         branchId: order.branchId,
@@ -432,9 +443,7 @@ export const kitchenTickets: KitchenTicket[] = (() => {
         tableLabel: order.tableLabel,
         stationId,
         stationName: station.name,
-        state: lines.every((l) => l.state === "ready" || l.state === "served")
-          ? "ready"
-          : pick(rng, TICKET_STATE_POOL),
+        state,
         // FR-KDS-022 — colour-coded by elapsed time against target.
         urgency:
           ratio > 1.6 ? "critical" : ratio > 1 ? "exceeded" : ratio > 0.75 ? "approaching" : "on_target",
@@ -443,6 +452,10 @@ export const kitchenTickets: KitchenTicket[] = (() => {
           ? pick(rng, ["rush", "vip", "remake"] as const)
           : "normal",
         firedAt,
+        startedAt,
+        // Every seeded ticket is still on a station display, so none is done.
+        bumpedAt: null,
+        cancelReason: null,
         targetSeconds: target,
         elapsedSeconds: Math.max(0, elapsed),
         lines: ticketLines,

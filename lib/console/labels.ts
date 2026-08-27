@@ -156,6 +156,7 @@ export const TICKET_STATE: Record<TicketState, Entry> = {
   ready: e("Ready", "جاهز", "good"),
   bumped: e("Bumped", "أُنهي", "good"),
   recalled: e("Recalled", "مُستعاد", "warn"),
+  cancelled: e("Cancelled", "ملغي", "bad"),
 };
 
 export const TICKET_URGENCY: Record<TicketUrgency, Entry> = {

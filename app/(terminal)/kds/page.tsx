@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, RotateCcw, Timer, Utensils } from "lucide-react";
+import { Ban, Check, ChefHat, RotateCcw, Timer, Utensils } from "lucide-react";
 import type { Id, KitchenTicket, TicketUrgency } from "@/lib/console/types";
 import { ORDER_TYPE, TICKET_URGENCY } from "@/lib/console/labels";
 import { formatElapsed } from "@/lib/console/format";
@@ -63,6 +63,11 @@ export default function KdsPage() {
         : live.filter((ticket) => ticket.stationId === stationId);
 
     return [...filtered].sort((a, b) => {
+      // A cancellation outranks every sort: it is the one card that saves
+      // food rather than sequencing it.
+      const aDead = a.state === "cancelled" ? 0 : 1;
+      const bDead = b.state === "cancelled" ? 0 : 1;
+      if (aDead !== bDead) return aDead - bDead;
       if (sort === "course" && a.course !== b.course) return a.course - b.course;
       if (sort === "target") {
         const aLeft = a.targetSeconds - (elapsedSince(a.firedAt, now) ?? 0);
@@ -262,6 +267,20 @@ function TicketCard({ ticket, now }: { ticket: KitchenTicket; now: number }) {
   const urgency = urgencyFor(elapsed, ticket.targetSeconds);
   const outstanding = ticket.lines.filter((l) => l.state !== "ready" && l.state !== "voided");
 
+  // Two different questions, and the elapsed clock alone answers only the
+  // first: how long has the guest waited, and how long has anyone actually
+  // been cooking? A ticket sitting untouched has a large first and no second.
+  const started = ticket.startedAt !== null;
+  const cooking = started ? (elapsedSince(ticket.startedAt!, now) ?? 0) : null;
+  const pickup = started ? Math.max(0, elapsed - (cooking ?? 0)) : elapsed;
+
+  // A cancelled ticket is a different card, not a variant of this one. It
+  // carries no timers, no line controls and one action, because the only
+  // thing being asked of the cook is to stop and say they have seen it.
+  if (ticket.state === "cancelled") {
+    return <CancelledCard ticket={ticket} />;
+  }
+
   return (
     <article
       className={cx(
@@ -279,7 +298,15 @@ function TicketCard({ ticket, now }: { ticket: KitchenTicket; now: number }) {
           </p>
         </div>
         <div className="text-end">
-          <p className={cx("text-2xl leading-none font-bold tabular-nums", URGENCY_TIMER[urgency])}>
+          <p className="text-fg-subtle text-[0.6rem] leading-none uppercase">
+            {t("kds.waitTotal")}
+          </p>
+          <p
+            className={cx(
+              "mt-0.5 text-2xl leading-none font-bold tabular-nums",
+              URGENCY_TIMER[urgency],
+            )}
+          >
             {formatElapsed(elapsed)}
           </p>
           <p className="text-fg-subtle mt-1 inline-flex items-center gap-1 text-[0.68rem] tabular-nums">
@@ -291,6 +318,19 @@ function TicketCard({ ticket, now }: { ticket: KitchenTicket; now: number }) {
 
       <div className="mt-2 flex flex-wrap gap-1">
         <Badge tone={TICKET_URGENCY[urgency].tone}>{tx(TICKET_URGENCY[urgency].label)}</Badge>
+        {/*
+          Who is on it, stated rather than implied by the Start button's
+          absence. On a shared line the difference between "queued" and
+          "someone has this" is the thing that stops two cooks making it twice.
+        */}
+        {started ? (
+          <Badge tone="accent">
+            <ChefHat size={11} aria-hidden />
+            {t("kds.started")}
+          </Badge>
+        ) : (
+          <Badge tone="muted">{t("kds.waiting")}</Badge>
+        )}
         {ticket.priority === "rush" ? <Badge tone="bad">{t("kds.rush")}</Badge> : null}
         {ticket.priority === "vip" ? <Badge tone="accent">{t("kds.vip")}</Badge> : null}
         {ticket.priority === "remake" ? <Badge tone="warn">{t("kds.amended")}</Badge> : null}
@@ -361,6 +401,23 @@ function TicketCard({ ticket, now }: { ticket: KitchenTicket; now: number }) {
         })}
       </ul>
 
+      {/*
+        The split the elapsed clock cannot show: time lost before anyone
+        picked the ticket up, against time actually spent cooking.
+      */}
+      <dl className="border-line text-fg-subtle mb-2 flex items-center gap-3 border-t pt-2 text-[0.68rem] tabular-nums">
+        <div className="flex items-center gap-1">
+          <dt>{t("kds.pickup")}</dt>
+          <dd className="text-fg-muted font-medium">{formatElapsed(pickup)}</dd>
+        </div>
+        <div className="flex items-center gap-1">
+          <dt>{t("kds.cookTime")}</dt>
+          <dd className={cx("font-medium", started ? "text-fg-muted" : "text-fg-subtle")}>
+            {cooking === null ? "—" : formatElapsed(cooking)}
+          </dd>
+        </div>
+      </dl>
+
       <div className="flex gap-1.5">
         {ticket.state === "queued" ? (
           <Button
@@ -376,6 +433,67 @@ function TicketCard({ ticket, now }: { ticket: KitchenTicket; now: number }) {
           onBump={() => dispatch({ type: "TICKET_BUMP", ticketId: ticket.id })}
         />
       </div>
+    </article>
+  );
+}
+
+/**
+ * The card a cook sees when the till cancels an order they may be cooking.
+ *
+ * Loud on purpose. This is the only card on the display whose job is to stop
+ * work rather than direct it, and the cost of it being missed is food that
+ * gets made, plated and thrown away.
+ */
+function CancelledCard({ ticket }: { ticket: KitchenTicket }) {
+  const { t, tx } = useI18n();
+  const { dispatch } = useLive();
+
+  return (
+    <article className="border-bad bg-bad-soft ring-bad/40 flex flex-col rounded-xl border-2 p-3 ring-2">
+      <header className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-fg font-mono text-lg leading-none font-bold">{ticket.orderNumber}</p>
+          <p className="text-fg-muted mt-1 text-xs">
+            {tx(ORDER_TYPE[ticket.orderType].label)}
+            {ticket.tableLabel ? ` · ${ticket.tableLabel}` : ""}
+          </p>
+        </div>
+        <Ban size={28} className="text-bad shrink-0" aria-hidden />
+      </header>
+
+      <p className="text-bad mt-3 text-xl leading-none font-extrabold tracking-wide">
+        {t("kds.orderCancelled")}
+      </p>
+      <p className="text-fg mt-1.5 text-sm font-medium">{t("kds.stopMaking")}</p>
+
+      {ticket.cancelReason ? (
+        <p className="text-fg-muted mt-2 text-xs">
+          <span className="text-fg-subtle">{t("kds.cancelReason")}: </span>
+          <span className="italic">“{ticket.cancelReason}”</span>
+        </p>
+      ) : null}
+
+      <ul className="text-fg-muted my-3 flex-1 space-y-1 text-sm">
+        {ticket.lines.map((line) => (
+          <li key={line.id} className="flex gap-2 line-through">
+            <span className="font-bold">{line.quantity}</span>
+            <span className="min-w-0 flex-1">{tx(line.name)}</span>
+          </li>
+        ))}
+      </ul>
+
+      {/*
+        A plain button, not a hold: the hold on Bump guards against food
+        vanishing by accident, and here the accident it would guard against
+        has already happened at the till.
+      */}
+      <Button
+        variant="danger"
+        className="w-full"
+        onClick={() => dispatch({ type: "TICKET_ACK_CANCEL", ticketId: ticket.id })}
+      >
+        {t("kds.ackCancel")}
+      </Button>
     </article>
   );
 }

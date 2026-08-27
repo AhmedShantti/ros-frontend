@@ -207,6 +207,8 @@ export type LiveAction =
   | { type: "TICKET_BUMP_LINE"; at: IsoDateTime; ticketId: Id; lineId: Id }
   | { type: "TICKET_BUMP"; at: IsoDateTime; ticketId: Id }
   | { type: "TICKET_RECALL"; at: IsoDateTime; ticketId: Id }
+  /** A cook has seen the cancellation; the card may now leave the display. */
+  | { type: "TICKET_ACK_CANCEL"; at: IsoDateTime; ticketId: Id }
   | { type: "TICKET_PRIORITY"; at: IsoDateTime; ticketId: Id; priority: KitchenTicket["priority"] }
   | { type: "ORDER_SERVE"; at: IsoDateTime; orderId: Id }
   | { type: "TABLE_STATE"; at: IsoDateTime; tableId: Id; state: import("../types").TableState }
@@ -679,6 +681,9 @@ function fireLines(
       course,
       priority: order.orderType === "delivery" ? "rush" : "normal",
       firedAt: at,
+      startedAt: null,
+      bumpedAt: null,
+      cancelReason: null,
       targetSeconds,
       elapsedSeconds: 0,
       lines: stationLines.map(ticketLineFrom),
@@ -1167,14 +1172,29 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         orderId: null,
         seatedAt: null,
       });
-      // Pull the order's tickets off the station displays.
+      /*
+        Tell the kitchen rather than tidying the ticket away.
+
+        Marking these `bumped` removed the card from the station display the
+        instant the till confirmed, which is the one thing a cook must not
+        experience: a card cannot disappear from under someone who is halfway
+        through cooking it. `cancelled` keeps it on screen, red and
+        unmissable, carrying the reason, until a cook acknowledges it — which
+        is the moment the kitchen has actually been told.
+      */
       const tickets = { ...next.tickets };
       for (const id of next.ticketIds) {
         const ticket = tickets[id];
-        if (ticket && ticket.orderId === order.id && ticket.state !== "bumped") {
+        if (
+          ticket &&
+          ticket.orderId === order.id &&
+          ticket.state !== "bumped" &&
+          ticket.state !== "cancelled"
+        ) {
           tickets[id] = {
             ...ticket,
-            state: "bumped",
+            state: "cancelled",
+            cancelReason: action.reason,
             lines: ticket.lines.map((l) => ({ ...l, state: "voided" as const })),
           };
         }
@@ -1531,13 +1551,20 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       if (!ticket || ticket.state !== "queued") return state;
       return {
         ...state,
-        tickets: { ...state.tickets, [ticket.id]: { ...ticket, state: "started" } },
+        tickets: {
+          ...state.tickets,
+          // Stamped once and never overwritten: a ticket amended after work
+          // began is still work that began when it began.
+          [ticket.id]: { ...ticket, state: "started", startedAt: ticket.startedAt ?? action.at },
+        },
       };
     }
 
     case "TICKET_BUMP_LINE": {
       const ticket = state.tickets[action.ticketId];
-      if (!ticket) return state;
+      // Nothing on a cancelled ticket can be marked ready — the food is not
+      // going anywhere, and readying a line would re-open it as work.
+      if (!ticket || ticket.state === "cancelled") return state;
       const lines = ticket.lines.map((l) =>
         l.id === action.lineId && l.state !== "voided" ? { ...l, state: "ready" as const } : l,
       );
@@ -1551,6 +1578,10 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
             ...ticket,
             lines,
             state: allReady ? "bumped" : ticket.state === "queued" ? "started" : ticket.state,
+            // Readying a line is work, so it starts the clock the same way
+            // Start does — otherwise a cook who skips the button loses it.
+            startedAt: ticket.startedAt ?? action.at,
+            bumpedAt: allReady ? action.at : ticket.bumpedAt,
           },
         },
         recallable: allReady
@@ -1563,7 +1594,9 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
 
     case "TICKET_BUMP": {
       const ticket = state.tickets[action.ticketId];
-      if (!ticket || ticket.state === "bumped") return state;
+      // A cancelled ticket leaves via TICKET_ACK_CANCEL. Bumping it would
+      // record food as made and served, and make it recallable.
+      if (!ticket || ticket.state === "bumped" || ticket.state === "cancelled") return state;
       let next: LiveState = {
         ...state,
         tickets: {
@@ -1571,6 +1604,10 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
           [ticket.id]: {
             ...ticket,
             state: "bumped",
+            // Bumped straight from queued: the cook never pressed Start, so
+            // the whole wait was pick-up and prep is indistinguishable.
+            startedAt: ticket.startedAt,
+            bumpedAt: action.at,
             lines: ticket.lines.map((l) =>
               l.state === "voided" ? l : { ...l, state: "ready" as const },
             ),
@@ -1583,6 +1620,20 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       };
       next = syncOrderFromTickets(next, ticket.orderId, action.at);
       return next;
+    }
+
+    case "TICKET_ACK_CANCEL": {
+      const ticket = state.tickets[action.ticketId];
+      if (!ticket || ticket.state !== "cancelled") return state;
+      // Acknowledged, so it leaves the display. It is not made recallable:
+      // there is no order left to recall it onto.
+      return {
+        ...state,
+        tickets: {
+          ...state.tickets,
+          [ticket.id]: { ...ticket, state: "bumped", bumpedAt: action.at },
+        },
+      };
     }
 
     // FR-KDS-025 — a mis-bump is recoverable inside the retention window.
@@ -1603,6 +1654,9 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
           [ticket.id]: {
             ...ticket,
             state: "recalled",
+            // Back on the line, so it is not done any more. `startedAt` keeps
+            // its original value: the recall is part of the same work.
+            bumpedAt: null,
             lines: ticket.lines.map((l) =>
               l.state === "voided" ? l : { ...l, state: "fired" as const },
             ),
@@ -1885,7 +1939,8 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       const tickets = { ...state.tickets };
       for (const id of state.ticketIds) {
         const ticket = tickets[id];
-        if (!ticket || ticket.state === "bumped") continue;
+        // A cancelled ticket's clock is meaningless — nothing is being made.
+        if (!ticket || ticket.state === "bumped" || ticket.state === "cancelled") continue;
         const elapsed = Math.max(
           0,
           Math.floor((action.nowMs - new Date(ticket.firedAt).getTime()) / 1000),

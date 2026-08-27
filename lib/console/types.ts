@@ -1077,7 +1077,15 @@ export interface Order {
   version: number | null;
 }
 
-export type TicketState = "queued" | "started" | "ready" | "bumped" | "recalled";
+/**
+ * `cancelled` is deliberately not `bumped`.
+ *
+ * Bumping means the food was made and went out. A cancelled order's ticket
+ * has to stay on the station display, loudly, until a cook acknowledges it —
+ * otherwise the card vanishes from under someone who is mid-cook and the pan
+ * keeps going.
+ */
+export type TicketState = "queued" | "started" | "ready" | "bumped" | "recalled" | "cancelled";
 export type TicketUrgency = "on_target" | "approaching" | "exceeded" | "critical";
 
 export interface TicketLine {
@@ -1103,6 +1111,23 @@ export interface KitchenTicket {
   course: number;
   priority: "normal" | "rush" | "vip" | "remake";
   firedAt: IsoDateTime;
+  /**
+   * When a cook pressed Start and took the ticket on, or null while it is
+   * still queued.
+   *
+   * `firedAt` measures what the guest experiences; this measures what the
+   * line does. The gap between the two is pick-up time — a queued ticket
+   * nobody has touched is invisible in the elapsed clock alone, because that
+   * clock runs identically whether or not anyone is cooking.
+   */
+  startedAt: IsoDateTime | null;
+  /** When the ticket was bumped as done, or null while it is still open. */
+  bumpedAt: IsoDateTime | null;
+  /**
+   * Why the order was cancelled, shown to the cook on the station display.
+   * The reason is mandatory at the till, so a cancelled ticket always has one.
+   */
+  cancelReason: string | null;
   targetSeconds: number;
   elapsedSeconds: number;
   lines: TicketLine[];
