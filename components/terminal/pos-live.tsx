@@ -120,7 +120,7 @@ export function LivePos() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3">
         {order ? (
           <MenuPane order={order} onOrder={setOrder} onMessage={setMessage} />
         ) : (
@@ -225,7 +225,7 @@ function NewOrderPane({
 }) {
   const { t, tx } = useI18n();
   const action = useAction();
-  const [orderType, setOrderType] = useState<"dine_in" | "takeaway" | "delivery">("dine_in");
+  const [orderType, setOrderType] = useState<"dine_in" | "takeaway" | "pickup">("dine_in");
   const [guestCount, setGuestCount] = useState("2");
 
   async function open() {
@@ -254,10 +254,10 @@ function NewOrderPane({
             <Select
               value={orderType}
               onChange={(event) =>
-                setOrderType(event.target.value as "dine_in" | "takeaway" | "delivery")
+                setOrderType(event.target.value as "dine_in" | "takeaway" | "pickup")
               }
             >
-              {(["dine_in", "takeaway", "delivery"] as const).map((value) => (
+              {(["dine_in", "takeaway", "pickup"] as const).map((value) => (
                 <option key={value} value={value}>
                   {tx(labelOf(ORDER_TYPE, value).label)}
                 </option>

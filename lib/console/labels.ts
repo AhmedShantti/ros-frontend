@@ -88,11 +88,11 @@ export const ORDER_STATE: Record<OrderState, Entry> = {
  * matters because they route and report differently.
  */
 export const ORDER_TYPE: Record<OrderType, Entry> = {
-  dine_in: e("Dine-in", "تناول في المطعم"),
+  dine_in: e("Dine In", "تناول في المطعم"),
   takeaway: e("Takeaway", "طلب خارجي"),
   delivery: e("Delivery", "توصيل"),
-  drive_thru: e("Drive-through", "خدمة السيارة"),
-  pickup: e("Pickup", "استلام من الفرع"),
+  drive_thru: e("Drive Through", "خدمة السيارة"),
+  pickup: e("Pickup from Branch", "استلام من الفرع"),
   aggregator: e("Aggregator", "منصة توصيل"),
 };
 
@@ -117,10 +117,10 @@ export const ORDER_LINE_STATE: Record<OrderLineState, Entry> = {
 };
 
 export const SYNC_STATE: Record<SyncState, Entry> = {
-  local: e("Local only", "محلي فقط", "warn"),
+  local: e("Pending sync", "بانتظار المزامنة", "warn"),
   pending: e("Pending sync", "بانتظار المزامنة", "warn"),
   synced: e("Synced", "متزامن", "good"),
-  conflicted: e("Conflicted", "متعارض", "bad"),
+  conflicted: e("Sync failed", "فشلت المزامنة", "bad"),
 };
 
 export const TENDER_TYPE: Record<TenderType, Entry> = {
@@ -151,10 +151,10 @@ export const TABLE_STATE: Record<TableState, Entry> = {
 // ---------------------------------------------------------------------------
 
 export const TICKET_STATE: Record<TicketState, Entry> = {
-  queued: e("Queued", "في الطابور", "muted"),
-  started: e("Started", "بدأ", "accent"),
+  queued: e("New", "جديد", "muted"),
+  started: e("Preparing", "قيد التحضير", "accent"),
   ready: e("Ready", "جاهز", "good"),
-  bumped: e("Bumped", "أُنهي", "good"),
+  bumped: e("Completed", "مكتمل", "good"),
   recalled: e("Recalled", "مُستعاد", "warn"),
   cancelled: e("Cancelled", "ملغي", "bad"),
 };

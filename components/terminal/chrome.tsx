@@ -26,7 +26,6 @@ import { branches, terminals } from "@/lib/console/mock/org";
 import { useI18n } from "@/lib/console/providers";
 import { formatMoney, formatNumber, formatTime, tx as pick } from "@/lib/console/format";
 import { useLive } from "@/lib/console/live/store";
-import { DATA_MODE } from "@/lib/api/config";
 import {
   pendingCount,
   useBrowserConnectivity,
@@ -204,10 +203,11 @@ function TerminalLink({
  * that always says the same thing about the network is worse than one that
  * says nothing, because staff stop reading it.
  *
- * With no backend configured the honest answer is still "working locally":
- * there is no link to lose, and reporting "online" would be a claim about a
- * server that does not exist. Once an API is configured the real state is
- * shown, with the count of writes still waiting to reach it.
+ * In http mode the queue carries every write waiting on the real backend. In
+ * mock mode there is no backend, but a completed sale taken while
+ * `navigator.onLine` is false still queues here the same way, so the badge
+ * genuinely reflects "this order hasn't synced yet" rather than a claim about
+ * a server — see `useOfflineOrderSync` in `lib/console/live/store.tsx`.
  */
 function ConnectivityBadge() {
   const { t, fmt } = useI18n();
@@ -216,19 +216,7 @@ function ConnectivityBadge() {
   const state = useConnectivityStore((s) => s.state);
   const hydrated = useConnectivityStore((s) => s.hydrated);
   const pending = useConnectivityStore(pendingCount);
-
-  // No API configured: the store is describing a link that is not there.
-  if (DATA_MODE !== "http") {
-    return (
-      <span
-        className="text-fg-subtle hidden items-center gap-1.5 text-xs sm:inline-flex"
-        title={t("term.offlineNote")}
-      >
-        <WifiOff size={13} />
-        {t("term.offline")}
-      </span>
-    );
-  }
+  const [open, setOpen] = useState(false);
 
   // Before rehydration the queue length is unknown; showing a count that then
   // corrects itself is worse than showing none for a frame.
@@ -252,20 +240,69 @@ function ConnectivityBadge() {
   }[state];
 
   return (
-    <span
-      className={cx(
-        "hidden items-center gap-1.5 text-xs sm:inline-flex",
-        look.tone,
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={cx(
+          "hidden items-center gap-1.5 text-xs sm:inline-flex",
+          look.tone,
+        )}
+        title={state === "offline" ? t("sync.offlineNote") : undefined}
+      >
+        {look.icon}
+        {look.label}
+        {pending > 0 ? (
+          <span className="text-fg-subtle">
+            · {t("sync.pending").replace("{n}", formatNumber(pending, fmt, 0))}
+          </span>
+        ) : null}
+      </button>
+      <SyncQueueModal open={open} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
+/** Every write still waiting on the server — what the connectivity badge summarises. */
+function SyncQueueModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t, fmt } = useI18n();
+  const queue = useConnectivityStore((s) => s.queue);
+  const lastSyncedAt = useConnectivityStore((s) => s.lastSyncedAt);
+  const retry = useConnectivityStore((s) => s.retry);
+
+  if (!open) return null;
+
+  return (
+    <Modal open onClose={onClose} title={t("sync.queueTitle")}>
+      <p className="text-fg-subtle text-xs leading-relaxed">{t("sync.queueLede")}</p>
+
+      {queue.length === 0 ? (
+        <p className="text-fg-subtle mt-4 text-sm">{t("sync.queueEmpty")}</p>
+      ) : (
+        <ul className="divide-line border-line mt-4 divide-y rounded-lg border">
+          {queue.map((q) => (
+            <li key={q.id} className="flex items-center justify-between gap-3 px-3 py-2">
+              <span className="text-fg min-w-0 truncate text-sm">{q.label}</span>
+              <span className="flex shrink-0 items-center gap-2">
+                <Badge tone={q.status === "failed" ? "bad" : "warn"}>
+                  {q.status === "failed" ? t("sync.statusFailed") : t("sync.statusPending")}
+                </Badge>
+                {q.status === "failed" ? (
+                  <Button size="sm" variant="ghost" onClick={() => retry(q.id)}>
+                    {t("sync.retryNow")}
+                  </Button>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
-      title={state === "offline" ? t("sync.offlineNote") : undefined}
-    >
-      {look.icon}
-      {look.label}
-      {pending > 0 ? (
-        <span className="text-fg-subtle">
-          · {t("sync.pending").replace("{n}", formatNumber(pending, fmt, 0))}
-        </span>
+
+      {lastSyncedAt ? (
+        <p className="text-fg-subtle mt-3 text-xs">
+          {t("sync.lastSynced")} · {formatTime(new Date(lastSyncedAt).toISOString(), fmt)}
+        </p>
       ) : null}
-    </span>
+    </Modal>
   );
 }

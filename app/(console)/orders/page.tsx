@@ -19,13 +19,14 @@ import {
   ORDER_LINE_STATE,
   ORDER_STATE,
   ORDER_TYPE,
+  SYNC_STATE,
   TENDER_TYPE,
 } from "@/lib/console/labels";
 import { CellStack, DataTable, type Column } from "@/components/console/data-table";
 import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/page";
 import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
 import { MetricTile } from "@/components/console/charts";
-import { Badge, Drawer, DescList, DescRow, SpecTag, Tabs } from "@/components/console/ui";
+import { Badge, Callout, Drawer, DescList, DescRow, SpecTag, Tabs } from "@/components/console/ui";
 
 type Filter = "all" | "open" | "completed" | "cancelled";
 
@@ -98,6 +99,14 @@ export default function OrdersPage() {
       render: (order) => (
         <Badge tone={ORDER_STATE[order.state].tone}>{tx(ORDER_STATE[order.state].label)}</Badge>
       ),
+    },
+    {
+      key: "syncState",
+      header: t("orders.sync"),
+      render: (order) => (
+        <Badge tone={SYNC_STATE[order.syncState].tone}>{tx(SYNC_STATE[order.syncState].label)}</Badge>
+      ),
+      secondary: true,
     },
     {
       key: "lines",
@@ -199,6 +208,51 @@ export default function OrdersPage() {
   );
 }
 
+/** How much of a cancelled order's payment, if any, has actually been sent back. */
+function CancelledOrderInfo({ order }: { order: Order }) {
+  const { t, tx, fmt } = useI18n();
+
+  const refunded = order.payments
+    .filter((p) => p.amount.amount < 0)
+    .reduce((sum, p) => sum + -p.amount.amount, 0);
+
+  const paymentStatus =
+    order.paidTotal.amount === 0
+      ? t("orders.neverCharged")
+      : refunded >= order.paidTotal.amount
+        ? t("orders.refunded")
+        : refunded > 0
+          ? t("orders.partiallyRefunded")
+          : t("orders.refundPending");
+
+  return (
+    <div className="mt-4">
+      <Callout tone="bad" title={t("orders.cancelled")}>
+        <DescList>
+          {order.cancelledAt ? (
+            <DescRow label={t("orders.cancelledAt")}>{formatTime(order.cancelledAt, fmt)}</DescRow>
+          ) : null}
+          {order.cancelledBy ? (
+            <DescRow label={t("orders.cancelledBy")}>{tx(order.cancelledBy)}</DescRow>
+          ) : null}
+          {order.cancelReason ? (
+            <DescRow label={t("orders.cancelReason")}>{order.cancelReason}</DescRow>
+          ) : null}
+          <DescRow label={t("orders.originalTotal")} mono>
+            {formatMoney(order.grandTotal, fmt)}
+          </DescRow>
+          <DescRow label={t("orders.paymentStatus")}>{paymentStatus}</DescRow>
+          {refunded > 0 ? (
+            <DescRow label={t("orders.refundAmount")} mono>
+              {formatMoney(money(refunded, order.currency), fmt)}
+            </DescRow>
+          ) : null}
+        </DescList>
+      </Callout>
+    </div>
+  );
+}
+
 function OrderDrawer({ order, onClose }: { order: Order; onClose: () => void }) {
   const { t, tx, fmt } = useI18n();
 
@@ -210,6 +264,7 @@ function OrderDrawer({ order, onClose }: { order: Order; onClose: () => void }) 
       subtitle={
         <span className="flex flex-wrap items-center gap-2">
           <Badge tone={ORDER_STATE[order.state].tone}>{tx(ORDER_STATE[order.state].label)}</Badge>
+          <Badge tone={SYNC_STATE[order.syncState].tone}>{tx(SYNC_STATE[order.syncState].label)}</Badge>
           <span>{tx(ORDER_TYPE[order.orderType].label)}</span>
           {order.tableLabel ? <span>· {order.tableLabel}</span> : null}
           <SpecTag id="BR-POS-004" />
@@ -224,12 +279,17 @@ function OrderDrawer({ order, onClose }: { order: Order; onClose: () => void }) 
         {order.completedAt ? (
           <DescRow label={t("orders.completed")}>{formatTime(order.completedAt, fmt)}</DescRow>
         ) : null}
+        {order.syncedAt ? (
+          <DescRow label={t("orders.syncedAt")}>{formatTime(order.syncedAt, fmt)}</DescRow>
+        ) : null}
         <DescRow label={t("orders.terminal")}>{order.terminalName}</DescRow>
         <DescRow label={t("orders.server")}>{tx(order.openedByName)}</DescRow>
         {order.guestCount ? (
           <DescRow label={t("orders.guests")}>{order.guestCount}</DescRow>
         ) : null}
       </DescList>
+
+      {order.state === "cancelled" ? <CancelledOrderInfo order={order} /> : null}
 
       <h3 className="text-fg mt-5 mb-2 text-sm font-semibold">{t("orders.lines")}</h3>
       <ul className="divide-line border-line divide-y rounded-lg border">

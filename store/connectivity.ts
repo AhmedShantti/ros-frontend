@@ -46,10 +46,17 @@ export type QueuedKind =
 export type QueuedStatus = "pending" | "sending" | "conflict" | "failed";
 
 export interface QueuedWrite {
+  /**
+   * The order id itself for `kind: "order"` — not a generated queue id. That
+   * is what makes a retry idempotent: enqueueing the same order twice finds
+   * the existing entry instead of appending a duplicate.
+   */
   id: string;
   kind: QueuedKind;
   /** Shown verbatim in the sync drawer — "Order #1043 · 3 items · EGP 285". */
   label: string;
+  /** The real record to replay against the server once the link returns. */
+  payload?: unknown;
   createdAt: number;
   attempts: number;
   status: QueuedStatus;
@@ -68,7 +75,7 @@ interface ConnectivityStore {
 
   setState: (state: ConnectivityState) => void;
   simulate: (state: ConnectivityState) => void;
-  enqueue: (kind: QueuedKind, label: string) => string;
+  enqueue: (kind: QueuedKind, label: string, opts?: { id?: string; payload?: unknown }) => string;
   drain: () => void;
   retry: (id: string) => void;
   resolveConflict: (id: string, keep: "local" | "server") => void;
@@ -97,13 +104,33 @@ export const useConnectivityStore = create<ConnectivityStore>()(
           simulated: state === "offline" || state === "degraded" || state === "conflict",
         }),
 
-      enqueue: (kind, label) => {
-        const id = localId();
+      enqueue: (kind, label, opts) => {
+        const id = opts?.id ?? localId();
+        const existing = get().queue.find((q) => q.id === id);
+        // Idempotent on retry: an order already queued (and not previously
+        // failed) is not queued a second time — that is what stops a flaky
+        // reconnect from posting the same sale twice.
+        if (existing && existing.status !== "failed") return id;
+
         set((s) => ({
-          queue: [
-            ...s.queue,
-            { id, kind, label, createdAt: Date.now(), attempts: 0, status: "pending" },
-          ],
+          queue: existing
+            ? s.queue.map((q) =>
+                q.id === id
+                  ? { ...q, label, payload: opts?.payload ?? q.payload, status: "pending" as const }
+                  : q,
+              )
+            : [
+                ...s.queue,
+                {
+                  id,
+                  kind,
+                  label,
+                  payload: opts?.payload,
+                  createdAt: Date.now(),
+                  attempts: 0,
+                  status: "pending" as const,
+                },
+              ],
           // Queueing while online means the link just went; reflect it rather
           // than pretending the write went through.
           state: s.state === "online" || s.state === "synced" ? "syncing" : s.state,
@@ -118,16 +145,27 @@ export const useConnectivityStore = create<ConnectivityStore>()(
         set({ state: "syncing", queue: queue.map((q) => ({ ...q, status: "sending" })) });
 
         // Stands in for the round-trip. A real client would post the batch and
-        // reconcile each entry against the response.
+        // reconcile each entry against the response. Each entry resolves on
+        // its own rather than as one all-or-nothing batch, so one bad write
+        // cannot block every other queued sale behind it.
         window.setTimeout(() => {
-          set({
-            queue: [],
+          set((s) => ({
+            queue: s.queue
+              .map((q) =>
+                // A ~6% failure rate is enough to exercise "Sync Failed" in a
+                // demo without making every session hit it.
+                q.status === "sending" && Math.random() < 0.06
+                  ? { ...q, status: "failed" as const, attempts: q.attempts + 1 }
+                  : q,
+              )
+              .filter((q) => q.status === "failed"),
             state: "synced",
             lastSyncedAt: Date.now(),
-          });
+          }));
           window.setTimeout(() => {
-            if (get().queue.length === 0 && get().state === "synced") {
-              set({ state: "online" });
+            const { queue: after } = get();
+            if (after.every((q) => q.status === "failed")) {
+              set({ state: after.length > 0 ? "conflict" : "online" });
             }
           }, 2200);
         }, 900);

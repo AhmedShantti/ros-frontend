@@ -326,6 +326,8 @@ export function toBranch(row: WireBranch, tenantId: Id): Branch {
     active: row.status === "active",
     isFranchise: Boolean(address.isFranchise),
     address: addressLine(address),
+    // gap: drive-through is a console-only setting, the API has no field for it.
+    driveThroughEnabled: false,
   };
 }
 
@@ -594,7 +596,7 @@ export function toMenuItem(row: WireMenuItem, context: MenuItemContext): MenuIte
     remainingSellable: null, // gap: FR-MNU-033 is not computed by the API.
     sortOrder: row.sortOrder,
     colour: colourOf(row.colour),
-    imageEmoji: "🍽️",
+    imageEmoji: "",
   };
 }
 
@@ -1078,8 +1080,13 @@ export function toOrder(row: WireOrder, context: OrderContext): Order {
     openedAt: row.openedAt,
     firstFiredAt: row.firstFiredAt,
     completedAt: row.completedAt,
+    // gap: the API has no cancellation-metadata fields on the order resource.
+    cancelledAt: null,
+    cancelledBy: null,
+    cancelReason: null,
     // Anything the server has answered with is, by definition, synced.
     syncState: "synced",
+    syncedAt: row.completedAt ?? row.openedAt,
     aggregatorRef: null,
     notes: row.notes,
     version: row.version,

@@ -276,7 +276,7 @@ export function PosOrderPane({
             <Button
               variant="primary"
               icon={<Utensils size={14} />}
-              disabled={live.length === 0}
+              disabled={live.length === 0 || (order.orderType === "dine_in" && !order.tableId)}
               onClick={onPay}
             >
               {t("pos.pay")}

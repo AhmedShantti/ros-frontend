@@ -19,6 +19,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Download, FileBarChart, Play } from "lucide-react";
 import type { ReportCategory, ReportDefinition } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
@@ -49,8 +50,15 @@ export default function ReportsPage() {
 
 // ---------------------------------------------------------------------------
 
+/** Reports with a real screen behind them, rather than the toast every
+ *  other card falls back to. Keyed by `ReportDefinition.id`. */
+const REPORT_ROUTES: Record<string, string> = {
+  "cash-reconciliation": "/reports/cashier",
+};
+
 function ReportsBody({ reports }: { reports: ReportDefinition[] }) {
   const { t, tx } = useI18n();
+  const router = useRouter();
   const [filter, setFilter] = useState<Filter>("all");
   const [message, setMessage] = useTransientMessage();
 
@@ -98,7 +106,11 @@ function ReportsBody({ reports }: { reports: ReportDefinition[] }) {
                 <ReportCard
                   key={report.id}
                   report={report}
-                  onRun={() => setMessage(t("rep.ranTitle"))}
+                  onRun={() => {
+                    const route = REPORT_ROUTES[report.id];
+                    if (route) router.push(route);
+                    else setMessage(t("rep.ranTitle"));
+                  }}
                 />
               ))}
             </ul>

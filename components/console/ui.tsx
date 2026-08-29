@@ -9,14 +9,19 @@
  */
 
 import {
+  Children,
   createContext,
+  isValidElement,
   useContext,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type ButtonHTMLAttributes,
+  type ChangeEvent,
   type InputHTMLAttributes,
+  type OptionHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
@@ -271,20 +276,162 @@ export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea {...props} className={cx(CONTROL_CLASS, "resize-y", props.className)} />;
 }
 
+interface SelectOption {
+  value: string;
+  label: string;
+  disabled?: boolean;
+}
+
+/**
+ * Flattens an `<option>`'s children to plain text.
+ *
+ * `String(node)` looks like it would do this, but `<option>{a} {b}</option>`
+ * is an array of children, not one string, and `Array.prototype.toString`
+ * joins with a comma — every multi-expression label rendered with stray
+ * commas where a space was written.
+ */
+function textFrom(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textFrom).join("");
+  if (isValidElement(node)) return textFrom((node.props as { children?: ReactNode }).children);
+  return "";
+}
+
+/** Reads the `<option>` children a call site passes, without a real `<select>` in the DOM. */
+function optionsFrom(children: ReactNode): SelectOption[] {
+  const options: SelectOption[] = [];
+  Children.forEach(children, (child) => {
+    if (!isValidElement(child)) return;
+    const props = child.props as OptionHTMLAttributes<HTMLOptionElement>;
+    options.push({
+      value: String(props.value ?? ""),
+      label: textFrom(props.children),
+      disabled: props.disabled,
+    });
+  });
+  return options;
+}
+
+/**
+ * Looks like a `<select>` to every call site (`value` + `onChange(e) =>
+ * e.target.value`), but the popup is ours to style — a native listbox can't
+ * take a rounded corner, an accent highlight, or a checkmark on any browser.
+ */
 export function Select({
   children,
-  ...props
+  value,
+  onChange,
+  disabled,
+  className,
+  id,
+  ...rest
 }: SelectHTMLAttributes<HTMLSelectElement> & { children: ReactNode }) {
+  const options = useMemo(() => optionsFrom(children), [children]);
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const ref = useDismissable(open, () => setOpen(false));
+  const selected = options.find((o) => o.value === value) ?? null;
+
+  const commit = (next: string) => {
+    setOpen(false);
+    buttonRef.current?.focus();
+    onChange?.({ target: { value: next } } as unknown as ChangeEvent<HTMLSelectElement>);
+  };
+
+  const step = (delta: 1 | -1) => {
+    const enabled = options.filter((o) => !o.disabled);
+    if (enabled.length === 0) return;
+    const at = enabled.findIndex((o) => o.value === value);
+    const next = enabled[Math.min(enabled.length - 1, Math.max(0, at + delta))] ?? enabled[0];
+    commit(next.value);
+  };
+
   return (
-    <div className="relative">
-      <select {...props} className={cx(CONTROL_CLASS, "appearance-none pe-8", props.className)}>
-        {children}
-      </select>
-      <ChevronDown
-        aria-hidden
-        size={14}
-        className="text-fg-subtle pointer-events-none absolute top-1/2 -translate-y-1/2 end-3"
-      />
+    <div ref={ref} className="relative">
+      <button
+        {...(rest as ButtonHTMLAttributes<HTMLButtonElement>)}
+        ref={buttonRef}
+        id={id}
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            open ? step(1) : setOpen(true);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            open ? step(-1) : setOpen(true);
+          } else if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((o) => !o);
+          } else if (e.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+        className={cx(
+          CONTROL_CLASS,
+          "flex items-center justify-between gap-2 text-start disabled:cursor-not-allowed disabled:opacity-50",
+          className,
+        )}
+      >
+        <span className={cx("truncate", !selected && "text-fg-subtle")}>{selected?.label}</span>
+        <ChevronDown
+          aria-hidden
+          size={14}
+          className={cx(
+            "text-fg-subtle shrink-0 transition-transform duration-150",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+
+      {open ? (
+        <ul
+          role="listbox"
+          tabIndex={-1}
+          aria-activedescendant={id && selected ? `${id}-${selected.value}` : undefined}
+          onClick={(e) => e.stopPropagation()}
+          className="bg-raised border-line ros-fade-in absolute start-0 top-[calc(100%+6px)] z-50 max-h-60 w-full min-w-max overflow-auto rounded-lg border p-1 shadow-lg"
+        >
+          {options.map((o) => {
+            const isSelected = o.value === value;
+            return (
+              <li
+                key={o.value}
+                id={id ? `${id}-${o.value}` : undefined}
+                role="option"
+                aria-selected={isSelected}
+                aria-disabled={o.disabled}
+                onClick={(e) => {
+                  // `Select` is almost always used inside `Field`, which wraps
+                  // it in a <label>. A <button> is a labelable element, so an
+                  // unstopped click bubbling up through the label gets
+                  // re-forwarded to the trigger button as a second synthetic
+                  // click — which reopens the very dropdown this click just
+                  // closed. Stopping it here is what makes a choice stick.
+                  e.stopPropagation();
+                  if (!o.disabled) commit(o.value);
+                }}
+                className={cx(
+                  "flex cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+                  o.disabled
+                    ? "text-fg-subtle cursor-not-allowed opacity-50"
+                    : isSelected
+                      ? "bg-accent text-white"
+                      : "text-fg hover:bg-sunken",
+                )}
+              >
+                <span className="truncate">{o.label}</span>
+                {isSelected ? <Check size={14} aria-hidden className="shrink-0" /> : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
     </div>
   );
 }

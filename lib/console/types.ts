@@ -137,6 +137,8 @@ export interface Branch {
   active: boolean;
   isFranchise: boolean;
   address: string;
+  /** FR-POS-xxx — drive-through is a per-branch capability, not every site has a lane. */
+  driveThroughEnabled: boolean;
 }
 
 export interface Warehouse {
@@ -1007,7 +1009,13 @@ export type TenderType =
 export interface OrderPayment {
   id: Id;
   tender: TenderType;
+  /** Applied to the order balance — capped at what was owed, never more. */
   amount: Money;
+  /** What the customer actually handed over. Equals `amount` for every
+   *  non-cash tender, since only cash produces physical change. */
+  tenderedAmount: Money;
+  /** `tenderedAmount - amount`. Zero for every non-cash tender. */
+  changeAmount: Money;
   tip: Money;
   /** IR-INT-013 — the last four digits only; never a PAN. */
   cardLast4: string | null;
@@ -1064,7 +1072,14 @@ export interface Order {
   openedAt: IsoDateTime;
   firstFiredAt: IsoDateTime | null;
   completedAt: IsoDateTime | null;
+  /** Set together, only when `state` becomes `"cancelled"`. */
+  cancelledAt: IsoDateTime | null;
+  cancelledBy: Localised | null;
+  cancelReason: string | null;
   syncState: SyncState;
+  /** When a `"pending"` order synced to the server — distinct from `openedAt`,
+   *  which is when it was actually rung up, possibly while offline. */
+  syncedAt: IsoDateTime | null;
   aggregatorRef: string | null;
   notes: string | null;
   /**
@@ -1293,6 +1308,20 @@ export interface CashSession {
   varianceApproval: ApprovalState;
   denominations: DenominationCount[];
   orderCount: number;
+  /** Sum of `subtotal` across this session's completed orders, before any deduction. */
+  grossSales: Money;
+  discountTotal: Money;
+  taxTotal: Money;
+  serviceChargeTotal: Money;
+  /** `grossSales - discountTotal + serviceChargeTotal` — tax excluded, since tax is
+   *  collected on the government's behalf rather than earned as revenue. */
+  netSales: Money;
+  cardSales: Money;
+  /** Wallet, gift card, loyalty points, store credit, voucher, bank transfer, etc. */
+  otherSales: Money;
+  /** Refunds across every tender, not only cash — see `cashRefunds` for the cash-only figure. */
+  refundTotal: Money;
+  cancelledOrderCount: number;
 }
 
 export type ExpenseStatus = "draft" | "pending_approval" | "approved" | "rejected" | "posted";

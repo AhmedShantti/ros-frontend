@@ -36,8 +36,8 @@ export const tenants: Tenant[] = [
     countryCode: "EG",
     baseCurrency: "EGP",
     region: "eu-south-1 (EG)",
-    brandCount: 4,
-    branchCount: 12,
+    brandCount: 1,
+    branchCount: 7,
     createdAt: "2024-03-11T08:00:00.000Z",
   },
   {
@@ -92,43 +92,16 @@ export const brands: Brand[] = [
   {
     id: "brd_0001",
     tenantId: ACTIVE_TENANT_ID,
-    name: { en: "Shawarma House", ar: "بيت الشاورما" },
-    code: "SWH",
+    name: { en: "Cairo Kitchen", ar: "مطبخ القاهرة" },
+    code: "CRK",
     colour: "#c1553a",
-    branchCount: 5,
-    active: true,
-  },
-  {
-    id: "brd_0002",
-    tenantId: ACTIVE_TENANT_ID,
-    name: { en: "Bella Pasta", ar: "بيلا باستا" },
-    code: "BLP",
-    colour: "#6b8a45",
-    branchCount: 3,
-    active: true,
-  },
-  {
-    id: "brd_0003",
-    tenantId: ACTIVE_TENANT_ID,
-    name: { en: "Kaif Coffee", ar: "قهوة كيف" },
-    code: "KFC",
-    colour: "#d98d1f",
-    branchCount: 3,
-    active: true,
-  },
-  {
-    id: "brd_0004",
-    tenantId: ACTIVE_TENANT_ID,
-    name: { en: "Cloud Wings", ar: "كلاود وينجز" },
-    code: "CLW",
-    colour: "#8a4a63",
-    branchCount: 1,
+    branchCount: 7,
     active: true,
   },
 ];
 
 // ---------------------------------------------------------------------------
-// Branches
+// Branches — Cairo only, SRS requires every site to sit inside the city.
 // ---------------------------------------------------------------------------
 
 interface BranchSeed {
@@ -141,21 +114,17 @@ interface BranchSeed {
   openedAt: string;
   franchise?: boolean;
   address: string;
+  driveThroughEnabled: boolean;
 }
 
 const branchSeeds: BranchSeed[] = [
-  { brandIndex: 0, en: "Downtown", ar: "وسط البلد", code: "SWH-DTN", seats: 64, area: 180, openedAt: "2021-04-02", address: "26 Talaat Harb St, Cairo" },
-  { brandIndex: 0, en: "Nasr City", ar: "مدينة نصر", code: "SWH-NSR", seats: 48, area: 140, openedAt: "2022-01-18", address: "Abbas El Akkad, Cairo" },
-  { brandIndex: 0, en: "Maadi", ar: "المعادي", code: "SWH-MAD", seats: 40, area: 120, openedAt: "2022-11-05", address: "Road 9, Maadi, Cairo" },
-  { brandIndex: 0, en: "Alexandria Corniche", ar: "كورنيش الإسكندرية", code: "SWH-ALX", seats: 72, area: 210, openedAt: "2023-06-21", address: "Corniche Rd, Alexandria" },
-  { brandIndex: 0, en: "Zamalek", ar: "الزمالك", code: "SWH-ZML", seats: 32, area: 95, openedAt: "2026-02-14", franchise: true, address: "Brazil St, Zamalek, Cairo" },
-  { brandIndex: 1, en: "New Cairo", ar: "القاهرة الجديدة", code: "BLP-NCR", seats: 88, area: 240, openedAt: "2021-09-30", address: "90th St, New Cairo" },
-  { brandIndex: 1, en: "Sheikh Zayed", ar: "الشيخ زايد", code: "BLP-SHZ", seats: 76, area: 220, openedAt: "2022-05-12", address: "Arkan Plaza, Sheikh Zayed" },
-  { brandIndex: 1, en: "Heliopolis", ar: "مصر الجديدة", code: "BLP-HLP", seats: 54, area: 165, openedAt: "2024-03-08", address: "Baghdad St, Heliopolis" },
-  { brandIndex: 2, en: "Garden City", ar: "جاردن سيتي", code: "KFC-GDC", seats: 28, area: 78, openedAt: "2023-02-01", address: "Kasr El Aini, Cairo" },
-  { brandIndex: 2, en: "Mall of Egypt", ar: "مول مصر", code: "KFC-MOE", seats: 36, area: 92, openedAt: "2023-10-19", address: "Mall of Egypt, 6th October" },
-  { brandIndex: 2, en: "Smart Village", ar: "القرية الذكية", code: "KFC-SMV", seats: 22, area: 64, openedAt: "2025-04-27", address: "Smart Village, Giza" },
-  { brandIndex: 3, en: "Obour Cloud Kitchen", ar: "مطبخ العبور السحابي", code: "CLW-OBR", seats: 0, area: 110, openedAt: "2024-08-15", address: "Industrial Zone, Obour City" },
+  { brandIndex: 0, en: "Downtown Cairo", ar: "وسط البلد", code: "CRK-DTN", seats: 64, area: 180, openedAt: "2021-04-02", address: "26 Talaat Harb St, Downtown, Cairo", driveThroughEnabled: false },
+  { brandIndex: 0, en: "Nasr City", ar: "مدينة نصر", code: "CRK-NSR", seats: 48, area: 140, openedAt: "2022-01-18", address: "Abbas El Akkad, Nasr City, Cairo", driveThroughEnabled: true },
+  { brandIndex: 0, en: "Heliopolis", ar: "مصر الجديدة", code: "CRK-HLP", seats: 54, area: 165, openedAt: "2024-03-08", address: "Baghdad St, Heliopolis, Cairo", driveThroughEnabled: true },
+  { brandIndex: 0, en: "New Cairo", ar: "القاهرة الجديدة", code: "CRK-NCR", seats: 88, area: 240, openedAt: "2021-09-30", address: "90th St, New Cairo", driveThroughEnabled: true },
+  { brandIndex: 0, en: "Maadi", ar: "المعادي", code: "CRK-MAD", seats: 40, area: 120, openedAt: "2022-11-05", address: "Road 9, Maadi, Cairo", driveThroughEnabled: false },
+  { brandIndex: 0, en: "Zamalek", ar: "الزمالك", code: "CRK-ZML", seats: 32, area: 95, openedAt: "2026-02-14", franchise: true, address: "Brazil St, Zamalek, Cairo", driveThroughEnabled: false },
+  { brandIndex: 0, en: "Garden City", ar: "جاردن سيتي", code: "CRK-GDC", seats: 28, area: 78, openedAt: "2023-02-01", address: "Kasr El Aini, Garden City, Cairo", driveThroughEnabled: false },
 ];
 
 export const branches: Branch[] = branchSeeds.map((seed, i) => ({
@@ -174,6 +143,7 @@ export const branches: Branch[] = branchSeeds.map((seed, i) => ({
   active: true,
   isFranchise: seed.franchise ?? false,
   address: seed.address,
+  driveThroughEnabled: seed.driveThroughEnabled,
 }));
 
 export const branchById = new Map(branches.map((b) => [b.id, b]));
@@ -197,8 +167,8 @@ export const warehouses: Warehouse[] = [
   {
     id: "whs_0002",
     tenantId: ACTIVE_TENANT_ID,
-    name: { en: "Alexandria Dry Store", ar: "مخزن الإسكندرية الجاف" },
-    code: "WH-ALX",
+    name: { en: "New Cairo Dry Store", ar: "مخزن القاهرة الجديدة الجاف" },
+    code: "WH-NCR",
     warehouseType: "branch",
     attachedBranchId: "brn_0004",
     countryCode: "EG",
@@ -210,8 +180,8 @@ export const centralKitchens: CentralKitchen[] = [
   {
     id: "ckn_0001",
     tenantId: ACTIVE_TENANT_ID,
-    name: { en: "Obour Production Facility", ar: "منشأة العبور للإنتاج" },
-    code: "CK-OBR",
+    name: { en: "Cairo Central Production Facility", ar: "منشأة الإنتاج المركزية بالقاهرة" },
+    code: "CK-CAI",
     countryCode: "EG",
     servesBranchIds: branches.slice(0, 8).map((b) => b.id),
     active: true,
@@ -253,7 +223,7 @@ export const terminals: Terminal[] = (() => {
   let n = 0;
   for (const branch of branches) {
     const posCount = branch.seats > 60 ? 3 : branch.seats > 30 ? 2 : 1;
-    const kdsCount = branch.code.startsWith("KFC") ? 1 : 2;
+    const kdsCount = 2;
 
     for (let i = 0; i < posCount; i += 1) {
       n += 1;
@@ -298,12 +268,13 @@ export const terminals: Terminal[] = (() => {
     }
   }
   // One revoked device, so the terminal screen has the full state range.
+  const retiredBranch = branches[4]!; // Maadi
   out.push({
     id: seqId("trm", n + 1),
     tenantId: ACTIVE_TENANT_ID,
-    branchId: branches[2]!.id,
-    name: "SWH-MAD POS 2 (retired)",
-    code: "SWH-MAD-P2",
+    branchId: retiredBranch.id,
+    name: `${retiredBranch.code} POS 2 (retired)`,
+    code: `${retiredBranch.code}-P2`,
     kind: "pos",
     status: "revoked",
     appVersion: "3.9.4",
@@ -334,10 +305,7 @@ const STATION_LIBRARY: { type: StationType; en: string; ar: string; colour: stri
 ];
 
 const STATIONS_BY_BRAND: Record<string, StationType[]> = {
-  SWH: ["shawarma", "grill", "fryer", "cold", "packaging", "pass"],
-  BLP: ["hot_line", "grill", "cold", "dessert", "packaging", "pass"],
-  KFC: ["barista", "bakery", "cold", "pass"],
-  CLW: ["fryer", "grill", "packaging", "pass"],
+  CRK: ["shawarma", "grill", "fryer", "hot_line", "cold", "dessert", "barista", "bakery", "packaging", "pass"],
 };
 
 export const stations: Station[] = (() => {

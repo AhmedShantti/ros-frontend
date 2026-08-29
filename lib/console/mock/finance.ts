@@ -68,6 +68,17 @@ export const cashSessions: CashSession[] = (() => {
 
         const expected = openingFloat + cashSales + payIns - cashRefunds - payOuts - safeDrops;
 
+        const cardSales = chance(rng, 0.92) ? Math.round(cashSales * (int(rng, 20, 55) / 100)) : 0;
+        const otherSales = chance(rng, 0.3) ? Math.round(cashSales * (int(rng, 2, 12) / 100)) : 0;
+        const netSalesBeforeAdjust = cashSales + cardSales + otherSales;
+        const discountTotal = Math.round(netSalesBeforeAdjust * (int(rng, 2, 9) / 100));
+        const serviceChargeTotal = Math.round(netSalesBeforeAdjust * (int(rng, 4, 12) / 100));
+        const taxTotal = Math.round(netSalesBeforeAdjust * (int(rng, 10, 14) / 100));
+        const grossSales = netSalesBeforeAdjust + discountTotal - serviceChargeTotal;
+        const netSales = grossSales - discountTotal + serviceChargeTotal;
+        const refundTotal = cashRefunds + (chance(rng, 0.2) ? int(rng, 1_000, 15_000) : 0);
+        const cancelledOrderCount = chance(rng, 0.6) ? int(rng, 0, 5) : 0;
+
         // Most drawers land within a few pounds; a minority do not.
         const drift = chance(rng, 0.7)
           ? int(rng, -300, 300)
@@ -126,6 +137,15 @@ export const cashSessions: CashSession[] = (() => {
               : "not_required",
           denominations,
           orderCount,
+          grossSales: EGP(grossSales),
+          discountTotal: EGP(discountTotal),
+          taxTotal: EGP(taxTotal),
+          serviceChargeTotal: EGP(serviceChargeTotal),
+          netSales: EGP(netSales),
+          cardSales: EGP(cardSales),
+          otherSales: EGP(otherSales),
+          refundTotal: EGP(refundTotal),
+          cancelledOrderCount,
         });
       }
     }

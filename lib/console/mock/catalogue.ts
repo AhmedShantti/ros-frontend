@@ -53,6 +53,7 @@ const CAT_SEEDS: CatSeed[] = [
   { key: "shawarma", en: "Shawarma", ar: "شاورما", colour: "#9d4029" },
   { key: "grills", en: "Grills", ar: "مشويات", colour: "#c1553a" },
   { key: "burgers", en: "Burgers", ar: "برجر", colour: "#a85a2e" },
+  { key: "mains", en: "Mains", ar: "أطباق رئيسية", colour: "#5c3a21" },
   { key: "pasta", en: "Pasta", ar: "مكرونة", colour: "#8a6a2f" },
   { key: "pizza", en: "Pizza", ar: "بيتزا", colour: "#b23d2c" },
   { key: "salads", en: "Salads", ar: "سلطات", colour: "#6b8a45" },
@@ -162,7 +163,7 @@ const SUB_RECIPE_SEEDS: SubRecipeSeed[] = [
 // Menu items
 // ---------------------------------------------------------------------------
 
-type BrandCode = "SWH" | "BLP" | "KFC" | "CLW";
+type BrandCode = "CRK";
 
 interface VariantSeed { en: string; ar: string; price: number }
 
@@ -173,7 +174,6 @@ interface MenuSeed {
   ar: string;
   kitchenEn: string;
   kitchenAr: string;
-  emoji: string;
   station: StationType;
   prep: number;
   tax?: TaxClassCode;
@@ -186,10 +186,10 @@ interface MenuSeed {
 }
 
 const MENU_SEEDS: MenuSeed[] = [
-  // ---- Shawarma House ----
+  // ---- Shawarma & grills ----
   {
-    brand: "SWH", cat: "shawarma", en: "Chicken shawarma sandwich", ar: "ساندويتش شاورما دجاج",
-    kitchenEn: "CHK SHAW SW", kitchenAr: "شاورما دجاج", emoji: "🌯", station: "shawarma", prep: 180,
+    brand: "CRK", cat: "shawarma", en: "Chicken shawarma sandwich", ar: "ساندويتش شاورما دجاج",
+    kitchenEn: "CHK SHAW SW", kitchenAr: "شاورما دجاج", station: "shawarma", prep: 180,
     variants: [{ en: "Regular", ar: "عادي", price: 45 }, { en: "Large", ar: "كبير", price: 62 }],
     recipe: [
       { sku: "PRO-002", qty: 140, unit: "g", wastage: 6 },
@@ -202,8 +202,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["gluten"],
   },
   {
-    brand: "SWH", cat: "shawarma", en: "Lamb shawarma sandwich", ar: "ساندويتش شاورما لحم",
-    kitchenEn: "LMB SHAW SW", kitchenAr: "شاورما لحم", emoji: "🥙", station: "shawarma", prep: 190,
+    brand: "CRK", cat: "shawarma", en: "Lamb shawarma sandwich", ar: "ساندويتش شاورما لحم",
+    kitchenEn: "LMB SHAW SW", kitchenAr: "شاورما لحم", station: "shawarma", prep: 190,
     variants: [{ en: "Regular", ar: "عادي", price: 68 }, { en: "Large", ar: "كبير", price: 89 }],
     recipe: [
       { sku: "PRO-005", qty: 135, unit: "g", wastage: 7 },
@@ -216,8 +216,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["gluten", "sesame"],
   },
   {
-    brand: "SWH", cat: "shawarma", en: "Shawarma plate", ar: "طبق شاورما",
-    kitchenEn: "SHAW PLATE", kitchenAr: "طبق شاورما", emoji: "🍽️", station: "shawarma", prep: 240,
+    brand: "CRK", cat: "shawarma", en: "Shawarma plate", ar: "طبق شاورما",
+    kitchenEn: "SHAW PLATE", kitchenAr: "طبق شاورما", station: "shawarma", prep: 240,
     variants: [{ en: "Chicken", ar: "دجاج", price: 95 }, { en: "Lamb", ar: "لحم", price: 128 }],
     recipe: [
       { sku: "PRO-002", qty: 220, unit: "g", wastage: 6 },
@@ -229,8 +229,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["gluten"],
   },
   {
-    brand: "SWH", cat: "grills", en: "Mixed grill", ar: "مشاوي مشكلة",
-    kitchenEn: "MIX GRILL", kitchenAr: "مشكل", emoji: "🍖", station: "grill", prep: 720,
+    brand: "CRK", cat: "grills", en: "Mixed grill", ar: "مشاوي مشكلة",
+    kitchenEn: "MIX GRILL", kitchenAr: "مشكل", station: "grill", prep: 720,
     variants: [{ en: "For one", ar: "لشخص", price: 210 }, { en: "For two", ar: "لشخصين", price: 385 }],
     recipe: [
       { sku: "PRO-001", qty: 180, unit: "g", wastage: 12 },
@@ -242,8 +242,8 @@ const MENU_SEEDS: MenuSeed[] = [
     ],
   },
   {
-    brand: "SWH", cat: "grills", en: "Grilled chicken quarter", ar: "ربع دجاجة مشوية",
-    kitchenEn: "GRL CHK QTR", kitchenAr: "ربع دجاج", emoji: "🍗", station: "grill", prep: 900,
+    brand: "CRK", cat: "grills", en: "Grilled chicken quarter", ar: "ربع دجاجة مشوية",
+    kitchenEn: "GRL CHK QTR", kitchenAr: "ربع دجاج", station: "grill", prep: 900,
     variants: [{ en: "Standard", ar: "عادي", price: 118 }],
     recipe: [
       { sku: "PRO-001", qty: 320, unit: "g", wastage: 16 },
@@ -253,8 +253,8 @@ const MENU_SEEDS: MenuSeed[] = [
     ],
   },
   {
-    brand: "SWH", cat: "sides", en: "French fries", ar: "بطاطس مقلية",
-    kitchenEn: "FRIES", kitchenAr: "بطاطس", emoji: "🍟", station: "fryer", prep: 210,
+    brand: "CRK", cat: "sides", en: "French fries", ar: "بطاطس مقلية",
+    kitchenEn: "FRIES", kitchenAr: "بطاطس", station: "fryer", prep: 210,
     variants: [{ en: "Regular", ar: "عادي", price: 28 }, { en: "Large", ar: "كبير", price: 40 }],
     recipe: [
       { sku: "PRD-005", qty: 220, unit: "g", wastage: 18 },
@@ -264,8 +264,8 @@ const MENU_SEEDS: MenuSeed[] = [
     ],
   },
   {
-    brand: "SWH", cat: "sides", en: "Hummus", ar: "حمص",
-    kitchenEn: "HUMMUS", kitchenAr: "حمص", emoji: "🫓", station: "cold", prep: 90,
+    brand: "CRK", cat: "sides", en: "Hummus", ar: "حمص",
+    kitchenEn: "HUMMUS", kitchenAr: "حمص", station: "cold", prep: 90,
     variants: [{ en: "Portion", ar: "طبق", price: 34 }],
     recipe: [
       { sub: "hummus", qty: 160, unit: "g" },
@@ -275,8 +275,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["sesame", "gluten"],
   },
   {
-    brand: "SWH", cat: "salads", en: "Fattoush", ar: "فتوش",
-    kitchenEn: "FATTOUSH", kitchenAr: "فتوش", emoji: "🥗", station: "cold", prep: 150,
+    brand: "CRK", cat: "salads", en: "Fattoush", ar: "فتوش",
+    kitchenEn: "FATTOUSH", kitchenAr: "فتوش", station: "cold", prep: 150,
     variants: [{ en: "Portion", ar: "طبق", price: 42 }],
     recipe: [
       { sku: "PRD-003", qty: 90, unit: "g", wastage: 22 },
@@ -290,10 +290,10 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["gluten"],
   },
 
-  // ---- Bella Pasta ----
+  // ---- Pasta, pizza & salads ----
   {
-    brand: "BLP", cat: "pasta", en: "Penne arrabbiata", ar: "بيني أرابياتا",
-    kitchenEn: "PENNE ARR", kitchenAr: "بيني أرابياتا", emoji: "🍝", station: "hot_line", prep: 480,
+    brand: "CRK", cat: "pasta", en: "Penne arrabbiata", ar: "بيني أرابياتا",
+    kitchenEn: "PENNE ARR", kitchenAr: "بيني أرابياتا", station: "hot_line", prep: 480,
     variants: [{ en: "Standard", ar: "عادي", price: 135 }],
     recipe: [
       { sku: "DRG-001", qty: 120, unit: "g" },
@@ -305,8 +305,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["gluten", "milk"],
   },
   {
-    brand: "BLP", cat: "pasta", en: "Spaghetti carbonara", ar: "سباجيتي كاربونارا",
-    kitchenEn: "SPAG CARB", kitchenAr: "كاربونارا", emoji: "🍝", station: "hot_line", prep: 540,
+    brand: "CRK", cat: "pasta", en: "Spaghetti carbonara", ar: "سباجيتي كاربونارا",
+    kitchenEn: "SPAG CARB", kitchenAr: "كاربونارا", station: "hot_line", prep: 540,
     variants: [{ en: "Standard", ar: "عادي", price: 158 }],
     recipe: [
       { sku: "DRG-002", qty: 130, unit: "g" },
@@ -318,8 +318,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["gluten", "milk", "egg"],
   },
   {
-    brand: "BLP", cat: "pasta", en: "Prawn linguine", ar: "لينجويني بالجمبري",
-    kitchenEn: "PRWN LING", kitchenAr: "لينجويني جمبري", emoji: "🍤", station: "hot_line", prep: 600,
+    brand: "CRK", cat: "pasta", en: "Prawn linguine", ar: "لينجويني بالجمبري",
+    kitchenEn: "PRWN LING", kitchenAr: "لينجويني جمبري", station: "hot_line", prep: 600,
     variants: [{ en: "Standard", ar: "عادي", price: 225 }],
     recipe: [
       { sku: "DRG-002", qty: 130, unit: "g" },
@@ -332,8 +332,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["gluten", "shellfish"],
   },
   {
-    brand: "BLP", cat: "pizza", en: "Margherita", ar: "مارجريتا",
-    kitchenEn: "PIZ MARG", kitchenAr: "مارجريتا", emoji: "🍕", station: "hot_line", prep: 480,
+    brand: "CRK", cat: "pizza", en: "Margherita", ar: "مارجريتا",
+    kitchenEn: "PIZ MARG", kitchenAr: "مارجريتا", station: "hot_line", prep: 480,
     variants: [{ en: "Medium", ar: "وسط", price: 140 }, { en: "Large", ar: "كبير", price: 195 }],
     recipe: [
       { sku: "DRG-004", qty: 230, unit: "g", wastage: 4 },
@@ -345,8 +345,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["gluten", "milk"],
   },
   {
-    brand: "BLP", cat: "pizza", en: "Pepperoni", ar: "بيبروني",
-    kitchenEn: "PIZ PEP", kitchenAr: "بيبروني", emoji: "🍕", station: "hot_line", prep: 500,
+    brand: "CRK", cat: "pizza", en: "Pepperoni", ar: "بيبروني",
+    kitchenEn: "PIZ PEP", kitchenAr: "بيبروني", station: "hot_line", prep: 500,
     variants: [{ en: "Medium", ar: "وسط", price: 168 }, { en: "Large", ar: "كبير", price: 232 }],
     recipe: [
       { sku: "DRG-004", qty: 230, unit: "g", wastage: 4 },
@@ -357,8 +357,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["gluten", "milk"],
   },
   {
-    brand: "BLP", cat: "salads", en: "Caesar salad", ar: "سلطة سيزر",
-    kitchenEn: "CAESAR", kitchenAr: "سيزر", emoji: "🥗", station: "cold", prep: 210,
+    brand: "CRK", cat: "salads", en: "Caesar salad", ar: "سلطة سيزر",
+    kitchenEn: "CAESAR", kitchenAr: "سيزر", station: "cold", prep: 210,
     variants: [{ en: "Starter", ar: "مقبلات", price: 88 }, { en: "With chicken", ar: "مع دجاج", price: 132 }],
     recipe: [
       { sku: "PRD-003", qty: 140, unit: "g", wastage: 22 },
@@ -370,8 +370,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["milk", "egg"],
   },
   {
-    brand: "BLP", cat: "salads", en: "Rocket and parmesan", ar: "جرجير وبارميزان",
-    kitchenEn: "ROCKET PARM", kitchenAr: "جرجير بارميزان", emoji: "🥬", station: "cold", prep: 120,
+    brand: "CRK", cat: "salads", en: "Rocket and parmesan", ar: "جرجير وبارميزان",
+    kitchenEn: "ROCKET PARM", kitchenAr: "جرجير بارميزان", station: "cold", prep: 120,
     variants: [{ en: "Portion", ar: "طبق", price: 76 }],
     recipe: [
       { sku: "PRD-008", qty: 90, unit: "g", wastage: 18 },
@@ -382,8 +382,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["milk"],
   },
   {
-    brand: "BLP", cat: "grills", en: "Grilled salmon", ar: "سلمون مشوي",
-    kitchenEn: "GRL SALMON", kitchenAr: "سلمون", emoji: "🐟", station: "grill", prep: 660,
+    brand: "CRK", cat: "grills", en: "Grilled salmon", ar: "سلمون مشوي",
+    kitchenEn: "GRL SALMON", kitchenAr: "سلمون", station: "grill", prep: 660,
     variants: [{ en: "Standard", ar: "عادي", price: 320 }],
     recipe: [
       { sku: "PRO-006", qty: 190, unit: "g", wastage: 9 },
@@ -395,17 +395,17 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["fish", "milk"],
   },
   {
-    brand: "BLP", cat: "desserts", en: "Tiramisu", ar: "تيراميسو",
-    kitchenEn: "TIRAMISU", kitchenAr: "تيراميسو", emoji: "🍰", station: "dessert", prep: 90,
+    brand: "CRK", cat: "desserts", en: "Tiramisu", ar: "تيراميسو",
+    kitchenEn: "TIRAMISU", kitchenAr: "تيراميسو", station: "dessert", prep: 90,
     variants: [{ en: "Slice", ar: "قطعة", price: 82 }],
     incomplete: true,
     allergens: ["gluten", "milk", "egg"],
   },
 
-  // ---- Kaif Coffee ----
+  // ---- Coffee, cold drinks & breakfast ----
   {
-    brand: "KFC", cat: "hot_drinks", en: "Espresso", ar: "إسبريسو",
-    kitchenEn: "ESP", kitchenAr: "إسبريسو", emoji: "☕", station: "barista", prep: 45,
+    brand: "CRK", cat: "hot_drinks", en: "Espresso", ar: "إسبريسو",
+    kitchenEn: "ESP", kitchenAr: "إسبريسو", station: "barista", prep: 45,
     variants: [{ en: "Single", ar: "مفرد", price: 32 }, { en: "Double", ar: "مزدوج", price: 42 }],
     recipe: [
       { sku: "BEV-001", qty: 9, unit: "g" },
@@ -414,8 +414,8 @@ const MENU_SEEDS: MenuSeed[] = [
     ],
   },
   {
-    brand: "KFC", cat: "hot_drinks", en: "Flat white", ar: "فلات وايت",
-    kitchenEn: "FLAT WHT", kitchenAr: "فلات وايت", emoji: "☕", station: "barista", prep: 75,
+    brand: "CRK", cat: "hot_drinks", en: "Flat white", ar: "فلات وايت",
+    kitchenEn: "FLAT WHT", kitchenAr: "فلات وايت", station: "barista", prep: 75,
     variants: [{ en: "Regular", ar: "عادي", price: 58 }],
     recipe: [
       { sku: "BEV-001", qty: 18, unit: "g" },
@@ -426,8 +426,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["milk"],
   },
   {
-    brand: "KFC", cat: "hot_drinks", en: "Cappuccino", ar: "كابتشينو",
-    kitchenEn: "CAPP", kitchenAr: "كابتشينو", emoji: "☕", station: "barista", prep: 80,
+    brand: "CRK", cat: "hot_drinks", en: "Cappuccino", ar: "كابتشينو",
+    kitchenEn: "CAPP", kitchenAr: "كابتشينو", station: "barista", prep: 80,
     variants: [{ en: "Regular", ar: "عادي", price: 55 }, { en: "Large", ar: "كبير", price: 68 }],
     recipe: [
       { sku: "BEV-001", qty: 18, unit: "g" },
@@ -438,8 +438,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["milk"],
   },
   {
-    brand: "KFC", cat: "hot_drinks", en: "Hot chocolate", ar: "شوكولاتة ساخنة",
-    kitchenEn: "HOT CHOC", kitchenAr: "شوكولاتة", emoji: "🍫", station: "barista", prep: 90,
+    brand: "CRK", cat: "hot_drinks", en: "Hot chocolate", ar: "شوكولاتة ساخنة",
+    kitchenEn: "HOT CHOC", kitchenAr: "شوكولاتة", station: "barista", prep: 90,
     variants: [{ en: "Regular", ar: "عادي", price: 62 }],
     recipe: [
       { sku: "BEV-003", qty: 32, unit: "g" },
@@ -450,8 +450,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["milk"],
   },
   {
-    brand: "KFC", cat: "cold_drinks", en: "Iced latte", ar: "لاتيه مثلج",
-    kitchenEn: "ICED LAT", kitchenAr: "لاتيه مثلج", emoji: "🧋", station: "barista", prep: 70,
+    brand: "CRK", cat: "cold_drinks", en: "Iced latte", ar: "لاتيه مثلج",
+    kitchenEn: "ICED LAT", kitchenAr: "لاتيه مثلج", station: "barista", prep: 70,
     variants: [{ en: "Regular", ar: "عادي", price: 64 }],
     recipe: [
       { sku: "BEV-001", qty: 18, unit: "g" },
@@ -463,8 +463,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["milk"],
   },
   {
-    brand: "KFC", cat: "cold_drinks", en: "Fresh orange juice", ar: "عصير برتقال طازج",
-    kitchenEn: "FRESH OJ", kitchenAr: "عصير برتقال", emoji: "🍊", station: "cold", prep: 120,
+    brand: "CRK", cat: "cold_drinks", en: "Fresh orange juice", ar: "عصير برتقال طازج",
+    kitchenEn: "FRESH OJ", kitchenAr: "عصير برتقال", station: "cold", prep: 120,
     variants: [{ en: "Regular", ar: "عادي", price: 55 }],
     recipe: [
       { sku: "BEV-007", qty: 420, unit: "g", wastage: 48 },
@@ -473,8 +473,8 @@ const MENU_SEEDS: MenuSeed[] = [
     ],
   },
   {
-    brand: "KFC", cat: "cold_drinks", en: "Mint lemonade", ar: "ليمون بالنعناع",
-    kitchenEn: "MINT LEM", kitchenAr: "ليمون نعناع", emoji: "🍹", station: "cold", prep: 130,
+    brand: "CRK", cat: "cold_drinks", en: "Lemon Mint", ar: "ليمون بالنعناع",
+    kitchenEn: "LEMON MINT", kitchenAr: "ليمون نعناع", station: "cold", prep: 130,
     variants: [{ en: "Regular", ar: "عادي", price: 48 }],
     recipe: [
       { sku: "PRD-011", qty: 130, unit: "g", wastage: 55 },
@@ -484,20 +484,20 @@ const MENU_SEEDS: MenuSeed[] = [
     ],
   },
   {
-    brand: "KFC", cat: "cold_drinks", en: "Soft drink", ar: "مشروب غازي",
-    kitchenEn: "SOFT DRK", kitchenAr: "غازي", emoji: "🥤", station: "beverage", prep: 20,
+    brand: "CRK", cat: "cold_drinks", en: "Soft drink", ar: "مشروب غازي",
+    kitchenEn: "SOFT DRK", kitchenAr: "غازي", station: "beverage", prep: 20,
     variants: [{ en: "Can 330ml", ar: "علبة ٣٣٠ مل", price: 20 }],
     recipe: [{ sku: "BEV-005", qty: 1, unit: "pc" }],
   },
   {
-    brand: "KFC", cat: "cold_drinks", en: "Mineral water", ar: "مياه معدنية",
-    kitchenEn: "WATER", kitchenAr: "مياه", emoji: "💧", station: "beverage", prep: 15,
+    brand: "CRK", cat: "cold_drinks", en: "Mineral water", ar: "مياه معدنية",
+    kitchenEn: "WATER", kitchenAr: "مياه", station: "beverage", prep: 15,
     variants: [{ en: "600ml", ar: "٦٠٠ مل", price: 12 }],
     recipe: [{ sku: "BEV-006", qty: 1, unit: "pc" }],
   },
   {
-    brand: "KFC", cat: "breakfast", en: "Butter croissant", ar: "كرواسون بالزبدة",
-    kitchenEn: "CROISSANT", kitchenAr: "كرواسون", emoji: "🥐", station: "bakery", prep: 900,
+    brand: "CRK", cat: "breakfast", en: "Butter croissant", ar: "كرواسون بالزبدة",
+    kitchenEn: "CROISSANT", kitchenAr: "كرواسون", station: "bakery", prep: 900,
     variants: [{ en: "Each", ar: "قطعة", price: 45 }],
     recipe: [
       { sku: "BAK-004", qty: 1, unit: "pc" },
@@ -507,8 +507,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["gluten", "milk", "egg"],
   },
   {
-    brand: "KFC", cat: "breakfast", en: "Labneh and zaatar plate", ar: "طبق لبنة وزعتر",
-    kitchenEn: "LABNEH PLT", kitchenAr: "لبنة", emoji: "🫒", station: "cold", prep: 180,
+    brand: "CRK", cat: "breakfast", en: "Labneh and zaatar plate", ar: "طبق لبنة وزعتر",
+    kitchenEn: "LABNEH PLT", kitchenAr: "لبنة", station: "cold", prep: 180,
     variants: [{ en: "Portion", ar: "طبق", price: 68 }],
     recipe: [
       { sku: "DRY-007", qty: 120, unit: "g" },
@@ -520,17 +520,17 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["milk", "gluten"],
   },
   {
-    brand: "KFC", cat: "desserts", en: "Basbousa", ar: "بسبوسة",
-    kitchenEn: "BASBOUSA", kitchenAr: "بسبوسة", emoji: "🍮", station: "bakery", prep: 60,
+    brand: "CRK", cat: "desserts", en: "Basbousa", ar: "بسبوسة",
+    kitchenEn: "BASBOUSA", kitchenAr: "بسبوسة", station: "bakery", prep: 60,
     variants: [{ en: "Slice", ar: "قطعة", price: 38 }],
     incomplete: true,
     allergens: ["gluten", "milk"],
   },
 
-  // ---- Cloud Wings (delivery-only) ----
+  // ---- Burgers & fried sides ----
   {
-    brand: "CLW", cat: "burgers", en: "Classic cheeseburger", ar: "تشيز برجر كلاسيك",
-    kitchenEn: "CLSC CHZ", kitchenAr: "تشيز برجر", emoji: "🍔", station: "grill", prep: 420,
+    brand: "CRK", cat: "burgers", en: "Classic cheeseburger", ar: "تشيز برجر كلاسيك",
+    kitchenEn: "CLSC CHZ", kitchenAr: "تشيز برجر", station: "grill", prep: 420,
     variants: [{ en: "Single", ar: "مفرد", price: 125 }, { en: "Double", ar: "مزدوج", price: 178 }],
     recipe: [
       { sub: "burger_patty", qty: 1, unit: "pc" },
@@ -544,8 +544,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["gluten", "milk", "egg", "sesame"],
   },
   {
-    brand: "CLW", cat: "burgers", en: "Crispy chicken burger", ar: "برجر دجاج مقرمش",
-    kitchenEn: "CRSP CHK", kitchenAr: "برجر دجاج", emoji: "🍔", station: "fryer", prep: 480,
+    brand: "CRK", cat: "burgers", en: "Crispy chicken burger", ar: "برجر دجاج مقرمش",
+    kitchenEn: "CRSP CHK", kitchenAr: "برجر دجاج", station: "fryer", prep: 480,
     variants: [{ en: "Single", ar: "مفرد", price: 118 }],
     recipe: [
       { sku: "PRO-001", qty: 150, unit: "g", wastage: 12 },
@@ -559,8 +559,8 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["gluten", "egg"],
   },
   {
-    brand: "CLW", cat: "sides", en: "Buffalo wings", ar: "أجنحة بافلو",
-    kitchenEn: "BUFF WINGS", kitchenAr: "بافلو وينجز", emoji: "🍗", station: "fryer", prep: 540,
+    brand: "CRK", cat: "sides", en: "Buffalo wings", ar: "أجنحة بافلو",
+    kitchenEn: "BUFF WINGS", kitchenAr: "بافلو وينجز", station: "fryer", prep: 540,
     variants: [{ en: "6 pieces", ar: "٦ قطع", price: 95 }, { en: "12 pieces", ar: "١٢ قطعة", price: 165 }],
     recipe: [
       { sku: "PRO-001", qty: 320, unit: "g", wastage: 15 },
@@ -571,8 +571,8 @@ const MENU_SEEDS: MenuSeed[] = [
     ],
   },
   {
-    brand: "CLW", cat: "sides", en: "Loaded fries", ar: "بطاطس محمّلة",
-    kitchenEn: "LOAD FRIES", kitchenAr: "بطاطس محملة", emoji: "🍟", station: "fryer", prep: 300,
+    brand: "CRK", cat: "sides", en: "Loaded fries", ar: "بطاطس محمّلة",
+    kitchenEn: "LOAD FRIES", kitchenAr: "بطاطس محملة", station: "fryer", prep: 300,
     variants: [{ en: "Portion", ar: "طبق", price: 68 }],
     recipe: [
       { sku: "PRD-005", qty: 240, unit: "g", wastage: 18 },
@@ -582,6 +582,149 @@ const MENU_SEEDS: MenuSeed[] = [
       { sku: "PKG-001", qty: 1, unit: "pc" },
     ],
     allergens: ["milk"],
+  },
+
+  // ---- Breakfast additions ----
+  // These, and everything below, are newly added items pending recipe
+  // costing (BR-MNU-012) — priced and categorised, no stock recipe yet.
+  {
+    brand: "CRK", cat: "breakfast", en: "Eggs", ar: "بيض",
+    kitchenEn: "EGGS", kitchenAr: "بيض", station: "hot_line", prep: 240,
+    variants: [{ en: "Fried", ar: "مقلي", price: 32 }, { en: "Boiled", ar: "مسلوق", price: 28 }],
+    allergens: ["egg"],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "breakfast", en: "Omelette", ar: "أومليت",
+    kitchenEn: "OMELETTE", kitchenAr: "أومليت", station: "hot_line", prep: 300,
+    variants: [{ en: "Plain", ar: "سادة", price: 38 }],
+    allergens: ["egg"],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "breakfast", en: "Cheese omelette", ar: "أومليت بالجبنة",
+    kitchenEn: "CHS OMELETTE", kitchenAr: "أومليت جبنة", station: "hot_line", prep: 300,
+    variants: [{ en: "Regular", ar: "عادي", price: 46 }],
+    allergens: ["egg", "milk"],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "breakfast", en: "Shakshuka", ar: "شكشوكة",
+    kitchenEn: "SHAKSHUKA", kitchenAr: "شكشوكة", station: "hot_line", prep: 420,
+    variants: [{ en: "Portion", ar: "طبق", price: 55 }],
+    allergens: ["egg"],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "breakfast", en: "Pancakes", ar: "بان كيك",
+    kitchenEn: "PANCAKES", kitchenAr: "بان كيك", station: "hot_line", prep: 360,
+    variants: [{ en: "Stack of 3", ar: "٣ قطع", price: 58 }],
+    allergens: ["gluten", "egg", "milk"],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "breakfast", en: "French toast", ar: "توست فرنسي",
+    kitchenEn: "FR TOAST", kitchenAr: "توست فرنسي", station: "hot_line", prep: 360,
+    variants: [{ en: "Portion", ar: "طبق", price: 52 }],
+    allergens: ["gluten", "egg", "milk"],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "breakfast", en: "Breakfast sandwich", ar: "ساندويتش فطور",
+    kitchenEn: "BKFST SNDW", kitchenAr: "ساندويتش فطور", station: "hot_line", prep: 300,
+    variants: [{ en: "Regular", ar: "عادي", price: 46 }],
+    allergens: ["gluten", "egg"],
+    incomplete: true,
+  },
+
+  // ---- Mains additions ----
+  {
+    brand: "CRK", cat: "mains", en: "Chicken sandwich", ar: "ساندويتش دجاج",
+    kitchenEn: "CHK SNDW", kitchenAr: "ساندويتش دجاج", station: "grill", prep: 360,
+    variants: [{ en: "Regular", ar: "عادي", price: 68 }],
+    allergens: ["gluten"],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "mains", en: "Steak", ar: "استيك",
+    kitchenEn: "STEAK", kitchenAr: "استيك", station: "grill", prep: 720,
+    variants: [{ en: "200g", ar: "٢٠٠ جم", price: 285 }],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "mains", en: "Chicken rice bowl", ar: "طبق أرز بالدجاج",
+    kitchenEn: "CHK RICE BWL", kitchenAr: "أرز دجاج", station: "hot_line", prep: 420,
+    variants: [{ en: "Regular", ar: "عادي", price: 95 }],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "mains", en: "Beef rice bowl", ar: "طبق أرز باللحم",
+    kitchenEn: "BEEF RICE BWL", kitchenAr: "أرز لحم", station: "hot_line", prep: 480,
+    variants: [{ en: "Regular", ar: "عادي", price: 125 }],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "pasta", en: "Chicken pasta", ar: "مكرونة بالدجاج",
+    kitchenEn: "CHK PASTA", kitchenAr: "مكرونة دجاج", station: "hot_line", prep: 480,
+    variants: [{ en: "Standard", ar: "عادي", price: 148 }],
+    allergens: ["gluten", "milk"],
+    incomplete: true,
+  },
+
+  // ---- Dessert additions ----
+  {
+    brand: "CRK", cat: "desserts", en: "Cheesecake", ar: "تشيز كيك",
+    kitchenEn: "CHEESECAKE", kitchenAr: "تشيز كيك", station: "dessert", prep: 60,
+    variants: [{ en: "Slice", ar: "قطعة", price: 78 }],
+    allergens: ["gluten", "milk", "egg"],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "desserts", en: "Brownie", ar: "براوني",
+    kitchenEn: "BROWNIE", kitchenAr: "براوني", station: "dessert", prep: 60,
+    variants: [{ en: "Slice", ar: "قطعة", price: 48 }],
+    allergens: ["gluten", "milk", "egg"],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "desserts", en: "Waffle", ar: "وافل",
+    kitchenEn: "WAFFLE", kitchenAr: "وافل", station: "dessert", prep: 300,
+    variants: [{ en: "Regular", ar: "عادي", price: 62 }],
+    allergens: ["gluten", "milk", "egg"],
+    incomplete: true,
+  },
+
+  // ---- Juice and hot-drink additions ----
+  {
+    brand: "CRK", cat: "cold_drinks", en: "Mango juice", ar: "عصير مانجو",
+    kitchenEn: "MANGO JCE", kitchenAr: "عصير مانجو", station: "cold", prep: 120,
+    variants: [{ en: "Regular", ar: "عادي", price: 45 }],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "cold_drinks", en: "Strawberry juice", ar: "عصير فراولة",
+    kitchenEn: "STRAW JCE", kitchenAr: "عصير فراولة", station: "cold", prep: 120,
+    variants: [{ en: "Regular", ar: "عادي", price: 45 }],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "cold_drinks", en: "Lemon juice", ar: "عصير ليمون",
+    kitchenEn: "LEMON JCE", kitchenAr: "عصير ليمون", station: "cold", prep: 120,
+    variants: [{ en: "Regular", ar: "عادي", price: 32 }],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "hot_drinks", en: "Tea", ar: "شاي",
+    kitchenEn: "TEA", kitchenAr: "شاي", station: "barista", prep: 60,
+    variants: [{ en: "Regular", ar: "عادي", price: 22 }],
+    incomplete: true,
+  },
+  {
+    brand: "CRK", cat: "hot_drinks", en: "Latte", ar: "لاتيه",
+    kitchenEn: "LATTE", kitchenAr: "لاتيه", station: "barista", prep: 80,
+    variants: [{ en: "Regular", ar: "عادي", price: 58 }, { en: "Large", ar: "كبير", price: 68 }],
+    allergens: ["milk"],
+    incomplete: true,
   },
 ];
 
@@ -627,7 +770,7 @@ export const menuItems: MenuItem[] = MENU_SEEDS.map((seed, i) => {
     remainingSellable: unavailable ? 0 : int(rng, 4, 180),
     sortOrder: i + 1,
     colour: CAT_SEEDS.find((c) => c.key === seed.cat)?.colour ?? "#c1553a",
-    imageEmoji: seed.emoji,
+    imageEmoji: "",
   };
 });
 
@@ -1114,9 +1257,9 @@ export const priceLists: PriceList[] = [
   {
     id: "prl_0003",
     tenantId: ACTIVE_TENANT_ID,
-    name: { en: "Happy hour — Kaif", ar: "ساعة العرض — كيف" },
+    name: { en: "Happy hour", ar: "ساعة العرض" },
     scope: "brand",
-    scopeId: brands[2]!.id,
+    scopeId: brands[0]!.id,
     orderTypes: ["dine_in", "takeaway"],
     priority: 50,
     validFrom: dateAgo(60),
@@ -1146,7 +1289,7 @@ export const priceLists: PriceList[] = [
     tenantId: ACTIVE_TENANT_ID,
     name: { en: "Zamalek franchise list", ar: "قائمة امتياز الزمالك" },
     scope: "branch",
-    scopeId: "brn_0005",
+    scopeId: "brn_0006", // Zamalek
     orderTypes: ["dine_in", "takeaway", "delivery"],
     priority: 40,
     validFrom: dateAgo(120),

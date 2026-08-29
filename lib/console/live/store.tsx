@@ -34,6 +34,7 @@ import {
   LIVE_STORAGE_KEY,
   type LiveState,
 } from "./state";
+import { useConnectivityStore, type QueuedStatus } from "@/store/connectivity";
 
 type RootAction = LiveAction | { type: "HYDRATE"; state: LiveState };
 
@@ -76,6 +77,79 @@ function readStored(): LiveState | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Offline POS sync.
+ *
+ * A completed sale is never blocked by the network — it settles locally the
+ * instant payment clears. This hook is what happens after: the moment a sale
+ * lands while offline it is queued for the server, carrying the real order
+ * so the queue can actually replay it later rather than just describing it.
+ * The order id doubles as the queue's idempotency key, so a reconnect that
+ * retries never re-submits the same sale twice.
+ *
+ * `openedAt` (when the sale actually happened) and `syncedAt` (when it
+ * reached the server) are deliberately different fields — an order rung up
+ * at 8:35pm during an outage and synced at 9:10pm keeps both times.
+ */
+function useOfflineOrderSync(state: LiveState, dispatch: (action: Dispatchable) => void): void {
+  // A newly-completed order is resolved the instant it appears: synced right
+  // away if the link is up, queued if it is not.
+  useEffect(() => {
+    const connectivity = useConnectivityStore.getState();
+    const offline = connectivity.state === "offline" || connectivity.state === "degraded";
+
+    for (const order of Object.values(state.orders)) {
+      if (order.state !== "completed" || order.syncState !== "local") continue;
+
+      if (offline) {
+        const items = order.lines.filter((l) => l.state !== "voided").length;
+        const major = (order.grandTotal.amount / 100).toFixed(2);
+        dispatch({ type: "ORDER_SYNC", orderId: order.id, syncState: "pending" });
+        connectivity.enqueue("order", `${order.orderNumber} · ${items} items · ${order.currency} ${major}`, {
+          id: order.id,
+          payload: order,
+        });
+      } else {
+        dispatch({
+          type: "ORDER_SYNC",
+          orderId: order.id,
+          syncState: "synced",
+          syncedAt: order.completedAt ?? order.openedAt,
+        });
+      }
+    }
+  }, [state.orders, dispatch]);
+
+  // The queue resolves independently, on its own timer. An order's entry
+  // disappearing means it synced; landing on `failed` means it did not.
+  const queue = useConnectivityStore((s) => s.queue);
+  const lastSyncedAt = useConnectivityStore((s) => s.lastSyncedAt);
+  const prevQueueRef = useRef<Map<string, QueuedStatus>>(new Map());
+
+  useEffect(() => {
+    const previous = prevQueueRef.current;
+    const now = new Map(queue.map((q) => [q.id, q.status]));
+
+    for (const [orderId, previousStatus] of previous) {
+      if (state.orders[orderId]?.syncState !== "pending") continue;
+      const currentStatus = now.get(orderId);
+
+      if (currentStatus === undefined) {
+        dispatch({
+          type: "ORDER_SYNC",
+          orderId,
+          syncState: "synced",
+          syncedAt: new Date(lastSyncedAt ?? Date.now()).toISOString(),
+        });
+      } else if (currentStatus === "failed" && previousStatus !== "failed") {
+        dispatch({ type: "ORDER_SYNC", orderId, syncState: "conflicted" });
+      }
+    }
+
+    prevQueueRef.current = now;
+  }, [queue, lastSyncedAt, state.orders, dispatch]);
 }
 
 export function LiveProvider({ children }: { children: ReactNode }) {
@@ -130,6 +204,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const dispatch = useCallback((action: Dispatchable) => {
     rawDispatch({ ...action, at: action.at ?? new Date().toISOString() } as LiveAction);
   }, []);
+
+  useOfflineOrderSync(state, dispatch);
 
   const reset = useCallback(() => {
     try {

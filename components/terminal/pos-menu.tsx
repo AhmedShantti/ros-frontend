@@ -87,7 +87,7 @@ export function PosMenu({ orderId, course, onAdded }: Props) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="border-line flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
         <div className="relative min-w-52 flex-1">
           <Search
@@ -562,7 +562,7 @@ function EightySixSheet({
                 <option value="">{t("pos.overrideChoose")}</option>
                 {managers.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {tx(m.name)} — {tx(m.position)}
+                    {tx(m.name)} {tx(m.position)}
                   </option>
                 ))}
               </Select>

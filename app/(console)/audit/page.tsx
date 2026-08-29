@@ -82,6 +82,13 @@ export default function AuditPage() {
       ),
     },
     {
+      key: "branch",
+      header: t("common.branch"),
+      secondary: true,
+      render: (entry) =>
+        entry.branchName ? tx(entry.branchName) : <span className="text-fg-subtle">—</span>,
+    },
+    {
       key: "approver",
       header: t("orders.approvedBy"),
       secondary: true,
@@ -147,6 +154,9 @@ export default function AuditPage() {
               {formatDateTime(selected.recordedAt, fmt)}
             </DescRow>
             <DescRow label={t("audit.actor")}>{tx(selected.actorName)}</DescRow>
+            {selected.branchName ? (
+              <DescRow label={t("common.branch")}>{tx(selected.branchName)}</DescRow>
+            ) : null}
             <DescRow label={t("audit.entity")} mono>
               {selected.entityId}
             </DescRow>

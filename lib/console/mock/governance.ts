@@ -88,8 +88,8 @@ interface UserSeed {
 
 const USER_SEEDS: UserSeed[] = [
   { roleKey: "owner", en: "Youssef Rashad", ar: "يوسف رشاد", email: "youssef.rashad@levant.example", scope: "tenant", scopeIds: [], employeeIndex: null },
-  { roleKey: "operations_director", en: "Amal Saeed", ar: "أمل سعيد", email: "amal.saeed@levant.example", scope: "brand", scopeIds: [brands[0]!.id, brands[1]!.id], employeeIndex: 1 },
-  { roleKey: "brand_manager", en: "Dina Wahba", ar: "دينا وهبة", email: "dina.wahba@levant.example", scope: "brand", scopeIds: [brands[2]!.id], employeeIndex: 2 },
+  { roleKey: "operations_director", en: "Amal Saeed", ar: "أمل سعيد", email: "amal.saeed@levant.example", scope: "brand", scopeIds: [brands[0]!.id], employeeIndex: 1 },
+  { roleKey: "brand_manager", en: "Dina Wahba", ar: "دينا وهبة", email: "dina.wahba@levant.example", scope: "brand", scopeIds: [brands[0]!.id], employeeIndex: 2 },
   { roleKey: "branch_manager", en: "Mona Ezzat", ar: "منى عزت", email: "mona.ezzat@levant.example", scope: "branch", scopeIds: [branches[0]!.id], employeeIndex: 3 },
   { roleKey: "shift_supervisor", en: "Rami Kamal", ar: "رامي كمال", email: "rami.kamal@levant.example", scope: "branch", scopeIds: [branches[0]!.id], employeeIndex: 8 },
   { roleKey: "cashier", en: "Salma Fathy", ar: "سلمى فتحي", email: "salma.fathy@levant.example", scope: "branch", scopeIds: [branches[0]!.id], employeeIndex: 9 },
@@ -262,13 +262,13 @@ interface ApprovalSeed {
 const APPROVAL_SEEDS: ApprovalSeed[] = [
   {
     kind: "discount", entityType: "order", permission: "pos.discount.approve",
-    label: (n) => ({ en: `Order SWH-DTN-${1000 + n}`, ar: `طلب SWH-DTN-${1000 + n}` }),
+    label: (n) => ({ en: `Order CRK-DTN-${1000 + n}`, ar: `طلب CRK-DTN-${1000 + n}` }),
     reason: { en: "25% discount exceeds the 15% limit for this role.", ar: "خصم ٢٥٪ يتجاوز حد ١٥٪ لهذا الدور." },
     min: 8_000, max: 120_000,
   },
   {
     kind: "refund", entityType: "order", permission: "pos.refund.issue",
-    label: (n) => ({ en: `Refund on order BLP-NCR-${2000 + n}`, ar: `استرداد على طلب BLP-NCR-${2000 + n}` }),
+    label: (n) => ({ en: `Refund on order CRK-NCR-${2000 + n}`, ar: `استرداد على طلب CRK-NCR-${2000 + n}` }),
     reason: { en: "Refund above the branch threshold.", ar: "استرداد يتجاوز حد الفرع." },
     min: 20_000, max: 340_000,
   },

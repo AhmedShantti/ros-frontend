@@ -34,6 +34,7 @@ import type {
   OrderLineModifier,
   OrderType,
   StockMovement,
+  SyncState,
   TenderType,
   TicketLine,
   WasteRecord,
@@ -149,6 +150,14 @@ export type LiveAction =
   | { type: "ORDER_CANCEL"; at: IsoDateTime; orderId: Id; reason: string }
   | { type: "ORDER_MOVE_TABLE"; at: IsoDateTime; orderId: Id; tableId: Id }
   | { type: "ORDER_NOTE"; at: IsoDateTime; orderId: Id; note: string }
+  /** Offline sync — never changes anything financial, only the sync ledger. */
+  | {
+      type: "ORDER_SYNC";
+      at: IsoDateTime;
+      orderId: Id;
+      syncState: SyncState;
+      syncedAt?: IsoDateTime | null;
+    }
   | {
       type: "LINE_ADD";
       at: IsoDateTime;
@@ -191,6 +200,9 @@ export type LiveAction =
       orderId: Id;
       tender: TenderType;
       amountMinor: number;
+      /** What the customer physically handed over, cash only — omit for
+       *  every other tender, where it always equals `amountMinor`. */
+      tenderedMinor?: number;
       tipMinor: number;
       cardLast4?: string | null;
       cardScheme?: string | null;
@@ -763,20 +775,44 @@ function recomputeSession(state: LiveState): LiveState {
 
   let cashSales = 0;
   let cashRefunds = 0;
+  let cardSales = 0;
+  let otherSales = 0;
+  let refundTotal = 0;
   let orderCount = 0;
+  let cancelledOrderCount = 0;
+  let grossSales = 0;
+  let discountTotal = 0;
+  let taxTotal = 0;
+  let serviceChargeTotal = 0;
 
   for (const id of state.orderIds) {
     const order = state.orders[id];
     if (!order) continue;
+
     if (order.state === "completed" || order.state === "partially_refunded" || order.state === "refunded") {
       orderCount += 1;
+      grossSales += order.subtotal.amount;
+      discountTotal += order.discountTotal.amount;
+      taxTotal += order.taxTotal.amount;
+      serviceChargeTotal += order.serviceChargeTotal.amount;
+    } else if (order.state === "cancelled") {
+      cancelledOrderCount += 1;
     }
+
     for (const payment of order.payments) {
-      if (payment.tender !== "cash") continue;
-      if (payment.amount.amount >= 0) cashSales += payment.amount.amount;
-      else cashRefunds += -payment.amount.amount;
+      const amount = payment.amount.amount;
+      if (amount >= 0) {
+        if (payment.tender === "cash") cashSales += amount;
+        else if (payment.tender === "card") cardSales += amount;
+        else otherSales += amount;
+      } else {
+        refundTotal += -amount;
+        if (payment.tender === "cash") cashRefunds += -amount;
+      }
     }
   }
+
+  const netSales = grossSales - discountTotal + serviceChargeTotal;
 
   const payIns = session.movements
     .filter((m) => m.kind === "pay_in")
@@ -806,6 +842,15 @@ function recomputeSession(state: LiveState): LiveState {
           ? money(session.countedCash.amount - expected, currency)
           : money(0, currency),
       orderCount,
+      grossSales: money(grossSales, currency),
+      discountTotal: money(discountTotal, currency),
+      taxTotal: money(taxTotal, currency),
+      serviceChargeTotal: money(serviceChargeTotal, currency),
+      netSales: money(netSales, currency),
+      cardSales: money(cardSales, currency),
+      otherSales: money(otherSales, currency),
+      refundTotal: money(refundTotal, currency),
+      cancelledOrderCount,
     },
   };
 }
@@ -883,6 +928,15 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         varianceApproval: "not_required",
         denominations: [],
         orderCount: 0,
+        grossSales: money(0, currency),
+        discountTotal: money(0, currency),
+        taxTotal: money(0, currency),
+        serviceChargeTotal: money(0, currency),
+        netSales: money(0, currency),
+        cardSales: money(0, currency),
+        otherSales: money(0, currency),
+        refundTotal: money(0, currency),
+        cancelledOrderCount: 0,
         movements: [],
         blindCount: state.settings.blindCount,
       };
@@ -1015,7 +1069,11 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         openedAt: action.at,
         firstFiredAt: null,
         completedAt: null,
+        cancelledAt: null,
+        cancelledBy: null,
+        cancelReason: null,
         syncState: "local",
+        syncedAt: null,
         aggregatorRef: null,
         notes: null,
         // No server, so no optimistic-concurrency token to carry.
@@ -1036,7 +1094,15 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         serverId: operator.id,
       });
 
-      return commit(next);
+      return commit(
+        withAudit(next, audit(state, mint, {
+          at: action.at,
+          action: "order.created",
+          entityType: "order",
+          entityId: id,
+          after: { orderType: action.orderType, tableId: action.tableId },
+        })),
+      );
     }
 
     case "ORDER_SELECT":
@@ -1052,6 +1118,44 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       const order = state.orders[action.orderId];
       if (!order) return state;
       return putOrder(state, { ...order, notes: action.note || null });
+    }
+
+    case "ORDER_SYNC": {
+      const order = state.orders[action.orderId];
+      if (!order) return state;
+
+      const next = putOrder(state, {
+        ...order,
+        syncState: action.syncState,
+        syncedAt: action.syncedAt !== undefined ? action.syncedAt : order.syncedAt,
+      });
+
+      // Only the offline path is activity-worthy — an order settled while
+      // online goes straight from "local" to "synced" with nothing in
+      // between, and that transition is already covered by `order.created`.
+      if (action.syncState === "pending") {
+        return commit(
+          withAudit(next, audit(state, mint, {
+            at: action.at,
+            action: "offline.order.created",
+            entityType: "order",
+            entityId: order.id,
+            after: { orderNumber: order.orderNumber, grandTotal: order.grandTotal.amount },
+          })),
+        );
+      }
+      if (action.syncState === "synced" && order.syncState === "pending") {
+        return commit(
+          withAudit(next, audit(state, mint, {
+            at: action.at,
+            action: "offline.order.synced",
+            entityType: "order",
+            entityId: order.id,
+            after: { orderNumber: order.orderNumber, syncedAt: action.syncedAt ?? action.at },
+          })),
+        );
+      }
+      return next;
     }
 
     case "ORDER_PARK": {
@@ -1116,7 +1220,17 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
             : { ...line, state: "voided" as const, voidReason: action.reason },
       );
 
-      next = putOrder(next, retotal(next, { ...order, lines, state: "cancelled" }));
+      next = putOrder(
+        next,
+        retotal(next, {
+          ...order,
+          lines,
+          state: "cancelled",
+          cancelledAt: action.at,
+          cancelledBy: operatorOf(state).name,
+          cancelReason: action.reason,
+        }),
+      );
 
       /*
         The food that was already made has to be accounted for.
@@ -1200,6 +1314,7 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         }
       }
       next = { ...next, tickets };
+      next = recomputeSession(next);
 
       return commit(
         withAudit(next, audit(state, mint, {
@@ -1779,11 +1894,15 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
 
       const remaining = balanceOf(working).amount;
       const applied = Math.min(action.amountMinor, Math.max(0, remaining));
+      const tendered = action.tender === "cash" ? (action.tenderedMinor ?? applied) : applied;
+      const change = Math.max(0, tendered - applied);
 
       const payment = {
         id: mint.next("pay"),
         tender: action.tender,
         amount: money(applied, currency),
+        tenderedAmount: money(tendered, currency),
+        changeAmount: money(change, currency),
         tip: money(action.tipMinor, currency),
         cardLast4: action.cardLast4 ?? null,
         cardScheme: action.cardScheme ?? null,
@@ -1874,6 +1993,8 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         id: mint.next("pay"),
         tender: originalTender,
         amount: money(-amount, currency),
+        tenderedAmount: money(-amount, currency),
+        changeAmount: money(0, currency),
         tip: money(0, currency),
         cardLast4: null,
         cardScheme: null,

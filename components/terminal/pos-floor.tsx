@@ -17,9 +17,15 @@ import { formatElapsed, formatMoney } from "@/lib/console/format";
 import { useI18n } from "@/lib/console/providers";
 import { elapsedSince, useLive, useNow } from "@/lib/console/live/store";
 import { openOrdersOf, tablesOf } from "@/lib/console/live/reducer";
+import { branchById } from "@/lib/console/mock/org";
 import { Badge, Button, Field, Modal, Select, cx } from "@/components/console/ui";
 
-const ORDER_TYPES: OrderType[] = ["dine_in", "takeaway", "delivery", "drive_thru", "pickup"];
+/**
+ * "delivery" stays a valid `OrderType` for historical orders and pricing,
+ * but the POS never offers it — dine-in, takeaway, pickup and (branch
+ * permitting) drive-through are the only order types a cashier can start.
+ */
+const BASE_ORDER_TYPES: OrderType[] = ["dine_in", "takeaway", "pickup"];
 
 const TABLE_TONE: Record<RestaurantTable["state"], string> = {
   available: "border-line bg-raised hover:border-accent",
@@ -46,6 +52,10 @@ export function PosFloor() {
 
   const tables = useMemo(() => tablesOf(state), [state]);
   const open = useMemo(() => openOrdersOf(state), [state]);
+  const orderTypes = useMemo(() => {
+    const driveThroughEnabled = branchById.get(state.branchId)?.driveThroughEnabled ?? false;
+    return driveThroughEnabled ? [...BASE_ORDER_TYPES, "drive_thru" as const] : BASE_ORDER_TYPES;
+  }, [state.branchId]);
 
   const areas = useMemo(() => {
     const seen = new Map<string, string>();
@@ -56,9 +66,9 @@ export function PosFloor() {
   const visible = tables.filter((tbl) => area === "all" || tbl.area.en === area);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="border-line flex shrink-0 flex-wrap items-center gap-1.5 border-b px-3 py-2">
-        {ORDER_TYPES.map((type) => (
+        {orderTypes.map((type) => (
           <Button
             key={type}
             size="sm"

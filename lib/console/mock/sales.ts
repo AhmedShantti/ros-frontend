@@ -207,6 +207,9 @@ export const orders: Order[] = (() => {
       orderType = "aggregator";
     }
     const channel = pick(rng, CHANNEL_FOR_TYPE[orderType]);
+    const syncState = chance(rng, 0.94)
+      ? "synced"
+      : pick(rng, ["pending", "local", "conflicted"] as const);
 
     // Most orders sit on the anchor business day; a tail spreads back a month.
     const ageMinutes = i <= 90 ? int(rng, 4, 700) : int(rng, 700, 60 * 24 * 30);
@@ -270,6 +273,8 @@ export const orders: Order[] = (() => {
         id: `pay_${i}_1`,
         tender,
         amount: EGP(first),
+        tenderedAmount: EGP(first),
+        changeAmount: EGP(0),
         tip: tender === "card" && chance(rng, 0.3) ? EGP(int(rng, 500, 4000)) : EGP(0),
         cardLast4: tender === "card" ? String(1000 + int(rng, 0, 8999)) : null,
         cardScheme: tender === "card" ? pick(rng, CARD_SCHEMES) : null,
@@ -281,6 +286,8 @@ export const orders: Order[] = (() => {
           id: `pay_${i}_2`,
           tender: "cash",
           amount: EGP(paid - first),
+          tenderedAmount: EGP(paid - first),
+          changeAmount: EGP(0),
           tip: EGP(0),
           cardLast4: null,
           cardScheme: null,
@@ -352,9 +359,11 @@ export const orders: Order[] = (() => {
         state === "completed" || state === "refunded" || state === "partially_refunded"
           ? minutesAgo(Math.max(1, ageMinutes - int(rng, 5, 45)))
           : null,
-      syncState: chance(rng, 0.94)
-        ? "synced"
-        : pick(rng, ["pending", "local", "conflicted"] as const),
+      cancelledAt: state === "cancelled" ? minutesAgo(Math.max(1, ageMinutes - 1)) : null,
+      cancelledBy: state === "cancelled" ? server.name : null,
+      cancelReason: state === "cancelled" ? pick(rng, VOID_REASONS) : null,
+      syncState,
+      syncedAt: syncState === "synced" ? minutesAgo(Math.max(0, ageMinutes - 2)) : null,
       aggregatorRef:
         orderType === "aggregator" ? `${pick(rng, AGGREGATORS)}-${String(700000 + i * 13)}` : null,
       notes: chance(rng, 0.08) ? "Ring the bell on delivery." : null,

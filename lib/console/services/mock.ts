@@ -341,6 +341,7 @@ const branchesCollection: CollectionService<Branch> = makeCollection<Branch>({
     active: true,
     isFranchise: input.isFranchise ?? false,
     address: input.address ?? "",
+    driveThroughEnabled: input.driveThroughEnabled ?? false,
   }),
 });
 
@@ -709,7 +710,7 @@ const itemsCollection: CollectionService<MenuItem> = makeCollection<MenuItem>({
     remainingSellable: null,
     sortOrder: menuItems.length + 1,
     colour: input.colour ?? "#0f6f7a",
-    imageEmoji: input.imageEmoji ?? "🍽️",
+    imageEmoji: input.imageEmoji ?? "",
   }),
 });
 

@@ -142,6 +142,7 @@ export function PaymentSheet({ order, onClose }: { order: Order; onClose: () => 
                 orderId: order.id,
                 tender,
                 amountMinor: share,
+                tenderedMinor: tender === "cash" ? tenderedMinor : undefined,
                 tipMinor: 0,
                 cardLast4: tender === "card" ? "4242" : null,
                 cardScheme: tender === "card" ? "Visa" : null,
@@ -398,6 +399,28 @@ export function ReceiptSheet({ order, onClose }: { order: Order; onClose: () => 
               value={formatMoney(p.amount, fmt)}
             />
           ))}
+          <Row
+            label={t("pos.amountPaid")}
+            value={formatMoney(
+              money(
+                order.payments.reduce((sum, p) => sum + p.tenderedAmount.amount, 0),
+                order.currency,
+              ),
+              fmt,
+            )}
+          />
+          {order.payments.some((p) => p.changeAmount.amount > 0) ? (
+            <Row
+              label={t("pos.changeDue")}
+              value={formatMoney(
+                money(
+                  order.payments.reduce((sum, p) => sum + p.changeAmount.amount, 0),
+                  order.currency,
+                ),
+                fmt,
+              )}
+            />
+          ) : null}
         </div>
 
         <p className="text-fg-subtle mt-3 text-center leading-relaxed">

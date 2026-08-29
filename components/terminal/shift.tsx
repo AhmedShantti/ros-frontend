@@ -89,7 +89,7 @@ export function ShiftGate() {
             <Select value={chosen} onChange={(e) => setEmployeeId(e.target.value)}>
               {roster.map((e) => (
                 <option key={e.id} value={e.id}>
-                  {tx(e.name)} — {tx(e.position)}
+                  {tx(e.name)} {tx(e.position)}
                 </option>
               ))}
             </Select>
@@ -417,6 +417,54 @@ function CloseShiftPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="border-line mt-4 border-t pt-3">
+        <h3 className="text-fg mb-1.5 text-xs font-semibold">{t("shift.summary")}</h3>
+        <DescList>
+          <DescRow label={t("shift.openingFloat")} mono>
+            {formatMoney(session.openingFloat, fmt)}
+          </DescRow>
+          <DescRow label={t("shift.ordersTaken")} mono>
+            {session.orderCount}
+          </DescRow>
+          <DescRow label={t("shift.grossSales")} mono>
+            {formatMoney(session.grossSales, fmt)}
+          </DescRow>
+          <DescRow label={t("pos.discountTotal")} mono>
+            {formatMoney(session.discountTotal, fmt)}
+          </DescRow>
+          <DescRow label={t("orders.tax")} mono>
+            {formatMoney(session.taxTotal, fmt)}
+          </DescRow>
+          <DescRow label={t("orders.serviceCharge")} mono>
+            {formatMoney(session.serviceChargeTotal, fmt)}
+          </DescRow>
+          <DescRow label={t("shift.netSales")} mono>
+            {formatMoney(session.netSales, fmt)}
+          </DescRow>
+          <DescRow label={t("shift.cashSales")} mono>
+            {formatMoney(session.cashSales, fmt)}
+          </DescRow>
+          <DescRow label={t("shift.cardSales")} mono>
+            {formatMoney(session.cardSales, fmt)}
+          </DescRow>
+          <DescRow label={t("shift.otherSales")} mono>
+            {formatMoney(session.otherSales, fmt)}
+          </DescRow>
+          <DescRow label={t("shift.refunds")} mono>
+            {formatMoney(session.refundTotal, fmt)}
+          </DescRow>
+          <DescRow label={t("shift.cancelledOrders")} mono>
+            {session.cancelledOrderCount}
+          </DescRow>
+          <DescRow label={t("shift.deposits")} mono>
+            {formatMoney(session.payIns, fmt)}
+          </DescRow>
+          <DescRow label={t("shift.withdrawals")} mono>
+            {formatMoney(session.payOuts, fmt)}
+          </DescRow>
+        </DescList>
+      </div>
+
+      <div className="border-line mt-4 border-t pt-3">
         <DescList>
           <DescRow label={t("shift.countedTotal")} mono>
             {formatMoney(money(counted, currency), fmt)}
@@ -434,9 +482,12 @@ function CloseShiftPanel({ onClose }: { onClose: () => void }) {
                   )}
                 >
                   {formatMoney(money(variance, currency), fmt)}
+                  {" · "}
                   {variance === 0
-                    ? ""
-                    : ` · ${variance > 0 ? t("shift.varianceOver") : t("shift.varianceShort")}`}
+                    ? t("shift.balanced")
+                    : variance > 0
+                      ? t("shift.varianceOver")
+                      : t("shift.varianceShort")}
                 </span>
               </DescRow>
             </>

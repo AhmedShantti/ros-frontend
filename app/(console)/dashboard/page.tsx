@@ -11,7 +11,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, Check } from "lucide-react";
-import type { BranchRankingRow, Money, OperationalAlert } from "@/lib/console/types";
+import type { BranchRankingRow, Money, OperationalAlert, OrderType, TenderType } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useAsync, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
@@ -25,7 +25,12 @@ import {
   formatPercent,
   formatRelative,
 } from "@/lib/console/format";
-import { ALERT_KIND, SEVERITY, labelOf } from "@/lib/console/labels";
+import { ALERT_KIND, ORDER_TYPE, SEVERITY, TENDER_TYPE, labelOf } from "@/lib/console/labels";
+import { orders } from "@/lib/console/mock/sales";
+import { cashSessions } from "@/lib/console/mock/finance";
+import { branches } from "@/lib/console/mock/org";
+import { activeEmployees } from "@/lib/console/mock/workforce";
+import { menuCategories, menuItemById } from "@/lib/console/mock/catalogue";
 import {
   CategoryBarChart,
   HourlyChart,
@@ -34,7 +39,7 @@ import {
   TrendChart,
 } from "@/components/console/charts";
 import { CellStack, DataTable, type Column } from "@/components/console/data-table";
-import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/page";
+import { PageBody, PageHeader, Section, TileGrid, Toolbar } from "@/components/console/page";
 import { AsyncPanel, CardSkeleton, Gate, MetricSkeleton } from "@/components/console/states";
 import { LiveTodayStrip, useLiveAlerts } from "@/components/console/live-panels";
 import {
@@ -43,7 +48,9 @@ import {
   Callout,
   DescList,
   DescRow,
+  Field,
   Meter,
+  Select,
   Toast,
 } from "@/components/console/ui";
 
@@ -285,6 +292,8 @@ export default function DashboardPage() {
           );
         }}
       </AsyncPanel>
+
+      <OrderActivitySection />
 
       <Toast message={message} />
     </>
@@ -667,5 +676,355 @@ function AlertRow({
         </Button>
       </div>
     </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Order activity — filterable, and read straight off real orders
+// ---------------------------------------------------------------------------
+
+type DateFilter = "all" | "today" | "yesterday" | "last7";
+const REVENUE_STATES = new Set(["completed", "partially_refunded", "refunded"]);
+const DASHBOARD_ORDER_TYPES: OrderType[] = ["dine_in", "takeaway", "pickup", "drive_thru"];
+
+/**
+ * Everything in this section is derived from the real `orders` fixture, not
+ * the pre-aggregated tenant economy `services.dashboard` serves above — that
+ * is what lets Branch, Cashier, Order type and Payment method actually change
+ * the numbers rather than only relabelling a chart nothing recomputed.
+ */
+function OrderActivitySection() {
+  const { t, tx, fmt } = useI18n();
+  const [dateFilter, setDateFilter] = useState<DateFilter>("last7");
+  const [branchId, setBranchId] = useState("all");
+  const [employeeId, setEmployeeId] = useState("all");
+  const [orderType, setOrderType] = useState<OrderType | "all">("all");
+  const [tender, setTender] = useState<TenderType | "all">("all");
+
+  const rows = useMemo(() => {
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    return orders.filter((o) => {
+      const age = now - new Date(o.openedAt).getTime();
+      if (dateFilter === "today" && age >= dayMs) return false;
+      if (dateFilter === "yesterday" && (age < dayMs || age >= 2 * dayMs)) return false;
+      if (dateFilter === "last7" && age >= 7 * dayMs) return false;
+      if (branchId !== "all" && o.branchId !== branchId) return false;
+      if (employeeId !== "all" && o.openedBy !== employeeId) return false;
+      if (orderType !== "all" && o.orderType !== orderType) return false;
+      if (tender !== "all" && !o.payments.some((p) => p.tender === tender && p.amount.amount > 0))
+        return false;
+      return true;
+    });
+  }, [dateFilter, branchId, employeeId, orderType, tender]);
+
+  const currency = rows[0]?.currency ?? "EGP";
+
+  const totals = useMemo(() => {
+    let grossSales = 0;
+    let discountTotal = 0;
+    let taxTotal = 0;
+    let serviceChargeTotal = 0;
+    let cashSales = 0;
+    let cardSales = 0;
+    let otherSales = 0;
+    let refundTotal = 0;
+    let cancelledOrders = 0;
+    let completedCount = 0;
+    let offlineOrders = 0;
+    let pendingSync = 0;
+    let syncedOffline = 0;
+    const byType = new Map<OrderType, number>();
+    const byCashier = new Map<string, { name: string; amount: number }>();
+    const byBranch = new Map<string, { name: string; amount: number }>();
+    const byCategory = new Map<string, { name: string; amount: number }>();
+    const byItem = new Map<string, { name: string; qty: number; amount: number }>();
+    const byHour = new Array(24).fill(0) as number[];
+
+    for (const order of rows) {
+      byHour[new Date(order.openedAt).getHours()] += 1;
+      byType.set(order.orderType, (byType.get(order.orderType) ?? 0) + 1);
+
+      if (order.state === "cancelled") cancelledOrders += 1;
+
+      if (REVENUE_STATES.has(order.state)) {
+        completedCount += 1;
+        grossSales += order.subtotal.amount;
+        discountTotal += order.discountTotal.amount;
+        taxTotal += order.taxTotal.amount;
+        serviceChargeTotal += order.serviceChargeTotal.amount;
+
+        const netForOrder =
+          order.subtotal.amount - order.discountTotal.amount + order.serviceChargeTotal.amount;
+        const cashierKey = order.openedBy;
+        const cashier = byCashier.get(cashierKey) ?? { name: tx(order.openedByName), amount: 0 };
+        cashier.amount += netForOrder;
+        byCashier.set(cashierKey, cashier);
+
+        const branch = byBranch.get(order.branchId) ?? { name: tx(order.branchName), amount: 0 };
+        branch.amount += netForOrder;
+        byBranch.set(order.branchId, branch);
+
+        for (const line of order.lines) {
+          if (line.state === "voided") continue;
+          const menuItem = menuItemById.get(line.menuItemId);
+          const categoryId = menuItem?.categoryId ?? "unknown";
+          const category = menuCategories.find((c) => c.id === categoryId);
+          const catEntry = byCategory.get(categoryId) ?? {
+            name: category ? tx(category.name) : t("common.uncategorised"),
+            amount: 0,
+          };
+          catEntry.amount += line.lineSubtotal.amount;
+          byCategory.set(categoryId, catEntry);
+
+          const itemEntry = byItem.get(line.menuItemId) ?? {
+            name: tx(line.itemNameSnapshot),
+            qty: 0,
+            amount: 0,
+          };
+          itemEntry.qty += line.quantity;
+          itemEntry.amount += line.lineSubtotal.amount;
+          byItem.set(line.menuItemId, itemEntry);
+        }
+      }
+
+      for (const payment of order.payments) {
+        const amount = payment.amount.amount;
+        if (amount >= 0) {
+          if (payment.tender === "cash") cashSales += amount;
+          else if (payment.tender === "card") cardSales += amount;
+          else otherSales += amount;
+        } else {
+          refundTotal += -amount;
+        }
+      }
+
+      if (order.syncState === "pending") pendingSync += 1;
+      if (order.syncState === "pending" || order.syncState === "conflicted") offlineOrders += 1;
+      if (order.syncState === "synced" && order.syncedAt) {
+        const gapMs = new Date(order.syncedAt).getTime() - new Date(order.openedAt).getTime();
+        if (gapMs > 60_000) {
+          offlineOrders += 1;
+          syncedOffline += 1;
+        }
+      }
+    }
+
+    const netSales = grossSales - discountTotal + serviceChargeTotal;
+    const bestSelling = [...byItem.values()].sort((a, b) => b.amount - a.amount).slice(0, 5);
+    const lowestSelling = [...byItem.values()].sort((a, b) => a.amount - b.amount).slice(0, 5);
+    const salesByCashier = [...byCashier.values()].sort((a, b) => b.amount - a.amount).slice(0, 8);
+    const salesByBranch = [...byBranch.values()].sort((a, b) => b.amount - a.amount);
+    const salesByCategory = [...byCategory.values()].sort((a, b) => b.amount - a.amount);
+
+    return {
+      grossSales,
+      netSales,
+      discountTotal,
+      taxTotal,
+      serviceChargeTotal,
+      cashSales,
+      cardSales,
+      otherSales,
+      refundTotal,
+      cancelledOrders,
+      totalOrders: rows.length,
+      averageOrderValue: completedCount > 0 ? Math.round(netSales / completedCount) : 0,
+      byType,
+      byHour,
+      bestSelling,
+      lowestSelling,
+      salesByCashier,
+      salesByBranch,
+      salesByCategory,
+      offlineOrders,
+      pendingSync,
+      syncedOffline,
+    };
+  }, [rows, tx, t]);
+
+  const shiftCounts = useMemo(() => {
+    const scoped = branchId === "all" ? cashSessions : cashSessions.filter((s) => s.branchId === branchId);
+    return {
+      open: scoped.filter((s) => s.status === "open" || s.status === "closing").length,
+      closed: scoped.filter((s) => s.status === "closed" || s.status === "force_closed").length,
+      cashDifference: scoped.reduce((s, x) => s + x.variance.amount, 0),
+    };
+  }, [branchId]);
+
+  const money = (minor: number) => formatMoney({ amount: Math.round(minor), currency }, fmt, true);
+
+  return (
+    <PageBody>
+      <Section
+        title={t("dash.activityTitle")}
+        hint={t("dash.activityHint")}
+        action={
+          <Toolbar>
+            <Field label={t("common.date")}>
+              <Select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as DateFilter)}>
+                <option value="all">{t("common.all")}</option>
+                <option value="today">{t("filter.today")}</option>
+                <option value="yesterday">{t("filter.yesterday")}</option>
+                <option value="last7">{t("filter.last7")}</option>
+              </Select>
+            </Field>
+            <Field label={t("common.branch")}>
+              <Select value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+                <option value="all">{t("common.all")}</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {tx(b.name)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={t("fin.cashier")}>
+              <Select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
+                <option value="all">{t("common.all")}</option>
+                {activeEmployees
+                  .filter((e) => branchId === "all" || e.homeBranchId === branchId)
+                  .map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {tx(e.name)}
+                    </option>
+                  ))}
+              </Select>
+            </Field>
+            <Field label={t("orders.type")}>
+              <Select
+                value={orderType}
+                onChange={(e) => setOrderType(e.target.value as OrderType | "all")}
+              >
+                <option value="all">{t("common.all")}</option>
+                {DASHBOARD_ORDER_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {tx(ORDER_TYPE[type].label)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={t("pos.tender")}>
+              <Select value={tender} onChange={(e) => setTender(e.target.value as TenderType | "all")}>
+                <option value="all">{t("common.all")}</option>
+                {(["cash", "card", "wallet", "gift_card", "loyalty_points"] as TenderType[]).map((tv) => (
+                  <option key={tv} value={tv}>
+                    {tx(TENDER_TYPE[tv].label)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </Toolbar>
+        }
+      >
+        <TileGrid>
+          <MetricTile label={t("dash.grossSales")} value={money(totals.grossSales)} />
+          <MetricTile label={t("shift.netSales")} value={money(totals.netSales)} />
+          <MetricTile label={t("dash.totalOrders")} value={formatNumber(totals.totalOrders, fmt, 0)} />
+          <MetricTile label={t("dash.aov")} value={money(totals.averageOrderValue)} />
+          <MetricTile label={t("orders.tax")} value={money(totals.taxTotal)} />
+          <MetricTile label={t("orders.serviceCharge")} value={money(totals.serviceChargeTotal)} />
+          <MetricTile label={t("pos.discountTotal")} value={money(totals.discountTotal)} />
+          <MetricTile label={t("shift.refunds")} value={money(totals.refundTotal)} />
+          <MetricTile
+            label={t("shift.cancelledOrders")}
+            value={formatNumber(totals.cancelledOrders, fmt, 0)}
+          />
+          <MetricTile label={t("shift.cashSales")} value={money(totals.cashSales)} />
+          <MetricTile label={t("shift.cardSales")} value={money(totals.cardSales)} />
+          <MetricTile label={t("shift.otherSales")} value={money(totals.otherSales)} />
+        </TileGrid>
+
+        <TileGrid columns={4}>
+          {DASHBOARD_ORDER_TYPES.map((type) => (
+            <MetricTile
+              key={type}
+              label={tx(ORDER_TYPE[type].label)}
+              value={formatNumber(totals.byType.get(type) ?? 0, fmt, 0)}
+            />
+          ))}
+        </TileGrid>
+
+        <TileGrid>
+          <MetricTile label={t("dash.openShifts")} value={formatNumber(shiftCounts.open, fmt, 0)} />
+          <MetricTile label={t("dash.closedShifts")} value={formatNumber(shiftCounts.closed, fmt, 0)} />
+          <MetricTile label={t("dash.cashDrawerDiff")} value={money(shiftCounts.cashDifference)} />
+          <MetricTile
+            label={t("dash.offlineOrders")}
+            value={formatNumber(totals.offlineOrders, fmt, 0)}
+          />
+          <MetricTile
+            label={t("dash.pendingSyncOrders")}
+            value={formatNumber(totals.pendingSync, fmt, 0)}
+          />
+          <MetricTile
+            label={t("dash.syncedOfflineOrders")}
+            value={formatNumber(totals.syncedOffline, fmt, 0)}
+          />
+        </TileGrid>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <RankedList title={t("dash.byCashier")} rows={totals.salesByCashier} money={money} />
+          <RankedList title={t("dash.byBranch")} rows={totals.salesByBranch} money={money} />
+          <RankedList title={t("dash.byCategory")} rows={totals.salesByCategory} money={money} />
+          <RankedList
+            title={t("dash.bestSelling")}
+            rows={totals.bestSelling.map((r) => ({ name: r.name, amount: r.amount }))}
+            money={money}
+          />
+          <RankedList
+            title={t("dash.lowestSelling")}
+            rows={totals.lowestSelling.map((r) => ({ name: r.name, amount: r.amount }))}
+            money={money}
+          />
+        </div>
+
+        <div>
+          <h3 className="text-fg mb-2 text-sm font-semibold">{t("dash.ordersByHour")}</h3>
+          <div className="flex h-24 items-end gap-0.5">
+            {totals.byHour.map((count, hour) => {
+              const max = Math.max(1, ...totals.byHour);
+              return (
+                <div
+                  key={hour}
+                  title={`${hour}:00 · ${count}`}
+                  className="bg-accent/70 min-h-0.5 flex-1 rounded-t"
+                  style={{ height: `${(count / max) * 100}%` }}
+                />
+              );
+            })}
+          </div>
+        </div>
+      </Section>
+    </PageBody>
+  );
+}
+
+function RankedList({
+  title,
+  rows,
+  money,
+}: {
+  title: string;
+  rows: { name: string; amount: number }[];
+  money: (minor: number) => string;
+}) {
+  const { t } = useI18n();
+  return (
+    <div>
+      <h3 className="text-fg mb-2 text-sm font-semibold">{title}</h3>
+      {rows.length === 0 ? (
+        <p className="text-fg-subtle text-xs">{t("common.noResults")}</p>
+      ) : (
+        <ul className="divide-line border-line divide-y rounded-lg border">
+          {rows.map((row, i) => (
+            <li key={`${row.name}_${i}`} className="flex items-center justify-between gap-3 px-3 py-2">
+              <span className="text-fg min-w-0 truncate text-sm">{row.name}</span>
+              <span className="text-fg-subtle shrink-0 text-xs tabular-nums">{money(row.amount)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

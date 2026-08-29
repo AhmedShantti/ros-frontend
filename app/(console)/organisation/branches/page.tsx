@@ -38,6 +38,7 @@ import {
   Field,
   Select,
   Toast,
+  Toggle,
 } from "@/components/console/ui";
 import { RecordDrawer } from "@/components/console/record-drawer";
 
@@ -345,6 +346,8 @@ function BranchDrawer({
           <BrandReassign branch={branch} brands={availableBrands} onChanged={onChanged} />
         ) : null}
 
+        <DriveThroughToggle branch={branch} canManage={canManage} onChanged={onChanged} />
+
         <OperatingHoursPanel branchId={branch.id} canManage={canManage} onChanged={onChanged} />
         <PrintRoutingPanel branchId={branch.id} canManage={canManage} onChanged={onChanged} />
         <StationRoutingPanel branchId={branch.id} canManage={canManage} onChanged={onChanged} />
@@ -409,6 +412,40 @@ function BrandReassign({
           {t("common.save")}
         </Button>
       </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** Whether this branch's POS offers a drive-through order type. */
+function DriveThroughToggle({
+  branch,
+  canManage,
+  onChanged,
+}: {
+  branch: Branch;
+  canManage: boolean;
+  onChanged: (message: string) => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction();
+
+  return (
+    <section>
+      <h3 className="text-fg mb-2 text-sm font-semibold">{t("org.driveThrough")}</h3>
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      <Toggle
+        checked={branch.driveThroughEnabled}
+        disabled={!canManage || action.pending}
+        label={t("org.driveThroughEnabled")}
+        hint={t("org.driveThroughHint")}
+        onChange={(next) =>
+          action.run(() => services.organisation.branches.update(branch.id, { driveThroughEnabled: next }), {
+            onSuccess: () => onChanged(t("org.driveThroughUpdated")),
+          })
+        }
+      />
     </section>
   );
 }
