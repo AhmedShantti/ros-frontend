@@ -12,8 +12,11 @@
  *    A `ValidationPipe` failure arrives as an array of messages; they are
  *    joined rather than dropped, because "name must be shorter than 120
  *    characters" is the only useful thing on that screen.
- *  - `idempotency-key` on the three endpoints that require it, so a retry
- *    over a flaky LAN link cannot ring up the same order twice.
+ *  - `idempotency-key` on every endpoint that requires it — orders, their
+ *    lines, cash sessions and every drawer movement — minted once per
+ *    logical call so the internal 401-and-refresh replay carries the *same*
+ *    key. A retry over a flaky link cannot ring up the same order twice, and
+ *    cannot pay out of the drawer twice.
  *  - A timeout, because a wrong LAN address does not fail — it hangs.
  */
 
@@ -188,6 +191,17 @@ async function refreshSession(): Promise<boolean> {
 interface SendOptions extends RequestOptions {
   /** Explicit token, for the calls made during a refresh. */
   bearer?: string | null;
+  /**
+   * The `idempotency-key` for this attempt, minted once per logical call.
+   *
+   * It has to be minted by `request()` rather than here, because `send()`
+   * runs twice when a 401 sends us through a token refresh — and a replay
+   * carrying a *different* key is, to the server, a different request. That
+   * is precisely the double-charge the header exists to prevent: a pay-out
+   * or a drawer opening applied once by the server, 401'd on the way back,
+   * and applied a second time by the retry.
+   */
+  idempotencyKey?: string;
 }
 
 function buildPath(path: string, options: SendOptions): string {
@@ -222,7 +236,7 @@ function buildPath(path: string, options: SendOptions): string {
   return out;
 }
 
-function idempotencyKey(): string {
+function newIdempotencyKey(): string {
   const cryptoRef = globalThis.crypto;
   if (cryptoRef && typeof cryptoRef.randomUUID === "function") return cryptoRef.randomUUID();
   return `idem_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
@@ -237,7 +251,9 @@ async function send<T>(method: string, path: string, options: SendOptions = {}):
   if (token) headers.authorization = `Bearer ${token}`;
 
   if (options.body !== undefined) headers["content-type"] = "application/json";
-  if (options.idempotent) headers["idempotency-key"] = idempotencyKey();
+  if (options.idempotent) {
+    headers["idempotency-key"] = options.idempotencyKey ?? newIdempotencyKey();
+  }
   if (options.ifMatch !== undefined) headers["if-match"] = String(options.ifMatch);
 
   const timeout = new AbortController();
@@ -324,8 +340,13 @@ export async function request<T>(
     await refreshSession();
   }
 
+  // One key for both attempts below. See `SendOptions.idempotencyKey`.
+  const attempt: SendOptions = options.idempotent
+    ? { ...options, idempotencyKey: newIdempotencyKey() }
+    : options;
+
   try {
-    return await send<T>(method, path, options);
+    return await send<T>(method, path, attempt);
   } catch (caught) {
     const is401 = caught instanceof ServiceError && caught.status === 401;
     if (!is401 || options.anonymous) throw caught;
@@ -339,7 +360,7 @@ export async function request<T>(
         `${method} ${path}`,
       );
     }
-    return send<T>(method, path, options);
+    return send<T>(method, path, attempt);
   }
 }
 
