@@ -144,9 +144,37 @@ export const terminals = {
 // ---------------------------------------------------------------------------
 
 export const treasury = {
+  /** `POST /branches/{branchId}/cash-close-policy` — Create a new immutable cash-close policy version for a branch — R-1(a), R-4(a), R-5. `Idempotency-Key` is MANDATORY (FR-API-020): a retry over a flaky link must not produce a second version. — The newly created cash-close policy version. */
+  createPolicy: (branchId: string, body: S.CreateCashClosePolicyDto) =>
+    http.post<S.CashClosePolicyController_createPolicyResponse>("/branches/{branchId}/cash-close-policy", { params: { branchId }, body, idempotent: true }),
+
   /** `POST /cash-sessions` — Open a cashier shift and its cash session — FR-POS-090, FR-FIN-001/002. ONE command for the cashier, two records for the model. FR-POS-090 describes a single action ("open a shift, declaring an opening float"), and the cashier should not have to know that a shift is a Workforce concept and a session a Treasury one. They stay distinct in the schema (carried item P1D-A); only the command is unified, and both are written in one transaction. `Idempotency-Key` is MANDATORY (FR-API-020): opening a drawer is a financially significant act, and a retry over a flaky link must not produce a second shift or a second session. The two client ULIDs are independent duplicate protection beneath it. — The opened cash session and its shift, plus whether this call created them (false on an idempotent replay of an already-open pair). */
   openCashSession: (body: S.OpenCashSessionDto) =>
     http.post<S.TreasuryController_openCashSessionResponse>("/cash-sessions", { body, idempotent: true }),
+
+  /** `POST /cash-sessions/{sessionId}/close` — Declare the physical cash count — FR-POS-094/096/097 [M]. Within tolerance, this closes the session in the SAME request. Above tolerance, it freezes the session (`open -> closing`) and the disclosed figures in THIS response are the first and only legitimate disclosure — FR-POS-095's blind-count control is that expected cash/variance are revealed strictly AFTER the count is durably committed, never before. `POST .../close/finalize` is the ONLY way out of `closing` — there is no above-tolerance one-request path (a manager PIN entered before this response exists could not be an informed decision). — The committed count declaration — closed immediately if within tolerance, otherwise frozen awaiting a manager decision. */
+  declareClose: (sessionId: string, body: S.DeclareCashSessionCloseDto) =>
+    http.post<S.TreasuryController_declareCloseResponse>("/cash-sessions/{sessionId}/close", { params: { sessionId }, body, idempotent: true }),
+
+  /** `GET /cash-sessions/{sessionId}/close-context` — The close context — FR-POS-094/095. Read-only. `cash.session.close` (own) / `cash.session.close_other` (another employee's) — the SAME own/other split `declareClose`/`finalizeClose` enforce, checked here too so a caller cannot probe another employee's session state without holding the right authority. While `open` in BLIND mode (FR-POS-095's default), `toleranceMinorUnits`/ `expectedCashMinorUnits` are structurally ABSENT from the response — never merely `null` — until a count is durably declared. While `open` in open-count mode, they are a PREVIEW only (not authoritative — the actual close re-resolves everything fresh, under the advisory lock). — The close context for this cash session. */
+  getCloseContext: (sessionId: string) =>
+    http.get<S.TreasuryController_getCloseContextResponse>("/cash-sessions/{sessionId}/close-context", { params: { sessionId } }),
+
+  /** `POST /cash-sessions/{sessionId}/close/finalize` — The manager's decision on a frozen (above-tolerance) close — FR-FIN-006 [M], FR-SEC-016/030/032/033. The manager PIN is verified BEFORE the business transaction opens (`identity/contract`'s `TERMINAL_PIN_VERIFIER` — a failed-attempt/ lockout counter must survive a later rollback, and never runs at all on an idempotent replay). The verified manager's permission set — not the calling cashier's — is what `cash.variance.approve` is checked against, by the Approval Runtime itself, never by a route-level permission guard (the approver is a different actor than the caller). R-6(a): an explicit REJECTED decision COMMITS and returns 200 with `outcome: "rejected"` — never an error. The session stays `closing`; a retry supplies FRESH `approvalRequestId`/`approvalDecisionId` values. — The manager decision outcome — "closed" (approved) or "rejected" (R-6(a); the session remains closing). */
+  finalizeClose: (sessionId: string, body: S.FinalizeCashSessionCloseDto) =>
+    http.post<S.TreasuryController_finalizeCloseResponse>("/cash-sessions/{sessionId}/close/finalize", { params: { sessionId }, body, idempotent: true }),
+
+  /** `POST /cash-sessions/{sessionId}/pay-in` — Record cash added to the drawer — FR-POS-091 [M]. — The recorded pay-in movement. */
+  payIn: (sessionId: string, body: S.CashMovementDto) =>
+    http.post<S.TreasuryController_payInResponse>("/cash-sessions/{sessionId}/pay-in", { params: { sessionId }, body, idempotent: true }),
+
+  /** `POST /cash-sessions/{sessionId}/pay-out` — Record cash removed from the drawer for an expense — FR-POS-091 [M]. — The recorded pay-out movement. */
+  payOut: (sessionId: string, body: S.CashMovementDto) =>
+    http.post<S.TreasuryController_payOutResponse>("/cash-sessions/{sessionId}/pay-out", { params: { sessionId }, body, idempotent: true }),
+
+  /** `POST /cash-sessions/{sessionId}/safe-drop` — Record excess cash removed to the safe — FR-POS-091 [M]. — The recorded safe-drop movement. */
+  safeDrop: (sessionId: string, body: S.CashMovementDto) =>
+    http.post<S.TreasuryController_safeDropResponse>("/cash-sessions/{sessionId}/safe-drop", { params: { sessionId }, body, idempotent: true }),
 
 };
 
@@ -416,6 +444,61 @@ export const inventory = {
 };
 
 // ---------------------------------------------------------------------------
+// production
+// ---------------------------------------------------------------------------
+
+export const production = {
+  /** `GET /modifiers/{modifierId}/recipe-effects` — The modifier's recipe effects, in sequence order. */
+  listModifierRecipeEffects: (modifierId: string) =>
+    http.get<S.ProductionController_listModifierRecipeEffectsResponse>("/modifiers/{modifierId}/recipe-effects", { params: { modifierId } }),
+
+  /** `PUT /modifiers/{modifierId}/recipe-effects` — Full replace, shaped like `PUT /recipes/:id/versions/:v/lines`. — The replaced set of recipe effects. */
+  replaceModifierRecipeEffects: (modifierId: string, body: S.ReplaceModifierRecipeEffectsDto) =>
+    http.put<S.ProductionController_replaceModifierRecipeEffectsResponse>("/modifiers/{modifierId}/recipe-effects", { params: { modifierId }, body }),
+
+  /** `GET /recipes` — List recipes, optionally filtered by type. — Recipes visible to this tenant. */
+  listRecipes: (options: { recipeType?: string } = {}) =>
+    http.get<S.ProductionController_listRecipesResponse>("/recipes", { query: { recipeType: options.recipeType } }),
+
+  /** `POST /recipes` — The newly created recipe. */
+  createRecipe: (body: S.CreateRecipeDto) =>
+    http.post<S.ProductionController_createRecipeResponse>("/recipes", { body }),
+
+  /** `GET /recipes/requiring-completion` — The BR-MNU-012 completeness report. */
+  recipesRequiringCompletion: (options: { branchId?: string } = {}) =>
+    http.get<S.ProductionController_recipesRequiringCompletionResponse>("/recipes/requiring-completion", { query: { branchId: options.branchId } }),
+
+  /** `GET /recipes/{recipeId}/versions` — Version history, newest first, each with its lines. */
+  listVersions: (recipeId: string) =>
+    http.get<S.ProductionController_listVersionsResponse>("/recipes/{recipeId}/versions", { params: { recipeId } }),
+
+  /** `POST /recipes/{recipeId}/versions` — SRS §26.3 — create a draft version. A recipe is NEVER auto-created here (GAP-1): an unknown id is a 404. — The newly created draft version. */
+  createVersion: (recipeId: string, body: S.CreateRecipeVersionDto) =>
+    http.post<S.ProductionController_createVersionResponse>("/recipes/{recipeId}/versions", { params: { recipeId }, body }),
+
+  /** `PUT /recipes/{recipeId}/versions/{version}/lines` — Replace a draft version's lines. Published versions are refused (409). — The version row (raw, not the view shape) plus the new line count. */
+  replaceLines: (recipeId: string, version: string, body: S.ReplaceRecipeLinesDto) =>
+    http.put<S.ProductionController_replaceLinesResponse>("/recipes/{recipeId}/versions/{version}/lines", { params: { recipeId, version }, body }),
+
+  /** `POST /recipes/{recipeId}/versions/{version}/publish` — SRS §26.3 — publish. Demotes the incumbent, promotes the target, one txn. — The now-published version, plus the id of the version it superseded (if any). */
+  publish: (recipeId: string, version: string) =>
+    http.post<S.ProductionController_publishResponse>("/recipes/{recipeId}/versions/{version}/publish", { params: { recipeId, version } }),
+
+  /** `GET /substitute-groups` — List substitute groups. — Substitute groups with their member stock items. */
+  listGroups: () =>
+    http.get<S.ProductionController_listGroupsResponse>("/substitute-groups"),
+
+  /** `POST /substitute-groups` — Create a substitute group, optionally seeded with member stock items. — The newly created substitute group. */
+  createGroup: (body: S.CreateSubstituteGroupDto) =>
+    http.post<S.ProductionController_createGroupResponse>("/substitute-groups", { body }),
+
+  /** `POST /substitute-groups/{groupId}/members` — Add a stock item to a substitute group. — The newly created membership row. */
+  addGroupMember: (groupId: string, body: S.AddSubstituteMemberDto) =>
+    http.post<S.ProductionController_addGroupMemberResponse>("/substitute-groups/{groupId}/members", { params: { groupId }, body }),
+
+};
+
+// ---------------------------------------------------------------------------
 // sales
 // ---------------------------------------------------------------------------
 
@@ -444,7 +527,7 @@ export const sales = {
   voidLine: (businessDay: string, id: string, lineId: string, body: S.VoidOrderLineDto, options: { ifMatch?: string | number } = {}) =>
     http.delete<S.OrdersController_voidLineResponse>("/orders/{businessDay}/{id}/lines/{lineId}", { params: { businessDay, id, lineId }, body, ifMatch: options.ifMatch }),
 
-  /** `POST /orders/{businessDay}/{id}/payments` — Capture a partial CASH or manual/external-card payment (full settlement is refused — Completion does not exist yet). — The newly captured Payment and the order it now belongs to (paidTotal/roundingAdjustment/state/version updated). */
+  /** `POST /orders/{businessDay}/{id}/payments` — Capture a partial, or final settling, CASH or manual/external-card payment. A settling payment completes the order atomically. — The newly captured Payment and the order it now belongs to (paidTotal/roundingAdjustment/state/version updated). */
   capturePayment: (businessDay: string, id: string, body: S.CapturePaymentDto, options: { ifMatch?: string | number } = {}) =>
     http.post<S.OrdersController_capturePaymentResponse>("/orders/{businessDay}/{id}/payments", { params: { businessDay, id }, body, ifMatch: options.ifMatch, idempotent: true }),
 
@@ -581,52 +664,5 @@ export const organisation = {
 
 };
 
-// ---------------------------------------------------------------------------
-// production
-// ---------------------------------------------------------------------------
-
-export const production = {
-  /** `GET /recipes` — List recipes, optionally filtered by type. — Recipes visible to this tenant. */
-  listRecipes: (options: { recipeType?: string } = {}) =>
-    http.get<S.ProductionController_listRecipesResponse>("/recipes", { query: { recipeType: options.recipeType } }),
-
-  /** `POST /recipes` — The newly created recipe. */
-  createRecipe: (body: S.CreateRecipeDto) =>
-    http.post<S.ProductionController_createRecipeResponse>("/recipes", { body }),
-
-  /** `GET /recipes/requiring-completion` — The BR-MNU-012 completeness report. */
-  recipesRequiringCompletion: (options: { branchId?: string } = {}) =>
-    http.get<S.ProductionController_recipesRequiringCompletionResponse>("/recipes/requiring-completion", { query: { branchId: options.branchId } }),
-
-  /** `GET /recipes/{recipeId}/versions` — Version history, newest first, each with its lines. */
-  listVersions: (recipeId: string) =>
-    http.get<S.ProductionController_listVersionsResponse>("/recipes/{recipeId}/versions", { params: { recipeId } }),
-
-  /** `POST /recipes/{recipeId}/versions` — SRS §26.3 — create a draft version. A recipe is NEVER auto-created here (GAP-1): an unknown id is a 404. — The newly created draft version. */
-  createVersion: (recipeId: string, body: S.CreateRecipeVersionDto) =>
-    http.post<S.ProductionController_createVersionResponse>("/recipes/{recipeId}/versions", { params: { recipeId }, body }),
-
-  /** `PUT /recipes/{recipeId}/versions/{version}/lines` — Replace a draft version's lines. Published versions are refused (409). — The version row (raw, not the view shape) plus the new line count. */
-  replaceLines: (recipeId: string, version: string, body: S.ReplaceRecipeLinesDto) =>
-    http.put<S.ProductionController_replaceLinesResponse>("/recipes/{recipeId}/versions/{version}/lines", { params: { recipeId, version }, body }),
-
-  /** `POST /recipes/{recipeId}/versions/{version}/publish` — SRS §26.3 — publish. Demotes the incumbent, promotes the target, one txn. — The now-published version, plus the id of the version it superseded (if any). */
-  publish: (recipeId: string, version: string) =>
-    http.post<S.ProductionController_publishResponse>("/recipes/{recipeId}/versions/{version}/publish", { params: { recipeId, version } }),
-
-  /** `GET /substitute-groups` — List substitute groups. — Substitute groups with their member stock items. */
-  listGroups: () =>
-    http.get<S.ProductionController_listGroupsResponse>("/substitute-groups"),
-
-  /** `POST /substitute-groups` — Create a substitute group, optionally seeded with member stock items. — The newly created substitute group. */
-  createGroup: (body: S.CreateSubstituteGroupDto) =>
-    http.post<S.ProductionController_createGroupResponse>("/substitute-groups", { body }),
-
-  /** `POST /substitute-groups/{groupId}/members` — Add a stock item to a substitute group. — The newly created membership row. */
-  addGroupMember: (groupId: string, body: S.AddSubstituteMemberDto) =>
-    http.post<S.ProductionController_addGroupMemberResponse>("/substitute-groups/{groupId}/members", { params: { groupId }, body }),
-
-};
-
 /** Every group, for the diagnostics screen and for `api.catalogue.listItems()` style calls. */
-export const api = { auth, rbac, password, tenants, terminals, treasury, catalogue, health, inventory, sales, organisation, production };
+export const api = { auth, rbac, password, tenants, terminals, treasury, catalogue, health, inventory, production, sales, organisation };

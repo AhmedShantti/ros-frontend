@@ -8,6 +8,12 @@
  * With credentials it goes further than /health: it signs in, lists the
  * tenants, selects one, and reads every scoped list the console depends on —
  * which is the sequence that fails quietly when a token is not tenant-scoped.
+ *
+ * It also compares the deployed document against `api/openapi.json`, the
+ * snapshot `lib/api/schema.ts` and `lib/api/endpoints.ts` are generated from.
+ * That drift is the failure mode nothing else catches: the app typechecks,
+ * builds and boots against a spec the server stopped serving weeks ago, and
+ * the first symptom is a 404 in production.
  */
 
 import { readFileSync } from "node:fs";
@@ -204,6 +210,74 @@ async function checkCors() {
   }
 }
 
+/**
+ * The deployed document against the snapshot this repository generates from.
+ *
+ * NestJS serves the Swagger JSON at `/docs-json`; a deployment that does not
+ * is not a failure here, only an unchecked one.
+ */
+async function checkSpecDrift() {
+  console.log("");
+  console.log("Spec drift (api/openapi.json vs the deployed document)");
+
+  let live;
+  try {
+    const response = await fetch(`${base}/docs-json`, {
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      console.log(`  SKIP GET /docs-json — ${response.status}. Nothing to compare against.`);
+      return;
+    }
+    live = await response.json();
+  } catch (error) {
+    console.log(`  SKIP GET /docs-json — ${error.message}`);
+    return;
+  }
+
+  const local = JSON.parse(readFileSync(resolve(root, "api/openapi.json"), "utf8"));
+  const METHODS = ["get", "post", "put", "patch", "delete"];
+
+  const operations = (spec) => {
+    const set = new Set();
+    for (const [path, item] of Object.entries(spec.paths ?? {})) {
+      for (const method of Object.keys(item)) {
+        if (METHODS.includes(method)) set.add(`${method.toUpperCase()} ${path}`);
+      }
+    }
+    return set;
+  };
+
+  const deployed = operations(live);
+  const snapshot = operations(local);
+
+  // The direction that breaks the app: the console calls something that is
+  // no longer there. The other direction is only unrealised capability.
+  const gone = [...snapshot].filter((op) => !deployed.has(op)).sort();
+  const added = [...deployed].filter((op) => !snapshot.has(op)).sort();
+
+  if (gone.length > 0) {
+    failures += 1;
+    console.error(`  FAIL ${gone.length} operation(s) the console calls are not deployed:`);
+    for (const op of gone.slice(0, 12)) console.error(`       ${op}`);
+    if (gone.length > 12) console.error(`       … and ${gone.length - 12} more`);
+    console.error("       Re-export the spec into api/openapi.json and run `npm run api:types`.");
+  } else {
+    console.log(`  OK   All ${snapshot.size} operations in the snapshot are deployed`);
+  }
+
+  if (added.length > 0) {
+    console.log(`  NOTE ${added.length} deployed operation(s) the console does not know about:`);
+    for (const op of added.slice(0, 12)) console.log(`       ${op}`);
+    if (added.length > 12) console.log(`       … and ${added.length - 12} more`);
+    console.log("       Refresh api/openapi.json and run `npm run api:types` to wire them.");
+  }
+
+  if (live.info?.version && local.info?.version && live.info.version !== local.info.version) {
+    console.log(`  NOTE Version ${local.info.version} locally, ${live.info.version} deployed.`);
+  }
+}
+
 async function checkAuthenticated(email, password) {
   console.log("");
   console.log("Authentication");
@@ -268,6 +342,8 @@ console.log("Unauthenticated");
 await call("GET /health", "/health");
 
 if (!configured.startsWith("/")) await checkCors();
+
+await checkSpecDrift();
 
 const email = arg("email");
 const password = arg("password");

@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 95 paths, 73 request DTOs.
+ * `api/openapi.json`. 103 paths, 80 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -76,6 +76,17 @@ export interface CapturePaymentDto {
   terminalReference?: string;
 }
 
+export interface CashMovementDto {
+  /** Positive integer minor units, as an exact string (ADR-008: money is never a JSON number). The movement TYPE (the route) supplies the sign — a client can never submit a negative amount. */
+  amountMinor: string;
+  /** FR-OFF-015 — the device's permanent ULID for this movement. REQUIRED. */
+  id: string;
+  /** Device-declared instant. Defaults to server receipt time if omitted. */
+  occurredAt?: string;
+  /** FR-POS-091 [M] — mandatory for ALL THREE movement types. Non-blank. */
+  reason: string;
+}
+
 export interface ChangeBaseUnitDto {
   baseUnitId: string;
 }
@@ -110,6 +121,17 @@ export interface CreateBrandDto {
   defaultSettings?: Record<string, unknown>;
   name: string;
   theme?: Record<string, unknown>;
+}
+
+export interface CreateCashClosePolicyDto {
+  /** FR-POS-094/095. Omitted = the source-stated default, `blind`. */
+  countMode?: "open" | "blind";
+  /** R-3(a)/C-2. Omitted = effective immediately (resolved to DATABASE time, never this process's clock). Supplied = an explicit future activation instant; a past instant is rejected (C-2 - enforced by the DB CHECK, not merely this validator). */
+  effectiveFrom?: string;
+  /** R-4(a): configured positive duration. No default exists anywhere. */
+  varianceApprovalExpirySeconds: number;
+  /** R-1(a): absolute non-negative minor units, as an exact integer string. A JSON number is IEEE-754 and money must never pass through one (ADR-008) - mirrors `OpenCashSessionDto.openingFloat` exactly, including zero being a VALID tolerance (unlike a positive-amount field). */
+  varianceToleranceMinorUnits: string;
 }
 
 export interface CreateCategoryDto {
@@ -307,6 +329,20 @@ export interface CreateWarehouseDto {
   warehouseType?: "branch" | "central" | "virtual";
 }
 
+export interface DeclareCashSessionCloseDto {
+  /** FR-OFF-015 — the device's permanent ULID for this close attempt. REQUIRED. */
+  closeAttemptId: string;
+  /** Non-negative integer minor units, as an exact string. Zero is valid. */
+  countedTotalMinorUnits?: string;
+  denominations?: DenominationCountDto[];
+}
+
+export interface DenominationCountDto {
+  /** Positive integer minor units, as an exact string (never a JSON number). */
+  denominationMinorUnits: string;
+  quantity: number;
+}
+
 export interface DispatchTransferDto {
   fromLocationId: string;
   notes?: string;
@@ -325,6 +361,21 @@ export interface ErrorResponse {
   statusCode: number;
 }
 
+export interface FinalizeCashSessionCloseDto {
+  /** FR-OFF-015 — client-generated permanent id for THIS approval decision. */
+  approvalDecisionId: string;
+  /** FR-OFF-015 — client-generated permanent id for THIS approval request. */
+  approvalRequestId: string;
+  comment?: string;
+  decision: "approved" | "rejected";
+  /** The deciding manager's employee code — mirrors `PinLoginDto`. */
+  managerEmployeeCode: string;
+  /** FR-SEC-020: 4-8 digits. Never logged, never echoed. */
+  managerPin: string;
+  /** FR-FIN-006 [M] — mandatory above tolerance. Non-blank. */
+  reason: string;
+}
+
 export interface ForgotPasswordDto {
   email: string;
 }
@@ -339,6 +390,19 @@ export interface LinkModifierGroupDto {
 export interface LoginDto {
   email: string;
   password: string;
+}
+
+export interface ModifierRecipeEffectDto {
+  componentType: "stock_item" | "sub_recipe";
+  operation: "add" | "remove_all";
+  /** 6-dp decimal string. Required for `add`; forbidden for `remove_all`. */
+  quantity?: string;
+  sequence: number;
+  stockItemId?: string;
+  /** LOGICAL recipe identity — resolved to its published version at capture time. */
+  subRecipeId?: string;
+  /** Required for `add`; forbidden for `remove_all`. */
+  unitId?: string;
 }
 
 export interface OpenCashSessionDto {
@@ -438,6 +502,10 @@ export interface RegisterTerminalDto {
   name: string;
   os?: string;
   terminalType: "pos" | "kds" | "kiosk" | "handheld";
+}
+
+export interface ReplaceModifierRecipeEffectsDto {
+  effects: ModifierRecipeEffectDto[];
 }
 
 export interface ReplaceRecipeLinesDto {
@@ -831,6 +899,23 @@ export type TerminalController_setStatusResponse = {
 
 export type TerminalController_setStatusBody = SetTerminalStatusDto;
 
+/** `POST /branches/{branchId}/cash-close-policy` — Create a new immutable cash-close policy version for a branch — R-1(a), R-4(a), R-5. `Idempotency-Key` is MANDATORY (FR-API-020): a retry over a flaky link must not produce a second version. — The newly created cash-close policy version. */
+export type CashClosePolicyController_createPolicyResponse = {
+  branchId: string;
+  countMode: "blind" | "open";
+  createdAt: string;
+  createdBy: string;
+  /** ISO 4217 currency code — the branch's own base currency, never client-supplied. */
+  currency: string;
+  effectiveFrom: string;
+  id: string;
+  varianceApprovalExpirySeconds: number;
+  /** Non-negative minor-unit tolerance as a decimal string. */
+  varianceToleranceMinorUnits: string;
+};
+
+export type CashClosePolicyController_createPolicyBody = CreateCashClosePolicyDto;
+
 /** `POST /cash-sessions` — Open a cashier shift and its cash session — FR-POS-090, FR-FIN-001/002. ONE command for the cashier, two records for the model. FR-POS-090 describes a single action ("open a shift, declaring an opening float"), and the cashier should not have to know that a shift is a Workforce concept and a session a Treasury one. They stay distinct in the schema (carried item P1D-A); only the command is unified, and both are written in one transaction. `Idempotency-Key` is MANDATORY (FR-API-020): opening a drawer is a financially significant act, and a retry over a flaky link must not produce a second shift or a second session. The two client ULIDs are independent duplicate protection beneath it. — The opened cash session and its shift, plus whether this call created them (false on an idempotent replay of an already-open pair). */
 export type TreasuryController_openCashSessionResponse = {
   cashSession: {
@@ -845,7 +930,7 @@ export type TreasuryController_openCashSessionResponse = {
     /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
     openingFloat: string;
     shiftId: string;
-    status: "open" | "closed";
+    status: "open" | "closing" | "closed";
   };
   created: boolean;
   shift: {
@@ -858,6 +943,112 @@ export type TreasuryController_openCashSessionResponse = {
 };
 
 export type TreasuryController_openCashSessionBody = OpenCashSessionDto;
+
+/** `POST /cash-sessions/{sessionId}/close` — Declare the physical cash count — FR-POS-094/096/097 [M]. Within tolerance, this closes the session in the SAME request. Above tolerance, it freezes the session (`open -> closing`) and the disclosed figures in THIS response are the first and only legitimate disclosure — FR-POS-095's blind-count control is that expected cash/variance are revealed strictly AFTER the count is durably committed, never before. `POST .../close/finalize` is the ONLY way out of `closing` — there is no above-tolerance one-request path (a manager PIN entered before this response exists could not be an informed decision). — The committed count declaration — closed immediately if within tolerance, otherwise frozen awaiting a manager decision. */
+export type TreasuryController_declareCloseResponse = {
+  approvalRequired: boolean;
+  cashSessionId: string;
+  closeAttemptId: string;
+  countMode: "blind" | "open";
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  countedCashMinorUnits: string;
+  /** False on an idempotent replay of an already-declared attempt. */
+  created: boolean;
+  /** ISO 4217 currency code. */
+  currency: string;
+  /** Disclosed only in this COMMITTED response — never before the count is durable (FR-POS-095). */
+  expectedCashMinorUnits: string;
+  status: "closing" | "closed";
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  toleranceMinorUnits: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  varianceMinorUnits: string;
+};
+
+export type TreasuryController_declareCloseBody = DeclareCashSessionCloseDto;
+
+/** `GET /cash-sessions/{sessionId}/close-context` — The close context — FR-POS-094/095. Read-only. `cash.session.close` (own) / `cash.session.close_other` (another employee's) — the SAME own/other split `declareClose`/`finalizeClose` enforce, checked here too so a caller cannot probe another employee's session state without holding the right authority. While `open` in BLIND mode (FR-POS-095's default), `toleranceMinorUnits`/ `expectedCashMinorUnits` are structurally ABSENT from the response — never merely `null` — until a count is durably declared. While `open` in open-count mode, they are a PREVIEW only (not authoritative — the actual close re-resolves everything fresh, under the advisory lock). — The close context for this cash session. */
+export type TreasuryController_getCloseContextResponse = {
+  /** Present only once status is closing/closed. */
+  approvalRequired: boolean;
+  cashSessionId: string;
+  closedAt: string | null;
+  countMode: "blind" | "open";
+  /** Present only once status is closing/closed. */
+  countedCashMinorUnits: string;
+  /** ISO 4217 currency code. */
+  currency: string;
+  /** Absent while open + blind (FR-POS-095). A PREVIEW only while open + open-mode; authoritative once closing/closed. */
+  expectedCashMinorUnits: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  openingFloatMinorUnits: string;
+  status: "open" | "closing" | "closed";
+  /** Present whenever a cash-close policy is configured for the branch — in BOTH blind and open mode. Absent only when no policy is configured at all. */
+  toleranceMinorUnits: string;
+  /** Present only once status is closing/closed. */
+  varianceMinorUnits: string;
+};
+
+/** `POST /cash-sessions/{sessionId}/close/finalize` — The manager's decision on a frozen (above-tolerance) close — FR-FIN-006 [M], FR-SEC-016/030/032/033. The manager PIN is verified BEFORE the business transaction opens (`identity/contract`'s `TERMINAL_PIN_VERIFIER` — a failed-attempt/ lockout counter must survive a later rollback, and never runs at all on an idempotent replay). The verified manager's permission set — not the calling cashier's — is what `cash.variance.approve` is checked against, by the Approval Runtime itself, never by a route-level permission guard (the approver is a different actor than the caller). R-6(a): an explicit REJECTED decision COMMITS and returns 200 with `outcome: "rejected"` — never an error. The session stays `closing`; a retry supplies FRESH `approvalRequestId`/`approvalDecisionId` values. — The manager decision outcome — "closed" (approved) or "rejected" (R-6(a); the session remains closing). */
+export type TreasuryController_finalizeCloseResponse = {
+  cashSessionId: string;
+  /** R-6(a): an explicit rejection COMMITS and returns 200 with outcome "rejected" — never an error. The session remains "closing"; a retry with fresh approvalRequestId/approvalDecisionId is expected. */
+  outcome: "closed" | "rejected";
+  status: "closing" | "closed";
+};
+
+export type TreasuryController_finalizeCloseBody = FinalizeCashSessionCloseDto;
+
+/** `POST /cash-sessions/{sessionId}/pay-in` — Record cash added to the drawer — FR-POS-091 [M]. — The recorded pay-in movement. */
+export type TreasuryController_payInResponse = {
+  /** Positive minor-unit amount as a decimal string. The route (not this field) decides the sign. */
+  amountMinor: string;
+  branchId: string;
+  cashSessionId: string;
+  /** ISO 4217 currency code — the cash session’s own currency. */
+  currency: string;
+  employeeId: string;
+  id: string;
+  movementType: "pay_in" | "pay_out" | "safe_drop";
+  occurredAt: string;
+  reason: string;
+};
+
+export type TreasuryController_payInBody = CashMovementDto;
+
+/** `POST /cash-sessions/{sessionId}/pay-out` — Record cash removed from the drawer for an expense — FR-POS-091 [M]. — The recorded pay-out movement. */
+export type TreasuryController_payOutResponse = {
+  /** Positive minor-unit amount as a decimal string. The route (not this field) decides the sign. */
+  amountMinor: string;
+  branchId: string;
+  cashSessionId: string;
+  /** ISO 4217 currency code — the cash session’s own currency. */
+  currency: string;
+  employeeId: string;
+  id: string;
+  movementType: "pay_in" | "pay_out" | "safe_drop";
+  occurredAt: string;
+  reason: string;
+};
+
+export type TreasuryController_payOutBody = CashMovementDto;
+
+/** `POST /cash-sessions/{sessionId}/safe-drop` — Record excess cash removed to the safe — FR-POS-091 [M]. — The recorded safe-drop movement. */
+export type TreasuryController_safeDropResponse = {
+  /** Positive minor-unit amount as a decimal string. The route (not this field) decides the sign. */
+  amountMinor: string;
+  branchId: string;
+  cashSessionId: string;
+  /** ISO 4217 currency code — the cash session’s own currency. */
+  currency: string;
+  employeeId: string;
+  id: string;
+  movementType: "pay_in" | "pay_out" | "safe_drop";
+  occurredAt: string;
+  reason: string;
+};
+
+export type TreasuryController_safeDropBody = CashMovementDto;
 
 /** `GET /catalogue/availability-rules` — Availability rules, optionally filtered to one menu item. */
 export type CatalogueController_listAvailabilityRulesResponse = ({
@@ -1725,6 +1916,43 @@ export type InventoryController_recordWasteResponse = {
 
 export type InventoryController_recordWasteBody = RecordWasteDto;
 
+/** `GET /modifiers/{modifierId}/recipe-effects` — The modifier's recipe effects, in sequence order. */
+export type ProductionController_listModifierRecipeEffectsResponse = ({
+  componentType: "stock_item" | "sub_recipe";
+  createdAt: string;
+  id: string;
+  modifierId: string;
+  operation: "add" | "remove_all";
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantity: string | null;
+  sequence: number;
+  stockItemId: string | null;
+  /** LOGICAL recipe identity — resolved to its published version at capture time. */
+  subRecipeId: string | null;
+  unitId: string | null;
+})[];
+
+/** `PUT /modifiers/{modifierId}/recipe-effects` — Full replace, shaped like `PUT /recipes/:id/versions/:v/lines`. — The replaced set of recipe effects. */
+export type ProductionController_replaceModifierRecipeEffectsResponse = {
+  effects: ({
+    componentType: "stock_item" | "sub_recipe";
+    createdAt: string;
+    id: string;
+    modifierId: string;
+    operation: "add" | "remove_all";
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string | null;
+    sequence: number;
+    stockItemId: string | null;
+    /** LOGICAL recipe identity — resolved to its published version at capture time. */
+    subRecipeId: string | null;
+    unitId: string | null;
+  })[];
+  modifierId: string;
+};
+
+export type ProductionController_replaceModifierRecipeEffectsBody = ReplaceModifierRecipeEffectsDto;
+
 /** `GET /orders` — List orders, cursor-paginated. — A page of orders (no line snapshots) plus an opaque cursor for the next page. */
 export type OrdersController_listResponse = {
   /** Pass businessDay as cursorBusinessDay and id as cursorId to fetch the next page. Null on the last page. */
@@ -2335,7 +2563,7 @@ export type OrdersController_voidLineResponse = {
 
 export type OrdersController_voidLineBody = VoidOrderLineDto;
 
-/** `POST /orders/{businessDay}/{id}/payments` — Capture a partial CASH or manual/external-card payment (full settlement is refused — Completion does not exist yet). — The newly captured Payment and the order it now belongs to (paidTotal/roundingAdjustment/state/version updated). */
+/** `POST /orders/{businessDay}/{id}/payments` — Capture a partial, or final settling, CASH or manual/external-card payment. A settling payment completes the order atomically. — The newly captured Payment and the order it now belongs to (paidTotal/roundingAdjustment/state/version updated). */
 export type OrdersController_capturePaymentResponse = {
   order: {
     branchId: string;
@@ -3104,7 +3332,14 @@ export const ROUTES = {
   TerminalController_register: { method: "POST", path: "/auth/terminals" },
   TerminalController_addFingerprint: { method: "POST", path: "/auth/terminals/{terminalId}/fingerprints" },
   TerminalController_setStatus: { method: "POST", path: "/auth/terminals/{terminalId}/status" },
+  CashClosePolicyController_createPolicy: { method: "POST", path: "/branches/{branchId}/cash-close-policy" },
   TreasuryController_openCashSession: { method: "POST", path: "/cash-sessions" },
+  TreasuryController_declareClose: { method: "POST", path: "/cash-sessions/{sessionId}/close" },
+  TreasuryController_getCloseContext: { method: "GET", path: "/cash-sessions/{sessionId}/close-context" },
+  TreasuryController_finalizeClose: { method: "POST", path: "/cash-sessions/{sessionId}/close/finalize" },
+  TreasuryController_payIn: { method: "POST", path: "/cash-sessions/{sessionId}/pay-in" },
+  TreasuryController_payOut: { method: "POST", path: "/cash-sessions/{sessionId}/pay-out" },
+  TreasuryController_safeDrop: { method: "POST", path: "/cash-sessions/{sessionId}/safe-drop" },
   CatalogueController_listAvailabilityRules: { method: "GET", path: "/catalogue/availability-rules" },
   CatalogueController_createAvailabilityRule: { method: "POST", path: "/catalogue/availability-rules" },
   CatalogueController_toggle86: { method: "POST", path: "/catalogue/availability-rules/{ruleId}/86" },
@@ -3166,6 +3401,8 @@ export const ROUTES = {
   InventoryController_receive: { method: "POST", path: "/inventory/transfers/receive" },
   InventoryController_listWaste: { method: "GET", path: "/inventory/waste" },
   InventoryController_recordWaste: { method: "POST", path: "/inventory/waste" },
+  ProductionController_listModifierRecipeEffects: { method: "GET", path: "/modifiers/{modifierId}/recipe-effects" },
+  ProductionController_replaceModifierRecipeEffects: { method: "PUT", path: "/modifiers/{modifierId}/recipe-effects" },
   OrdersController_list: { method: "GET", path: "/orders" },
   OrdersController_create: { method: "POST", path: "/orders" },
   OrdersController_findOne: { method: "GET", path: "/orders/{businessDay}/{id}" },
