@@ -10,14 +10,15 @@
 
 import { useMemo } from "react";
 import type { Currency, WasteRecord } from "@/lib/console/types";
-import { useI18n } from "@/lib/console/providers";
-import { useLive } from "@/lib/console/live/store";
+import { useI18n, useSession } from "@/lib/console/providers";
+import { useWasteFeed } from "@/lib/console/feeds";
 import { wasteRecords } from "@/lib/console/mock/inventory";
 import { formatDateTime, formatMoney, money, type FormatOptions } from "@/lib/console/format";
 import { WASTE_CATEGORY } from "@/lib/console/labels";
 import { CellStack, DataTable, type Column } from "@/components/console/data-table";
 import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/page";
 import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
+import { ErrorPanel } from "@/components/console/states";
 import { MetricTile } from "@/components/console/charts";
 import { Badge } from "@/components/console/ui";
 
@@ -35,23 +36,32 @@ function summarise(records: WasteRecord[], keyOf: (r: WasteRecord) => string, na
 
 export default function WastePage() {
   const { t, tx, fmt } = useI18n();
-  const { state } = useLive();
+  const { scope } = useSession();
+  const feed = useWasteFeed(scope);
 
-  const rows = state.waste;
+  const rows = feed.rows;
   const currency = rows[0]?.value.currency ?? wasteRecords[0]?.value.currency ?? "EGP";
 
-  // The broader report — every branch, not only the terminal this session is
-  // pinned to, which is what makes "waste by branch" mean anything.
+  /**
+   * The broader report.
+   *
+   * In demo mode the table shows only what this device recorded, so the
+   * report is drawn from the wider fixture set — otherwise "waste by branch"
+   * is a single bar. Against a backend the table already *is* the tenant's
+   * record across every branch in scope, and mixing fixtures into it would
+   * put invented rows next to real ones.
+   */
   const report = useMemo(() => {
-    const totalCost = wasteRecords.reduce((s, r) => s + r.value.amount, 0);
+    const source = feed.live ? rows : wasteRecords;
+    const totalCost = source.reduce((s, r) => s + r.value.amount, 0);
     return {
       totalCost,
-      byItem: summarise(wasteRecords, (r) => r.itemId, (r) => tx(r.itemName)).slice(0, 8),
-      byCategory: summarise(wasteRecords, (r) => r.category, (r) => tx(WASTE_CATEGORY[r.category].label)),
-      byBranch: summarise(wasteRecords, (r) => r.locationId, (r) => tx(r.locationName)),
-      byReason: summarise(wasteRecords, (r) => r.reasonCode, (r) => tx(r.reasonName)),
+      byItem: summarise(source, (r) => r.itemId, (r) => tx(r.itemName)).slice(0, 8),
+      byCategory: summarise(source, (r) => r.category, (r) => tx(WASTE_CATEGORY[r.category].label)),
+      byBranch: summarise(source, (r) => r.locationId, (r) => tx(r.locationName)),
+      byReason: summarise(source, (r) => r.reasonCode, (r) => tx(r.reasonName)),
     };
-  }, [tx]);
+  }, [tx, feed.live, rows]);
 
   const totals = useMemo(() => {
     const trueWaste = rows.filter((row) => row.isTrueWaste);
@@ -130,7 +140,7 @@ export default function WastePage() {
       />
 
       <PageBody>
-        <LiveNotice />
+        <LiveNotice source={feed.live ? "backend" : "device"} />
 
         <TileGrid columns={3}>
           <MetricTile
@@ -145,8 +155,10 @@ export default function WastePage() {
           <MetricTile label={t("common.results")} value={String(totals.count)} />
         </TileGrid>
 
+        {feed.error ? <ErrorPanel error={feed.error} onRetry={feed.reload} /> : null}
+
         {rows.length === 0 ? (
-          <LiveEmpty />
+          <LiveEmpty source={feed.live ? "backend" : "device"} />
         ) : (
           <DataTable
             columns={columns}

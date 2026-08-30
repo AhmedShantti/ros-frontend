@@ -9,28 +9,32 @@
 
 import { useMemo } from "react";
 import type { Order } from "@/lib/console/types";
-import { useI18n } from "@/lib/console/providers";
-import { elapsedSince, useLive, useNow } from "@/lib/console/live/store";
-import { openOrdersOf } from "@/lib/console/live/reducer";
+import { useI18n, useSession } from "@/lib/console/providers";
+import { elapsedSince, useNow } from "@/lib/console/live/store";
+import { useOpenOrderFeed } from "@/lib/console/feeds";
 import { formatDuration, formatMoney, formatTime, money } from "@/lib/console/format";
 import { ORDER_STATE, ORDER_TYPE } from "@/lib/console/labels";
 import { CellStack, DataTable, type Column } from "@/components/console/data-table";
 import { PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
+import { ErrorPanel } from "@/components/console/states";
 import { MetricTile } from "@/components/console/charts";
 import { Badge } from "@/components/console/ui";
 
 export default function OpenOrdersPage() {
   const { t, tx, fmt } = useI18n();
-  const { state } = useLive();
+  const { scope } = useSession();
   const now = useNow(5_000);
+  const feed = useOpenOrderFeed(scope);
 
+  // Oldest first: the oldest open order is the one most likely to be the
+  // problem, and neither source guarantees that order on its own.
   const rows = useMemo(
     () =>
-      [...openOrdersOf(state)].sort(
+      [...feed.rows].sort(
         (a, b) => new Date(a.openedAt).getTime() - new Date(b.openedAt).getTime(),
       ),
-    [state],
+    [feed.rows],
   );
 
   const currency = rows[0]?.currency ?? "EGP";
@@ -110,7 +114,7 @@ export default function OpenOrdersPage() {
       />
 
       <PageBody>
-        <LiveNotice />
+        <LiveNotice source={feed.live ? "backend" : "device"} />
 
         <TileGrid columns={3}>
           <MetricTile label={t("nav.openOrders")} value={String(rows.length)} />
@@ -121,8 +125,10 @@ export default function OpenOrdersPage() {
           <MetricTile label={t("pos.fire")} value={String(unfired)} spec="FR-POS-035" />
         </TileGrid>
 
+        {feed.error ? <ErrorPanel error={feed.error} onRetry={feed.reload} /> : null}
+
         {rows.length === 0 ? (
-          <LiveEmpty />
+          <LiveEmpty source={feed.live ? "backend" : "device"} />
         ) : (
           <DataTable
             columns={columns}

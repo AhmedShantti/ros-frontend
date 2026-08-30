@@ -17,14 +17,43 @@ import { elapsedSince, useLive, useNow } from "@/lib/console/live/store";
 import { urgencyFor } from "@/lib/console/live/engine";
 import { branchById } from "@/lib/console/mock/org";
 import { formatMoney, formatPercent, money } from "@/lib/console/format";
+import { DATA_MODE } from "@/lib/api/config";
 import { Callout, Card, CardHeader } from "./ui";
 import { EmptyPanel } from "./states";
 
-export function LiveNotice() {
+/**
+ * Where the rows below actually came from.
+ *
+ * Three answers, and getting it wrong is the whole reason this takes a prop.
+ * In demo mode every one of these screens is fed by the terminals on this
+ * device. Against a backend, most are fed by the tenant's own record — but a
+ * few domains (the kitchen display, tender summaries, the audit trail) have
+ * no endpoint at all, and those screens are still device-fed even though the
+ * console is live. Saying "take an order on the POS and it lands here" on one
+ * of those is a promise the system cannot keep.
+ */
+export function LiveNotice({ source = "device" }: { source?: "device" | "backend" }) {
   const { t } = useI18n();
+
+  if (DATA_MODE !== "http") {
+    return (
+      <Callout tone="accent" title={t("live.title")}>
+        {t("live.note")}
+      </Callout>
+    );
+  }
+
+  if (source === "backend") {
+    return (
+      <Callout tone="accent" title={t("live.httpTitle")}>
+        {t("live.httpNote")}
+      </Callout>
+    );
+  }
+
   return (
-    <Callout tone="accent" title={t("live.title")}>
-      {t("live.note")}
+    <Callout tone="warn" title={t("live.deviceOnlyTitle")}>
+      {t("live.deviceOnlyNote")}
     </Callout>
   );
 }
@@ -65,8 +94,27 @@ function TerminalButton({
   );
 }
 
-export function LiveEmpty({ title }: { title?: string }) {
+/**
+ * The empty state that matches the notice above it.
+ *
+ * "Open the POS on this device and ring something up" is the right advice
+ * when the device *is* the source. Against a backend it is not: the till the
+ * rows would come from may be in another branch entirely, and the usual
+ * reason for an empty table is a scope that excludes it.
+ */
+export function LiveEmpty({
+  title,
+  source = "device",
+}: {
+  title?: string;
+  source?: "device" | "backend";
+}) {
   const { t } = useI18n();
+
+  if (DATA_MODE === "http" && source === "backend") {
+    return <EmptyPanel title={title ?? t("live.emptyBackend")} body={t("live.emptyBackendBody")} />;
+  }
+
   return (
     <EmptyPanel
       title={title ?? t("live.empty")}

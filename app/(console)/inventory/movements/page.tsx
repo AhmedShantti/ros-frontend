@@ -11,24 +11,27 @@
 
 import { useMemo, useState } from "react";
 import type { StockMovement } from "@/lib/console/types";
-import { useI18n } from "@/lib/console/providers";
-import { useLive } from "@/lib/console/live/store";
+import { useI18n, useSession } from "@/lib/console/providers";
+import { useMovementFeed } from "@/lib/console/feeds";
 import { formatDateTime, formatMoney, formatNumber, money, unitLabel } from "@/lib/console/format";
 import { MOVEMENT_TYPE, labelOf } from "@/lib/console/labels";
 import { CellStack, DataTable, type Column } from "@/components/console/data-table";
 import { PageBody, PageHeader, SearchInput, TileGrid, Toolbar } from "@/components/console/page";
 import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
+import { ErrorPanel } from "@/components/console/states";
 import { MetricTile } from "@/components/console/charts";
 import { Badge, cx } from "@/components/console/ui";
 
 export default function MovementsPage() {
   const { t, tx, fmt } = useI18n();
-  const { state } = useLive();
+  const { scope } = useSession();
   const [term, setTerm] = useState("");
+  const feed = useMovementFeed(scope);
+  const movements = feed.rows;
 
   const rows = useMemo(() => {
     const needle = term.trim().toLowerCase();
-    return state.movements.filter((movement) => {
+    return movements.filter((movement) => {
       if (!needle) return true;
       return (
         movement.itemName.en.toLowerCase().includes(needle) ||
@@ -36,11 +39,11 @@ export default function MovementsPage() {
         movement.movementType.includes(needle)
       );
     });
-  }, [state.movements, term]);
+  }, [movements, term]);
 
-  const currency = state.movements[0]?.totalCost.currency ?? "EGP";
-  const depleted = state.movements.filter((m) => m.movementType === "sale_depletion");
-  const reversed = state.movements.filter((m) => m.movementType === "sale_reversal");
+  const currency = movements[0]?.totalCost.currency ?? "EGP";
+  const depleted = movements.filter((m) => m.movementType === "sale_depletion");
+  const reversed = movements.filter((m) => m.movementType === "sale_reversal");
   const cost = depleted.reduce((s, m) => s + m.totalCost.amount, 0);
 
   const columns: Column<StockMovement>[] = [
@@ -119,10 +122,10 @@ export default function MovementsPage() {
       />
 
       <PageBody>
-        <LiveNotice />
+        <LiveNotice source={feed.live ? "backend" : "device"} />
 
         <TileGrid columns={3}>
-          <MetricTile label={t("inv.movementsTitle")} value={String(state.movements.length)} />
+          <MetricTile label={t("inv.movementsTitle")} value={String(movements.length)} />
           <MetricTile
             label={tx(MOVEMENT_TYPE.sale_depletion.label)}
             value={String(depleted.length)}
@@ -139,8 +142,10 @@ export default function MovementsPage() {
           />
         </TileGrid>
 
-        {state.movements.length === 0 ? (
-          <LiveEmpty />
+        {feed.error ? <ErrorPanel error={feed.error} onRetry={feed.reload} /> : null}
+
+        {movements.length === 0 ? (
+          <LiveEmpty source={feed.live ? "backend" : "device"} />
         ) : (
           <>
             <Toolbar>

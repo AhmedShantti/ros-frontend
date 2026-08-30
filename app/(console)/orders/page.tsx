@@ -11,8 +11,8 @@
 
 import { useMemo, useState } from "react";
 import type { Order } from "@/lib/console/types";
-import { useI18n } from "@/lib/console/providers";
-import { useLive } from "@/lib/console/live/store";
+import { useI18n, useSession } from "@/lib/console/providers";
+import { useOrderFeed } from "@/lib/console/feeds";
 import { formatMoney, formatTime, money, percentOf } from "@/lib/console/format";
 import {
   ORDER_CHANNEL,
@@ -25,6 +25,7 @@ import {
 import { CellStack, DataTable, type Column } from "@/components/console/data-table";
 import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/page";
 import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
+import { ErrorPanel } from "@/components/console/states";
 import { MetricTile } from "@/components/console/charts";
 import { Badge, Callout, Drawer, DescList, DescRow, SpecTag, Tabs } from "@/components/console/ui";
 
@@ -32,14 +33,15 @@ type Filter = "all" | "open" | "completed" | "cancelled";
 
 export default function OrdersPage() {
   const { t, tx, fmt } = useI18n();
-  const { state, ready } = useLive();
+  const { scope } = useSession();
   const [filter, setFilter] = useState<Filter>("all");
   const [selected, setSelected] = useState<Order | null>(null);
 
-  const orders = useMemo(
-    () => state.orderIds.map((id) => state.orders[id]!).filter(Boolean),
-    [state],
-  );
+  // The tenant's ledger when there is a backend, this device's when there is
+  // not — see `lib/console/feeds.ts` for why the screen does not choose.
+  const feed = useOrderFeed(scope);
+  const orders = feed.rows;
+  const ready = feed.ready;
 
   const rows = useMemo(() => {
     if (filter === "all") return orders;
@@ -149,7 +151,7 @@ export default function OrdersPage() {
       />
 
       <PageBody>
-        <LiveNotice />
+        <LiveNotice source={feed.live ? "backend" : "device"} />
 
         <TileGrid>
           <MetricTile
@@ -172,8 +174,10 @@ export default function OrdersPage() {
           />
         </TileGrid>
 
+        {feed.error ? <ErrorPanel error={feed.error} onRetry={feed.reload} /> : null}
+
         {!ready || orders.length === 0 ? (
-          <LiveEmpty />
+          <LiveEmpty source={feed.live ? "backend" : "device"} />
         ) : (
           <Section title={t("orders.title")}>
             <div className="mb-3">
