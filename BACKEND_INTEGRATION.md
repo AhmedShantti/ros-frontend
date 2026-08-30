@@ -21,9 +21,15 @@ npm run api:check
 npm run api:check -- --email you@example.com --password secret
 ```
 
-The first form pings `/health`. The second signs in, lists tenants, selects
-one, and reads every scoped list the console depends on — which is where a
-"connected but blank" setup actually breaks.
+The first form pings `/health`, probes CORS, and compares the deployed
+document at `/docs-json` against `api/openapi.json` — the snapshot the wire
+types are generated from. That last check is the one nothing else catches:
+the app typechecks, builds and boots happily against a spec the server
+stopped serving weeks ago, and the first symptom is a 404 in production.
+
+The second form signs in, lists tenants, selects one, and reads every scoped
+list the console depends on — which is where a "connected but blank" setup
+actually breaks.
 
 ## On a local network
 
@@ -33,9 +39,8 @@ be true and only the first is obvious:
 1. **The API binds `0.0.0.0`, not `127.0.0.1`.** A NestJS app defaults to
    listening on all interfaces, but `app.listen(3000, '127.0.0.1')` is
    reachable only from the API machine itself.
-2. **The browser is allowed to read the response.** Two headers decide this,
-   and as of this writing the backend at `192.168.1.43:3000` sends neither
-   correctly — see below.
+2. **The browser is allowed to read the response.** CORS decides this. The
+   deployed backend gets it right; a locally-run one may not — see below.
 3. **The tablet can reach the dev server.** Next blocks cross-origin requests
    to dev-only endpoints; list the address you type on the tablet in
    `DEV_ORIGINS` (see `.env.local`), which `next.config.ts` feeds to
@@ -108,10 +113,11 @@ npm run api:types
 | File | Contents |
 | --- | --- |
 | `lib/api/schema.ts` | Request DTOs, one response type per operation, and a route table |
-| `lib/api/endpoints.ts` | 133 typed calls, grouped by tag: `api.catalogue.listItems()` |
+| `lib/api/endpoints.ts` | 142 typed calls, grouped by tag: `api.catalogue.listItems()` |
 
 Drop in a new spec export, re-run, and `tsc --noEmit` will point at every
-call the backend has changed under you.
+call the backend has changed under you. `npm run api:check` tells you when
+that is due, by diffing the snapshot against `GET /docs-json`.
 
 Two conventions the generator applies, because the NestJS document does not
 carry enough information to infer them:
@@ -166,7 +172,7 @@ reloads mid-service must come back signed in.
 `API_COVERAGE` in `lib/console/services/http.ts` is the authoritative list and
 is printed to the browser console at start-up. In summary:
 
-**Live** — every one of the document's 133 operations is reachable through
+**Live** — every one of the document's 142 operations is reachable through
 the registry. That covers: authentication and password reset, tenants,
 terminals (register, bind, fingerprint, revoke), RBAC (roles, permissions,
 membership assignment), organisation (brands, branches, warehouses, central
@@ -176,16 +182,50 @@ items, placements, variants, modifier groups and modifiers, price lists and
 entries, availability 86, completeness), inventory (items, levels, batches,
 movements, counts and count lines, transfers and receipts, waste, reason
 codes, reorder configuration, low stock, negative stock, reconciliation),
-production (recipe versions, publish, substitute groups, completeness),
-sales (list, open, add line, void pre-fire line, fire, capture payment) and
-treasury (open cash session).
+production (recipe versions, publish, substitute groups, completeness,
+modifier recipe effects), sales (list, open, add line, void pre-fire line,
+fire, capture payment — partial *or* settling) and treasury (open a cash
+session, pay-in, pay-out, safe drop, close context, declare the count,
+finalise an above-tolerance close, publish a branch cash-close policy).
 
-**Still demo data** — dashboard, costing, purchasing, workforce, finance,
-governance, platform, catalogue combos, inventory adjustments, kitchen queue,
-security users. These are not unfinished wiring: the document has no
+**Still demo data** — dashboard, costing, purchasing, workforce, governance,
+platform, catalogue combos, inventory adjustments, kitchen queue, security
+users, and the *reporting* half of finance (expenses, day close, tender and
+tax summaries). These are not unfinished wiring: the document has no
 endpoints for them at all. The console keeps its demo data rather than
 showing empty screens, and nothing mixes invented rows into a domain the
 backend does serve.
+
+Note the split inside finance. The cash **drawer** is live — every treasury
+operation above runs against the backend from
+`components/terminal/pos-drawer.tsx`. What is not live is the tenant-wide
+*list* of cash sessions, because no `GET /cash-sessions` exists: a session is
+reachable by the id this client was handed when it opened the drawer, and by
+nothing else.
+
+### Which screens read which source
+
+Eight console screens were written against the in-memory engine in
+`lib/console/live/`. Four of them have a real endpoint behind them and now
+choose their source by `DATA_MODE`, through the hooks in
+`lib/console/feeds.ts`:
+
+| Screen | `mock` | `http` |
+| --- | --- | --- |
+| Orders | this device | `GET /orders` |
+| Open orders | this device | `GET /orders`, filtered by state |
+| Stock movements | this device | `GET /inventory/items/{id}/movements` |
+| Waste | this device | `GET /inventory/waste` |
+| Kitchen display | this device | this device — no KDS endpoint |
+| Payments (tender mix) | this device | this device — no summary endpoint |
+| Audit trail | this device | this device — no audit endpoint |
+| Cash sessions | this device | this device — no session index |
+
+The bottom four keep reading the device even when the console is live, and
+`LiveNotice` says so in as many words. It used to promise, on every one of
+these screens, that ringing something up on the POS would make rows appear —
+which against a backend was false, and left a reader staring at an empty
+table with a confident explanation for it.
 
 ## Shape differences worth knowing
 
@@ -231,6 +271,10 @@ Each is marked `// gap:` at the point it bites.
 | No terminal app version / queue depth | `appVersion` reads "—" and `queuedOperations` zero; both are device-side figures the REST surface does not carry. |
 | No pairing-code concept | The device screen lists real terminals to bind to instead. See `app/(auth)/register-device/page.tsx`. |
 | Country pack must be activated for pricing | `POST /orders` answers 422 `CountryPackUnavailableError` until an activated, signed country pack is in force. The POS surfaces the backend's own message. |
+| No `GET /cash-sessions` | A cash session is reachable only by the id this client was handed when it opened the drawer. The console's cash-sessions screen therefore shows what the terminals on *this device* did, and says so. |
+| No cash-close policy read | `POST /branches/{id}/cash-close-policy` publishes a version; nothing lists them. Whether one exists is inferred from `close-context` omitting `toleranceMinorUnits`. |
+| No unit id for a sub-recipe recipe effect | `PUT /modifiers/{id}/recipe-effects` needs a unit UUID for an `add`, and the only real one available is a stock item's `baseUnitId`. The editor offers `add` against stock items; an existing sub-recipe `add` renders and round-trips but is not editable. |
+| `recipeDelta` is not on the modifier row | `GET /modifier-groups/{id}/modifiers` carries no recipe delta, so the modifiers screen reads each modifier's effects from `GET /modifiers/{id}/recipe-effects` on demand rather than fanning out over the whole list. |
 
 ## The POS against this backend
 
@@ -246,29 +290,78 @@ by `DATA_MODE`:
 | Mode | Screen | Behaviour |
 | --- | --- | --- |
 | `mock` | `pos-*.tsx` | The full simulation, unchanged |
-| `http` | `pos-live.tsx` | Open cash session → open order → add line → void pre-fire line → fire → capture **partial** payment |
+| `http` | `pos-live.tsx` + `pos-drawer.tsx` | Open cash session → open order → add line → void pre-fire line → fire → capture payment (partial or settling) → move cash → count and close the drawer |
 
 `pos-live.tsx` lists what the API cannot do rather than hiding those
 controls, because a till that appears to take a discount and does not is
 worse than one that says it cannot.
 
-Two refusals are deliberate on the backend's side and are passed through
+One refusal is deliberate on the backend's side and is passed through
 verbatim rather than worked around:
 
-- **Full settlement.** `POST /payments` rejects a payment that would close
-  the order; Completion is not implemented.
 - **Post-fire voids.** Only pre-fire voids exist. After Fire the line belongs
   to the kitchen and there is no endpoint to take it back.
+
+Full settlement used to be a second such refusal and no longer is:
+`POST /payments` completes an order atomically when the payment covers the
+outstanding balance. The payment drawer therefore defaults the amount to that
+balance, and reports a settling payment differently from a partial one.
 
 Order writes carry `if-match: <version>`, so a second terminal editing the
 same order is refused with 412 rather than silently overwriting.
 
+### The cash drawer close — FR-POS-094/095/096/097, FR-FIN-006
+
+`pos-drawer.tsx` implements a state machine, not a form, because the backend
+has one. `declareClose` either lands within tolerance and closes the session
+in the same request, or freezes it at `closing`; `finalizeClose` is the only
+way out of frozen, and an explicit rejection leaves it frozen for another
+attempt.
+
+Three details are easy to get wrong and are handled explicitly:
+
+- **A blind count withholds figures structurally.** Under `countMode: "blind"`
+  the server *omits* `expectedCashMinorUnits` and `toleranceMinorUnits` from
+  `GET /close-context` — they are absent, never `null`. The generator marks
+  every declared response property as present, so `http.ts` reads that
+  response as a partial shape and the UI renders a dash. Filling it with a
+  zero would defeat FR-POS-095 outright.
+- **A rejection is a committed 200.** `finalizeClose` answers
+  `outcome: "rejected"` rather than throwing. The outcome is read from the
+  response; the absence of an error means nothing here. A retry mints fresh
+  `approvalRequestId` and `approvalDecisionId` values.
+- **The PIN is the manager's, not the cashier's.** The server checks
+  `cash.variance.approve` against the *verified manager's* permission set, so
+  the form asks for a manager employee code alongside it.
+
+`GET /cash-sessions/{id}/close-context` enforces the same own/other
+permission split as the writes, so a cashier cannot probe another employee's
+drawer state.
+
+### Treasury money is already in minor units
+
+Every other endpoint sends money as a decimal string ("12.500"). Treasury
+sends minor units — "1250" means 12.50. Passing one of those through
+`map.money()`, which reads a *decimal*, multiplies the figure by a hundred,
+so treasury responses go through `map.minorMoney()` instead. It is the only
+money conversion in the file that is a straight parse.
+
 ## Adding an endpoint the backend has just built
 
-1. Replace `api/openapi.json`, run `npm run api:types`.
+0. `npm run api:check` — it names what the deployment serves that the
+   snapshot does not.
+1. Replace `api/openapi.json` (`curl <base>/docs-json`), run `npm run api:types`.
 2. Fix whatever `npm run typecheck` now objects to.
 3. Add a mapper in `map.ts` if the shape is new.
 4. Replace the `mockServices.…` line in `http.ts` with the real
    implementation, and move its entry from `API_COVERAGE.demo` to `.live`.
 
-No page, component or hook changes.
+Steps 1–4 need no page, component or hook changes: an endpoint that fills a
+service the console already calls appears wherever that service is read.
+
+A genuinely **new capability** is different, and pretending otherwise is how
+a wired-up endpoint ends up with nothing calling it. Extend the interface in
+`services/types.ts`, implement it in both `http.ts` and `mock.ts` — refusing
+honestly there via `noBackend()` beats inventing rows — and then build the
+screen. The cash-drawer close is the worked example: seven endpoints, one new
+service contract, and `components/terminal/pos-drawer.tsx`.

@@ -22,6 +22,8 @@
  *     such spot is marked `// gap:` and listed in BACKEND_INTEGRATION.md.
  */
 
+import type { ModifierRecipeEffect } from "./types";
+
 import type {
   Batch,
   Branch,
@@ -176,6 +178,24 @@ export function money(
   currency?: string | null,
 ): Money {
   return { amount: minorUnits(decimal), currency: currencyOf(currency) };
+}
+
+/**
+ * Treasury speaks in minor units already.
+ *
+ * `/cash-sessions/*` carries `openingFloatMinorUnits`, `amountMinor`,
+ * `toleranceMinorUnits` and friends — "1250" means 12.50, not 1250.00.
+ * Passing one of those through `money()`, which reads a *decimal* string,
+ * multiplies every drawer figure by a hundred. This is the one place that
+ * conversion is a straight parse.
+ */
+export function minorMoney(
+  minor: string | null | undefined,
+  currency?: string | null,
+): Money {
+  const text = String(minor ?? "").trim();
+  const amount = /^-?\d+$/.test(text) ? Number(text) : 0;
+  return { amount: Number.isFinite(amount) ? amount : 0, currency: currencyOf(currency) };
 }
 
 /** Back the other way, for request bodies that want a decimal string. */
@@ -698,6 +718,40 @@ export function toRecipeLine(row: WireRecipeLine, componentName: Localised = EMP
   };
 }
 
+/**
+ * FR-MNU — one modifier's effect on the plate's recipe.
+ *
+ * Near-passthrough: the wire shape already matches what the console wants,
+ * and the only thing worth normalising is that a `remove_all` genuinely
+ * carries no quantity rather than a zero that would read as one.
+ */
+export function toModifierRecipeEffect(row: {
+  id: string;
+  modifierId: string;
+  sequence: number;
+  operation: "add" | "remove_all";
+  componentType: "stock_item" | "sub_recipe";
+  stockItemId: string | null;
+  subRecipeId: string | null;
+  quantity: string | null;
+  unitId: string | null;
+  createdAt: string;
+}): ModifierRecipeEffect {
+  const additive = row.operation === "add";
+  return {
+    id: row.id,
+    modifierId: row.modifierId,
+    sequence: row.sequence,
+    operation: row.operation,
+    componentType: row.componentType,
+    stockItemId: row.stockItemId,
+    subRecipeId: row.subRecipeId,
+    quantity: additive ? row.quantity : null,
+    unitId: additive ? row.unitId : null,
+    createdAt: row.createdAt,
+  };
+}
+
 export interface RecipeContext {
   tenantId: Id;
   name?: Localised;
@@ -751,6 +805,7 @@ export function toStockItem(row: WireStockItem, tenantId: Id, category: Localise
     name: localised(row.names),
     category,
     baseUnit: unitOf(row.baseUnitId),
+    baseUnitId: row.baseUnitId,
     purchaseUnit: unitOf(row.baseUnitId), // gap: no purchase-unit conversion yet.
     purchaseConversion: 1,
     costingMethod: row.costingMethod,

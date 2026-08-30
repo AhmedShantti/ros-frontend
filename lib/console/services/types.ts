@@ -27,6 +27,7 @@ import type {
   ContributionMarginRow,
   CountSession,
   CountryPack,
+  Currency,
   DashboardData,
   DayClose,
   Employee,
@@ -562,6 +563,50 @@ export interface ProductionService {
   substituteGroups(): Promise<SubstituteGroup[]>;
   createSubstituteGroup(name: string, stockItemIds?: Id[]): Promise<SubstituteGroup>;
   addSubstituteMember(groupId: Id, stockItemId: Id): Promise<void>;
+
+  // -- Modifier recipe effects -----------------------------------------------
+  /**
+   * FR-MNU — what a modifier does to the plate's recipe, in sequence order.
+   *
+   * "No onions" is a `remove_all` on a component; "extra cheese" is an `add`
+   * with its own quantity. Without these, a modified sale deducts the base
+   * recipe and the stock ledger drifts by exactly the modifier.
+   */
+  modifierRecipeEffects(modifierId: Id): Promise<ModifierRecipeEffect[]>;
+  /** Full replace, shaped like `replaceLines` — there is no per-effect edit. */
+  replaceModifierRecipeEffects(
+    modifierId: Id,
+    effects: ModifierRecipeEffectInput[],
+  ): Promise<ModifierRecipeEffect[]>;
+}
+
+/** One stored effect. `quantity`/`unitId` are null for `remove_all`. */
+export interface ModifierRecipeEffect {
+  id: Id;
+  modifierId: Id;
+  sequence: number;
+  operation: "add" | "remove_all";
+  componentType: "stock_item" | "sub_recipe";
+  stockItemId: Id | null;
+  /** Logical recipe identity — resolved to its published version at capture time. */
+  subRecipeId: Id | null;
+  /** Exact decimal string, or null for `remove_all`. */
+  quantity: string | null;
+  unitId: Id | null;
+  createdAt: IsoDateTime;
+}
+
+/** The shape an effect takes on the way *to* the API. */
+export interface ModifierRecipeEffectInput {
+  sequence: number;
+  operation: "add" | "remove_all";
+  componentType: "stock_item" | "sub_recipe";
+  stockItemId?: Id;
+  subRecipeId?: Id;
+  /** Required for `add`, refused for `remove_all`. */
+  quantity?: string;
+  /** Required for `add`, refused for `remove_all`. */
+  unitId?: Id;
 }
 
 /** The shape a recipe line takes on the way *to* the API. */
@@ -671,7 +716,88 @@ export interface SalesService {
   mutations: OrderMutationService;
 }
 
-/** FR-POS-090, FR-FIN-001/002 — opening a drawer. */
+/** FR-POS-091 — the three ways cash moves without a sale. */
+export type CashMovementKind = "pay_in" | "pay_out" | "safe_drop";
+
+/** One recorded drawer movement. The route, not the amount, carries the sign. */
+export interface CashMovement {
+  id: Id;
+  cashSessionId: Id;
+  branchId: Id;
+  employeeId: Id;
+  kind: CashMovementKind;
+  /** Always positive — read `kind` for the direction. */
+  amount: Money;
+  reason: string;
+  occurredAt: IsoDateTime;
+}
+
+/**
+ * FR-POS-094/095 — what a cashier is allowed to see *before* counting.
+ *
+ * The nulls here are load-bearing. Under a blind count the server omits
+ * expected cash and tolerance entirely until a count is durably declared,
+ * and a UI that renders `0` in their place has quietly defeated the control
+ * the whole endpoint exists to enforce. `expectedCash` is a preview under an
+ * open count and authoritative only once `status` has left `open`.
+ */
+export interface CashCloseContext {
+  cashSessionId: Id;
+  status: "open" | "closing" | "closed";
+  countMode: "blind" | "open";
+  currency: Currency;
+  openingFloat: Money;
+  /** Null when the branch has no cash-close policy configured at all. */
+  tolerance: Money | null;
+  /** Null while open + blind. A preview while open + open-mode. */
+  expectedCash: Money | null;
+  /** Null until a count has been declared. */
+  countedCash: Money | null;
+  /** Null until a count has been declared. */
+  variance: Money | null;
+  /** Null until a count has been declared. */
+  approvalRequired: boolean | null;
+  closedAt: IsoDateTime | null;
+  /** True when this session still needs a manager decision to finish. */
+  frozen: boolean;
+}
+
+/** The committed count — and the first legitimate disclosure of the variance. */
+export interface CashCloseDeclaration {
+  cashSessionId: Id;
+  closeAttemptId: Id;
+  status: "closing" | "closed";
+  /** True when the variance exceeded tolerance and a manager must decide. */
+  approvalRequired: boolean;
+  /** False on an idempotent replay of an attempt already declared. */
+  created: boolean;
+  countMode: "blind" | "open";
+  tolerance: Money;
+  expectedCash: Money;
+  countedCash: Money;
+  variance: Money;
+}
+
+/** One line of a denomination count: how many of which note or coin. */
+export interface DenominationCountInput {
+  /** The note/coin's face value in minor units, as an exact integer string. */
+  denominationMinorUnits: string;
+  quantity: number;
+}
+
+/** R-1(a)/R-4(a)/R-5 — the branch rule that decides what "over tolerance" means. */
+export interface CashClosePolicy {
+  id: Id;
+  branchId: Id;
+  effectiveFrom: IsoDateTime;
+  countMode: "blind" | "open";
+  tolerance: Money;
+  varianceApprovalExpirySeconds: number;
+  createdBy: Id;
+  createdAt: IsoDateTime;
+}
+
+/** FR-POS-090/091/094, FR-FIN-001/002/006 — the cash drawer, end to end. */
 export interface TreasuryService {
   /**
    * Opens a cashier shift and its cash session in one transaction.
@@ -686,6 +812,71 @@ export interface TreasuryService {
     openingFloat: string;
     notes?: string;
   }): Promise<{ cashSessionId: Id; shiftId: Id; created: boolean }>;
+
+  /**
+   * FR-POS-091 [M] — cash in, cash out, cash to the safe.
+   *
+   * `reason` is mandatory for all three; the backend refuses a blank one.
+   * The amount is always positive and always minor units as an exact string.
+   */
+  recordMovement(
+    cashSessionId: Id,
+    kind: CashMovementKind,
+    input: { amountMinor: string; reason: string; occurredAt?: IsoDateTime },
+  ): Promise<CashMovement>;
+
+  /** FR-POS-094/095 — read-only, and deliberately incomplete under a blind count. */
+  closeContext(cashSessionId: Id): Promise<CashCloseContext>;
+
+  /**
+   * FR-POS-094/096/097 [M] — declare the physical count.
+   *
+   * Within tolerance this closes the session in the same request. Above it,
+   * the session freezes at `closing` and only `finalizeClose` gets it out.
+   */
+  declareClose(
+    cashSessionId: Id,
+    input: {
+      /** Non-negative minor units as an exact string. Omit when counting by denomination. */
+      countedTotalMinorUnits?: string;
+      denominations?: DenominationCountInput[];
+    },
+  ): Promise<CashCloseDeclaration>;
+
+  /**
+   * FR-FIN-006 [M] — the manager's decision on a frozen close.
+   *
+   * A rejection is a *success*: it commits and answers `rejected`, leaving
+   * the session frozen for another attempt. The caller must treat that as an
+   * outcome, not an error.
+   */
+  finalizeClose(
+    cashSessionId: Id,
+    input: {
+      decision: "approved" | "rejected";
+      reason: string;
+      managerEmployeeCode: string;
+      managerPin: string;
+      comment?: string;
+    },
+  ): Promise<{ status: "closing" | "closed"; outcome: "closed" | "rejected" }>;
+
+  /**
+   * R-1(a)/R-4(a)/R-5 — publish a new immutable policy version for a branch.
+   *
+   * Versions are never edited; a change is a new row with its own
+   * `effectiveFrom`, and a past instant is refused by the database.
+   */
+  setCashClosePolicy(
+    branchId: Id,
+    input: {
+      /** Absolute non-negative tolerance in minor units, as an exact string. Zero is valid. */
+      varianceToleranceMinorUnits: string;
+      varianceApprovalExpirySeconds: number;
+      countMode?: "blind" | "open";
+      effectiveFrom?: IsoDateTime;
+    },
+  ): Promise<CashClosePolicy>;
 }
 
 /** Everything the console can talk to. */

@@ -18,17 +18,22 @@ const devOrigins = (process.env.DEV_ORIGINS ?? "")
 /**
  * Optional same-origin proxy to the backend.
  *
- * The API currently answers with no `Access-Control-Allow-Origin` and with
- * Helmet's default `Cross-Origin-Resource-Policy: same-origin`, so a browser
- * refuses every cross-origin call to it — the console loads and then reads
- * nothing. Enabling CORS on the backend is the proper fix. Until that ships,
- * routing through this server sidesteps it entirely, because the browser then
- * only ever talks to the origin it was served from:
+ * The deployed API sends CORS correctly — an `Access-Control-Allow-Origin`
+ * reflecting the caller and a preflight that admits `authorization`,
+ * `idempotency-key` and `if-match` — so the browser can call it directly and
+ * this proxy is not required. `npm run api:check` reports which is true of
+ * whatever host is configured.
  *
- *   API_PROXY_TARGET=http://192.168.1.43:3000
+ * It stays because a deployment that lacks those headers is indistinguishable
+ * in JavaScript from a dead host, and routing through this server sidesteps
+ * the question entirely: the browser then only ever talks to the origin it
+ * was served from.
+ *
+ *   API_PROXY_TARGET=https://ros-zchd.onrender.com
  *   NEXT_PUBLIC_API_URL=/api/ros
  *
- * Leave `API_PROXY_TARGET` unset to call the backend directly.
+ * Leave `API_PROXY_TARGET` unset to call the backend directly. In production
+ * the same rewrite has to exist on whatever serves the app.
  */
 const proxyTarget = (process.env.API_PROXY_TARGET ?? "").replace(/\/+$/, "");
 

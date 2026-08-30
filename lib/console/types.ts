@@ -528,6 +528,14 @@ export interface StockItem {
   name: Localised;
   category: Localised;
   baseUnit: UnitCode;
+  /**
+   * The unit's own id, when it came from the backend.
+   *
+   * `baseUnit` is a display code resolved through the unit registry, and a
+   * code cannot be sent back — every write that carries a unit wants the
+   * UUID. Undefined in demo mode, where units are codes all the way down.
+   */
+  baseUnitId?: Id;
   purchaseUnit: UnitCode;
   purchaseConversion: number;
   costingMethod: CostingMethod;

@@ -8,27 +8,28 @@
  * `components/terminal/pos-*.tsx` run on the in-memory engine in
  * `lib/console/live/`, which simulates far more than the API implements:
  * discounts, comps, splits, refunds, table state, courses, KDS tickets. The
- * backend offers exactly six operations against an order:
+ * backend offers this much against an order and its drawer:
  *
  *   POST   /cash-sessions                       open the drawer
+ *   POST   /cash-sessions/{id}/pay-in|-out|…    move cash without a sale
+ *   GET    /cash-sessions/{id}/close-context    what a cashier may see
+ *   POST   /cash-sessions/{id}/close            commit the count
+ *   POST   /cash-sessions/{id}/close/finalize   a manager's decision
  *   POST   /orders                              open an order
  *   POST   /orders/{day}/{id}/lines             capture a line
  *   DELETE /orders/{day}/{id}/lines/{lineId}    void a pre-fire line
  *   POST   /orders/{day}/{id}/fire              fire to production
- *   POST   /orders/{day}/{id}/payments          capture a PARTIAL payment
+ *   POST   /orders/{day}/{id}/payments          pay, partially or in full
  *
  * Bridging the simulator onto that surface would mean a screen where half
- * the controls silently do nothing to the server — an till that looks like
+ * the controls silently do nothing to the server — a till that looks like
  * it took a discount and did not. So this renders only what the API can
  * actually perform, and names the rest as unavailable.
  *
- * ## Two things the API refuses on purpose
+ * ## One thing the API still refuses on purpose
  *
- *  - **Full settlement.** `POST /payments` rejects a payment that would
- *    close the order, because Completion is not implemented. The remaining
- *    balance is shown and the refusal is passed through verbatim.
- *  - **Voiding a fired line.** Only pre-fire voids exist. After Fire the
- *    line is the kitchen's, and there is no endpoint to take it back.
+ * **Voiding a fired line.** Only pre-fire voids exist. After Fire the line
+ * is the kitchen's, and there is no endpoint to take it back.
  *
  * Optimistic concurrency is real here: every mutation sends the `version`
  * last seen as `if-match`, so a second terminal editing the same order gets
@@ -37,7 +38,7 @@
 
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle,
+  Banknote,
   Flame,
   Plus,
   Receipt,
@@ -53,6 +54,7 @@ import { formatMoney } from "@/lib/console/format";
 import { ORDER_TYPE, TENDER_TYPE, labelOf } from "@/lib/console/labels";
 import { getTerminalId } from "@/lib/api/session";
 import { AsyncPanel } from "@/components/console/states";
+import { CashClosePolicyCard, DrawerSheet } from "@/components/terminal/pos-drawer";
 import {
   Badge,
   Button,
@@ -65,7 +67,6 @@ import {
   Field,
   Input,
   Select,
-  Spinner,
   Toast,
 } from "@/components/console/ui";
 
@@ -87,6 +88,7 @@ export function LivePos() {
   const [cashSessionId, setCashSessionId] = useState<string | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [drawer, setDrawer] = useState(false);
 
   const terminalId = typeof window === "undefined" ? null : getTerminalId();
 
@@ -112,8 +114,10 @@ export function LivePos() {
 
   if (!cashSessionId) {
     return (
-      <div className="mx-auto w-full max-w-md p-4">
+      <div className="mx-auto w-full max-w-md space-y-3 p-4">
         <OpenDrawer onOpened={setCashSessionId} />
+        <CashClosePolicyCard branchId={scope.branchId} onMessage={setMessage} />
+        <Toast message={message} />
       </div>
     );
   }
@@ -142,8 +146,22 @@ export function LivePos() {
           onOrder={setOrder}
           onMessage={setMessage}
           onClear={() => setOrder(null)}
+          onDrawer={() => setDrawer(true)}
         />
       </aside>
+
+      <DrawerSheet
+        open={drawer}
+        cashSessionId={cashSessionId}
+        onClose={() => setDrawer(false)}
+        onMessage={setMessage}
+        onClosed={() => {
+          // The session is gone; so is anything that referenced it.
+          setDrawer(false);
+          setCashSessionId(null);
+          setOrder(null);
+        }}
+      />
 
       <Toast message={message} />
     </div>
@@ -453,22 +471,33 @@ function OrderPane({
   onOrder,
   onMessage,
   onClear,
+  onDrawer,
 }: {
   order: Order | null;
   cashSessionId: string;
   onOrder: (order: Order) => void;
   onMessage: (message: string) => void;
   onClear: () => void;
+  onDrawer: () => void;
 }) {
   const { t, tx, fmt } = useI18n();
   const action = useAction();
   const [voiding, setVoiding] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
 
+  // The drawer outlives any one order, so its control sits outside the
+  // "no order open" branch — a cashier still has to pay out and close.
+  const drawerButton = (
+    <Button variant="ghost" className="w-full" icon={<Banknote size={14} />} onClick={onDrawer}>
+      {t("shift.drawerOps")}
+    </Button>
+  );
+
   if (!order) {
     return (
-      <div className="text-fg-subtle flex flex-1 items-center justify-center p-6 text-center text-sm">
-        {t("pos.noActiveOrder")}
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="text-fg-subtle text-sm">{t("pos.noActiveOrder")}</p>
+        <div className="w-full max-w-56">{drawerButton}</div>
       </div>
     );
   }
@@ -578,9 +607,12 @@ function OrderPane({
           </Button>
         </div>
 
-        <Button variant="ghost" className="w-full" onClick={onClear}>
-          {t("pos.closeOrder")}
-        </Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="ghost" onClick={onClear}>
+            {t("pos.closeOrder")}
+          </Button>
+          {drawerButton}
+        </div>
       </footer>
 
       <VoidLineDrawer
@@ -603,7 +635,9 @@ function OrderPane({
         onPaid={(next) => {
           setPaying(false);
           onOrder(next);
-          onMessage(t("pos.paymentCaptured"));
+          // A settling payment completes the order in the same request, and
+          // "payment captured" would understate what just happened.
+          onMessage(next.state === "completed" ? t("pos.orderSettled") : t("pos.paymentCaptured"));
         }}
       />
     </>
@@ -700,11 +734,12 @@ function VoidLineDrawer({
 // ---------------------------------------------------------------------------
 
 /**
- * FR-POS-060 — a partial payment.
+ * FR-POS-060 — a payment, partial or settling.
  *
- * The endpoint refuses anything that would settle the order in full, because
- * Completion does not exist yet. That is stated up front rather than left
- * for the cashier to discover by being rejected.
+ * The endpoint now completes an order atomically when the payment covers the
+ * outstanding balance, so the amount defaults to that balance rather than to
+ * nothing: paying the bill in full is the ordinary case and should not need
+ * arithmetic from the cashier.
  */
 function PaymentDrawer({
   order,
@@ -724,7 +759,7 @@ function PaymentDrawer({
   const { t, tx, fmt } = useI18n();
   const action = useAction();
   const [tender, setTender] = useState<"cash" | "manual_external_card">("cash");
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(() => decimalOf(outstanding));
   const [tendered, setTendered] = useState("");
   const [terminalReference, setTerminalReference] = useState("");
 
@@ -780,9 +815,7 @@ function PaymentDrawer({
       <div className="space-y-4">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
 
-        <Callout tone="warn" icon={<AlertTriangle size={14} />}>
-          {t("pos.partialOnlyNote")}
-        </Callout>
+        <Callout tone="muted">{t("pos.settleNote")}</Callout>
 
         <DescList>
           <DescRow label={t("orders.outstanding")} mono>
@@ -856,6 +889,12 @@ export function UnsupportedNotice() {
 }
 
 // ---------------------------------------------------------------------------
+
+/** Minor units back to the decimal string the amount inputs carry. */
+function decimalOf(minor: number): string {
+  if (!Number.isFinite(minor) || minor <= 0) return "";
+  return (minor / 100).toFixed(2);
+}
 
 /**
  * The optimistic-concurrency token (SRS §24.6.4).

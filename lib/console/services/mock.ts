@@ -33,6 +33,7 @@ import type {
   GovernanceService,
   InventoryService,
   LowStockRow,
+  ModifierRecipeEffect,
   OperatingHours,
   OperationsService,
   PrintRoutingRule,
@@ -586,9 +587,33 @@ const sales: SalesService = {
   mutations: orderMutations,
 };
 
+/**
+ * The drawer is not simulated here.
+ *
+ * Demo mode already has a till — the in-memory engine in
+ * `lib/console/live/`, which the POS and the cash-sessions screen both read.
+ * A second, divergent drawer behind the service layer would give two
+ * different answers to "what is in the till", so every treasury call refuses
+ * and names the environment variable that makes it work.
+ */
 const treasury: TreasuryService = {
   async openCashSession() {
     noBackend("Opening a cash session");
+  },
+  async recordMovement() {
+    noBackend("Recording a cash movement");
+  },
+  async closeContext() {
+    noBackend("Reading a cash session's close context");
+  },
+  async declareClose() {
+    noBackend("Declaring a cash count");
+  },
+  async finalizeClose() {
+    noBackend("Finalising an above-tolerance close");
+  },
+  async setCashClosePolicy() {
+    noBackend("Publishing a cash-close policy");
   },
 };
 
@@ -2215,7 +2240,40 @@ const production: ProductionService = {
       if (!group.memberIds.includes(stockItemId)) group.memberIds.push(stockItemId);
     });
   },
+
+  async modifierRecipeEffects(modifierId) {
+    return transport(() => [...(demoModifierEffects.get(modifierId) ?? [])]);
+  },
+
+  async replaceModifierRecipeEffects(modifierId, effects) {
+    return transport(() => {
+      const now = new Date().toISOString();
+      const stored: ModifierRecipeEffect[] = effects
+        .slice()
+        .sort((a, b) => a.sequence - b.sequence)
+        .map((effect, index) => ({
+          id: `mre_${modifierId}_${index + 1}`,
+          modifierId,
+          sequence: effect.sequence,
+          operation: effect.operation,
+          componentType: effect.componentType,
+          stockItemId: effect.stockItemId ?? null,
+          subRecipeId: effect.subRecipeId ?? null,
+          // A `remove_all` takes out whatever is there; a quantity on one
+          // would be meaningless, and the backend rejects it outright.
+          quantity: effect.operation === "add" ? (effect.quantity ?? null) : null,
+          unitId: effect.operation === "add" ? (effect.unitId ?? null) : null,
+          createdAt: now,
+        }));
+
+      demoModifierEffects.set(modifierId, stored);
+      return [...stored];
+    });
+  },
 };
+
+/** FR-MNU — modifier → recipe effects, per modifier. Empty until edited. */
+const demoModifierEffects = new Map<Id, ModifierRecipeEffect[]>();
 
 // ---------------------------------------------------------------------------
 

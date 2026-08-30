@@ -86,7 +86,7 @@ import * as map from "./map";
 /**
  * Which registry members reach the API, and which are still demo data.
  *
- * Every one of the document's 133 operations is now reachable through this
+ * Every one of the document's 142 operations is reachable through this
  * registry. What remains under `demo` is not unfinished wiring — it is the
  * set of domains the backend does not implement at all, and inventing rows
  * for them here would be worse than saying so.
@@ -139,9 +139,15 @@ export const API_COVERAGE = {
     "production.publishVersion",
     "production.requiringCompletion",
     "production.substituteGroups",
+    "production.modifierRecipeEffects",
     "sales.orders",
     "sales.mutations",
     "treasury.openCashSession",
+    "treasury.recordMovement",
+    "treasury.closeContext",
+    "treasury.declareClose",
+    "treasury.finalizeClose",
+    "treasury.setCashClosePolicy",
     "operations.openOrders",
     "operations.terminals",
     "operations.stations",
@@ -159,6 +165,8 @@ export const API_COVERAGE = {
     "costing",
     "purchasing",
     "workforce",
+    // Expenses, day-close and the tender/tax summaries have no endpoint.
+    // The drawer itself does — see the `treasury.*` entries above.
     "finance",
     "governance",
     "platform",
@@ -772,6 +780,28 @@ const production: import("./types").ProductionService = {
 
   async addSubstituteMember(groupId, stockItemId) {
     await api.production.addGroupMember(groupId, { stockItemId });
+  },
+
+  async modifierRecipeEffects(modifierId) {
+    const rows = await api.production.listModifierRecipeEffects(modifierId);
+    return rows.map(map.toModifierRecipeEffect);
+  },
+
+  async replaceModifierRecipeEffects(modifierId, effects) {
+    const response = await api.production.replaceModifierRecipeEffects(modifierId, {
+      // A `remove_all` carries no quantity and no unit; sending either is a
+      // 400, so they are dropped here rather than at every call site.
+      effects: effects.map((effect) => ({
+        sequence: effect.sequence,
+        operation: effect.operation,
+        componentType: effect.componentType,
+        stockItemId: effect.componentType === "stock_item" ? effect.stockItemId : undefined,
+        subRecipeId: effect.componentType === "sub_recipe" ? effect.subRecipeId : undefined,
+        quantity: effect.operation === "add" ? effect.quantity : undefined,
+        unitId: effect.operation === "add" ? effect.unitId : undefined,
+      })),
+    });
+    return response.effects.map(map.toModifierRecipeEffect);
   },
 };
 
@@ -2064,6 +2094,135 @@ const treasury: import("./types").TreasuryService = {
       cashSessionId: response.cashSession.id,
       shiftId: response.shift.id,
       created: response.created,
+    };
+  },
+
+  async recordMovement(cashSessionId, kind, input) {
+    const body: S.CashMovementDto = {
+      // FR-OFF-015 — the device's permanent id for this movement, beneath
+      // the idempotency key the client layer adds for the retry itself.
+      id: ulid(),
+      amountMinor: input.amountMinor,
+      reason: input.reason,
+      occurredAt: input.occurredAt,
+    };
+
+    const call =
+      kind === "pay_in"
+        ? api.treasury.payIn
+        : kind === "pay_out"
+          ? api.treasury.payOut
+          : api.treasury.safeDrop;
+
+    const row = await call(cashSessionId, body);
+
+    return {
+      id: row.id,
+      cashSessionId: row.cashSessionId,
+      branchId: row.branchId,
+      employeeId: row.employeeId,
+      kind: row.movementType,
+      amount: map.minorMoney(row.amountMinor, row.currency),
+      reason: row.reason,
+      occurredAt: row.occurredAt,
+    };
+  },
+
+  async closeContext(cashSessionId) {
+    // The generator marks every declared property as present, but this
+    // response omits four of them outright under a blind count — that
+    // omission *is* FR-POS-095, so it is read as a partial shape here.
+    const row = (await api.treasury.getCloseContext(cashSessionId)) as Partial<
+      S.TreasuryController_getCloseContextResponse
+    >;
+
+    const currency = map.currencyOf(row.currency);
+    const declared = row.status === "closing" || row.status === "closed";
+    const present = (value: string | undefined) => value !== undefined && value !== null;
+
+    return {
+      cashSessionId: row.cashSessionId ?? cashSessionId,
+      status: row.status ?? "open",
+      countMode: row.countMode ?? "blind",
+      currency,
+      openingFloat: map.minorMoney(row.openingFloatMinorUnits, currency),
+      tolerance: present(row.toleranceMinorUnits)
+        ? map.minorMoney(row.toleranceMinorUnits, currency)
+        : null,
+      expectedCash: present(row.expectedCashMinorUnits)
+        ? map.minorMoney(row.expectedCashMinorUnits, currency)
+        : null,
+      countedCash:
+        declared && present(row.countedCashMinorUnits)
+          ? map.minorMoney(row.countedCashMinorUnits, currency)
+          : null,
+      variance:
+        declared && present(row.varianceMinorUnits)
+          ? map.minorMoney(row.varianceMinorUnits, currency)
+          : null,
+      approvalRequired: declared ? (row.approvalRequired ?? false) : null,
+      closedAt: row.closedAt ?? null,
+      frozen: row.status === "closing",
+    };
+  },
+
+  async declareClose(cashSessionId, input) {
+    const row = await api.treasury.declareClose(cashSessionId, {
+      closeAttemptId: ulid(),
+      countedTotalMinorUnits: input.countedTotalMinorUnits,
+      denominations: input.denominations?.length ? input.denominations : undefined,
+    });
+
+    const currency = map.currencyOf(row.currency);
+
+    return {
+      cashSessionId: row.cashSessionId,
+      closeAttemptId: row.closeAttemptId,
+      status: row.status,
+      approvalRequired: row.approvalRequired,
+      created: row.created,
+      countMode: row.countMode,
+      tolerance: map.minorMoney(row.toleranceMinorUnits, currency),
+      expectedCash: map.minorMoney(row.expectedCashMinorUnits, currency),
+      countedCash: map.minorMoney(row.countedCashMinorUnits, currency),
+      variance: map.minorMoney(row.varianceMinorUnits, currency),
+    };
+  },
+
+  async finalizeClose(cashSessionId, input) {
+    // R-6(a) — a rejection is a committed 200, not a refusal. Both ids are
+    // fresh per attempt: reusing them after a rejection replays the
+    // rejection instead of asking the manager again.
+    const row = await api.treasury.finalizeClose(cashSessionId, {
+      approvalRequestId: ulid(),
+      approvalDecisionId: ulid(),
+      decision: input.decision,
+      reason: input.reason,
+      managerEmployeeCode: input.managerEmployeeCode,
+      managerPin: input.managerPin,
+      comment: input.comment,
+    });
+
+    return { status: row.status, outcome: row.outcome };
+  },
+
+  async setCashClosePolicy(branchId, input) {
+    const row = await api.treasury.createPolicy(branchId, {
+      varianceToleranceMinorUnits: input.varianceToleranceMinorUnits,
+      varianceApprovalExpirySeconds: input.varianceApprovalExpirySeconds,
+      countMode: input.countMode,
+      effectiveFrom: input.effectiveFrom,
+    });
+
+    return {
+      id: row.id,
+      branchId: row.branchId,
+      effectiveFrom: row.effectiveFrom,
+      countMode: row.countMode,
+      tolerance: map.minorMoney(row.varianceToleranceMinorUnits, row.currency),
+      varianceApprovalExpirySeconds: row.varianceApprovalExpirySeconds,
+      createdBy: row.createdBy,
+      createdAt: row.createdAt,
     };
   },
 };

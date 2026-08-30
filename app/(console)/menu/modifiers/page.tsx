@@ -23,6 +23,7 @@ import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatMoney, formatNumber, formatQuantity } from "@/lib/console/format";
 import { MODIFIER_KIND, labelOf } from "@/lib/console/labels";
+import { ModifierEffects } from "@/components/console/modifier-effects";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
@@ -268,7 +269,7 @@ function GroupDrawer({
           ) : (
             <ul className="divide-line divide-y">
               {group.modifiers.map((modifier) => (
-                <ModifierRow key={modifier.id} modifier={modifier} />
+                <ModifierRow key={modifier.id} modifier={modifier} onChanged={onChanged} />
               ))}
             </ul>
           )}
@@ -291,7 +292,13 @@ function GroupDrawer({
   );
 }
 
-function ModifierRow({ modifier }: { modifier: Modifier }) {
+function ModifierRow({
+  modifier,
+  onChanged,
+}: {
+  modifier: Modifier;
+  onChanged: (message: string) => void;
+}) {
   const { t, tx, fmt } = useI18n();
   const kind = labelOf(MODIFIER_KIND, modifier.kind);
   const delta = modifier.priceDelta.amount;
@@ -316,13 +323,18 @@ function ModifierRow({ modifier }: { modifier: Modifier }) {
         </span>
       </div>
 
+      {/* `recipeDelta` is what the demo fixtures carry; the backend serves the
+          same thing from its own endpoint, one modifier at a time. Whichever
+          source is live, the modifier's effect on stock is shown here. */}
       {modifier.recipeDelta.length > 0 ? (
         <ul className="mt-1.5 space-y-1">
           {modifier.recipeDelta.map((entry, index) => (
             <RecipeDeltaRow key={`${entry.componentId}-${index}`} entry={entry} />
           ))}
         </ul>
-      ) : null}
+      ) : (
+        <ModifierEffects modifier={modifier} onSaved={onChanged} />
+      )}
     </li>
   );
 }
