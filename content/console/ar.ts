@@ -1926,6 +1926,7 @@ export const consoleAr: ConsoleCopy = {
   "shift.signedOn": "تم تسجيل الدخول",
   "shift.signOnNoTenant": "لم يُحدَّد مستأجر على هذا الجهاز. سجّل الدخول إلى لوحة التحكم أولاً ثم عُد.",
   "shift.employeeCode": "رمز الموظف",
+  "shift.pinLabel": "رمز الموظف السرّي",
   "shift.pinHint": "من أربعة إلى ثمانية أرقام. لا يُعرض ولا يُحفظ على هذا الجهاز.",
   "shift.cashierHint": "من سجّل الدخول على هذه الطرفية. يُفتح الدرج باسمه.",
   "shift.openingFloatHint": "النقد المعدود في الدرج عند بداية الوردية.",

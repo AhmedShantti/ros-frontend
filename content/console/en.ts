@@ -1929,6 +1929,7 @@ export const consoleEn = {
   "shift.signedOn": "Signed on",
   "shift.signOnNoTenant": "No tenant is selected on this device. Sign in to the console first, then come back.",
   "shift.employeeCode": "Employee code",
+  "shift.pinLabel": "Employee PIN",
   "shift.pinHint": "Four to eight digits. Never shown, never stored on this device.",
   "shift.cashierHint": "Whoever signed on at this till. The drawer is opened in their name.",
   "shift.openingFloatHint": "The cash counted into the drawer at the start of the shift.",

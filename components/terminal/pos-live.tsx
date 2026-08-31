@@ -341,7 +341,10 @@ function CashierSignOn({
           />
         </Field>
 
-        <Field label={t("auth.pinLabel")} hint={t("shift.pinHint")} required>
+        {/* The employee's PIN, not the device's — `auth.pinLabel` is the
+            terminal one and reads "Terminal PIN" on this card, which is a
+            different secret entirely. */}
+        <Field label={t("shift.pinLabel")} hint={t("shift.pinHint")} required>
           <Input
             type="password"
             inputMode="numeric"
