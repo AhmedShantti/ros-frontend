@@ -30,7 +30,19 @@ export interface ActionState {
    */
   run: <T>(
     work: () => Promise<T>,
-    options?: { onSuccess?: (result: T) => void; success?: string },
+    options?: {
+      onSuccess?: (result: T) => void;
+      /**
+       * A refusal the caller needs to *act* on, not merely display.
+       *
+       * The message is still shown either way. This is for the cases where
+       * the failure changes what the screen should be — a token that has
+       * stopped identifying an employee has to send the till back to
+       * sign-on, not leave a dead button under an error line.
+       */
+      onError?: (error: ServiceError) => void;
+      success?: string;
+    },
   ) => Promise<T | undefined>;
 }
 
@@ -47,7 +59,11 @@ export function useAction(notify?: (message: string) => void): ActionState {
   const run = useCallback(
     async <T,>(
       work: () => Promise<T>,
-      options: { onSuccess?: (result: T) => void; success?: string } = {},
+      options: {
+        onSuccess?: (result: T) => void;
+        onError?: (error: ServiceError) => void;
+        success?: string;
+      } = {},
     ): Promise<T | undefined> => {
       setPending(true);
       setError(null);
@@ -60,6 +76,11 @@ export function useAction(notify?: (message: string) => void): ActionState {
         const message = describeError(caught);
         setError(message);
         notify?.(message);
+        options.onError?.(
+          caught instanceof ServiceError
+            ? caught
+            : new ServiceError("UNKNOWN", message, 0),
+        );
         return undefined;
       } finally {
         setPending(false);

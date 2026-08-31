@@ -20,6 +20,7 @@ const KEY_TENANT = "ros.api.tenantId";
 const KEY_TERMINAL = "ros.api.terminalId";
 const KEY_CASH_SESSION = "ros.api.cashSessionId";
 const KEY_CASH_OPENING = "ros.api.cashSessionOpening";
+const KEY_POS_EMPLOYEE = "ros.api.posEmployee";
 
 export interface TokenSet {
   accessToken: string;
@@ -96,6 +97,7 @@ export function clearSession(): void {
   // else's drawer to count and close.
   write(KEY_CASH_SESSION, null);
   write(KEY_CASH_OPENING, null);
+  write(KEY_POS_EMPLOYEE, null);
   announce();
 }
 
@@ -201,4 +203,44 @@ export function getPendingCashOpen(): PendingCashOpen | null {
 
 export function setPendingCashOpen(pending: PendingCashOpen | null): void {
   write(KEY_CASH_OPENING, pending === null ? null : JSON.stringify(pending));
+}
+
+// ---------------------------------------------------------------------------
+// The cashier on the till
+// ---------------------------------------------------------------------------
+
+/**
+ * Who signed on at this terminal with a PIN.
+ *
+ * A drawer is taken into someone's custody, so the token has to say whose:
+ * open a cash session on a console user's token and the server answers
+ * "Opening a cash session requires a session that identifies the employee
+ * taking custody of the drawer." Only `POST /auth/pin` mints a token that
+ * carries an employee, which is why the till has a sign-on of its own on top
+ * of signing in.
+ *
+ * This is a *display* record, not an authorisation one — the token is what
+ * the server checks, and it will refuse regardless of what is stored here.
+ * It exists so the till can show who is on it and know to ask when nobody
+ * is, without decoding a JWT it does not own.
+ */
+export interface PosEmployee {
+  code: string;
+  name: string;
+}
+
+export function getPosEmployee(): PosEmployee | null {
+  const raw = read(KEY_POS_EMPLOYEE);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<PosEmployee>;
+    return parsed.code ? { code: parsed.code, name: parsed.name ?? parsed.code } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setPosEmployee(employee: PosEmployee | null): void {
+  write(KEY_POS_EMPLOYEE, employee === null ? null : JSON.stringify(employee));
+  announce();
 }

@@ -20,6 +20,7 @@ import { appVersion, deviceFingerprint, deviceOs } from "./device";
 import {
   clearSession,
   getTenantId,
+  setPosEmployee,
   setTenantId,
   setTerminalId,
   setTokens,
@@ -162,6 +163,11 @@ export async function signInWithPin(input: {
   setTokens(session);
   setTenantId(input.tenantId);
   setTerminalId(input.terminalId);
+  // The till shows who is on it, and knows to ask when nobody is.
+  setPosEmployee({
+    code: input.employeeCode,
+    name: session.user?.displayName || input.employeeCode,
+  });
 }
 
 export async function signOut(): Promise<void> {

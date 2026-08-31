@@ -58,8 +58,13 @@ import {
   getTerminalId,
   setCashSessionId as persistCashSessionId,
   setPendingCashOpen,
+  getPosEmployee,
+  setPosEmployee,
+  getTenantId,
+  type PosEmployee,
 } from "@/lib/api/session";
 import { api } from "@/lib/api/endpoints";
+import { signInWithPin } from "@/lib/api/auth";
 import { deviceId } from "@/lib/api/ids";
 import { AsyncPanel } from "@/components/console/states";
 import { CashClosePolicyCard, DrawerSheet } from "@/components/terminal/pos-drawer";
@@ -95,6 +100,7 @@ export function LivePos() {
   const { scope } = useSession();
 
   const [cashSessionId, setSessionId] = useState<string | null>(null);
+  const [cashier, setCashier] = useState<PosEmployee | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
@@ -111,6 +117,7 @@ export function LivePos() {
     // screen offers to open a second one, and the first becomes
     // unreachable: the backend serves no cash-session index to find it in.
     setSessionId(getCashSessionId());
+    setCashier(getPosEmployee());
     setMounted(true);
   }, []);
 
@@ -168,6 +175,32 @@ export function LivePos() {
     );
   }
 
+  /*
+   * A drawer is taken into someone's custody, so the token must say whose.
+   *
+   * Signing in to the console and binding a terminal is not enough: that
+   * token identifies a *user*, and the server answers "Opening a cash
+   * session requires a session that identifies the employee taking custody
+   * of the drawer." Only `POST /auth/pin` mints a token carrying an
+   * employee, so the till has a sign-on of its own on top of signing in.
+   */
+  if (!cashier) {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-md p-4">
+          <CashierSignOn
+            terminalId={terminalId}
+            onSignedOn={(next) => {
+              setCashier(next);
+              setMessage(t("shift.signedOn"));
+            }}
+          />
+          <Toast message={message} />
+        </div>
+      </div>
+    );
+  }
+
   if (!cashSessionId) {
     /*
      * This column is taller than the viewport on a laptop, and the terminal
@@ -181,7 +214,18 @@ export function LivePos() {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-md space-y-3 p-4">
-          <OpenDrawer terminal={bound.data} onOpened={setCashSessionId} />
+          <OpenDrawer
+            terminal={bound.data}
+            cashier={cashier}
+            onNeedsSignOn={() => {
+              // The token stopped identifying an employee — a refresh can
+              // re-scope it back to the console user. Ask again rather than
+              // leaving a dead button behind a stale name.
+              setPosEmployee(null);
+              setCashier(null);
+            }}
+            onOpened={setCashSessionId}
+          />
           <CashClosePolicyCard branchId={branchId} onMessage={setMessage} />
           <Toast message={message} />
         </div>
@@ -239,6 +283,90 @@ export function LivePos() {
 // ---------------------------------------------------------------------------
 
 /**
+ * FR-SEC-020 — the cashier signs on to the till by staff code and PIN.
+ *
+ * Not by email: a POS operator identifies by employee code, and the tenant
+ * and terminal are read off the device rather than typed. The session this
+ * mints is POS-only and replaces the console token on this device, which is
+ * correct — a till in service is the cashier's, not the manager's who set
+ * it up.
+ */
+function CashierSignOn({
+  terminalId,
+  onSignedOn,
+}: {
+  terminalId: string;
+  onSignedOn: (employee: PosEmployee) => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction();
+  const [employeeCode, setEmployeeCode] = useState("");
+  const [pin, setPin] = useState("");
+
+  const tenantId = getTenantId();
+  const valid = employeeCode.trim() !== "" && /^[0-9]{4,8}$/.test(pin) && Boolean(tenantId);
+
+  async function signOn() {
+    if (!valid || !tenantId) return;
+    const code = employeeCode.trim();
+    await action.run(
+      async () => {
+        await signInWithPin({ tenantId, terminalId, employeeCode: code, pin });
+        return getPosEmployee() ?? { code, name: code };
+      },
+      {
+        onSuccess: (employee) => {
+          // Never leave a PIN sitting in a field on a shared till.
+          setPin("");
+          onSignedOn(employee);
+        },
+      },
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader title={t("shift.signOnTitle")} hint={t("shift.signOnNote")} spec="FR-SEC-020" />
+
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      {tenantId ? null : <Callout tone="warn">{t("shift.signOnNoTenant")}</Callout>}
+
+      <div className="mt-4 space-y-4">
+        <Field label={t("shift.employeeCode")} required>
+          <Input
+            dir="ltr"
+            autoComplete="off"
+            value={employeeCode}
+            onChange={(event) => setEmployeeCode(event.target.value)}
+          />
+        </Field>
+
+        <Field label={t("auth.pinLabel")} hint={t("shift.pinHint")} required>
+          <Input
+            type="password"
+            inputMode="numeric"
+            dir="ltr"
+            autoComplete="off"
+            value={pin}
+            onChange={(event) => setPin(event.target.value)}
+          />
+        </Field>
+
+        <Button
+          variant="primary"
+          className="w-full"
+          loading={action.pending}
+          disabled={!valid}
+          onClick={signOn}
+        >
+          {t("shift.signOn")}
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+/**
  * FR-POS-090, FR-FIN-001/002 — a shift and its cash session, in one call.
  *
  * The drawer is not named by the cashier. It used to be a text field
@@ -250,9 +378,13 @@ export function LivePos() {
  */
 function OpenDrawer({
   terminal,
+  cashier,
+  onNeedsSignOn,
   onOpened,
 }: {
   terminal: { id: string; name: string } | null;
+  cashier: PosEmployee;
+  onNeedsSignOn: () => void;
   onOpened: (cashSessionId: string) => void;
 }) {
   const { t } = useI18n();
@@ -295,6 +427,16 @@ function OpenDrawer({
           setPendingCashOpen(null);
           onOpened(result.cashSessionId);
         },
+        onError: (failure) => {
+          // The token no longer identifies an employee — a refresh can
+          // re-scope it back to the console user. Nothing was opened, so
+          // the pending record would only replay a request that cannot
+          // succeed until someone signs on again.
+          if (/employee/i.test(failure.message) || failure.code === "UNAUTHENTICATED") {
+            setPendingCashOpen(null);
+            onNeedsSignOn();
+          }
+        },
       },
     );
   }
@@ -306,6 +448,10 @@ function OpenDrawer({
       {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
 
       <div className="mt-4 space-y-4">
+        <Field label={t("shift.cashier")} hint={t("shift.cashierHint")}>
+          <Input dir="ltr" value={cashier.name} readOnly disabled />
+        </Field>
+
         <Field label={t("shift.drawer")} hint={t("shift.drawerHint")}>
           <Input dir="ltr" value={terminal?.name ?? ""} readOnly disabled />
         </Field>
