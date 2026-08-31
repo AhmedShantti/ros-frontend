@@ -28,6 +28,7 @@ export const V = {
   nonNegative: "validation.nonNegative",
   integer: "validation.integer",
   digits: (n: number) => `validation.digits:${n}`,
+  pinLength: "validation.pinLength",
   passwordWeak: "validation.passwordWeak",
   passwordMismatch: "validation.passwordMismatch",
   passwordReused: "validation.passwordReused",

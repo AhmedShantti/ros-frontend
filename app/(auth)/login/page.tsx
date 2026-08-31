@@ -218,6 +218,13 @@ export default function LoginPage() {
               {t("auth.deviceTitle")}
             </Link>
           </div>
+
+          <p className="text-fg-subtle border-line border-t pt-4 text-center text-xs">
+            {t("signup.noAccount")}{" "}
+            <Link href="/signup" className="text-accent font-medium">
+              {t("signup.title")}
+            </Link>
+          </p>
         </Form>
       </Card>
 
