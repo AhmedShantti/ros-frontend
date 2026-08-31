@@ -226,12 +226,19 @@ export default function SignUpPage() {
             )}
           </FormField>
 
-          <RoleSummary roleKey={roleKey} />
+          <div className="sm:col-span-2">
+            <RoleSummary roleKey={roleKey} />
+          </div>
         </Fieldset>
 
         {/* ---------------------------- Person -------------------------- */}
         <Fieldset legend={t("signup.sectionPerson")}>
-          <FormField name="fullName" label={t("signup.fullName")} required>
+          <FormField
+            name="fullName"
+            label={t("signup.fullName")}
+            className="sm:col-span-2"
+            required
+          >
             {({ id, ...aria }) => (
               <Input id={id} {...aria} {...form.register("fullName")} autoComplete="name" />
             )}
@@ -295,7 +302,9 @@ export default function SignUpPage() {
               )}
             </FormField>
           ) : (
-            <Callout tone="muted">{t("signup.scopeTenantWide")}</Callout>
+            <Callout tone="muted" className="sm:col-span-2">
+              {t("signup.scopeTenantWide")}
+            </Callout>
           )}
         </Fieldset>
 
@@ -374,12 +383,17 @@ export default function SignUpPage() {
           </FormField>
 
           {shape.requiresMfa ? (
-            <Callout tone="warn" icon={<ShieldAlert size={14} />}>
+            <Callout tone="warn" icon={<ShieldAlert size={14} />} className="sm:col-span-2">
               {t("signup.mfaRequired")}
             </Callout>
           ) : null}
 
-          <FormField name="acceptedTerms" label={t("signup.terms")} required>
+          <FormField
+            name="acceptedTerms"
+            label={t("signup.terms")}
+            className="sm:col-span-2"
+            required
+          >
             {({ id, ...aria }) => (
               <label className="text-fg-muted flex items-start gap-2.5 text-xs leading-relaxed">
                 <input
@@ -436,15 +450,20 @@ function Fieldset({
   children: React.ReactNode;
 }) {
   return (
-    <fieldset className="border-line space-y-4 border-t pt-4 first:border-t-0 first:pt-0">
+    <fieldset className="border-line border-t pt-4 first:border-t-0 first:pt-0">
       <legend className="sr-only">{legend}</legend>
-      <div>
-        <p className="text-fg text-xs font-semibold">{legend}</p>
-        {hint ? (
-          <p className="text-fg-subtle mt-1 text-[0.68rem] leading-relaxed">{hint}</p>
-        ) : null}
-      </div>
-      {children}
+      <p className="text-fg text-xs font-semibold">{legend}</p>
+      {hint ? (
+        <p className="text-fg-subtle mt-1 text-[0.68rem] leading-relaxed">{hint}</p>
+      ) : null}
+
+      {/*
+        Two at a time once there is room. Stacked, this form is eleven
+        controls of scrolling; paired, it is six rows. Anything that needs
+        the full width says so with `sm:col-span-2` at its own call site,
+        which keeps the decision next to the field it describes.
+      */}
+      <div className="mt-3 grid gap-x-4 gap-y-4 sm:grid-cols-2">{children}</div>
     </fieldset>
   );
 }

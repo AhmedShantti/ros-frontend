@@ -15,6 +15,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ArrowLeft, ShieldCheck, WifiOff, Languages } from "lucide-react";
 import { useI18n } from "@/lib/console/providers";
 import { LanguageToggle, ThemeToggle } from "./switchers";
@@ -28,9 +29,27 @@ const POINTS = [
 
 export function AuthShell({ children }: { children: ReactNode }) {
   const { t } = useI18n();
+  const pathname = usePathname();
+
+  /*
+   * Sign-in is four controls; signing up is eleven. Pouring the second into
+   * a 28rem column makes a form that is mostly scrolling — so that one page
+   * gets a wider column and lays its fields out two at a time, and the brand
+   * panel gives up the space rather than the form.
+   *
+   * The route decides rather than a prop, because the layout renders this
+   * shell for every auth page and has no idea which one it is holding.
+   */
+  const wide = pathname === "/signup";
 
   return (
-    <div className="lg:grid lg:min-h-screen lg:grid-cols-[minmax(0,1fr)_minmax(0,34rem)]">
+    <div
+      className={
+        wide
+          ? "lg:grid lg:min-h-screen lg:grid-cols-[minmax(0,1fr)_minmax(0,48rem)]"
+          : "lg:grid lg:min-h-screen lg:grid-cols-[minmax(0,1fr)_minmax(0,34rem)]"
+      }
+    >
       {/* ------------------------- Brand panel ------------------------- */}
       <aside className="bg-sunken border-line relative hidden overflow-hidden border-e lg:flex lg:flex-col lg:justify-between lg:p-10">
         {/* Two soft washes, so the panel is not a flat block of colour. */}
@@ -109,7 +128,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
         </header>
 
         <main className="flex flex-1 items-center justify-center px-4 py-6 sm:px-6">
-          <div className="w-full max-w-md">
+          <div className={wide ? "w-full max-w-2xl" : "w-full max-w-md"}>
             <p className="text-fg-subtle mb-4 text-xs lg:hidden">
               {t("app.console")}
             </p>
