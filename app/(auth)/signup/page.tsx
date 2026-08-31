@@ -37,7 +37,6 @@ import Link from "next/link";
 import {
   ArrowLeft,
   BadgeCheck,
-  Building2,
   KeyRound,
   Mail,
   ShieldAlert,
@@ -61,7 +60,7 @@ import {
 } from "@/lib/api/registration";
 import { signUpSchema, type SignUpValues } from "@/schemas/auth";
 import { Form, FormField, useZodForm } from "@/components/console/form";
-import { Badge, Button, Callout, Card, Input, Select } from "@/components/console/ui";
+import { Badge, Button, Callout, Card, Input } from "@/components/console/ui";
 
 /**
  * The roles, grouped so a list of seventeen reads as four short ones.
@@ -126,6 +125,15 @@ export default function SignUpPage() {
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<RegistrationOutcome | null>(null);
+
+  /*
+   * Two steps, because the role is not one question among eleven — it
+   * decides which of the other ten get asked at all. Picking it first turns
+   * a long form into a short choice followed by a shorter form, and lets the
+   * choice be made from cards that actually say what each role can do rather
+   * than from a dropdown of seventeen job titles.
+   */
+  const [step, setStep] = useState<1 | 2>(1);
 
   const form = useZodForm(signUpSchema, {
     defaultValues: {
@@ -195,8 +203,16 @@ export default function SignUpPage() {
           <UserPlus size={16} aria-hidden />
         </span>
         <div className="min-w-0">
-          <h1 className="text-fg text-lg font-semibold">{t("signup.title")}</h1>
-          <p className="text-fg-muted mt-1 text-xs leading-relaxed">{t("signup.lede")}</p>
+          <p className="text-fg-subtle text-[0.68rem] font-medium">
+            {t(step === 1 ? "signup.stepRole" : "signup.stepDetails")}
+          </p>
+          <h1 className="text-fg mt-0.5 text-lg font-semibold">{t("signup.title")}</h1>
+          {/* The lede changes with the step: on step one it explains the
+              choice, on step two the choice is already made and repeating
+              it is noise above a form. */}
+          <p className="text-fg-muted mt-1 text-xs leading-relaxed">
+            {t(step === 1 ? "signup.ledeRole" : "signup.lede")}
+          </p>
         </div>
       </div>
 
@@ -207,29 +223,18 @@ export default function SignUpPage() {
         </Callout>
       )}
 
+      {step === 1 ? (
+        <RolePicker
+          selected={roleKey}
+          onPick={(key) => {
+            form.setValue("roleKey", key, { shouldValidate: true });
+            setStep(2);
+          }}
+        />
+      ) : (
       <Form form={form} onSubmit={onSubmit} submitError={submitError} className="mt-5">
-        {/* ---------------------------- Role ---------------------------- */}
-        <Fieldset legend={t("signup.sectionRole")}>
-          <FormField name="roleKey" label={t("signup.role")} required>
-            {({ id, ...aria }) => (
-              <Select id={id} {...aria} {...form.register("roleKey")}>
-                {GROUPS.map((group) => (
-                  <optgroup key={group.key} label={t(group.labelKey)}>
-                    {group.roles.map((key) => (
-                      <option key={key} value={key}>
-                        {tx(ROLE_DEFINITIONS[key].name)}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </Select>
-            )}
-          </FormField>
-
-          <div className="sm:col-span-2">
-            <RoleSummary roleKey={roleKey} />
-          </div>
-        </Fieldset>
+        {/* The choice made on step one, and the way back to change it. */}
+        <ChosenRole roleKey={roleKey} onChange={() => setStep(1)} />
 
         {/* ---------------------------- Person -------------------------- */}
         <Fieldset legend={t("signup.sectionPerson")}>
@@ -419,6 +424,7 @@ export default function SignUpPage() {
           {t("signup.submit")}
         </Button>
       </Form>
+      )}
 
       <p className="text-fg-subtle mt-5 text-center text-xs">
         {t("signup.haveAccount")}{" "}
@@ -431,6 +437,113 @@ export default function SignUpPage() {
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * Step one: which role, chosen from what each one can actually do.
+ *
+ * Cards rather than a `<select>`. Seventeen job titles in a dropdown asks
+ * someone to already know the answer; a card can carry the one line that
+ * distinguishes a shift supervisor from a branch manager, and the badges
+ * that say where the role works and how much it holds. Getting this wrong
+ * is not a cosmetic mistake — it is either a person who cannot do their job
+ * or one who can do far too much.
+ *
+ * Picking advances immediately. There is no Continue button because the
+ * choice *is* the step, and a second click to confirm a single-choice screen
+ * is a click for nothing.
+ */
+function RolePicker({
+  selected,
+  onPick,
+}: {
+  selected: RoleKey;
+  onPick: (role: RoleKey) => void;
+}) {
+  const { t, tx } = useI18n();
+
+  return (
+    <div className="mt-5 space-y-5">
+      {GROUPS.map((group) => (
+        <section key={group.key}>
+          <h2 className="text-fg-subtle text-[0.68rem] font-semibold tracking-wide uppercase">
+            {t(group.labelKey)}
+          </h2>
+
+          <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+            {group.roles.map((key) => {
+              const role = ROLE_DEFINITIONS[key];
+              const isSelected = key === selected;
+
+              return (
+                <li key={key}>
+                  <button
+                    type="button"
+                    onClick={() => onPick(key)}
+                    aria-pressed={isSelected}
+                    className={
+                      "border-line hover:border-accent focus-visible:border-accent h-full w-full rounded-lg border p-3 text-start transition-colors " +
+                      (isSelected ? "border-accent bg-accent-soft" : "bg-raised hover:bg-sunken")
+                    }
+                  >
+                    <span className="text-fg block text-xs font-semibold">
+                      {tx(role.name)}
+                    </span>
+                    <span className="text-fg-muted mt-1 block text-[0.68rem] leading-relaxed">
+                      {tx(role.character)}
+                    </span>
+                    <span className="mt-2 flex flex-wrap items-center gap-1">
+                      <Badge tone="muted">{t(SCOPE_LABEL[role.defaultScope])}</Badge>
+                      {surfacesForRole(key).map((surface) => (
+                        <Badge key={surface} tone="accent">
+                          {t(SURFACE_LABEL[surface] as Parameters<typeof t>[0])}
+                        </Badge>
+                      ))}
+                      {roleRequiresMfa(key) ? (
+                        <Badge tone="warn">{t("signup.mfaBadge")}</Badge>
+                      ) : null}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/** Step two's reminder of step one's answer, and the way back to it. */
+function ChosenRole({ roleKey, onChange }: { roleKey: RoleKey; onChange: () => void }) {
+  const { t, tx } = useI18n();
+  const role = ROLE_DEFINITIONS[roleKey];
+
+  return (
+    <div className="border-line bg-sunken flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border p-3">
+      <span className="min-w-0 flex-1">
+        <span className="text-fg-subtle block text-[0.68rem]">{t("signup.role")}</span>
+        <span className="text-fg block text-xs font-semibold">{tx(role.name)}</span>
+      </span>
+
+      <span className="flex flex-wrap items-center gap-1">
+        <Badge tone="muted">{t(SCOPE_LABEL[role.defaultScope])}</Badge>
+        <Badge tone={role.permissions.length > 80 ? "warn" : "muted"}>
+          <KeyRound size={11} aria-hidden />
+          {t("signup.permissionCount").replace("{n}", String(role.permissions.length))}
+        </Badge>
+      </span>
+
+      <button
+        type="button"
+        onClick={onChange}
+        className="text-accent inline-flex items-center gap-1 text-xs font-medium"
+      >
+        <ArrowLeft size={12} aria-hidden className="rtl:rotate-180" />
+        {t("signup.changeRole")}
+      </button>
+    </div>
+  );
+}
 
 /**
  * A titled group of fields.
@@ -465,46 +578,6 @@ function Fieldset({
       */}
       <div className="mt-3 grid gap-x-4 gap-y-4 sm:grid-cols-2">{children}</div>
     </fieldset>
-  );
-}
-
-/**
- * What the chosen role actually gets — stated before the account is asked
- * for, not discovered afterwards.
- *
- * The permission count is deliberately blunt. "Owner" and "Auditor" both
- * sound harmless in a dropdown; one of them holds every permission in the
- * tenant, and a number next to it is the cheapest way to make that land.
- */
-function RoleSummary({ roleKey }: { roleKey: RoleKey }) {
-  const { t, tx } = useI18n();
-  const role = ROLE_DEFINITIONS[roleKey];
-  const surfaces = surfacesForRole(roleKey);
-
-  return (
-    <div className="border-line bg-sunken space-y-2.5 rounded-lg border p-3">
-      <p className="text-fg-muted text-xs leading-relaxed">{tx(role.character)}</p>
-
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Badge tone="muted">
-          <Building2 size={11} aria-hidden />
-          {t(SCOPE_LABEL[role.defaultScope])}
-        </Badge>
-
-        {surfaces.map((surface) => (
-          <Badge key={surface} tone="accent">
-            {t(SURFACE_LABEL[surface] as Parameters<typeof t>[0])}
-          </Badge>
-        ))}
-
-        <Badge tone={role.permissions.length > 80 ? "warn" : "muted"}>
-          <KeyRound size={11} aria-hidden />
-          {t("signup.permissionCount").replace("{n}", String(role.permissions.length))}
-        </Badge>
-
-        {roleRequiresMfa(roleKey) ? <Badge tone="warn">{t("signup.mfaBadge")}</Badge> : null}
-      </div>
-    </div>
   );
 }
 
