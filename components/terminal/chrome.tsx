@@ -23,7 +23,12 @@ import {
   WifiOff,
 } from "lucide-react";
 import { branches, terminals } from "@/lib/console/mock/org";
-import { useI18n } from "@/lib/console/providers";
+import { useI18n, useSession } from "@/lib/console/providers";
+import { services } from "@/lib/console/services";
+import { useAsync } from "@/lib/console/hooks";
+import { DATA_MODE } from "@/lib/api/config";
+import { api } from "@/lib/api/endpoints";
+import { getTerminalId } from "@/lib/api/session";
 import { formatMoney, formatNumber, formatTime, tx as pick } from "@/lib/console/format";
 import { useLive } from "@/lib/console/live/store";
 import {
@@ -53,6 +58,18 @@ export function TerminalBar() {
   const pathname = usePathname();
   const [confirmReset, setConfirmReset] = useState(false);
 
+  /*
+   * Against a live deployment the picker, the shift badge and the reset are
+   * all the simulator's, and none of them means anything to the server.
+   *
+   * The picker in particular was actively misleading: it lists fixture
+   * branches and terminals and dispatches SET_BRANCH/SET_TERMINAL into the
+   * in-memory store, so on a live till it looked like a way to move the
+   * terminal and moved nothing. A real terminal changes branch by being
+   * re-bound through `POST /auth/terminal`, not by a dropdown.
+   */
+  const live = DATA_MODE === "http";
+
   const branch = branches.find((b) => b.id === state.branchId);
   const terminal = terminals.find((x) => x.id === state.terminalId);
   const branchTerminals = terminals.filter(
@@ -75,6 +92,9 @@ export function TerminalBar() {
         </nav>
       </div>
 
+      {live ? (
+        <BoundIdentity />
+      ) : (
       <Menu
         label={t("term.branch")}
         trigger={({ toggle }) => (
@@ -110,8 +130,13 @@ export function TerminalBar() {
           </MenuItem>
         ))}
       </Menu>
+      )}
 
-      {state.session ? (
+      {/*
+        The simulator's shift, not the server's. The live drawer is opened
+        and counted inside the till itself, where its real state is known.
+      */}
+      {live ? null : state.session ? (
         <Badge tone="good" dot>
           {tx(state.session.employeeName)} · {formatTime(state.session.openedAt, fmt)} ·{" "}
           {formatMoney(state.session.expectedCash, fmt, true)}
@@ -132,14 +157,18 @@ export function TerminalBar() {
       </Link>
       <LanguageToggle />
       <ThemeToggle />
-      <Button
-        size="sm"
-        variant="ghost"
-        icon={<RotateCcw size={13} />}
-        onClick={() => setConfirmReset(true)}
-      >
-        <span className="sr-only sm:not-sr-only">{t("term.reset")}</span>
-      </Button>
+      {/* Resets the in-memory demo. There is nothing here to reset when the
+          data belongs to a server. */}
+      {live ? null : (
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<RotateCcw size={13} />}
+          onClick={() => setConfirmReset(true)}
+        >
+          <span className="sr-only sm:not-sr-only">{t("term.reset")}</span>
+        </Button>
+      )}
 
       <Modal
         open={confirmReset}
@@ -164,6 +193,48 @@ export function TerminalBar() {
         <p className="text-fg-subtle mt-2 text-xs leading-relaxed">{t("term.resetNote")}</p>
       </Modal>
     </header>
+  );
+}
+
+/**
+ * Which branch and terminal this device is actually bound to.
+ *
+ * Read from the server rather than from a fixture, and not a control: the
+ * binding is changed by registering the device, which is a different screen
+ * and a different authority. While it is loading, or if the terminal has
+ * been revoked out from under the till, the slot stays empty rather than
+ * naming a branch that might not be this one.
+ */
+function BoundIdentity() {
+  const { tx } = useI18n();
+  const { scope } = useSession();
+  const terminalId = getTerminalId();
+
+  const bound = useAsync(async () => {
+    // `GET /auth/terminal` answers with the bound id and nothing else, so
+    // the name comes from the registered list.
+    const [registered, branch] = await Promise.all([
+      terminalId ? api.terminals.list().catch(() => []) : [],
+      scope.branchId
+        ? services.organisation.branches.get(scope.branchId).catch(() => null)
+        : null,
+    ]);
+    const terminal = registered.find((row) => row.id === terminalId) ?? null;
+    return { terminalName: terminal?.name ?? null, branchName: branch?.name ?? null };
+  }, [terminalId, scope.branchId]);
+
+  if (!bound.data?.branchName && !bound.data?.terminalName) return null;
+
+  return (
+    <span className={TRIGGER}>
+      <span className="max-w-40 truncate">{tx(bound.data.branchName ?? undefined)}</span>
+      {bound.data.terminalName ? (
+        <>
+          <span className="text-fg-subtle">·</span>
+          <span className="text-fg-muted">{bound.data.terminalName}</span>
+        </>
+      ) : null}
+    </span>
   );
 }
 

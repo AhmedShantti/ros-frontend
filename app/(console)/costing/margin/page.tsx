@@ -25,6 +25,7 @@
 import { useMemo, useState } from "react";
 import type { ChannelProfitabilityRow, ContributionMarginRow } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
+import { DATA_MODE } from "@/lib/api/config";
 import { useAsync, useCollection } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { formatMoney, formatNumber, formatPercent } from "@/lib/console/format";
@@ -181,10 +182,16 @@ function MarginScreen() {
             {
               key: "category",
               label: t("common.category"),
-              options: menuCategories.map((category) => ({
-                value: category.name.en,
-                label: tx(category.name),
-              })),
+              // Costing has no endpoint, so no row ever loads to filter.
+              // An empty list says that; a fixture list would invite a
+              // manager to filter by a category this tenant may not have.
+              options:
+                DATA_MODE === "http"
+                  ? []
+                  : menuCategories.map((category) => ({
+                      value: category.name.en,
+                      label: tx(category.name),
+                    })),
             },
           ]}
         />

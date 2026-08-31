@@ -23,6 +23,7 @@ import { useMemo, useState } from "react";
 import type { VarianceRow } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useCollection } from "@/lib/console/hooks";
+import { DATA_MODE } from "@/lib/api/config";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { formatMoney, formatNumber, formatPercent, unitLabel } from "@/lib/console/format";
 import { stockItems } from "@/lib/console/mock/stock-items";
@@ -62,13 +63,25 @@ function VarianceScreen() {
     { scope, initialSort: "-varianceValue", pageSize: 25 },
   );
 
+  /**
+   * The categories the filter offers.
+   *
+   * Derived from the rows actually loaded rather than by enumerating a
+   * fixture, which live would have offered categories no row in this
+   * tenant carries — and there are no rows to load anyway, because the
+   * backend has no endpoint behind this screen.
+   */
   const categories = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const item of stockItems) {
+    const source =
+      DATA_MODE === "http"
+        ? collection.rows.map((row) => ({ category: row.category }))
+        : stockItems;
+    for (const item of source) {
       if (!seen.has(item.category.en)) seen.set(item.category.en, tx(item.category));
     }
     return [...seen.entries()].map(([value, label]) => ({ value, label }));
-  }, [tx]);
+  }, [tx, collection.rows]);
 
   const totals = useMemo(() => {
     const rows = collection.rows;

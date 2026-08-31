@@ -24,7 +24,7 @@ import { useMemo, useState } from "react";
 import { Check, X } from "lucide-react";
 import type { ApprovalRequest } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useCollection, useTransientMessage, useBranches } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import {
   formatDateTime,
@@ -33,7 +33,6 @@ import {
   formatRelative,
 } from "@/lib/console/format";
 import { APPROVAL_KIND, APPROVAL_STATUS, labelOf } from "@/lib/console/labels";
-import { branches } from "@/lib/console/mock/org";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
@@ -61,6 +60,7 @@ export default function ApprovalsPage() {
 function ApprovalsScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope, session } = useSession();
+  const branches = useBranches(scope);
   const [selected, setSelected] = useState<ApprovalRequest | null>(null);
   const [message, setMessage] = useTransientMessage();
 

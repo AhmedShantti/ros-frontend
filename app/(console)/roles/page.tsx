@@ -19,6 +19,7 @@ import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { services } from "@/lib/console/services";
+import { DATA_MODE } from "@/lib/api/config";
 import { SCOPE_LEVEL, labelOf } from "@/lib/console/labels";
 import {
   PERMISSION_GROUPS,
@@ -80,9 +81,18 @@ function RolesScreen() {
     pageSize: 50,
   });
 
-  /** How many users hold each role — the number that makes a role real. */
+  /**
+   * How many users hold each role — the number that makes a role real.
+   *
+   * Roles come off `GET /auth/roles`, but there is no tenant user index to
+   * count holders in: `GET /auth/tenants` returns the caller's own
+   * memberships and nothing more. Live, the count is unknown rather than
+   * the fixture's — a role showing "0 users" that in fact has forty is the
+   * kind of number someone deletes a role over.
+   */
   const holders = useMemo(() => {
     const counts = new Map<string, number>();
+    if (DATA_MODE === "http") return counts;
     for (const user of users) {
       for (const assignment of user.assignments) {
         counts.set(assignment.roleId, (counts.get(assignment.roleId) ?? 0) + 1);

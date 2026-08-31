@@ -20,11 +20,10 @@
 import { useMemo, useState } from "react";
 import type { AttendanceRecord } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useCollection, useTransientMessage, useBranches } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatDate, formatMoney, formatNumber, formatTime } from "@/lib/console/format";
 import { ATTENDANCE_FLAG, ATTENDANCE_METHOD, labelOf } from "@/lib/console/labels";
-import { branches } from "@/lib/console/mock/org";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
@@ -42,6 +41,7 @@ export default function AttendancePage() {
 function AttendanceScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
+  const branches = useBranches(scope);
   const canExport = usePermission("hr.payroll.export");
   const [message, setMessage] = useTransientMessage();
 

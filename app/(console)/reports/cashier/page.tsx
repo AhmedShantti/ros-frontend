@@ -24,6 +24,8 @@ import { CellStack, DataTable, type Column } from "@/components/console/data-tab
 import { PageBody, PageHeader, Section, TileGrid, Toolbar } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Badge, Field, Select, cx } from "@/components/console/ui";
+import { UnsupportedPanel } from "@/components/console/states";
+import { DATA_MODE } from "@/lib/api/config";
 
 type DateFilter = "all" | "today" | "yesterday" | "last7";
 
@@ -38,6 +40,32 @@ function withinFilter(session: CashSession, filter: DateFilter): boolean {
 }
 
 export default function CashierReportPage() {
+  const { t } = useI18n();
+
+  /*
+   * Every row on this page is a `CashSession`, and the backend has no way to
+   * hand one back: the drawer can be opened, moved, counted and closed, but
+   * there is no session index and no day-close record to read afterwards.
+   * Reconciling a shift against fixtures on a live till is exactly the
+   * mistake this report exists to catch, so it says so instead.
+   */
+  if (DATA_MODE === "http") {
+    return (
+      <>
+        <PageHeader title={t("rep.cashierTitle")} subtitle={t("rep.cashierSubtitle")} spec="§19.3" />
+        <PageBody>
+          <Section title={t("rep.cashierTitle")}>
+            <UnsupportedPanel detail="No cash-session index exists in api/openapi.json — only the open, move, count and close commands." />
+          </Section>
+        </PageBody>
+      </>
+    );
+  }
+
+  return <CashierReportFromFixtures />;
+}
+
+function CashierReportFromFixtures() {
   const { t, tx, fmt } = useI18n();
   const [branchId, setBranchId] = useState("all");
   const [employeeId, setEmployeeId] = useState("all");

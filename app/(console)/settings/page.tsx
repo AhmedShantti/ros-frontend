@@ -12,6 +12,8 @@
 import { useI18n, usePreferences } from "@/lib/console/providers";
 import { useLive } from "@/lib/console/live/store";
 import { branchById } from "@/lib/console/mock/org";
+import { DATA_MODE } from "@/lib/api/config";
+import { UnsupportedPanel } from "@/components/console/states";
 import { countryPacks } from "@/lib/console/mock/platform";
 import { formatMoney, money } from "@/lib/console/format";
 import { PageBody, PageHeader, Section } from "@/components/console/page";
@@ -37,8 +39,22 @@ export default function SettingsPage() {
   const { state, dispatch, reset } = useLive();
 
   const settings = state.settings;
-  const branch = branchById.get(state.branchId);
-  const pack = countryPacks.find((p) => p.code === branch?.countryCode);
+
+  /*
+   * Everything below the language and theme controls belongs to the
+   * in-memory simulator: the till toggles patch its store, and the branch
+   * and country pack are looked up in the fixtures it was seeded from.
+   *
+   * None of it describes a live deployment. There is no tenant-settings
+   * endpoint to write those toggles to, and no country-pack endpoint to
+   * read the branch's rounding and tax engine from — so live, those
+   * sections say they are unavailable rather than showing a branch's name
+   * and tax rules that came from a demo dataset.
+   */
+  const live = DATA_MODE === "http";
+
+  const branch = live ? null : branchById.get(state.branchId);
+  const pack = live ? null : countryPacks.find((p) => p.code === branch?.countryCode);
   const currency = branch?.currency ?? "EGP";
 
   const patch = (next: Partial<typeof settings>) =>
@@ -93,6 +109,9 @@ export default function SettingsPage() {
         </Section>
 
         <Section title={t("set.pos")}>
+          {live ? (
+            <UnsupportedPanel detail="No tenant-settings endpoint exists in api/openapi.json — these toggles would write nowhere." />
+          ) : (
           <Card>
             <CardHeader title={t("set.posSettings")} spec="FR-POS-035" />
             <Toggle
@@ -120,9 +139,15 @@ export default function SettingsPage() {
               hint="FR-POS-058 — whether the country pack taxes the service charge."
             />
           </Card>
+          )}
         </Section>
 
+        {/* Also the simulator's: a threshold here is enforced by the local
+            engine, and the server has no field to store it in. */}
         <Section title={t("set.thresholds")}>
+          {live ? (
+            <UnsupportedPanel detail="No tenant-settings endpoint exists in api/openapi.json — these limits would write nowhere." />
+          ) : (
           <Card>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field
@@ -165,35 +190,44 @@ export default function SettingsPage() {
               </Field>
             </div>
           </Card>
+          )}
         </Section>
 
         <Section title={t("set.general")}>
-          <Card>
-            <CardHeader title={tx(branch?.name)} spec="§6.4" />
-            <DescList>
-              <DescRow label={t("term.branch")}>{branch?.code}</DescRow>
-              <DescRow label={t("cp.title")}>
-                {pack ? `${tx(pack.name)} · ${pack.version}` : "—"}
-              </DescRow>
-              <DescRow label={t("cp.pricingMode")}>{pack?.pricingMode ?? "—"}</DescRow>
-              <DescRow label={t("cp.rounding")}>{pack?.roundingMode ?? "—"}</DescRow>
-              <DescRow label={t("cp.taxEngine")}>{pack?.taxEngine ?? "—"}</DescRow>
-            </DescList>
-          </Card>
+          {live ? (
+            <UnsupportedPanel detail="No country-pack endpoint exists in api/openapi.json." />
+          ) : (
+            <Card>
+              <CardHeader title={tx(branch?.name)} spec="§6.4" />
+              <DescList>
+                <DescRow label={t("term.branch")}>{branch?.code}</DescRow>
+                <DescRow label={t("cp.title")}>
+                  {pack ? `${tx(pack.name)} · ${pack.version}` : "—"}
+                </DescRow>
+                <DescRow label={t("cp.pricingMode")}>{pack?.pricingMode ?? "—"}</DescRow>
+                <DescRow label={t("cp.rounding")}>{pack?.roundingMode ?? "—"}</DescRow>
+                <DescRow label={t("cp.taxEngine")}>{pack?.taxEngine ?? "—"}</DescRow>
+              </DescList>
+            </Card>
+          )}
         </Section>
 
         <Section title={t("set.security")}>
           <ChangePasswordCard />
         </Section>
 
-        <Section title={t("set.demo")}>
-          <Card>
-            <CardHeader title={t("term.reset")} hint={t("term.resetNote")} />
-            <Button variant="danger" onClick={reset}>
-              {t("term.reset")}
-            </Button>
-          </Card>
-        </Section>
+        {/* Resets the demo dataset. There is nothing local to reset when
+            the data belongs to a server. */}
+        {live ? null : (
+          <Section title={t("set.demo")}>
+            <Card>
+              <CardHeader title={t("term.reset")} hint={t("term.resetNote")} />
+              <Button variant="danger" onClick={reset}>
+                {t("term.reset")}
+              </Button>
+            </Card>
+          </Section>
+        )}
       </PageBody>
     </>
   );

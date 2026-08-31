@@ -13,6 +13,7 @@ import type { Currency, WasteRecord } from "@/lib/console/types";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { useWasteFeed } from "@/lib/console/feeds";
 import { wasteRecords } from "@/lib/console/mock/inventory";
+import { getDefaultCurrency } from "@/lib/console/services";
 import { formatDateTime, formatMoney, money, type FormatOptions } from "@/lib/console/format";
 import { WASTE_CATEGORY } from "@/lib/console/labels";
 import { CellStack, DataTable, type Column } from "@/components/console/data-table";
@@ -40,7 +41,10 @@ export default function WastePage() {
   const feed = useWasteFeed(scope);
 
   const rows = feed.rows;
-  const currency = rows[0]?.value.currency ?? wasteRecords[0]?.value.currency ?? "EGP";
+  // With no rows to read a currency off, the tenant's own is the answer —
+  // not the first fixture's, which on a live deployment is a foreign symbol
+  // picked from a dataset this console is not showing.
+  const currency = rows[0]?.value.currency ?? getDefaultCurrency();
 
   /**
    * The broader report.

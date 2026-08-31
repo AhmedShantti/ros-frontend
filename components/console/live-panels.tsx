@@ -142,6 +142,12 @@ export function LiveTodayStrip() {
     .map((id) => state.orders[id]!)
     .filter((order) => order && order.state !== "draft" && order.state !== "cancelled");
 
+  // The live store is the in-memory simulator, seeded from the fixtures. It
+  // is the whole point of the demo build and has no business on a console
+  // pointed at a real deployment, where every figure on screen must have
+  // come off the wire.
+  if (DATA_MODE === "http") return null;
+
   if (completed.length === 0) return null;
 
   const currency = completed[0]!.currency;
@@ -205,6 +211,8 @@ export function useLiveAlerts(): OperationalAlert[] {
 
   return useMemo(() => {
     if (!ready) return [];
+    // Simulator-raised alerts, on fixture stock. Not a live deployment's.
+    if (DATA_MODE === "http") return [];
 
     const branch = branchById.get(state.branchId) ?? null;
     const branchName = branch?.name ?? null;

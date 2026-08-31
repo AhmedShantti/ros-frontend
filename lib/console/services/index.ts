@@ -25,6 +25,9 @@ export const services: ServiceRegistry = DATA_MODE === "http" ? httpServices : m
 export { API_COVERAGE } from "./http";
 export { DATA_MODE, API_BASE_URL, describeTarget } from "@/lib/api/config";
 
+/** The tenant's currency, learned at sign-in. For rows that carry none. */
+export { getDefaultCurrency } from "./map";
+
 export { ServiceError } from "./types";
 export type {
   CollectionService,

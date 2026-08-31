@@ -21,11 +21,11 @@ import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import type { Employee, EmployeeDocument } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { DATA_MODE } from "@/lib/api/config";
+import { useCollection, useTransientMessage, useBranches } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatDate, formatMoney, formatNumber } from "@/lib/console/format";
 import { EMPLOYEE_STATUS, EMPLOYMENT_TYPE, labelOf } from "@/lib/console/labels";
-import { branches } from "@/lib/console/mock/org";
 import { employees as allEmployees } from "@/lib/console/mock/workforce";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
@@ -52,6 +52,7 @@ export default function EmployeesPage() {
 function EmployeesScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
+  const branches = useBranches(scope);
   const canSeePay = usePermission("hr.compensation.view");
   const [selected, setSelected] = useState<Employee | null>(null);
   const [message, setMessage] = useTransientMessage();
@@ -61,15 +62,24 @@ function EmployeesScreen() {
     { scope, initialSort: "name", pageSize: 25 },
   );
 
+  /**
+   * The departments the filter offers.
+   *
+   * From the rows actually loaded, not by enumerating a fixture — which
+   * live would have listed departments no employee in this tenant belongs
+   * to, and there are no employees to load anyway: the backend has no
+   * workforce API.
+   */
   const departments = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const employee of allEmployees) {
+    const source = DATA_MODE === "http" ? collection.rows : allEmployees;
+    for (const employee of source) {
       if (!seen.has(employee.department.en)) {
         seen.set(employee.department.en, tx(employee.department));
       }
     }
     return [...seen.entries()].map(([value, label]) => ({ value, label }));
-  }, [tx]);
+  }, [tx, collection.rows]);
 
   const totals = useMemo(() => {
     const rows = collection.rows;

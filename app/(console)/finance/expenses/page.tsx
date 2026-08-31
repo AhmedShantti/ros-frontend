@@ -18,12 +18,12 @@ import { useMemo, useState } from "react";
 import { Paperclip, Plus, Repeat } from "lucide-react";
 import type { Expense } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { DATA_MODE } from "@/lib/api/config";
+import { useCollection, useTransientMessage, useBranches } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatDate, formatMoney, formatNumber } from "@/lib/console/format";
 import { EXPENSE_STATUS, PAYMENT_METHOD, labelOf } from "@/lib/console/labels";
 import { expenses as allExpenses } from "@/lib/console/mock/finance";
-import { branches } from "@/lib/console/mock/org";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
@@ -49,6 +49,7 @@ export default function ExpensesPage() {
 function ExpensesScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
+  const branches = useBranches(scope);
   const canManage = usePermission("finance.expense.manage");
   const [selected, setSelected] = useState<Expense | null>(null);
   const [message, setMessage] = useTransientMessage();
@@ -58,13 +59,22 @@ function ExpensesScreen() {
     { scope, initialSort: "-incurredOn", pageSize: 25 },
   );
 
+  /**
+   * The categories the filter offers.
+   *
+   * Drawn from the rows actually loaded. It used to enumerate the whole
+   * expense fixture, which live would have offered categories no expense in
+   * this tenant has ever used — and there are no expenses to load anyway,
+   * because the backend has no expense ledger.
+   */
   const categories = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const expense of allExpenses) {
+    const source = DATA_MODE === "http" ? collection.rows : allExpenses;
+    for (const expense of source) {
       if (!seen.has(expense.category.en)) seen.set(expense.category.en, tx(expense.category));
     }
     return [...seen.entries()].map(([value, label]) => ({ value, label }));
-  }, [tx]);
+  }, [tx, collection.rows]);
 
   const totals = useMemo(() => {
     const rows = collection.rows;

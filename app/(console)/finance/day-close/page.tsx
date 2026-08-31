@@ -21,11 +21,10 @@ import { useMemo, useState } from "react";
 import { Lock } from "lucide-react";
 import type { DayClose } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useCollection, useTransientMessage, useBranches } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatDate, formatDateTime, formatMoney, formatNumber } from "@/lib/console/format";
 import { DAY_CLOSE_STATUS, TENDER_TYPE, labelOf } from "@/lib/console/labels";
-import { branches } from "@/lib/console/mock/org";
 import {
   CellStack,
   CollectionTable,
@@ -57,6 +56,7 @@ export default function DayClosePage() {
 function DayCloseScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
+  const branches = useBranches(scope);
   const [selected, setSelected] = useState<DayClose | null>(null);
   const [message, setMessage] = useTransientMessage();
 

@@ -18,6 +18,7 @@ import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import type { PurchaseOrder, PurchaseOrderLine } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
+import { DATA_MODE } from "@/lib/api/config";
 import { useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import {
@@ -206,7 +207,7 @@ function PurchaseOrdersScreen() {
             {
               key: "supplierId",
               label: t("pur.supplier"),
-              options: suppliers.map((supplier) => ({
+              options: (DATA_MODE === "http" ? [] : suppliers).map((supplier) => ({
                 value: supplier.id,
                 label: tx(supplier.tradingName),
               })),

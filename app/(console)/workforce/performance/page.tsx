@@ -18,6 +18,7 @@ import { useMemo, useState } from "react";
 import type { EmployeePerformance } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useCollection } from "@/lib/console/hooks";
+import { DATA_MODE } from "@/lib/api/config";
 import { useI18n, useSession } from "@/lib/console/providers";
 import {
   formatDuration,
@@ -62,13 +63,22 @@ function PerformanceScreen() {
     { scope, initialSort: "-salesPerLabourHour", pageSize: 25 },
   );
 
+  /**
+   * The positions the filter offers.
+   *
+   * Derived from the rows actually loaded rather than by enumerating a
+   * fixture, which live would have offered positions no row in this
+   * tenant carries — and there are no rows to load anyway, because the
+   * backend has no endpoint behind this screen.
+   */
   const positions = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const row of employeePerformance) {
+    const source = DATA_MODE === "http" ? collection.rows : employeePerformance;
+    for (const row of source) {
       if (!seen.has(row.position.en)) seen.set(row.position.en, tx(row.position));
     }
     return [...seen.entries()].map(([value, label]) => ({ value, label }));
-  }, [tx]);
+  }, [tx, collection.rows]);
 
   const totals = useMemo(() => {
     const rows = collection.rows;

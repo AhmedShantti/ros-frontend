@@ -47,7 +47,14 @@ import {
 } from "@/components/console/charts";
 import { CellStack, DataTable, type Column } from "@/components/console/data-table";
 import { PageBody, PageHeader, Section, TileGrid, Toolbar } from "@/components/console/page";
-import { AsyncPanel, CardSkeleton, Gate, MetricSkeleton } from "@/components/console/states";
+import {
+  AsyncPanel,
+  CardSkeleton,
+  Gate,
+  MetricSkeleton,
+  UnsupportedPanel,
+} from "@/components/console/states";
+import { DATA_MODE } from "@/lib/api/config";
 import { LiveTodayStrip, useLiveAlerts } from "@/components/console/live-panels";
 import {
   Badge,
@@ -732,12 +739,44 @@ const REVENUE_STATES = new Set(["completed", "partially_refunded", "refunded"]);
 const DASHBOARD_ORDER_TYPES: OrderType[] = ["dine_in", "takeaway", "pickup", "drive_thru"];
 
 /**
- * Everything in this section is derived from the real `orders` fixture, not
- * the pre-aggregated tenant economy `services.dashboard` serves above — that
- * is what lets Branch, Cashier, Order type and Payment method actually change
+ * Everything in this section is derived from the `orders` fixture, not the
+ * pre-aggregated tenant economy `services.dashboard` serves above — that is
+ * what lets Branch, Cashier, Order type and Payment method actually change
  * the numbers rather than only relabelling a chart nothing recomputed.
+ *
+ * Which is exactly why it cannot run against a live deployment. Three of its
+ * four filters have no source on the backend:
+ *
+ *  - `GET /orders` answers with headers and no line snapshots, so nothing
+ *    here can be attributed to a menu item or a category;
+ *  - there is no employee index, so the cashier filter has nothing to list;
+ *  - there is no cash-session index, so the shift tiles have nothing to
+ *    count — the drawer can be opened and closed, never read back.
+ *
+ * Rebuilding it on what does exist would leave four controls that quietly
+ * do nothing, which is a worse lie than saying the section is unavailable.
+ * So in live mode it says that, and the fixtures stay for the demo build.
  */
 function OrderActivitySection() {
+  const { t } = useI18n();
+
+  if (DATA_MODE === "http") {
+    return (
+      <PageBody>
+        <Section title={t("dash.activityTitle")} hint={t("dash.activityHint")}>
+          <UnsupportedPanel
+            compact
+            detail="GET /orders returns headers without line snapshots, and no employee or cash-session index exists."
+          />
+        </Section>
+      </PageBody>
+    );
+  }
+
+  return <OrderActivityFromFixtures />;
+}
+
+function OrderActivityFromFixtures() {
   const { t, tx, fmt } = useI18n();
   const [dateFilter, setDateFilter] = useState<DateFilter>("last7");
   const [branchId, setBranchId] = useState("all");

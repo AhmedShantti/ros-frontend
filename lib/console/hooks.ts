@@ -10,8 +10,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ListQuery, Page } from "./types";
-import { ServiceError, type Scope, type ScopedQuery } from "./services";
+import type { Branch, ListQuery, Page } from "./types";
+import { ServiceError, services, type Scope, type ScopedQuery } from "./services";
 
 export interface AsyncState<T> {
   data: T | null;
@@ -248,6 +248,35 @@ export function useDismissable(open: boolean, onClose: () => void) {
   }, [open, onClose]);
 
   return ref;
+}
+
+/**
+ * The branches a filter dropdown may offer.
+ *
+ * Every screen with a "branch" filter used to map over the `mock/org`
+ * fixture directly. On a live deployment that listed branches belonging to
+ * nobody, next to rows belonging to the tenant — and picking one filtered
+ * the table to an id the server had never heard of, so it emptied.
+ *
+ * Going through the registry is right in both modes: the mock services
+ * serve those same fixtures, so the demo build is unchanged, and a live
+ * console offers the tenant's own branches.
+ *
+ * An empty list on failure is deliberate. A filter that cannot be built is
+ * better absent than populated with guesses, and the table beside it still
+ * loads unfiltered.
+ */
+export function useBranches(scope?: Scope): Branch[] {
+  const branches = useAsync(
+    () =>
+      services.organisation.branches
+        .list({ scope, limit: 200 })
+        .then((page) => page.rows)
+        .catch(() => [] as Branch[]),
+    [scope?.tenantId, scope?.brandId, scope?.branchId],
+  );
+
+  return branches.data ?? [];
 }
 
 /** A transient confirmation message — "Saved", "Approved", "Copied". */

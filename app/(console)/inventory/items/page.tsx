@@ -22,6 +22,7 @@ import { useI18n, useSession } from "@/lib/console/providers";
 import { formatMoney, formatNumber, unitLabel } from "@/lib/console/format";
 import { COSTING_METHOD, STORAGE, labelOf } from "@/lib/console/labels";
 import { supplierById } from "@/lib/console/mock/purchasing";
+import { DATA_MODE } from "@/lib/api/config";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
@@ -270,7 +271,17 @@ function ItemDrawer({ item, onClose }: { item: StockItem | null; onClose: () => 
 
   const storage = labelOf(STORAGE, item.storage);
   const costing = labelOf(COSTING_METHOD, item.costingMethod);
-  const supplier = item.defaultSupplierId ? supplierById.get(item.defaultSupplierId) : null;
+  /*
+   * Purchasing has no endpoint on this backend, so there is no directory to
+   * resolve a supplier id against. In demo mode the fixture is the record
+   * and naming the supplier is correct; live, the id is all that is known,
+   * and printing a fixture's trading name beside it would attach a real
+   * item to a supplier that does not exist in the tenant.
+   */
+  const supplier =
+    DATA_MODE === "http" || !item.defaultSupplierId
+      ? null
+      : (supplierById.get(item.defaultSupplierId) ?? null);
 
   return (
     <Drawer
@@ -317,7 +328,15 @@ function ItemDrawer({ item, onClose }: { item: StockItem | null; onClose: () => 
             {item.expiryTracked ? t("common.yes") : t("common.no")}
           </DescRow>
           <DescRow label={t("inv.defaultSupplier")}>
-            {supplier ? tx(supplier.tradingName) : t("common.none")}
+            {supplier ? (
+              tx(supplier.tradingName)
+            ) : item.defaultSupplierId ? (
+              <span className="font-mono text-xs" dir="ltr">
+                {item.defaultSupplierId}
+              </span>
+            ) : (
+              t("common.none")
+            )}
           </DescRow>
           <DescRow label={t("common.status")}>
             <Badge tone={item.active ? "good" : "muted"} dot>
