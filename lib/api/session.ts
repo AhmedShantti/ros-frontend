@@ -18,6 +18,8 @@ const KEY_REFRESH = "ros.api.refreshToken";
 const KEY_EXPIRES = "ros.api.expiresAt";
 const KEY_TENANT = "ros.api.tenantId";
 const KEY_TERMINAL = "ros.api.terminalId";
+const KEY_CASH_SESSION = "ros.api.cashSessionId";
+const KEY_CASH_OPENING = "ros.api.cashSessionOpening";
 
 export interface TokenSet {
   accessToken: string;
@@ -89,6 +91,11 @@ export function clearSession(): void {
   write(KEY_EXPIRES, null);
   write(KEY_TENANT, null);
   write(KEY_TERMINAL, null);
+  // A cash session belongs to the employee who opened it, not to the till.
+  // Leaving the id behind would hand the next cashier to sign in someone
+  // else's drawer to count and close.
+  write(KEY_CASH_SESSION, null);
+  write(KEY_CASH_OPENING, null);
   announce();
 }
 
@@ -130,4 +137,68 @@ export function getTerminalId(): string | null {
 export function setTerminalId(terminalId: string | null): void {
   write(KEY_TERMINAL, terminalId);
   announce();
+}
+
+// ---------------------------------------------------------------------------
+// The open drawer
+// ---------------------------------------------------------------------------
+
+/**
+ * The cash session this till currently has open.
+ *
+ * Stored for the same reason the token is: a POS that reloads mid service
+ * must come back to the drawer it left open. Holding this in React state
+ * alone stranded it — after a refresh the screen offered to open a drawer
+ * that was already open, and because the backend serves no cash-session
+ * index (there is no `GET /cash-sessions`), the id was simply unrecoverable
+ * and the shift could never be counted or closed.
+ */
+export function getCashSessionId(): string | null {
+  return read(KEY_CASH_SESSION);
+}
+
+export function setCashSessionId(cashSessionId: string | null): void {
+  write(KEY_CASH_SESSION, cashSessionId);
+  announce();
+}
+
+/**
+ * The ids minted for an open that has not been confirmed yet.
+ *
+ * `POST /cash-sessions` carries two device ULIDs which are, in the spec's
+ * words, "independent duplicate protection" beneath the idempotency key.
+ * That protection only works if a second attempt sends the *same* pair —
+ * minting fresh ones on every press turns a retry into a genuinely new
+ * request, which is how one flaky connection becomes two open drawers.
+ *
+ * So the pair is written here before the call goes out and cleared only
+ * once the server has answered.
+ */
+export interface PendingCashOpen {
+  cashSessionId: string;
+  shiftId: string;
+  drawerId: string;
+  openingFloat: string;
+}
+
+export function getPendingCashOpen(): PendingCashOpen | null {
+  const raw = read(KEY_CASH_OPENING);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<PendingCashOpen>;
+    if (!parsed.cashSessionId || !parsed.shiftId || !parsed.drawerId) return null;
+    return {
+      cashSessionId: parsed.cashSessionId,
+      shiftId: parsed.shiftId,
+      drawerId: parsed.drawerId,
+      openingFloat: parsed.openingFloat ?? "0",
+    };
+  } catch {
+    // A shape from an older build. Forget it rather than replay a guess.
+    return null;
+  }
+}
+
+export function setPendingCashOpen(pending: PendingCashOpen | null): void {
+  write(KEY_CASH_OPENING, pending === null ? null : JSON.stringify(pending));
 }

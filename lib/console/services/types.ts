@@ -811,6 +811,15 @@ export interface TreasuryService {
     /** Declared opening float in minor units, as an exact integer string. */
     openingFloat: string;
     notes?: string;
+    /**
+     * The device ULIDs for this open, when the caller is retrying one.
+     *
+     * Supplying the pair a previous attempt used is what makes a second
+     * press a *replay* rather than a second drawer — that is the duplicate
+     * protection the spec attaches to these fields. Omit them and fresh
+     * ones are minted, which is correct only for a genuinely new open.
+     */
+    ids?: { cashSessionId: Id; shiftId: Id };
   }): Promise<{ cashSessionId: Id; shiftId: Id; created: boolean }>;
 
   /**

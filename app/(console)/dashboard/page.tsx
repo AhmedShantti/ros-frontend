@@ -11,7 +11,14 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, Check } from "lucide-react";
-import type { BranchRankingRow, Money, OperationalAlert, OrderType, TenderType } from "@/lib/console/types";
+import type {
+  BranchRankingRow,
+  LiveOperationsSnapshot,
+  Money,
+  OperationalAlert,
+  OrderType,
+  TenderType,
+} from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useAsync, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
@@ -53,6 +60,15 @@ import {
   Select,
   Toast,
 } from "@/components/console/ui";
+
+/**
+ * What a figure the backend cannot supply looks like.
+ *
+ * Deliberately not a zero. A dash says "no source"; a zero says "measured,
+ * and it came to nothing" — and on a live deployment those must never be
+ * confusable, because only one of them is a number anyone should act on.
+ */
+const NONE = "—";
 
 export default function DashboardPage() {
   const { t, fmt } = useI18n();
@@ -151,36 +167,36 @@ export default function DashboardPage() {
                 />
                 <MetricTile
                   label={t("dash.grossProfit")}
-                  value={money(data.grossProfit.value)}
-                  metric={data.grossProfit}
+                  value={data.grossProfit ? money(data.grossProfit.value) : NONE}
+                  metric={data.grossProfit ?? undefined}
                 />
               </TileGrid>
 
               <TileGrid>
                 <MetricTile
                   label={t("dash.foodCost")}
-                  value={formatPercent(data.foodCostPercent.value, fmt)}
-                  metric={data.foodCostPercent}
+                  value={data.foodCostPercent ? formatPercent(data.foodCostPercent.value, fmt) : NONE}
+                  metric={data.foodCostPercent ?? undefined}
                   footer={<TargetLine metric={data.foodCostPercent} />}
                   spec="FR-CST-003"
                 />
                 <MetricTile
                   label={t("dash.labourCost")}
-                  value={formatPercent(data.labourCostPercent.value, fmt)}
-                  metric={data.labourCostPercent}
+                  value={data.labourCostPercent ? formatPercent(data.labourCostPercent.value, fmt) : NONE}
+                  metric={data.labourCostPercent ?? undefined}
                   footer={<TargetLine metric={data.labourCostPercent} />}
                 />
                 <MetricTile
                   label={t("dash.primeCost")}
-                  value={formatPercent(data.primeCostPercent.value, fmt)}
-                  metric={data.primeCostPercent}
+                  value={data.primeCostPercent ? formatPercent(data.primeCostPercent.value, fmt) : NONE}
+                  metric={data.primeCostPercent ?? undefined}
                   footer={<TargetLine metric={data.primeCostPercent} />}
                   spec="§13.5"
                 />
                 <MetricTile
                   label={t("dash.waste")}
-                  value={formatPercent(data.wastePercent.value, fmt)}
-                  metric={data.wastePercent}
+                  value={data.wastePercent ? formatPercent(data.wastePercent.value, fmt) : NONE}
+                  metric={data.wastePercent ?? undefined}
                   footer={<TargetLine metric={data.wastePercent} />}
                 />
               </TileGrid>
@@ -318,14 +334,20 @@ function MorningBrief({
   ranking,
   alerts,
 }: {
-  metrics: { label: string; metric: { value: number; target: number | null } }[];
+  /**
+   * A null metric has no source on this backend. It is dropped rather than
+   * counted as within target: "nothing to report" and "no way to tell" are
+   * different answers, and only the first belongs in an exceptions list.
+   */
+  metrics: { label: string; metric: { value: number; target: number | null } | null }[];
   ranking: BranchRankingRow[];
   alerts: OperationalAlert[];
 }) {
   const { t, tx, fmt } = useI18n();
 
   const overTarget = metrics.filter(
-    (m) => m.metric.target !== null && m.metric.value > m.metric.target,
+    (m): m is { label: string; metric: { value: number; target: number } } =>
+      m.metric !== null && m.metric.target !== null && m.metric.value > m.metric.target,
   );
 
   // The outlier worth naming is the one furthest from the group mean, and
@@ -353,7 +375,7 @@ function MorningBrief({
               </Badge>
               <span className="text-fg font-medium">{label}</span>
               <span className="text-fg-muted">
-                {t("dash.briefOverTarget")} {formatPercent(metric.target ?? 0, fmt, 0)}
+                {t("dash.briefOverTarget")} {formatPercent(metric.target, fmt, 0)}
               </span>
             </li>
           ))}
@@ -391,9 +413,13 @@ function MorningBrief({
 // Tile footer: distance to target
 // ---------------------------------------------------------------------------
 
-function TargetLine({ metric }: { metric: { value: number; target: number | null } }) {
+function TargetLine({
+  metric,
+}: {
+  metric: { value: number; target: number | null } | null;
+}) {
   const { t, fmt } = useI18n();
-  if (metric.target === null) return null;
+  if (!metric || metric.target === null) return null;
 
   const over = metric.value > metric.target;
   return (
@@ -414,43 +440,49 @@ function TargetLine({ metric }: { metric: { value: number; target: number | null
 // Live operations
 // ---------------------------------------------------------------------------
 
-function LiveOperations({
-  snapshot,
-}: {
-  snapshot: {
-    openOrders: number;
-    tablesOccupied: number;
-    tablesTotal: number;
-    kitchenQueueDepth: number;
-    averageWaitSeconds: number;
-    activeTerminals: number;
-    totalTerminals: number;
-    offlineTerminals: number;
-    staffOnShift: number;
-    delayedTickets: number;
-    syncBacklog: number;
-  };
-}) {
+/**
+ * The now, with the holes left visible.
+ *
+ * Four of these figures have no endpoint behind them on this backend — the
+ * kitchen queue, the average wait, staff on shift and delayed tickets all
+ * need a KDS or a workforce feed the API does not serve. They read as a dash,
+ * never as a zero: an empty queue and an unwatched one look identical at a
+ * glance, and only one of them is good news.
+ */
+function LiveOperations({ snapshot }: { snapshot: LiveOperationsSnapshot }) {
   const { t, fmt } = useI18n();
 
+  /** A count the server can supply, or the dash that says it cannot. */
+  const count = (value: number | null) => (value === null ? NONE : formatNumber(value, fmt));
+
   const cells = [
-    { label: t("live.openOrders"), value: formatNumber(snapshot.openOrders, fmt) },
+    { label: t("live.openOrders"), value: count(snapshot.openOrders) },
     {
       label: t("live.tables"),
-      value: `${formatNumber(snapshot.tablesOccupied, fmt)} / ${formatNumber(snapshot.tablesTotal, fmt)}`,
+      value: count(snapshot.tablesOccupied) + " / " + count(snapshot.tablesTotal),
     },
-    { label: t("live.queue"), value: formatNumber(snapshot.kitchenQueueDepth, fmt) },
-    { label: t("live.avgWait"), value: formatDuration(snapshot.averageWaitSeconds, fmt) },
+    { label: t("live.queue"), value: count(snapshot.kitchenQueueDepth) },
+    {
+      label: t("live.avgWait"),
+      value:
+        snapshot.averageWaitSeconds === null
+          ? NONE
+          : formatDuration(snapshot.averageWaitSeconds, fmt),
+    },
     {
       label: t("live.terminals"),
-      value: `${formatNumber(snapshot.activeTerminals, fmt)} / ${formatNumber(snapshot.totalTerminals, fmt)}`,
+      value: count(snapshot.activeTerminals) + " / " + count(snapshot.totalTerminals),
       tone: snapshot.offlineTerminals > 0 ? ("warn" as const) : undefined,
     },
-    { label: t("live.staff"), value: formatNumber(snapshot.staffOnShift, fmt) },
+    { label: t("live.staff"), value: count(snapshot.staffOnShift) },
     {
       label: t("live.delayed"),
-      value: formatNumber(snapshot.delayedTickets, fmt),
-      tone: snapshot.delayedTickets > 0 ? ("bad" as const) : undefined,
+      value: count(snapshot.delayedTickets),
+      // A null is not a zero, so it must not be read as "none delayed".
+      tone:
+        snapshot.delayedTickets !== null && snapshot.delayedTickets > 0
+          ? ("bad" as const)
+          : undefined,
     },
     {
       label: t("live.syncBacklog"),
@@ -529,7 +561,8 @@ function BranchRanking({ rows }: { rows: BranchRankingRow[] }) {
         key: "foodCost",
         header: t("dash.foodCost"),
         numeric: true,
-        render: (row) => formatPercent(row.foodCostPercent, fmt),
+        render: (row) =>
+          row.foodCostPercent === null ? NONE : formatPercent(row.foodCostPercent, fmt),
       },
       {
         key: "prime",
@@ -537,8 +570,14 @@ function BranchRanking({ rows }: { rows: BranchRankingRow[] }) {
         numeric: true,
         hint: t("dash.branchRankingHint"),
         render: (row) => (
-          <span className={row.primeCostPercent > 65 ? "text-bad" : undefined}>
-            {formatPercent(row.primeCostPercent, fmt)}
+          <span
+            className={
+              row.primeCostPercent !== null && row.primeCostPercent > 65
+                ? "text-bad"
+                : undefined
+            }
+          >
+            {row.primeCostPercent === null ? NONE : formatPercent(row.primeCostPercent, fmt)}
           </span>
         ),
       },
@@ -578,7 +617,12 @@ function ProfitabilityLadder({
   ladder,
   format,
 }: {
-  ladder: Record<string, Money>;
+  /**
+   * A null rung has no source: everything below gross profit needs payroll
+   * and an expense ledger the backend does not serve. The ladder simply
+   * stops there rather than printing a zero that would read as break-even.
+   */
+  ladder: Record<string, Money | null>;
   format: (value: Money) => string;
 }) {
   const { t } = useI18n();
@@ -597,7 +641,7 @@ function ProfitabilityLadder({
   ];
 
   // The ladder's own key names differ from the copy keys in two places.
-  const valueOf = (key: string): Money | undefined =>
+  const valueOf = (key: string): Money | null | undefined =>
     key === "contribution" ? ladder.contributionAfterLabour : ladder[key];
 
   return (

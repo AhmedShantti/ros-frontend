@@ -228,6 +228,9 @@ export const consoleAr: ConsoleCopy = {
   "state.deniedPermission": "الصلاحية المطلوبة",
   "state.notFoundTitle": "غير موجود",
   "state.notFoundBody": "هذا السجل غير موجود، أو غير ظاهر في نطاقك الحالي.",
+  "state.unsupportedTitle": "غير متاح من هذا الخادم",
+  "state.unsupportedBody": "واجهة البرمجة المتصلة لا توفّر هذا بعد. لا نعرض بيانات تجريبية بديلة، فما تراه هو ما لدى الخادم فقط.",
+  "state.unsupportedDetail": "نقطة نهاية غير موجودة",
   "state.serverNote": "فحوص الصلاحيات في الواجهة للعرض فقط. الخادم هو من يطبّق القاعدة الفعلية في كل طلب.",
 
   // -- Theme, language, account -------------------------------------------

@@ -36,7 +36,7 @@
  * a 412 instead of quietly overwriting.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Banknote,
   Flame,
@@ -52,7 +52,14 @@ import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { formatMoney } from "@/lib/console/format";
 import { ORDER_TYPE, TENDER_TYPE, labelOf } from "@/lib/console/labels";
-import { getTerminalId } from "@/lib/api/session";
+import {
+  getCashSessionId,
+  getPendingCashOpen,
+  getTerminalId,
+  setCashSessionId as persistCashSessionId,
+  setPendingCashOpen,
+} from "@/lib/api/session";
+import { ulid } from "@/lib/api/ulid";
 import { AsyncPanel } from "@/components/console/states";
 import { CashClosePolicyCard, DrawerSheet } from "@/components/terminal/pos-drawer";
 import {
@@ -67,6 +74,7 @@ import {
   Field,
   Input,
   Select,
+  Spinner,
   Toast,
 } from "@/components/console/ui";
 
@@ -85,12 +93,41 @@ export function LivePos() {
   const { t } = useI18n();
   const { scope } = useSession();
 
-  const [cashSessionId, setCashSessionId] = useState<string | null>(null);
+  const [cashSessionId, setSessionId] = useState<string | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
 
-  const terminalId = typeof window === "undefined" ? null : getTerminalId();
+  /**
+   * Both the terminal binding and the open drawer live in `localStorage`,
+   * which the server render cannot see. Reading them during render would
+   * make the first client paint disagree with the server's, so nothing is
+   * decided until after mount.
+   */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    // The drawer the till had open before this reload. Without this the
+    // screen offers to open a second one, and the first becomes
+    // unreachable: the backend serves no cash-session index to find it in.
+    setSessionId(getCashSessionId());
+    setMounted(true);
+  }, []);
+
+  /** Write through, so the drawer survives the next reload too. */
+  const setCashSessionId = (next: string | null) => {
+    persistCashSessionId(next);
+    setSessionId(next);
+  };
+
+  const terminalId = mounted ? getTerminalId() : null;
+
+  if (!mounted) {
+    return (
+      <div className="text-fg-muted flex flex-1 items-center justify-center gap-2 p-8 text-sm">
+        <Spinner /> {t("term.loading")}
+      </div>
+    );
+  }
 
   if (!terminalId) {
     return (
@@ -156,7 +193,8 @@ export function LivePos() {
         onClose={() => setDrawer(false)}
         onMessage={setMessage}
         onClosed={() => {
-          // The session is gone; so is anything that referenced it.
+          // The session is gone; so is anything that referenced it, and so
+          // is the stored id — a closed drawer must not come back on reload.
           setDrawer(false);
           setCashSessionId(null);
           setOrder(null);
@@ -181,14 +219,38 @@ function OpenDrawer({ onOpened }: { onOpened: (cashSessionId: string) => void })
 
   async function open() {
     if (!valid) return;
+
+    const drawer = drawerId.trim();
+    // Minor units as an exact integer string — never a JSON number.
+    const openingFloat = String(Math.round(Number(float) * 100));
+
+    /*
+     * An attempt that never came back is resumed, not restarted.
+     *
+     * A press that reached the server and lost its response leaves a drawer
+     * open that this till has no id for, and no `GET /cash-sessions` to
+     * find it with. Replaying the same ULID pair asks the server about that
+     * exact open instead of asking for another one: it answers with the
+     * original session and `created: false`. Fresh ids are minted only for
+     * an open of a genuinely different drawer or float.
+     */
+    const previous = getPendingCashOpen();
+    const ids =
+      previous && previous.drawerId === drawer && previous.openingFloat === openingFloat
+        ? { cashSessionId: previous.cashSessionId, shiftId: previous.shiftId }
+        : { cashSessionId: ulid(), shiftId: ulid() };
+
+    setPendingCashOpen({ ...ids, drawerId: drawer, openingFloat });
+
     await action.run(
-      () =>
-        services.treasury.openCashSession({
-          drawerId: drawerId.trim(),
-          // Minor units as an exact integer string — never a JSON number.
-          openingFloat: String(Math.round(Number(float) * 100)),
-        }),
-      { onSuccess: (result) => onOpened(result.cashSessionId) },
+      () => services.treasury.openCashSession({ drawerId: drawer, openingFloat, ids }),
+      {
+        onSuccess: (result) => {
+          // Answered, so there is nothing left to resume.
+          setPendingCashOpen(null);
+          onOpened(result.cashSessionId);
+        },
+      },
     );
   }
 

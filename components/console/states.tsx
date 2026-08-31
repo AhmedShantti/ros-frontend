@@ -10,7 +10,7 @@
  */
 
 import type { ReactNode } from "react";
-import { AlertTriangle, Inbox, Lock, RotateCw, SearchX } from "lucide-react";
+import { AlertTriangle, Inbox, Lock, PlugZap, RotateCw, SearchX } from "lucide-react";
 import type { PermissionKey } from "@/lib/console/permissions";
 import type { AsyncState } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
@@ -182,6 +182,56 @@ function codeOf(error: unknown): string | null {
   return null;
 }
 
+/** The detail line a `ServiceError` carries, naming the absent endpoint. */
+function detailOf(error: unknown): string | null {
+  if (error && typeof error === "object" && "detail" in error) {
+    const detail = (error as { detail?: unknown }).detail;
+    return typeof detail === "string" && detail.trim() ? detail : null;
+  }
+  return null;
+}
+
+/** True when the failure is "the server does not do this", not "it broke". */
+export function isUnsupported(error: unknown): boolean {
+  return codeOf(error) === "NOT_IMPLEMENTED";
+}
+
+/**
+ * A domain the connected backend has no endpoint for.
+ *
+ * This is deliberately not an error: nothing went wrong, the feature simply
+ * is not there. It exists so that a screen with no source of truth shows
+ * that plainly instead of falling back to invented rows — the console never
+ * substitutes sample data for a live deployment.
+ */
+export function UnsupportedPanel({
+  detail,
+  compact,
+}: {
+  detail?: string | null;
+  compact?: boolean;
+}) {
+  const { t } = useI18n();
+
+  return (
+    <StatePanel
+      compact={compact}
+      icon={<PlugZap size={18} />}
+      title={t("state.unsupportedTitle")}
+      body={
+        <>
+          {t("state.unsupportedBody")}
+          {detail ? (
+            <span className="border-line text-fg-subtle mt-2 block rounded border px-2 py-1 font-mono text-[0.62rem] leading-relaxed break-words">
+              {t("state.unsupportedDetail")}: {detail}
+            </span>
+          ) : null}
+        </>
+      }
+    />
+  );
+}
+
 export function ErrorPanel({
   error,
   onRetry,
@@ -193,6 +243,11 @@ export function ErrorPanel({
 }) {
   const { t } = useI18n();
   const code = codeOf(error);
+
+  // "No such endpoint" is not an outage and retrying cannot help.
+  if (isUnsupported(error)) {
+    return <UnsupportedPanel detail={detailOf(error)} compact={compact} />;
+  }
 
   return (
     <StatePanel

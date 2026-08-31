@@ -461,6 +461,7 @@ export const ALERT_KIND: Record<AlertKind, Entry> = {
   discount_threshold: e("Discount threshold", "حد الخصم", "warn"),
   void_after_payment: e("Void after payment", "إلغاء بعد الدفع", "bad"),
   stock_zero: e("Stock at zero", "نفاد المخزون", "bad"),
+  low_stock: e("Below reorder point", "تحت حد إعادة الطلب", "warn"),
   expiry: e("Expiry", "الصلاحية", "warn"),
   order_delayed: e("Order delayed", "طلب متأخر", "warn"),
   sales_below_forecast: e("Below forecast", "دون التوقع", "warn"),

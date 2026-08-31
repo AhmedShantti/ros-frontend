@@ -38,17 +38,22 @@ import type * as S from "@/lib/api/schema";
 import type {
   Batch,
   Branch,
+  BranchRankingRow,
   Brand,
   CentralKitchen,
   CountSession,
+  HourlySalesPoint,
   Id,
   Menu,
   MenuCategory,
   MenuItem,
+  MetricSummary,
   ModifierGroup,
+  OperationalAlert,
   Order,
   PriceList,
   Recipe,
+  RestaurantTable,
   Role,
   StockAdjustment,
   StockItem,
@@ -56,6 +61,7 @@ import type {
   StockLocation,
   StockMovement,
   Tenant,
+  Terminal,
   Transfer,
   Warehouse,
   WasteRecord,
@@ -64,6 +70,7 @@ import type {
 import type {
   CatalogueService,
   CollectionService,
+  DashboardService,
   InventoryService,
   OperationsService,
   OrganisationService,
@@ -76,7 +83,19 @@ import type {
 } from "./types";
 import { ServiceError } from "./types";
 import { emptyPage, project } from "./paging";
-import { mockServices } from "./mock";
+import {
+  notImplemented,
+  unsupportedAdjustmentReads,
+  unsupportedCombos,
+  unsupportedCosting,
+  unsupportedFinance,
+  unsupportedGovernance,
+  unsupportedKitchenQueue,
+  unsupportedPlatform,
+  unsupportedPurchasing,
+  unsupportedUsers,
+  unsupportedWorkforce,
+} from "./unsupported";
 import * as map from "./map";
 
 // ---------------------------------------------------------------------------
@@ -84,12 +103,13 @@ import * as map from "./map";
 // ---------------------------------------------------------------------------
 
 /**
- * Which registry members reach the API, and which are still demo data.
+ * Which registry members reach the API, and which have no endpoint at all.
  *
  * Every one of the document's 142 operations is reachable through this
- * registry. What remains under `demo` is not unfinished wiring — it is the
- * set of domains the backend does not implement at all, and inventing rows
- * for them here would be worse than saying so.
+ * registry. What remains under `absent` is not unfinished wiring — it is the
+ * set of domains the backend does not implement, and inventing rows for them
+ * would be worse than saying so. Each one raises `NOT_IMPLEMENTED`, which
+ * the console renders as a neutral "not available from this backend" panel.
  */
 export const API_COVERAGE = {
   live: [
@@ -159,9 +179,14 @@ export const API_COVERAGE = {
     "security.memberships",
     "security.assignRole",
   ],
-  /** No endpoint exists in the document — these still serve demo data. */
-  demo: [
-    "dashboard",
+  /**
+   * No endpoint exists in the document. These fail rather than fabricate.
+   *
+   * `dashboard` is deliberately not here: it has no endpoint either, but it
+   * is *derived* in the browser from live orders, waste, stock, terminals
+   * and tables, and the figures it cannot derive it reports as null.
+   */
+  absent: [
     "costing",
     "purchasing",
     "workforce",
@@ -184,8 +209,9 @@ function announceCoverage(): void {
   warned = true;
   // eslint-disable-next-line no-console
   console.info(
-    `[ROS] Live API for ${API_COVERAGE.live.length} services. Still demo data ` +
-      `(no endpoint in api/openapi.json): ${API_COVERAGE.demo.join(", ")}.`,
+    `[ROS] Live API for ${API_COVERAGE.live.length} services. No endpoint in ` +
+      `api/openapi.json (these report "not available" rather than serving ` +
+      `sample rows): ${API_COVERAGE.absent.join(", ")}.`,
   );
 }
 
@@ -196,15 +222,6 @@ function announceCoverage(): void {
 function tenantOf(query?: ScopedQuery | Scope): Id {
   const scope = query && "scope" in query ? query.scope : (query as Scope | undefined);
   return scope?.tenantId ?? getTenantId() ?? "";
-}
-
-function notImplemented(what: string): never {
-  throw new ServiceError(
-    "NOT_IMPLEMENTED",
-    "The backend does not offer that yet.",
-    501,
-    `${what} has no endpoint in api/openapi.json.`,
-  );
 }
 
 /** A short-lived memo for the lookup tables every mapper needs. */
@@ -1236,7 +1253,7 @@ const catalogue: CatalogueService = {
   categories,
   items,
   modifierGroups,
-  combos: mockServices.catalogue.combos,
+  combos: unsupportedCombos,
   priceLists,
   recipes,
   menus,
@@ -1701,8 +1718,8 @@ const waste: CollectionService<WasteRecord> = {
  * document — so the list has nothing to read back. Writes go through.
  */
 const adjustments: CollectionService<StockAdjustment> = {
-  list: mockServices.inventory.adjustments.list,
-  get: mockServices.inventory.adjustments.get,
+  list: unsupportedAdjustmentReads.list,
+  get: unsupportedAdjustmentReads.get,
 
   async create(input) {
     if (!input.locationId || !input.itemId) {
@@ -2082,9 +2099,11 @@ const treasury: import("./types").TreasuryService = {
   async openCashSession(input) {
     const response = await api.treasury.openCashSession({
       // Both ids are the device's (FR-OFF-015), and independent duplicate
-      // protection beneath the mandatory idempotency key.
-      cashSessionId: ulid(),
-      shiftId: ulid(),
+      // protection beneath the mandatory idempotency key — which only holds
+      // if a retry sends the pair the first attempt sent, so the caller may
+      // supply them.
+      cashSessionId: input.ids?.cashSessionId ?? ulid(),
+      shiftId: input.ids?.shiftId ?? ulid(),
       drawerId: input.drawerId,
       openingFloat: input.openingFloat,
       notes: input.notes,
@@ -2274,7 +2293,7 @@ const operations: OperationsService = {
   },
 
   // No KDS endpoints exist — bump, recall and fire are all absent by design.
-  kitchenQueue: mockServices.operations.kitchenQueue,
+  kitchenQueue: unsupportedKitchenQueue,
 
   async terminals(query = {}) {
     const rows = (await api.terminals.list()).map(map.toTerminal);
@@ -2396,7 +2415,7 @@ const roles: CollectionService<Role> = {
 
 const security: SecurityService = {
   // No user index endpoint; memberships are reachable only by id.
-  users: mockServices.security.users,
+  users: unsupportedUsers,
   roles,
 
   async memberships() {
@@ -2419,28 +2438,337 @@ const security: SecurityService = {
 };
 
 // ---------------------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------------------
+
+/**
+ * The dashboard, computed from live rows rather than served whole.
+ *
+ * There is no aggregate endpoint, so this reads the orders, the waste
+ * records, the stock exceptions and the estate, and does the arithmetic in
+ * the browser. That is honest work on real data — and it stops exactly where
+ * the data stops. Labour, expenses and the kitchen clock have no endpoint
+ * anywhere in the document, so those figures come back `null` and the screen
+ * shows a dash. None of them is filled in with a plausible-looking number.
+ *
+ * Two consequences worth naming:
+ *
+ *  - `GET /orders` returns headers without line snapshots, so cost of goods
+ *    is unknown from a list. Food cost, gross profit and prime cost are
+ *    therefore null here even though a single fetched order does carry it.
+ *  - The window is the most recent orders the cursor reaches, not a
+ *    server-side date range, because the endpoint offers no date filter.
+ */
+
+const TREND_DAYS = 7;
+const ORDER_SCAN_LIMIT = 500;
+
+function metric(
+  value: number,
+  previous: number,
+  higherIsBetter: boolean,
+  target: number | null = null,
+): MetricSummary {
+  const deltaPercent = previous === 0 ? 0 : ((value - previous) / Math.abs(previous)) * 100;
+  const direction: MetricSummary["direction"] =
+    Math.abs(deltaPercent) < 0.05 ? "flat" : deltaPercent > 0 ? "up" : "down";
+  return { value, previous, target, deltaPercent, direction, higherIsBetter };
+}
+
+/** Net of discounts and before tax — the figure every ratio below divides by. */
+function netOf(order: Order): number {
+  return order.subtotal.amount - order.discountTotal.amount;
+}
+
+const dashboard: DashboardService = {
+  async get(scope) {
+    const [orderPage, branchRows, brandRows, wastePage, low, negative, terminalPage, tablePage] =
+      await Promise.all([
+        orders.list({ scope, offset: 0, limit: ORDER_SCAN_LIMIT }),
+        branchesRaw().catch(() => []),
+        api.organisation.listBrands().catch(() => []),
+        inventory.waste.list({ scope, limit: 200 }).catch(() => emptyPage<WasteRecord>()),
+        inventory.lowStock({ scope }).catch(() => []),
+        inventory.negativeStock({ scope }).catch(() => []),
+        operations.terminals({ scope, limit: 200 }).catch(() => emptyPage<Terminal>()),
+        operations.tables({ scope, limit: 500 }).catch(() => emptyPage<RestaurantTable>()),
+      ]);
+
+    const orderRows = orderPage.rows;
+    const tenantId = getTenantId() ?? "";
+    const currency = orderRows[0]?.currency ?? map.getDefaultCurrency();
+
+    // -- The window ----------------------------------------------------------
+
+    const days = [...new Set(orderRows.map((row) => row.businessDay))].sort().reverse();
+    const businessDay = days[0] ?? new Date().toISOString().slice(0, 10);
+    const previousDay = days[1] ?? null;
+
+    const today = orderRows.filter((row) => row.businessDay === businessDay);
+    const yesterday = previousDay
+      ? orderRows.filter((row) => row.businessDay === previousDay)
+      : [];
+
+    const sum = (rows: Order[]) => rows.reduce((total, row) => total + netOf(row), 0);
+
+    const netToday = sum(today);
+    const netYesterday = sum(yesterday);
+
+    // -- Waste ---------------------------------------------------------------
+
+    const wasteToday = wastePage.rows.filter(
+      (row) => row.recordedAt.slice(0, 10) === businessDay,
+    );
+    const wasteValue = wasteToday.reduce((total, row) => total + row.value.amount, 0);
+    const wasteValueYesterday = previousDay
+      ? wastePage.rows
+          .filter((row) => row.recordedAt.slice(0, 10) === previousDay)
+          .reduce((total, row) => total + row.value.amount, 0)
+      : 0;
+
+    const wastePercent =
+      netToday > 0
+        ? metric(
+            (wasteValue / netToday) * 100,
+            netYesterday > 0 ? (wasteValueYesterday / netYesterday) * 100 : 0,
+            false,
+          )
+        : null;
+
+    const wasteByReason = Object.entries(
+      wasteToday.reduce<Record<string, number>>((acc, row) => {
+        const key = row.reasonName.en || row.reasonCode;
+        acc[key] = (acc[key] ?? 0) + row.value.amount / 100;
+        return acc;
+      }, {}),
+    ).map(([label, value]) => ({ label, value }));
+
+    // -- Series --------------------------------------------------------------
+
+    const salesTrend = days
+      .slice(0, TREND_DAYS)
+      .reverse()
+      .map((day) => ({
+        label: day,
+        value: sum(orderRows.filter((row) => row.businessDay === day)) / 100,
+      }));
+
+    const byHour = new Map<string, { sales: number; orders: number }>();
+    for (const row of today) {
+      const hour = `${row.openedAt.slice(11, 13)}:00`;
+      const bucket = byHour.get(hour) ?? { sales: 0, orders: 0 };
+      bucket.sales += netOf(row) / 100;
+      bucket.orders += 1;
+      byHour.set(hour, bucket);
+    }
+    const hourly: HourlySalesPoint[] = [...byHour.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([hour, bucket]) => ({
+        hour,
+        sales: bucket.sales,
+        orders: bucket.orders,
+        // No payroll feed and no forecaster; a zero here would be a lie.
+        labourCost: null,
+        forecast: null,
+      }));
+
+    // -- Ranking -------------------------------------------------------------
+
+    const brandNames = new Map(brandRows.map((row) => [row.id, map.toBrand(row, tenantId).name]));
+
+    const perBranchTotals = new Map<Id, { net: number; count: number }>();
+    for (const row of today) {
+      const bucket = perBranchTotals.get(row.branchId) ?? { net: 0, count: 0 };
+      bucket.net += netOf(row);
+      bucket.count += 1;
+      perBranchTotals.set(row.branchId, bucket);
+    }
+
+    const ranked = branchRows
+      .map((row) => map.toBranch(row, tenantId))
+      .map((branch) => ({
+        branchId: branch.id,
+        branchName: branch.name,
+        brandName: brandNames.get(branch.brandId) ?? { en: "", ar: "" },
+        netSales: { amount: perBranchTotals.get(branch.id)?.net ?? 0, currency },
+        transactionCount: perBranchTotals.get(branch.id)?.count ?? 0,
+        averageOrderValue: {
+          amount: (() => {
+            const totals = perBranchTotals.get(branch.id);
+            return totals && totals.count > 0 ? Math.round(totals.net / totals.count) : 0;
+          })(),
+          currency,
+        },
+        // Cost of goods needs the line snapshots the list endpoint omits;
+        // labour needs a payroll API that does not exist at all.
+        foodCostPercent: null,
+        labourCostPercent: null,
+        primeCostPercent: null,
+        wastePercent: null,
+        varianceValue: null,
+        previousRank: null,
+      }))
+      .sort((a, b) => b.netSales.amount - a.netSales.amount);
+
+    const mean =
+      ranked.length > 0
+        ? ranked.reduce((total, row) => total + row.netSales.amount, 0) / ranked.length
+        : 0;
+    const spread =
+      ranked.length > 0
+        ? Math.sqrt(
+            ranked.reduce((total, row) => total + (row.netSales.amount - mean) ** 2, 0) /
+              ranked.length,
+          )
+        : 0;
+
+    const branchRanking: BranchRankingRow[] = ranked.map((row, index) => ({
+      ...row,
+      rank: index + 1,
+      outlierSigma: spread > 0 ? (row.netSales.amount - mean) / spread : 0,
+    }));
+
+    // -- Alerts --------------------------------------------------------------
+
+    const branchNameOf = new Map(branchRanking.map((row) => [row.branchId, row.branchName]));
+    const now = new Date().toISOString();
+
+    const alerts: OperationalAlert[] = [
+      ...negative.map((row) => ({
+        id: `negative:${row.stockItemId}:${row.locationId}`,
+        kind: "negative_stock" as const,
+        severity: "critical" as const,
+        title: { en: "Negative stock", ar: "رصيد سالب" },
+        detail: {
+          en: `${row.itemName.en} is at ${row.onHand.value} in ${row.locationName.en}.`,
+          ar: `${row.itemName.ar} بلغ ${row.onHand.value} في ${row.locationName.ar}.`,
+        },
+        branchId: row.locationId,
+        branchName: branchNameOf.get(row.locationId) ?? row.locationName,
+        raisedAt: now,
+        acknowledged: false,
+        href: "/inventory/levels",
+        specRef: "FR-INV-014",
+      })),
+      ...low.map((row) => ({
+        id: `low:${row.stockItemId}:${row.locationId}`,
+        kind: "low_stock" as const,
+        severity: "medium" as const,
+        title: { en: "Below reorder point", ar: "تحت حد إعادة الطلب" },
+        detail: {
+          en: `${row.itemName.en} is at ${row.onHand.value} in ${row.locationName.en}.`,
+          ar: `${row.itemName.ar} بلغ ${row.onHand.value} في ${row.locationName.ar}.`,
+        },
+        branchId: row.locationId,
+        branchName: branchNameOf.get(row.locationId) ?? row.locationName,
+        raisedAt: now,
+        acknowledged: false,
+        href: "/inventory/levels",
+        specRef: "FR-INV-066",
+      })),
+    ];
+
+    // -- Live ----------------------------------------------------------------
+
+    const tables = tablePage.rows;
+    const terminals = terminalPage.rows;
+
+    return {
+      businessDay,
+      generatedAt: now,
+      currency,
+
+      netSales: metric(netToday, netYesterday, true),
+      transactions: metric(today.length, yesterday.length, true),
+      averageOrderValue: metric(
+        today.length > 0 ? netToday / today.length : 0,
+        yesterday.length > 0 ? netYesterday / yesterday.length : 0,
+        true,
+      ),
+      foodCostPercent: null,
+      labourCostPercent: null,
+      primeCostPercent: null,
+      wastePercent,
+      grossProfit: null,
+
+      salesTrend,
+      hourly,
+      // Line snapshots are absent from the list endpoint, so a sale cannot be
+      // attributed to a menu category without one fetch per order.
+      categoryMix: [],
+      branchRanking,
+      wasteByReason,
+
+      profitability: {
+        grossSales: {
+          amount: today.reduce((total, row) => total + row.subtotal.amount, 0),
+          currency,
+        },
+        discounts: {
+          amount: today.reduce((total, row) => total + row.discountTotal.amount, 0),
+          currency,
+        },
+        refunds: null,
+        netSales: { amount: netToday, currency },
+        cogs: null,
+        grossProfit: null,
+        labourCost: null,
+        contributionAfterLabour: null,
+        operatingExpenses: null,
+        operatingProfit: null,
+      },
+
+      alerts,
+
+      live: {
+        openOrders: today.filter((row) => OPEN_STATES.has(row.state)).length,
+        // No `occupied` state exists: a table is occupied when it is neither
+        // free nor being turned around between covers.
+        tablesOccupied: tables.filter(
+          (row) => row.state !== "available" && row.state !== "needs_cleaning",
+        ).length,
+        tablesTotal: tables.length,
+        kitchenQueueDepth: null,
+        averageWaitSeconds: null,
+        // `degraded` is neither: it is reachable but unhealthy, and counting
+        // it as offline would raise an outage that is not one.
+        activeTerminals: terminals.filter((row) => row.status === "online").length,
+        totalTerminals: terminals.length,
+        offlineTerminals: terminals.filter((row) => row.status === "offline").length,
+        staffOnShift: null,
+        delayedTickets: null,
+        // Everything above came back from the server, so nothing is pending.
+        syncBacklog: 0,
+      },
+    };
+  },
+};
+
+// ---------------------------------------------------------------------------
 // The registry
 // ---------------------------------------------------------------------------
 
 export const httpServices: ServiceRegistry = {
+  // Live — every one of the document's 142 operations is reached from here.
   production,
   treasury,
-  // Live.
   organisation,
   catalogue,
   inventory,
   sales,
   operations,
   security,
+  // Derived in the browser from live orders, waste and stock. See above.
+  dashboard,
 
-  // Still demo data — no endpoints exist. See API_COVERAGE.
-  dashboard: mockServices.dashboard,
-  purchasing: mockServices.purchasing,
-  costing: mockServices.costing,
-  workforce: mockServices.workforce,
-  finance: mockServices.finance,
-  governance: mockServices.governance,
-  platform: mockServices.platform,
+  // No endpoint exists anywhere in the document for these. They fail with
+  // NOT_IMPLEMENTED rather than serving invented rows. See API_COVERAGE.
+  purchasing: unsupportedPurchasing,
+  costing: unsupportedCosting,
+  workforce: unsupportedWorkforce,
+  finance: unsupportedFinance,
+  governance: unsupportedGovernance,
+  platform: unsupportedPlatform,
 };
 
 announceCoverage();

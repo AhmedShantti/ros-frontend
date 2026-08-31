@@ -226,6 +226,9 @@ export const consoleEn = {
   "state.deniedPermission": "Required permission",
   "state.notFoundTitle": "Not found",
   "state.notFoundBody": "That record does not exist, or is not visible in your current scope.",
+  "state.unsupportedTitle": "Not available from this backend",
+  "state.unsupportedBody": "The connected API does not implement this yet. Nothing is shown rather than sample data, so what you see is only ever what the server holds.",
+  "state.unsupportedDetail": "Missing endpoint",
   "state.serverNote": "Client-side permission checks are presentation only. The server enforces the real rule on every request.",
 
   // -- Theme, language, account -------------------------------------------

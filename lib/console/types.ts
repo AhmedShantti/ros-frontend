@@ -1644,6 +1644,7 @@ export type AlertKind =
   | "discount_threshold"
   | "void_after_payment"
   | "stock_zero"
+  | "low_stock"
   | "expiry"
   | "order_delayed"
   | "sales_below_forecast"
@@ -1691,11 +1692,22 @@ export interface MetricSummary {
 export interface HourlySalesPoint {
   hour: string;
   sales: number;
-  labourCost: number;
+  /** Null when no payroll source exists — the backend has no workforce API. */
+  labourCost: number | null;
   orders: number;
-  forecast: number;
+  /** Null when nothing forecasts; the backend has no forecasting endpoint. */
+  forecast: number | null;
 }
 
+/**
+ * One branch's line in the ranking.
+ *
+ * The percentages are nullable because they are not all derivable from the
+ * same source: sales and cost of goods come off the orders themselves, while
+ * labour needs a payroll feed the backend does not expose. A null means "no
+ * source for this", and the table shows a dash — never a zero, which would
+ * read as a branch with no labour cost at all.
+ */
 export interface BranchRankingRow {
   branchId: Id;
   branchName: Localised;
@@ -1703,28 +1715,37 @@ export interface BranchRankingRow {
   netSales: Money;
   transactionCount: number;
   averageOrderValue: Money;
-  foodCostPercent: number;
-  labourCostPercent: number;
-  primeCostPercent: number;
-  wastePercent: number;
-  varianceValue: Money;
+  foodCostPercent: number | null;
+  labourCostPercent: number | null;
+  primeCostPercent: number | null;
+  wastePercent: number | null;
+  varianceValue: Money | null;
   rank: number;
-  previousRank: number;
+  /** Null when there is no prior period to compare against. */
+  previousRank: number | null;
   /** FR-BRN-013 — deviation from the group mean, in standard deviations. */
   outlierSigma: number;
 }
 
+/**
+ * The now, as far as the server can describe it.
+ *
+ * Orders, tables and terminals are read straight off the API. The kitchen
+ * figures and the staff count are null because there is no KDS or workforce
+ * endpoint to read them from — and a queue depth of zero would be read as a
+ * clear pass, which is the opposite of "nobody is watching".
+ */
 export interface LiveOperationsSnapshot {
   openOrders: number;
   tablesOccupied: number;
   tablesTotal: number;
-  kitchenQueueDepth: number;
-  averageWaitSeconds: number;
+  kitchenQueueDepth: number | null;
+  averageWaitSeconds: number | null;
   activeTerminals: number;
   totalTerminals: number;
   offlineTerminals: number;
-  staffOnShift: number;
-  delayedTickets: number;
+  staffOnShift: number | null;
+  delayedTickets: number | null;
   syncBacklog: number;
 }
 
@@ -1735,27 +1756,37 @@ export interface DashboardData {
   netSales: MetricSummary;
   transactions: MetricSummary;
   averageOrderValue: MetricSummary;
-  foodCostPercent: MetricSummary;
-  labourCostPercent: MetricSummary;
-  primeCostPercent: MetricSummary;
-  wastePercent: MetricSummary;
-  grossProfit: MetricSummary;
+  /** Null unless the orders carry cost snapshots to divide by. */
+  foodCostPercent: MetricSummary | null;
+  /** Null — no payroll endpoint exists to cost a shift against. */
+  labourCostPercent: MetricSummary | null;
+  /** Null whenever either half of prime cost is. */
+  primeCostPercent: MetricSummary | null;
+  wastePercent: MetricSummary | null;
+  grossProfit: MetricSummary | null;
   salesTrend: TrendPoint[];
   hourly: HourlySalesPoint[];
   categoryMix: TrendPoint[];
   branchRanking: BranchRankingRow[];
   wasteByReason: TrendPoint[];
+  /**
+   * The P&L ladder, as far down it as the data reaches.
+   *
+   * Everything above gross profit comes from the orders. Below it needs
+   * payroll and an expense ledger, neither of which the backend serves, so
+   * those rungs are null and the panel stops rather than inventing a number.
+   */
   profitability: {
     grossSales: Money;
     discounts: Money;
-    refunds: Money;
+    refunds: Money | null;
     netSales: Money;
-    cogs: Money;
-    grossProfit: Money;
-    labourCost: Money;
-    contributionAfterLabour: Money;
-    operatingExpenses: Money;
-    operatingProfit: Money;
+    cogs: Money | null;
+    grossProfit: Money | null;
+    labourCost: Money | null;
+    contributionAfterLabour: Money | null;
+    operatingExpenses: Money | null;
+    operatingProfit: Money | null;
   };
   alerts: OperationalAlert[];
   live: LiveOperationsSnapshot;
