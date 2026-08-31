@@ -334,6 +334,68 @@ async function checkAuthenticated(email, password) {
   for (const [label, path] of reads) {
     await call(label, path, { token });
   }
+
+  await checkTillSignOn(token, tenantId);
+}
+
+/**
+ * The till sign-on, which is the one flow no console login can stand in for.
+ *
+ * Opening a cash session needs a token that names the *employee* taking
+ * custody of the drawer, and only `POST /auth/pin` mints one. Its 401 is
+ * deliberately uniform — "Invalid PIN, unknown employee code, or unknown
+ * terminal/tenant" — so it never says which of the four was wrong. This
+ * checks the three that are knowable before blaming the PIN.
+ */
+async function checkTillSignOn(token, tenantId) {
+  const employeeCode = arg("employee-code");
+  const pin = arg("pin");
+
+  console.log("");
+  console.log("Till sign-on (POST /auth/pin)");
+
+  if (!employeeCode || !pin) {
+    console.log("  SKIP  pass --employee-code and --pin to test the POS sign-on.");
+    return;
+  }
+
+  const terminals = await call("GET /auth/terminals", "/auth/terminals", { token });
+
+  if (!Array.isArray(terminals) || terminals.length === 0) {
+    console.error("  FAIL  no terminals are registered — /auth/pin cannot succeed without one.");
+    console.error("        Register one first: the console's /register-device screen, or");
+    console.error("        POST /auth/terminals.");
+    failures += 1;
+    return;
+  }
+
+  const terminalId = arg("terminal-id") ?? terminals.find((row) => row.status === "active")?.id;
+
+  if (!terminalId) {
+    console.error("  FAIL  every registered terminal is disabled or revoked.");
+    failures += 1;
+    return;
+  }
+
+  console.log(`  Using terminal ${terminalId} and tenant ${tenantId}.`);
+
+  const session = await call("POST /auth/pin", "/auth/pin", {
+    method: "POST",
+    body: { tenantId, terminalId, employeeCode, pin },
+  });
+
+  if (!session) {
+    console.error("");
+    console.error("  The tenant and terminal above came back from the server, so both exist.");
+    console.error("  That leaves the employee code or the PIN — and this API has no endpoint");
+    console.error("  that creates an employee or sets a PIN (employeeCode appears in exactly");
+    console.error("  two request bodies and in no response anywhere). If no employee was");
+    console.error("  seeded with a PIN directly in the database, no client can sign on to a");
+    console.error("  till, and the cash drawer is unreachable by design rather than by bug.");
+    return;
+  }
+
+  console.log("  This token identifies an employee; the drawer can be opened with it.");
 }
 
 console.log(`Backend: ${base}`);
