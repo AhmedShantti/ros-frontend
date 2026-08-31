@@ -59,7 +59,8 @@ import {
   setCashSessionId as persistCashSessionId,
   setPendingCashOpen,
 } from "@/lib/api/session";
-import { ulid } from "@/lib/api/ulid";
+import { api } from "@/lib/api/endpoints";
+import { deviceId } from "@/lib/api/ids";
 import { AsyncPanel } from "@/components/console/states";
 import { CashClosePolicyCard, DrawerSheet } from "@/components/terminal/pos-drawer";
 import {
@@ -121,6 +122,24 @@ export function LivePos() {
 
   const terminalId = mounted ? getTerminalId() : null;
 
+  /*
+   * The terminal this device is bound to, as the server describes it.
+   *
+   * Two things on this screen need it. `drawerId` must be a UUID the server
+   * will accept, and a till has exactly one drawer, so the terminal's own id
+   * is it — a cashier typing "DRAWER-1" was never going to pass validation.
+   * And the cash-close policy is published per branch, which on a POS is
+   * whichever branch the terminal belongs to, not a console-side selection
+   * the cashier may never have made.
+   */
+  const bound = useAsync(async () => {
+    if (!terminalId) return null;
+    const registered = await api.terminals.list().catch(() => []);
+    return registered.find((row) => row.id === terminalId) ?? null;
+  }, [terminalId]);
+
+  const branchId = scope.branchId ?? bound.data?.branchId ?? null;
+
   if (!mounted) {
     return (
       <div className="text-fg-muted flex flex-1 items-center justify-center gap-2 p-8 text-sm">
@@ -131,7 +150,7 @@ export function LivePos() {
 
   if (!terminalId) {
     return (
-      <div className="mx-auto w-full max-w-md p-4">
+      <div className="mx-auto min-h-0 w-full max-w-md flex-1 overflow-y-auto p-4">
         <Card>
           <CardHeader title={t("pos.noTerminal")} spec="FR-SEC-030" />
           <Callout tone="warn">{t("pos.noTerminalNote")}</Callout>
@@ -150,11 +169,22 @@ export function LivePos() {
   }
 
   if (!cashSessionId) {
+    /*
+     * This column is taller than the viewport on a laptop, and the terminal
+     * layout is `h-dvh overflow-hidden` — a POS must never scroll the page
+     * out from under a cashier mid-service. So the pane scrolls, not the
+     * document. Without `min-h-0` the flex child refuses to shrink below its
+     * content and the overflow never engages, which is what put the policy
+     * card's Publish button off the bottom of the screen with no way to
+     * reach it.
+     */
     return (
-      <div className="mx-auto w-full max-w-md space-y-3 p-4">
-        <OpenDrawer onOpened={setCashSessionId} />
-        <CashClosePolicyCard branchId={scope.branchId} onMessage={setMessage} />
-        <Toast message={message} />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-md space-y-3 p-4">
+          <OpenDrawer terminal={bound.data} onOpened={setCashSessionId} />
+          <CashClosePolicyCard branchId={branchId} onMessage={setMessage} />
+          <Toast message={message} />
+        </div>
       </div>
     );
   }
@@ -208,19 +238,34 @@ export function LivePos() {
 
 // ---------------------------------------------------------------------------
 
-/** FR-POS-090, FR-FIN-001/002 — a shift and its cash session, in one call. */
-function OpenDrawer({ onOpened }: { onOpened: (cashSessionId: string) => void }) {
+/**
+ * FR-POS-090, FR-FIN-001/002 — a shift and its cash session, in one call.
+ *
+ * The drawer is not named by the cashier. It used to be a text field
+ * defaulting to "DRAWER-1", which the server rejects outright: `drawerId` is
+ * validated as a UUID, like every other id it stores. A till has one drawer,
+ * so the drawer *is* the terminal, and the terminal's id is one the server
+ * issued and will accept. It is shown, not asked for — a cashier has no way
+ * to know a UUID and no reason to choose one.
+ */
+function OpenDrawer({
+  terminal,
+  onOpened,
+}: {
+  terminal: { id: string; name: string } | null;
+  onOpened: (cashSessionId: string) => void;
+}) {
   const { t } = useI18n();
   const action = useAction();
-  const [drawerId, setDrawerId] = useState("DRAWER-1");
   const [float, setFloat] = useState("500.00");
 
-  const valid = drawerId.trim() !== "" && Number.isFinite(Number(float));
+  const drawerId = terminal?.id ?? "";
+  const valid = drawerId !== "" && Number.isFinite(Number(float)) && Number(float) >= 0;
 
   async function open() {
     if (!valid) return;
 
-    const drawer = drawerId.trim();
+    const drawer = drawerId;
     // Minor units as an exact integer string — never a JSON number.
     const openingFloat = String(Math.round(Number(float) * 100));
 
@@ -238,7 +283,7 @@ function OpenDrawer({ onOpened }: { onOpened: (cashSessionId: string) => void })
     const ids =
       previous && previous.drawerId === drawer && previous.openingFloat === openingFloat
         ? { cashSessionId: previous.cashSessionId, shiftId: previous.shiftId }
-        : { cashSessionId: ulid(), shiftId: ulid() };
+        : { cashSessionId: deviceId(), shiftId: deviceId() };
 
     setPendingCashOpen({ ...ids, drawerId: drawer, openingFloat });
 
@@ -261,12 +306,8 @@ function OpenDrawer({ onOpened }: { onOpened: (cashSessionId: string) => void })
       {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
 
       <div className="mt-4 space-y-4">
-        <Field label={t("shift.drawer")} required>
-          <Input
-            dir="ltr"
-            value={drawerId}
-            onChange={(event) => setDrawerId(event.target.value)}
-          />
+        <Field label={t("shift.drawer")} hint={t("shift.drawerHint")}>
+          <Input dir="ltr" value={terminal?.name ?? ""} readOnly disabled />
         </Field>
 
         <Field label={t("shift.openingFloat")} hint={t("shift.openingFloatHint")} required>

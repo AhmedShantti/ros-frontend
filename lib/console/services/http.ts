@@ -32,7 +32,7 @@
 
 import { api } from "@/lib/api/endpoints";
 import { getTenantId } from "@/lib/api/session";
-import { ulid } from "@/lib/api/ulid";
+import { deviceId } from "@/lib/api/ids";
 import type * as S from "@/lib/api/schema";
 
 import type {
@@ -1988,7 +1988,7 @@ const orderMutations: import("./types").OrderMutationService = {
     const branchesById = await branchIndex().catch(() => new Map<Id, Branch>());
 
     const row = await api.sales.create({
-      id: ulid(),
+      id: deviceId(),
       orderType: input.orderType,
       channel: input.channel ?? "pos",
       tableId: input.tableId,
@@ -2022,7 +2022,7 @@ const orderMutations: import("./types").OrderMutationService = {
       businessDay,
       orderId,
       {
-        id: ulid(),
+        id: deviceId(),
         menuItemId: input.menuItemId,
         variantId: input.variantId,
         quantity: input.quantity,
@@ -2061,7 +2061,7 @@ const orderMutations: import("./types").OrderMutationService = {
       businessDay,
       orderId,
       {
-        id: ulid(),
+        id: deviceId(),
         cashSessionId: input.cashSessionId,
         tender: input.tender,
         amountMinor: input.amountMinor,
@@ -2102,8 +2102,8 @@ const treasury: import("./types").TreasuryService = {
       // protection beneath the mandatory idempotency key — which only holds
       // if a retry sends the pair the first attempt sent, so the caller may
       // supply them.
-      cashSessionId: input.ids?.cashSessionId ?? ulid(),
-      shiftId: input.ids?.shiftId ?? ulid(),
+      cashSessionId: input.ids?.cashSessionId ?? deviceId(),
+      shiftId: input.ids?.shiftId ?? deviceId(),
       drawerId: input.drawerId,
       openingFloat: input.openingFloat,
       notes: input.notes,
@@ -2120,7 +2120,7 @@ const treasury: import("./types").TreasuryService = {
     const body: S.CashMovementDto = {
       // FR-OFF-015 — the device's permanent id for this movement, beneath
       // the idempotency key the client layer adds for the retry itself.
-      id: ulid(),
+      id: deviceId(),
       amountMinor: input.amountMinor,
       reason: input.reason,
       occurredAt: input.occurredAt,
@@ -2187,7 +2187,7 @@ const treasury: import("./types").TreasuryService = {
 
   async declareClose(cashSessionId, input) {
     const row = await api.treasury.declareClose(cashSessionId, {
-      closeAttemptId: ulid(),
+      closeAttemptId: deviceId(),
       countedTotalMinorUnits: input.countedTotalMinorUnits,
       denominations: input.denominations?.length ? input.denominations : undefined,
     });
@@ -2213,8 +2213,8 @@ const treasury: import("./types").TreasuryService = {
     // fresh per attempt: reusing them after a rejection replays the
     // rejection instead of asking the manager again.
     const row = await api.treasury.finalizeClose(cashSessionId, {
-      approvalRequestId: ulid(),
-      approvalDecisionId: ulid(),
+      approvalRequestId: deviceId(),
+      approvalDecisionId: deviceId(),
       decision: input.decision,
       reason: input.reason,
       managerEmployeeCode: input.managerEmployeeCode,

@@ -1919,6 +1919,7 @@ export const consoleAr: ConsoleCopy = {
   "pos.unsupportedKds": "استلام شاشة المطبخ واستدعاؤها — لا توجد واجهة.",
   "shift.openTitle": "فتح الدرج",
   "shift.drawer": "الدرج",
+  "shift.drawerHint": "درج هذه الطرفية. طرفية واحدة ودرج واحد — والمعرّف هو معرّف الطرفية.",
   "shift.openingFloatHint": "النقد المعدود في الدرج عند بداية الوردية.",
   "pos.orderSettled": "سُدِّد الطلب وأُتمّ.",
   "shift.liveTitle": "هذا الدرج",

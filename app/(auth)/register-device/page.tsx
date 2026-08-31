@@ -77,9 +77,18 @@ function LiveDeviceBinding() {
   const [bound, setBound] = useState<TerminalRow | null>(null);
   const [adding, setAdding] = useState(false);
 
-  // Binding a terminal is an authenticated call; there is nothing useful to
-  // show someone who is not signed in but a way to sign in.
-  const signedIn = typeof window !== "undefined" && isSignedIn();
+  /*
+   * Binding a terminal is an authenticated call; there is nothing useful to
+   * show someone who is not signed in but a way to sign in.
+   *
+   * The token is in `localStorage`, which the server render cannot see, so
+   * this cannot be read during render: the server always decided "signed
+   * out" and rendered the sign-in prompt, the client decided "signed in" and
+   * rendered the terminal list, and React threw the tree away as a
+   * hydration mismatch. Nothing is decided until after mount.
+   */
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  useEffect(() => setSignedIn(isSignedIn()), []);
 
   useEffect(() => {
     if (!signedIn) return;
@@ -113,6 +122,17 @@ function LiveDeviceBinding() {
     } finally {
       setBusyId(null);
     }
+  }
+
+  if (signedIn === null) {
+    return (
+      <Card className="ros-fade-in">
+        <div className="text-fg-subtle flex items-center gap-2 text-xs">
+          <Spinner size={14} />
+          {t("state.loading")}
+        </div>
+      </Card>
+    );
   }
 
   if (!signedIn) {

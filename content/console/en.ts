@@ -1922,6 +1922,7 @@ export const consoleEn = {
   "pos.unsupportedKds": "Kitchen display bump and recall — no endpoint.",
   "shift.openTitle": "Open the drawer",
   "shift.drawer": "Drawer",
+  "shift.drawerHint": "This terminal's own drawer. One till, one drawer — the id is the terminal's.",
   "shift.openingFloatHint": "The cash counted into the drawer at the start of the shift.",
   "pos.orderSettled": "Order settled and completed.",
   "shift.liveTitle": "This drawer",
