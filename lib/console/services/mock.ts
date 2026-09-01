@@ -32,6 +32,7 @@ import type {
   FinanceService,
   GovernanceService,
   InventoryService,
+  KitchenService,
   LowStockRow,
   ModifierRecipeEffect,
   OperatingHours,
@@ -1831,8 +1832,52 @@ const finance: FinanceService = {
         closedBy: { en: "You (demo session)", ar: "أنت (جلسة تجريبية)" },
       };
       dayCloses[index] = updated;
-      return updated;
+      // The demo has no activation epoch to open, so every successful close
+      // here is a real one. The shape still carries the outcome, because the
+      // screen reads it either way.
+      return {
+        outcome: "CLOSED" as const,
+        branchId,
+        businessDay,
+        activationBusinessDay: dayCloses[dayCloses.length - 1]?.businessDay ?? businessDay,
+        firstEligibleBusinessDay: dayCloses[dayCloses.length - 1]?.businessDay ?? businessDay,
+        dayClose: updated,
+      };
     });
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Kitchen
+// ---------------------------------------------------------------------------
+
+/**
+ * The demo kitchen display runs on the live reducer, not on this registry.
+ *
+ * `app/(terminal)/kds/page.tsx` drives `lib/console/live/` directly in demo
+ * mode — a richer simulation than these six endpoints, with staggered
+ * release, all-day counts and a recall window already in it. Reimplementing
+ * a worse one here would give the KDS two sources of truth, so each mutation
+ * says plainly that this path needs a backend.
+ */
+const kitchen: KitchenService = {
+  async queue() {
+    noBackend("Reading a station queue through the service layer");
+  },
+  async acknowledgeViewed() {
+    noBackend("Acknowledging tickets as viewed");
+  },
+  async startLine() {
+    noBackend("Starting a ticket line");
+  },
+  async bumpLine() {
+    noBackend("Bumping a ticket line");
+  },
+  async bumpAll() {
+    noBackend("Bumping a whole ticket");
+  },
+  async recall() {
+    noBackend("Recalling a bumped ticket");
   },
 };
 
@@ -2283,6 +2328,7 @@ export const mockServices: ServiceRegistry = {
   production,
   treasury,
   operations,
+  kitchen,
   catalogue,
   inventory,
   purchasing,

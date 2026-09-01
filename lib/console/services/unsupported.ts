@@ -1,11 +1,11 @@
 /**
  * The parts of the registry this backend has no endpoint for.
  *
- * The ROS API implements 142 operations and the console reaches all of them.
- * What is left over is not unfinished wiring — purchasing, workforce, the
- * finance ledgers, costing analytics, governance and the platform catalogue
- * are absent from the server entirely, as is a user index, a combo, a KDS
- * queue and a standalone adjustment document.
+ * The ROS API implements 151 operations and the console reaches all of them.
+ * What is left over is not unfinished wiring — purchasing, workforce, costing
+ * analytics, governance and the platform catalogue are absent from the server
+ * entirely, as is a user index, a combo, a cash-session index, an expense
+ * ledger and a standalone adjustment document.
  *
  * Every one of those used to fall back to an in-memory fixture. It no longer
  * does. A console wired to a live deployment must never show a row the
@@ -30,7 +30,7 @@ import type {
   ReadonlyCollectionService,
   WorkforceService,
 } from "./types";
-import type { Combo, KitchenTicket, Page, StockAdjustment, User } from "../types";
+import type { Combo, Page, StockAdjustment, User } from "../types";
 
 /**
  * The one failure every absent endpoint raises.
@@ -109,9 +109,17 @@ export const unsupportedWorkforce: WorkforceService = {
 };
 
 /**
- * The cash *drawer* is live — see `treasury.*` in `http.ts`. What is absent
- * is everything the finance screens read back afterwards: a session index,
- * expenses, day-close, and the tender and tax summaries.
+ * Most of finance is live now; two members are not.
+ *
+ * The drawer runs on `treasury.*`, and the day close, the Z snapshot and the
+ * tender and tax summaries run on the day-close and daily-trading endpoints —
+ * `http.ts` implements all of those and takes only `cashSessions` and
+ * `expenses` from here. There is still no `GET /cash-sessions` to build a
+ * session index from, and no expense resource of any kind.
+ *
+ * The whole object stays for the mock registry's failure modes and so that a
+ * future caller reaching for a finance member it has not implemented refuses
+ * rather than fabricates.
  */
 export const unsupportedFinance: FinanceService = {
   cashSessions: absentReadonly("A cash-session index"),
@@ -155,10 +163,6 @@ export const unsupportedAdjustmentReads = {
   get: (): Promise<StockAdjustment | null> =>
     notImplemented("An adjustment document"),
 };
-
-/** No KDS endpoints at all — no queue, no bump, no recall. */
-export const unsupportedKitchenQueue = (): Promise<Page<KitchenTicket>> =>
-  notImplemented("The kitchen display queue");
 
 /**
  * `GET /auth/tenants` returns the caller's own memberships and nothing else;

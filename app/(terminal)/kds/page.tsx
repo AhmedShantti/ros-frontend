@@ -21,7 +21,9 @@ import { stationsByBranch } from "@/lib/console/live/reducer";
 import { recallableAt } from "@/lib/console/live/state";
 import { urgencyFor } from "@/lib/console/live/engine";
 import { Badge, Button, SegmentedControl, Spinner, cx } from "@/components/console/ui";
-import { TerminalBar } from "@/components/terminal/chrome";
+import { HoldToBump, TerminalBar } from "@/components/terminal/chrome";
+import { DATA_MODE } from "@/lib/api/config";
+import { LiveKds } from "@/components/terminal/kds-live";
 
 type SortMode = "oldest" | "target" | "course";
 
@@ -39,7 +41,28 @@ const URGENCY_TIMER: Record<TicketUrgency, string> = {
   critical: "text-bad animate-pulse",
 };
 
+/**
+ * Two displays, chosen by whether a backend is configured.
+ *
+ * The demo display below runs on the in-memory engine and simulates the
+ * whole of ch.9 — staggered release, the expediter pass, cancellation
+ * acknowledgement, rush and VIP. The backend implements six KDS operations
+ * and none of that, so `LiveKds` renders exactly what the API can perform
+ * and names the rest as unavailable. Same split as `/pos`.
+ */
 export default function KdsPage() {
+  if (DATA_MODE === "http") {
+    return (
+      <>
+        <TerminalBar />
+        <LiveKds />
+      </>
+    );
+  }
+  return <DemoKds />;
+}
+
+function DemoKds() {
   const { t, tx } = useI18n();
   const { state, dispatch, ready } = useLive();
   const now = useNow(1000);
@@ -495,62 +518,6 @@ function CancelledCard({ ticket }: { ticket: KitchenTicket }) {
         {t("kds.ackCancel")}
       </Button>
     </article>
-  );
-}
-
-/**
- * FR-KDS-026 — bumping requires a deliberate hold. The progress fill is the
- * feedback that makes an 800 ms press feel intentional rather than laggy.
- */
-function HoldToBump({ onBump, disabled }: { onBump: () => void; disabled?: boolean }) {
-  const { t } = useI18n();
-  const [progress, setProgress] = useState(0);
-  const timer = useRef<number | null>(null);
-
-  useEffect(
-    () => () => {
-      if (timer.current) window.clearInterval(timer.current);
-    },
-    [],
-  );
-
-  function start() {
-    if (disabled) return;
-    const startedAt = Date.now();
-    timer.current = window.setInterval(() => {
-      const ratio = Math.min(1, (Date.now() - startedAt) / 800);
-      setProgress(ratio);
-      if (ratio >= 1) {
-        stop();
-        onBump();
-      }
-    }, 30);
-  }
-
-  function stop() {
-    if (timer.current) window.clearInterval(timer.current);
-    timer.current = null;
-    setProgress(0);
-  }
-
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onPointerDown={start}
-      onPointerUp={stop}
-      onPointerLeave={stop}
-      onPointerCancel={stop}
-      title={t("kds.bumpNote")}
-      className="bg-accent text-accent-fg relative flex-1 overflow-hidden rounded-lg px-3 py-2.5 text-sm font-semibold disabled:opacity-45"
-    >
-      <span
-        aria-hidden
-        className="absolute inset-y-0 start-0 bg-black/25 transition-[width] duration-75"
-        style={{ width: `${progress * 100}%` }}
-      />
-      <span className="relative">{progress > 0 ? t("kds.holdToBump") : t("kds.bumpAll")}</span>
-    </button>
   );
 }
 

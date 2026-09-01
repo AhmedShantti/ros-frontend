@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 103 paths, 80 request DTOs.
+ * `api/openapi.json`. 111 paths, 82 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -12,6 +12,10 @@
 // ---------------------------------------------------------------------------
 // Request bodies
 // ---------------------------------------------------------------------------
+
+export interface AcknowledgeViewedDto {
+  ticketIds: string[];
+}
 
 export interface AddFingerprintDto {
   appVersion?: string;
@@ -438,6 +442,10 @@ export interface PinLoginDto {
 
 export interface PlaceMenuItemDto {
   categoryId: string;
+}
+
+export interface PostDayCloseDto {
+
 }
 
 export interface PostMovementDto {
@@ -915,6 +923,251 @@ export type CashClosePolicyController_createPolicyResponse = {
 };
 
 export type CashClosePolicyController_createPolicyBody = CreateCashClosePolicyDto;
+
+/** `GET /branches/{branchId}/day-closes/{businessDay}` — Retrieve a historical DayClose / Z (persisted records only). — The persisted Z snapshot. */
+export type DayCloseController_getResponse = {
+  branchId: string;
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  businessDay: string;
+  cashReconciliation: {
+    scope: "WHOLE_SESSION";
+    sessionCount: number;
+    sessions: ({
+      businessDayCount: number;
+      cashSessionId: string;
+      dayScoped: {
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        cashRoundingAdjustments: string;
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        cashSalesTotal: string;
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        manualExternalCardTotal: string;
+        paymentCount: number;
+      };
+      isVarianceOwner: boolean;
+      wholeSession: {
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        countedCash: string;
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        expectedCash: string;
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        openingFloat: string;
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        variance: string;
+      };
+    })[];
+    varianceOwnerSessionCount: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    varianceTotal: string;
+  };
+  closedAt: string;
+  closedBy: {
+    employeeId: string | null;
+    userId: string;
+  };
+  /** ISO 4217 currency code. */
+  currency: string;
+  dataAsOf: string;
+  id: string;
+  salesByOrderType: ({
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grossSales: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    netSales: string;
+    orderCount: number;
+    orderType: string;
+  })[];
+  salesSummary: {
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    averageOrderValue: string | null;
+    completedOrderCount: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discounts: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grossSales: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    netSales: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    refunds: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+  };
+  scope: {
+    notImplemented: string[];
+    notes: string[];
+    partial: string[];
+  };
+  taxByClass: ({
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grossAmount: string;
+    lineCount: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    netAmount: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxAmount: string;
+    taxClassId: string;
+  })[];
+  tenderTotals: {
+    cash: {
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      amountTotal: string;
+      paymentCount: number;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      roundingAdjustmentTotal: string;
+    };
+    /** Captured payment value above a completed order’s grand total. Reconciliation-only. */
+    completedExcessCapturedTotal: string;
+    manualExternalCard: {
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      amountTotal: string;
+      paymentCount: number;
+    };
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unsettledCapturedTotal: string;
+  };
+  voidAndCompSummary: {
+    compLineCount: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    compLineValue: string;
+    voidedLineCount: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    voidedLineValue: string;
+  };
+  zNumber: string;
+};
+
+/** `POST /branches/{branchId}/day-closes/{businessDay}` — Close a business day, or — on the branch’s first ever DayClose request — activate the branch’s DayClose epoch. — ACTIVATED (no day sealed) or CLOSED (with the Z snapshot). Never 409 for a successful activation. */
+export type DayCloseController_postResponse = {
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  activationBusinessDay: string;
+  branchId: string;
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  businessDay: string;
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  firstEligibleBusinessDay: string;
+  outcome: "ACTIVATED";
+} | {
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  activationBusinessDay: string;
+  branchId: string;
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  businessDay: string;
+  dayClose: {
+    branchId: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    cashReconciliation: {
+      scope: "WHOLE_SESSION";
+      sessionCount: number;
+      sessions: ({
+        businessDayCount: number;
+        cashSessionId: string;
+        dayScoped: {
+          /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+          cashRoundingAdjustments: string;
+          /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+          cashSalesTotal: string;
+          /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+          manualExternalCardTotal: string;
+          paymentCount: number;
+        };
+        isVarianceOwner: boolean;
+        wholeSession: {
+          /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+          countedCash: string;
+          /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+          expectedCash: string;
+          /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+          openingFloat: string;
+          /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+          variance: string;
+        };
+      })[];
+      varianceOwnerSessionCount: number;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      varianceTotal: string;
+    };
+    closedAt: string;
+    closedBy: {
+      employeeId: string | null;
+      userId: string;
+    };
+    /** ISO 4217 currency code. */
+    currency: string;
+    dataAsOf: string;
+    id: string;
+    salesByOrderType: ({
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      grossSales: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      netSales: string;
+      orderCount: number;
+      orderType: string;
+    })[];
+    salesSummary: {
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      averageOrderValue: string | null;
+      completedOrderCount: number;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      discounts: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      grossSales: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      netSales: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      refunds: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      taxTotal: string;
+    };
+    scope: {
+      notImplemented: string[];
+      notes: string[];
+      partial: string[];
+    };
+    taxByClass: ({
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      grossAmount: string;
+      lineCount: number;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      netAmount: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      taxAmount: string;
+      taxClassId: string;
+    })[];
+    tenderTotals: {
+      cash: {
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        amountTotal: string;
+        paymentCount: number;
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        roundingAdjustmentTotal: string;
+      };
+      /** Captured payment value above a completed order’s grand total. Reconciliation-only. */
+      completedExcessCapturedTotal: string;
+      manualExternalCard: {
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        amountTotal: string;
+        paymentCount: number;
+      };
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      unsettledCapturedTotal: string;
+    };
+    voidAndCompSummary: {
+      compLineCount: number;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      compLineValue: string;
+      voidedLineCount: number;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      voidedLineValue: string;
+    };
+    zNumber: string;
+  };
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  firstEligibleBusinessDay: string;
+  outcome: "CLOSED";
+};
+
+export type DayCloseController_postBody = PostDayCloseDto;
 
 /** `POST /cash-sessions` — Open a cashier shift and its cash session — FR-POS-090, FR-FIN-001/002. ONE command for the cashier, two records for the model. FR-POS-090 describes a single action ("open a shift, declaring an opening float"), and the cashier should not have to know that a shift is a Workforce concept and a session a Treasury one. They stay distinct in the schema (carried item P1D-A); only the command is unified, and both are written in one transaction. `Idempotency-Key` is MANDATORY (FR-API-020): opening a drawer is a financially significant act, and a retry over a flaky link must not produce a second shift or a second session. The two client ULIDs are independent duplicate protection beneath it. — The opened cash session and its shift, plus whether this call created them (false on an idempotent replay of an already-open pair). */
 export type TreasuryController_openCashSessionResponse = {
@@ -1915,6 +2168,317 @@ export type InventoryController_recordWasteResponse = {
 };
 
 export type InventoryController_recordWasteBody = RecordWasteDto;
+
+/** `GET /kds/stations/{stationId}/queue` — Read a KDS station queue (FIFO, read-only). — The station queue and branch KDS config facts. */
+export type KitchenController_getStationQueueResponse = {
+  cancelledLineVisibilitySeconds: number | null;
+  recallWindowSeconds: number;
+  tickets: ({
+    bumpedAt: string | null;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    /** Server-computed at response time — never a client value. */
+    elapsedSeconds: number;
+    firstViewedAt: string | null;
+    id: string;
+    lines: ({
+      bumpedAt: string | null;
+      cancelledAt: string | null;
+      course: number | null;
+      firstViewedAt: string | null;
+      id: string;
+      /** Opaque localized-name object, as stored at Fire time. */
+      itemNameSnapshot: Record<string, unknown>;
+      modifiers: ({
+        id: string;
+        kind: "addition" | "removal" | "substitution";
+        /** Opaque localized-name object, as stored at Fire time. */
+        nameSnapshot: Record<string, unknown>;
+        quantity: number;
+      })[];
+      orderLineId: string;
+      preparationNotes: string | null;
+      /** DECIMAL(12,3) rendered as a string, never a JS number. */
+      quantity: string;
+      readyAt: string | null;
+      recalledAt: string | null;
+      sequence: number;
+      startedAt: string | null;
+      status: string;
+    })[];
+    orderId: string;
+    orderNumber: string;
+    orderType: string;
+    readyAt: string | null;
+    recallCount: number;
+    recalledAt: string | null;
+    routedAt: string;
+    serviceReference: string | null;
+    startedAt: string | null;
+    stationId: string;
+    status: string;
+    targetReadyAt: string | null;
+  })[];
+};
+
+/** `POST /kds/stations/{stationId}/tickets/view` — Acknowledge tickets as first-viewed on this station. — Count of newly-acknowledged tickets. */
+export type KitchenController_acknowledgeViewedResponse = {
+  /** Count of newly-acknowledged tickets on this station. */
+  acknowledged: number;
+};
+
+export type KitchenController_acknowledgeViewedBody = AcknowledgeViewedDto;
+
+/** `POST /kds/tickets/{ticketId}/bump-all` — Mark every eligible line on a ticket ready (bump all). — The updated ticket and the ids of lines this action bumped. */
+export type KitchenController_bumpAllResponse = {
+  bumpedLineIds: string[];
+  ticket: {
+    bumpedAt: string | null;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    /** Server-computed at response time — never a client value. */
+    elapsedSeconds: number;
+    firstViewedAt: string | null;
+    id: string;
+    lines: ({
+      bumpedAt: string | null;
+      cancelledAt: string | null;
+      course: number | null;
+      firstViewedAt: string | null;
+      id: string;
+      /** Opaque localized-name object, as stored at Fire time. */
+      itemNameSnapshot: Record<string, unknown>;
+      modifiers: ({
+        id: string;
+        kind: "addition" | "removal" | "substitution";
+        /** Opaque localized-name object, as stored at Fire time. */
+        nameSnapshot: Record<string, unknown>;
+        quantity: number;
+      })[];
+      orderLineId: string;
+      preparationNotes: string | null;
+      /** DECIMAL(12,3) rendered as a string, never a JS number. */
+      quantity: string;
+      readyAt: string | null;
+      recalledAt: string | null;
+      sequence: number;
+      startedAt: string | null;
+      status: string;
+    })[];
+    orderId: string;
+    orderNumber: string;
+    orderType: string;
+    readyAt: string | null;
+    recallCount: number;
+    recalledAt: string | null;
+    routedAt: string;
+    serviceReference: string | null;
+    startedAt: string | null;
+    stationId: string;
+    status: string;
+    targetReadyAt: string | null;
+  };
+};
+
+/** `POST /kds/tickets/{ticketId}/lines/{lineId}/bump` — Mark a ticket line ready (bump item). — The updated ticket and line. */
+export type KitchenController_bumpLineResponse = {
+  line: {
+    bumpedAt: string | null;
+    cancelledAt: string | null;
+    course: number | null;
+    firstViewedAt: string | null;
+    id: string;
+    /** Opaque localized-name object, as stored at Fire time. */
+    itemNameSnapshot: Record<string, unknown>;
+    modifiers: ({
+      id: string;
+      kind: "addition" | "removal" | "substitution";
+      /** Opaque localized-name object, as stored at Fire time. */
+      nameSnapshot: Record<string, unknown>;
+      quantity: number;
+    })[];
+    orderLineId: string;
+    preparationNotes: string | null;
+    /** DECIMAL(12,3) rendered as a string, never a JS number. */
+    quantity: string;
+    readyAt: string | null;
+    recalledAt: string | null;
+    sequence: number;
+    startedAt: string | null;
+    status: string;
+  };
+  ticket: {
+    bumpedAt: string | null;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    /** Server-computed at response time — never a client value. */
+    elapsedSeconds: number;
+    firstViewedAt: string | null;
+    id: string;
+    lines: ({
+      bumpedAt: string | null;
+      cancelledAt: string | null;
+      course: number | null;
+      firstViewedAt: string | null;
+      id: string;
+      /** Opaque localized-name object, as stored at Fire time. */
+      itemNameSnapshot: Record<string, unknown>;
+      modifiers: ({
+        id: string;
+        kind: "addition" | "removal" | "substitution";
+        /** Opaque localized-name object, as stored at Fire time. */
+        nameSnapshot: Record<string, unknown>;
+        quantity: number;
+      })[];
+      orderLineId: string;
+      preparationNotes: string | null;
+      /** DECIMAL(12,3) rendered as a string, never a JS number. */
+      quantity: string;
+      readyAt: string | null;
+      recalledAt: string | null;
+      sequence: number;
+      startedAt: string | null;
+      status: string;
+    })[];
+    orderId: string;
+    orderNumber: string;
+    orderType: string;
+    readyAt: string | null;
+    recallCount: number;
+    recalledAt: string | null;
+    routedAt: string;
+    serviceReference: string | null;
+    startedAt: string | null;
+    stationId: string;
+    status: string;
+    targetReadyAt: string | null;
+  };
+};
+
+/** `POST /kds/tickets/{ticketId}/lines/{lineId}/start` — Mark a ticket line started. — The updated ticket and line. */
+export type KitchenController_startLineResponse = {
+  line: {
+    bumpedAt: string | null;
+    cancelledAt: string | null;
+    course: number | null;
+    firstViewedAt: string | null;
+    id: string;
+    /** Opaque localized-name object, as stored at Fire time. */
+    itemNameSnapshot: Record<string, unknown>;
+    modifiers: ({
+      id: string;
+      kind: "addition" | "removal" | "substitution";
+      /** Opaque localized-name object, as stored at Fire time. */
+      nameSnapshot: Record<string, unknown>;
+      quantity: number;
+    })[];
+    orderLineId: string;
+    preparationNotes: string | null;
+    /** DECIMAL(12,3) rendered as a string, never a JS number. */
+    quantity: string;
+    readyAt: string | null;
+    recalledAt: string | null;
+    sequence: number;
+    startedAt: string | null;
+    status: string;
+  };
+  ticket: {
+    bumpedAt: string | null;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    /** Server-computed at response time — never a client value. */
+    elapsedSeconds: number;
+    firstViewedAt: string | null;
+    id: string;
+    lines: ({
+      bumpedAt: string | null;
+      cancelledAt: string | null;
+      course: number | null;
+      firstViewedAt: string | null;
+      id: string;
+      /** Opaque localized-name object, as stored at Fire time. */
+      itemNameSnapshot: Record<string, unknown>;
+      modifiers: ({
+        id: string;
+        kind: "addition" | "removal" | "substitution";
+        /** Opaque localized-name object, as stored at Fire time. */
+        nameSnapshot: Record<string, unknown>;
+        quantity: number;
+      })[];
+      orderLineId: string;
+      preparationNotes: string | null;
+      /** DECIMAL(12,3) rendered as a string, never a JS number. */
+      quantity: string;
+      readyAt: string | null;
+      recalledAt: string | null;
+      sequence: number;
+      startedAt: string | null;
+      status: string;
+    })[];
+    orderId: string;
+    orderNumber: string;
+    orderType: string;
+    readyAt: string | null;
+    recallCount: number;
+    recalledAt: string | null;
+    routedAt: string;
+    serviceReference: string | null;
+    startedAt: string | null;
+    stationId: string;
+    status: string;
+    targetReadyAt: string | null;
+  };
+};
+
+/** `POST /kds/tickets/{ticketId}/recall` — Recall a bumped ticket back to active work. — The recalled ticket. */
+export type KitchenController_recallResponse = {
+  ticket: {
+    bumpedAt: string | null;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    /** Server-computed at response time — never a client value. */
+    elapsedSeconds: number;
+    firstViewedAt: string | null;
+    id: string;
+    lines: ({
+      bumpedAt: string | null;
+      cancelledAt: string | null;
+      course: number | null;
+      firstViewedAt: string | null;
+      id: string;
+      /** Opaque localized-name object, as stored at Fire time. */
+      itemNameSnapshot: Record<string, unknown>;
+      modifiers: ({
+        id: string;
+        kind: "addition" | "removal" | "substitution";
+        /** Opaque localized-name object, as stored at Fire time. */
+        nameSnapshot: Record<string, unknown>;
+        quantity: number;
+      })[];
+      orderLineId: string;
+      preparationNotes: string | null;
+      /** DECIMAL(12,3) rendered as a string, never a JS number. */
+      quantity: string;
+      readyAt: string | null;
+      recalledAt: string | null;
+      sequence: number;
+      startedAt: string | null;
+      status: string;
+    })[];
+    orderId: string;
+    orderNumber: string;
+    orderType: string;
+    readyAt: string | null;
+    recallCount: number;
+    recalledAt: string | null;
+    routedAt: string;
+    serviceReference: string | null;
+    startedAt: string | null;
+    stationId: string;
+    status: string;
+    targetReadyAt: string | null;
+  };
+};
 
 /** `GET /modifiers/{modifierId}/recipe-effects` — The modifier's recipe effects, in sequence order. */
 export type ProductionController_listModifierRecipeEffectsResponse = ({
@@ -3277,6 +3841,128 @@ export type ProductionController_publishResponse = {
   yieldUnitId: string;
 };
 
+/** `GET /reports/branches/{branchId}/daily-trading/{businessDay}` — Branch daily-trading report (Internal-MVP: dashboard-only, one tenant, exactly one active branch). — The daily-trading report: salesSummary, tenderTotals (incl. completedExcessCapturedTotal), taxSummary, cashReconciliation (WHOLE_SESSION scope), dataAsOf, periodStatus (OPEN/UNSEALED/SETTLED — no SEALED, no FUTURE), currency/currencySource, and a scope block disclosing exactly what this Internal-MVP slice does and does not cover. */
+export type ReportingController_getDailyTradingReportResponse = {
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  branchCurrentBusinessDay: string;
+  branchId: string;
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  businessDay: string;
+  cashReconciliation: {
+    closedSessionCount: number;
+    contributingSessionCount: number;
+    scope: "WHOLE_SESSION";
+    sessions: ({
+      businessDayCount: number;
+      cashSessionId: string;
+      closedAt: string | null;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      countedCash: string | null;
+      /** ISO 4217 currency code. */
+      currency: string;
+      drawerId: string;
+      employeeId: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      expectedCash: string | null;
+      isFinalised: boolean;
+      openedAt: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      openingFloat: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      payInTotal: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      payOutTotal: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      safeDropTotal: string;
+      spansMultipleBusinessDays: boolean;
+      status: "open" | "closing" | "closed";
+      tenderTotalsForThisBusinessDay: {
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        cashRoundingAdjustments: string;
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        cashSalesTotal: string;
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        manualExternalCardTotal: string;
+        paymentCount: number;
+      };
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      variance: string | null;
+    })[];
+    spanningSessionCount: number;
+    unclosedSessionCount: number;
+  };
+  /** ISO 4217 currency code. */
+  currency: string;
+  currencySource: "TRANSACTION" | "BRANCH_FALLBACK";
+  dataAsOf: string;
+  openOrderCount: number;
+  periodStatus: "OPEN" | "UNSEALED" | "SETTLED";
+  salesSummary: {
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    averageOrderValue: string | null;
+    completedOrderCount: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discounts: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grossSales: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    netSales: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    refunds: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unsettledCapturedTotal: string;
+  };
+  scope: {
+    cashReconciliationScope: string;
+    lineExclusions: string[];
+    notes: string[];
+    salesPopulation: string;
+    tenderPopulation: string;
+  };
+  taxSummary: {
+    byClass: ({
+      countryPackCode: string | null;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      grossAmount: string;
+      lineCount: number;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      netAmount: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      taxAmount: string;
+      taxClassCode: string | null;
+      taxClassId: string;
+    })[];
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+  };
+  tenderTotals: {
+    cash: {
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      amountTotal: string;
+      paymentCount: number;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      roundingAdjustmentTotal: string;
+    };
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    cashDrawerContribution: string;
+    /** Captured payment value above a completed order’s grand total. Reconciliation-only — no revenue/tax/tip/discount/refund/rounding/variance disposition is inferred. */
+    completedExcessCapturedTotal: string;
+    manualExternalCard: {
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      amountTotal: string;
+      paymentCount: number;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      roundingAdjustmentTotal: string;
+    };
+    paymentCount: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    tenderGrandTotal: string;
+  };
+  unclosedContributingSessionCount: number;
+};
+
 /** `GET /substitute-groups` — List substitute groups. — Substitute groups with their member stock items. */
 export type ProductionController_listGroupsResponse = ({
   id: string;
@@ -3333,6 +4019,8 @@ export const ROUTES = {
   TerminalController_addFingerprint: { method: "POST", path: "/auth/terminals/{terminalId}/fingerprints" },
   TerminalController_setStatus: { method: "POST", path: "/auth/terminals/{terminalId}/status" },
   CashClosePolicyController_createPolicy: { method: "POST", path: "/branches/{branchId}/cash-close-policy" },
+  DayCloseController_get: { method: "GET", path: "/branches/{branchId}/day-closes/{businessDay}" },
+  DayCloseController_post: { method: "POST", path: "/branches/{branchId}/day-closes/{businessDay}" },
   TreasuryController_openCashSession: { method: "POST", path: "/cash-sessions" },
   TreasuryController_declareClose: { method: "POST", path: "/cash-sessions/{sessionId}/close" },
   TreasuryController_getCloseContext: { method: "GET", path: "/cash-sessions/{sessionId}/close-context" },
@@ -3401,6 +4089,12 @@ export const ROUTES = {
   InventoryController_receive: { method: "POST", path: "/inventory/transfers/receive" },
   InventoryController_listWaste: { method: "GET", path: "/inventory/waste" },
   InventoryController_recordWaste: { method: "POST", path: "/inventory/waste" },
+  KitchenController_getStationQueue: { method: "GET", path: "/kds/stations/{stationId}/queue" },
+  KitchenController_acknowledgeViewed: { method: "POST", path: "/kds/stations/{stationId}/tickets/view" },
+  KitchenController_bumpAll: { method: "POST", path: "/kds/tickets/{ticketId}/bump-all" },
+  KitchenController_bumpLine: { method: "POST", path: "/kds/tickets/{ticketId}/lines/{lineId}/bump" },
+  KitchenController_startLine: { method: "POST", path: "/kds/tickets/{ticketId}/lines/{lineId}/start" },
+  KitchenController_recall: { method: "POST", path: "/kds/tickets/{ticketId}/recall" },
   ProductionController_listModifierRecipeEffects: { method: "GET", path: "/modifiers/{modifierId}/recipe-effects" },
   ProductionController_replaceModifierRecipeEffects: { method: "PUT", path: "/modifiers/{modifierId}/recipe-effects" },
   OrdersController_list: { method: "GET", path: "/orders" },
@@ -3448,6 +4142,7 @@ export const ROUTES = {
   ProductionController_createVersion: { method: "POST", path: "/recipes/{recipeId}/versions" },
   ProductionController_replaceLines: { method: "PUT", path: "/recipes/{recipeId}/versions/{version}/lines" },
   ProductionController_publish: { method: "POST", path: "/recipes/{recipeId}/versions/{version}/publish" },
+  ReportingController_getDailyTradingReport: { method: "GET", path: "/reports/branches/{branchId}/daily-trading/{businessDay}" },
   ProductionController_listGroups: { method: "GET", path: "/substitute-groups" },
   ProductionController_createGroup: { method: "POST", path: "/substitute-groups" },
   ProductionController_addGroupMember: { method: "POST", path: "/substitute-groups/{groupId}/members" },

@@ -1118,6 +1118,16 @@ export interface TicketLine {
   modifiers: { name: Localised; kind: ModifierKind }[];
   state: OrderLineState;
   notes: string | null;
+  /**
+   * When the till struck this line off, or null if it still stands.
+   *
+   * A branch decides how long a cancelled line stays on the display, and
+   * that clock runs from the cancellation — not from when the ticket was
+   * fired. Without this the rule reads the wrong clock and can drop a line
+   * cancelled ten seconds ago off an order that has been up for an hour,
+   * which is the one direction that costs food.
+   */
+  cancelledAt: IsoDateTime | null;
 }
 
 export interface KitchenTicket {
@@ -1359,7 +1369,16 @@ export interface TenderSummaryRow {
 }
 
 export interface TaxSummaryRow {
-  taxClass: TaxClassCode;
+  /**
+   * One of the four classes the console names, or the country pack's own
+   * code where it is something else.
+   *
+   * `GET /reports/branches/{id}/daily-trading/{day}` carries a free-form
+   * `taxClassCode` drawn from whichever pack produced the figure, and
+   * `labelOf` renders an unrecognised one as itself. Coercing it to
+   * `standard` would put a wrong rate name against a real amount.
+   */
+  taxClass: TaxClassCode | (string & {});
   rate: number;
   netAmount: Money;
   taxAmount: Money;
@@ -1367,6 +1386,27 @@ export interface TaxSummaryRow {
 }
 
 export type DayCloseStatus = "open" | "blocked" | "closed";
+
+/**
+ * What `POST /branches/{id}/day-closes/{day}` actually did.
+ *
+ * The first such request a branch ever receives does not close anything: it
+ * activates the branch's DayClose epoch and returns `ACTIVATED` with no Z
+ * snapshot, and only a later request for a day inside that epoch performs a
+ * real close. A caller that assumes every 200 sealed a day will report a
+ * close that did not happen, so the outcome is carried rather than inferred.
+ */
+export interface DayCloseResult {
+  outcome: "ACTIVATED" | "CLOSED";
+  branchId: Id;
+  businessDay: IsoDate;
+  /** The day the epoch opened. Nothing before it can ever be closed. */
+  activationBusinessDay: IsoDate;
+  /** The earliest day this branch can now close. */
+  firstEligibleBusinessDay: IsoDate;
+  /** The sealed Z snapshot, present only when `outcome` is `CLOSED`. */
+  dayClose: DayClose | null;
+}
 
 export interface DayClose {
   id: Id;
@@ -1381,6 +1421,11 @@ export interface DayClose {
   closedBy: Localised | null;
   /** FR-FIN-021 — day close is blocked while these remain open. */
   blockingSessions: string[];
+  /**
+   * Orders still open on the day, which block the close just as an open
+   * drawer does — the backend refuses with 409 for either.
+   */
+  blockingOrderCount: number;
   grossSales: Money;
   discounts: Money;
   refunds: Money;

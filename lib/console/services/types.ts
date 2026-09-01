@@ -30,6 +30,7 @@ import type {
   Currency,
   DashboardData,
   DayClose,
+  DayCloseResult,
   Employee,
   EmployeePerformance,
   Expense,
@@ -130,9 +131,54 @@ export interface DashboardService {
   get(scope: Scope): Promise<DashboardData>;
 }
 
+/** One station's queue, plus the two branch KDS settings that govern it. */
+export interface StationQueue {
+  tickets: KitchenTicket[];
+  /** FR-KDS-025 — how long after a bump a ticket can still be recalled. */
+  recallWindowSeconds: number;
+  /**
+   * How long a cancelled line stays on the display before it may be hidden,
+   * or null when the branch keeps them up until acknowledged.
+   */
+  cancelledLineVisibilitySeconds: number | null;
+}
+
+/**
+ * The kitchen display — SRS ch.9.
+ *
+ * Every one of these is addressed by station or by ticket, never by scope:
+ * the backend binds a KDS terminal to exactly one station and refuses (403)
+ * a read or a write aimed at any other. So the caller names the station, and
+ * a refusal is reported rather than routed around.
+ */
+export interface KitchenService {
+  /** FR-KDS-020 — the FIFO queue for one station. */
+  queue(stationId: Id): Promise<StationQueue>;
+  /**
+   * FR-KDS-021 — record that these tickets have been seen on this station.
+   * Write-once per ticket; returns how many were newly acknowledged.
+   */
+  acknowledgeViewed(stationId: Id, ticketIds: Id[]): Promise<number>;
+  /** A cook has taken the line on. */
+  startLine(ticketId: Id, lineId: Id): Promise<KitchenTicket>;
+  /** FR-KDS-026 — one line is made and ready. */
+  bumpLine(ticketId: Id, lineId: Id): Promise<KitchenTicket>;
+  /** Every eligible line on the ticket at once. */
+  bumpAll(ticketId: Id): Promise<{ ticket: KitchenTicket; bumpedLineIds: Id[] }>;
+  /** FR-KDS-025 — pull a bumped ticket back, inside the recall window. */
+  recall(ticketId: Id): Promise<KitchenTicket>;
+}
+
 export interface OperationsService {
   openOrders(query?: ScopedQuery): Promise<Page<Order>>;
   tables(query?: ScopedQuery): Promise<Page<RestaurantTable>>;
+  /**
+   * The manager's view of the same tickets the cooks see.
+   *
+   * `filters.stationId` names one station. Without it this fans out over the
+   * stations of the branches in scope, which against a station-bound
+   * terminal yields only the one it is allowed to read.
+   */
   kitchenQueue(query?: ScopedQuery): Promise<Page<KitchenTicket>>;
   terminals(query?: ScopedQuery): Promise<Page<Terminal>>;
   stations(query?: ScopedQuery): Promise<Page<Station>>;
@@ -195,11 +241,25 @@ export interface CostingService {
 export interface FinanceService {
   cashSessions: ReadonlyCollectionService<CashSession>;
   expenses: CollectionService<Expense>;
+  /**
+   * `GET /branches/{branchId}/day-closes/{businessDay}`.
+   *
+   * A day close is addressed by branch and business day, not by its own id —
+   * there is no index and no lookup by uuid — so `get` takes the composite
+   * key `"<branchId>:<businessDay>"`, which is what `list` puts in `id` for
+   * a day that has no persisted Z yet.
+   */
   dayCloses: ReadonlyCollectionService<DayClose>;
   paymentSummary(scope: Scope): Promise<TenderSummaryRow[]>;
   taxSummary(scope: Scope): Promise<TaxSummaryRow[]>;
-  /** Mock action — the real endpoint is POST /v1/branches/{id}/day-close. */
-  closeDay(branchId: Id, businessDay: string): Promise<DayClose>;
+  /**
+   * `POST /branches/{branchId}/day-closes/{businessDay}` — FR-FIN-021/023.
+   *
+   * Returns what the request actually did. A branch's first ever call
+   * activates its DayClose epoch and seals nothing, so the caller must read
+   * `outcome` rather than assume a 200 produced a Z.
+   */
+  closeDay(branchId: Id, businessDay: string): Promise<DayCloseResult>;
 }
 
 export interface GovernanceService {
@@ -895,6 +955,7 @@ export interface ServiceRegistry {
   production: ProductionService;
   treasury: TreasuryService;
   operations: OperationsService;
+  kitchen: KitchenService;
   catalogue: CatalogueService;
   inventory: InventoryService;
   purchasing: PurchasingService;

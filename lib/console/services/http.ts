@@ -42,8 +42,10 @@ import type {
   Brand,
   CentralKitchen,
   CountSession,
+  DayClose,
   HourlySalesPoint,
   Id,
+  KitchenTicket,
   Menu,
   MenuCategory,
   MenuItem,
@@ -60,6 +62,7 @@ import type {
   StockLevel,
   StockLocation,
   StockMovement,
+  Station,
   Tenant,
   Terminal,
   Transfer,
@@ -71,7 +74,9 @@ import type {
   CatalogueService,
   CollectionService,
   DashboardService,
+  FinanceService,
   InventoryService,
+  KitchenService,
   OperationsService,
   OrganisationService,
   ReadonlyCollectionService,
@@ -90,7 +95,6 @@ import {
   unsupportedCosting,
   unsupportedFinance,
   unsupportedGovernance,
-  unsupportedKitchenQueue,
   unsupportedPlatform,
   unsupportedPurchasing,
   unsupportedUsers,
@@ -105,7 +109,7 @@ import * as map from "./map";
 /**
  * Which registry members reach the API, and which have no endpoint at all.
  *
- * Every one of the document's 142 operations is reachable through this
+ * Every one of the document's 151 operations is reachable through this
  * registry. What remains under `absent` is not unfinished wiring — it is the
  * set of domains the backend does not implement, and inventing rows for them
  * would be worse than saying so. Each one raises `NOT_IMPLEMENTED`, which
@@ -168,6 +172,13 @@ export const API_COVERAGE = {
     "treasury.declareClose",
     "treasury.finalizeClose",
     "treasury.setCashClosePolicy",
+    "kitchen.queue",
+    "kitchen.acknowledgeViewed",
+    "kitchen.startLine",
+    "kitchen.bumpLine",
+    "kitchen.bumpAll",
+    "kitchen.recall",
+    "operations.kitchenQueue",
     "operations.openOrders",
     "operations.terminals",
     "operations.stations",
@@ -178,6 +189,10 @@ export const API_COVERAGE = {
     "security.roles",
     "security.memberships",
     "security.assignRole",
+    "finance.dayCloses",
+    "finance.closeDay",
+    "finance.paymentSummary",
+    "finance.taxSummary",
   ],
   /**
    * No endpoint exists in the document. These fail rather than fabricate.
@@ -190,14 +205,15 @@ export const API_COVERAGE = {
     "costing",
     "purchasing",
     "workforce",
-    // Expenses, day-close and the tender/tax summaries have no endpoint.
-    // The drawer itself does — see the `treasury.*` entries above.
-    "finance",
     "governance",
     "platform",
     "catalogue.combos",
     "inventory.adjustments",
-    "operations.kitchenQueue",
+    // The day close, the Z snapshot and the daily-trading report are live —
+    // see the `finance.*` entries above. What has no endpoint is the
+    // cash-session index and the expense ledger.
+    "finance.cashSessions",
+    "finance.expenses",
     "security.users",
   ],
 } as const;
@@ -2292,8 +2308,58 @@ const operations: OperationsService = {
     });
   },
 
-  // No KDS endpoints exist — bump, recall and fire are all absent by design.
-  kitchenQueue: unsupportedKitchenQueue,
+  /**
+   * The station queues, for the manager's screen.
+   *
+   * A KDS terminal is bound to one station and every other station answers
+   * 403, so a partial fan-out is the normal, correct result: the caller sees
+   * the stations it may read. `filters.stationId` skips the fan-out entirely.
+   *
+   * But *every* station refusing is a different thing, and it is the usual
+   * outcome from a console session — the read wants `kds.operate` on a
+   * terminal bound to that station, which a browser signed in as a manager is
+   * not. Swallowing that into an empty table would put "nothing on this
+   * station" in front of someone whose kitchen is full. So a clean sweep of
+   * refusals is re-thrown, and the screen shows the server's own reason.
+   */
+  async kitchenQueue(query = {}) {
+    const wanted = query.filters?.stationId;
+
+    const stationRows = (await stationsRaw())
+      .filter((station) => {
+        if (wanted) return station.id === wanted;
+        if (query.scope?.branchId) return station.branchId === query.scope.branchId;
+        return true;
+      })
+      .slice(0, 25);
+
+    const results = await Promise.all(
+      stationRows.map((station) =>
+        kitchen.queue(station.id).then(
+          (result) => ({ tickets: result.tickets, error: null as unknown }),
+          (error: unknown) => ({ tickets: [] as KitchenTicket[], error }),
+        ),
+      ),
+    );
+
+    const refused = results.filter((result) => result.error !== null);
+    if (stationRows.length > 0 && refused.length === stationRows.length) {
+      throw refused[0]!.error;
+    }
+
+    const rows = results.flatMap((result) => result.tickets);
+
+    return project(rows, query, {
+      search: (row) => [row.orderNumber, row.tableLabel],
+      branchOf: (row) => row.branchId,
+      filters: { state: (row) => row.state, stationId: (row) => row.stationId },
+      sorters: {
+        firedAt: (row) => row.firedAt,
+        elapsedSeconds: (row) => row.elapsedSeconds,
+        orderNumber: (row) => row.orderNumber,
+      },
+    });
+  },
 
   async terminals(query = {}) {
     const rows = (await api.terminals.list()).map(map.toTerminal);
@@ -2359,6 +2425,91 @@ const operations: OperationsService = {
         patch.capacityPerHour === undefined ? undefined : { perHour: patch.capacityPerHour },
     });
     return map.toStation(row);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Kitchen — SRS ch.9
+// ---------------------------------------------------------------------------
+
+/**
+ * Station lookup, because a ticket knows only its station id.
+ *
+ * `GET /kds/stations/{id}/queue` returns a ticket carrying `stationId` and
+ * nothing about the station itself — not its name and not its branch, both
+ * of which every kitchen screen shows. The estate is small and changes
+ * rarely, so it is memoised like the other lookup tables.
+ */
+const stationsRaw = cached(async (): Promise<Station[]> => {
+  const branchRows = await branchesRaw();
+  const perBranchRows = await Promise.all(
+    branchRows
+      .slice(0, 25)
+      .map((branch) => api.organisation.listStations(branch.id).catch(() => [])),
+  );
+  return perBranchRows.flat().map(map.toStation);
+});
+
+const stationIndex = cached(async () => indexBy(await stationsRaw(), (row) => row.id));
+
+/** The branch and name a ticket is rendered with. */
+async function ticketContext(stationId: Id): Promise<map.TicketContext> {
+  const station = (await stationIndex()).get(stationId);
+  return {
+    branchId: station?.branchId ?? "",
+    stationName: station?.name ?? { en: "", ar: "" },
+  };
+}
+
+async function toTickets(
+  rows: S.KitchenController_getStationQueueResponse["tickets"],
+  stationId: Id,
+): Promise<KitchenTicket[]> {
+  const context = await ticketContext(stationId);
+  return rows.map((row) => map.toKitchenTicket(row, context));
+}
+
+/** A single ticket coming back from a bump, a start or a recall. */
+async function toTicket(
+  row: S.KitchenController_bumpAllResponse["ticket"],
+): Promise<KitchenTicket> {
+  return map.toKitchenTicket(row, await ticketContext(row.stationId));
+}
+
+const kitchen: KitchenService = {
+  async queue(stationId) {
+    const response = await api.kitchen.getStationQueue(stationId, { sort: "fifo" });
+    return {
+      tickets: await toTickets(response.tickets, stationId),
+      recallWindowSeconds: response.recallWindowSeconds,
+      cancelledLineVisibilitySeconds: response.cancelledLineVisibilitySeconds,
+    };
+  },
+
+  async acknowledgeViewed(stationId, ticketIds) {
+    // The DTO requires between 1 and 200 unique ids; sending an empty array
+    // is a 400, and the honest answer to "acknowledge nothing" is zero.
+    const unique = [...new Set(ticketIds)].slice(0, 200);
+    if (unique.length === 0) return 0;
+    const response = await api.kitchen.acknowledgeViewed(stationId, { ticketIds: unique });
+    return response.acknowledged;
+  },
+
+  async startLine(ticketId, lineId) {
+    return toTicket((await api.kitchen.startLine(ticketId, lineId)).ticket);
+  },
+
+  async bumpLine(ticketId, lineId) {
+    return toTicket((await api.kitchen.bumpLine(ticketId, lineId)).ticket);
+  },
+
+  async bumpAll(ticketId) {
+    const response = await api.kitchen.bumpAll(ticketId);
+    return { ticket: await toTicket(response.ticket), bumpedLineIds: response.bumpedLineIds };
+  },
+
+  async recall(ticketId) {
+    return toTicket((await api.kitchen.recall(ticketId)).ticket);
   },
 };
 
@@ -2447,15 +2598,19 @@ const security: SecurityService = {
  * There is no aggregate endpoint, so this reads the orders, the waste
  * records, the stock exceptions and the estate, and does the arithmetic in
  * the browser. That is honest work on real data — and it stops exactly where
- * the data stops. Labour, expenses and the kitchen clock have no endpoint
- * anywhere in the document, so those figures come back `null` and the screen
- * shows a dash. None of them is filled in with a plausible-looking number.
+ * the data stops. Labour and expenses have no endpoint anywhere in the
+ * document, so those figures come back `null` and the screen shows a dash.
+ * None of them is filled in with a plausible-looking number.
  *
  * Two consequences worth naming:
  *
  *  - `GET /orders` returns headers without line snapshots, so cost of goods
  *    is unknown from a list. Food cost, gross profit and prime cost are
  *    therefore null here even though a single fetched order does carry it.
+ *  - The kitchen clock is no longer null *when it can be read*: the KDS
+ *    station queues carry a server-computed `elapsedSeconds` per ticket. It
+ *    is still null from a session the station queues refuse, which is most
+ *    console sessions — see `operations.kitchenQueue`.
  *  - The window is the most recent orders the cursor reaches, not a
  *    server-side date range, because the endpoint offers no date filter.
  */
@@ -2482,17 +2637,46 @@ function netOf(order: Order): number {
 
 const dashboard: DashboardService = {
   async get(scope) {
-    const [orderPage, branchRows, brandRows, wastePage, low, negative, terminalPage, tablePage] =
-      await Promise.all([
-        orders.list({ scope, offset: 0, limit: ORDER_SCAN_LIMIT }),
-        branchesRaw().catch(() => []),
-        api.organisation.listBrands().catch(() => []),
-        inventory.waste.list({ scope, limit: 200 }).catch(() => emptyPage<WasteRecord>()),
-        inventory.lowStock({ scope }).catch(() => []),
-        inventory.negativeStock({ scope }).catch(() => []),
-        operations.terminals({ scope, limit: 200 }).catch(() => emptyPage<Terminal>()),
-        operations.tables({ scope, limit: 500 }).catch(() => emptyPage<RestaurantTable>()),
-      ]);
+    const [
+      orderPage,
+      branchRows,
+      brandRows,
+      wastePage,
+      low,
+      negative,
+      terminalPage,
+      tablePage,
+      ticketPage,
+    ] = await Promise.all([
+      orders.list({ scope, offset: 0, limit: ORDER_SCAN_LIMIT }),
+      branchesRaw().catch(() => []),
+      api.organisation.listBrands().catch(() => []),
+      inventory.waste.list({ scope, limit: 200 }).catch(() => emptyPage<WasteRecord>()),
+      inventory.lowStock({ scope }).catch(() => []),
+      inventory.negativeStock({ scope }).catch(() => []),
+      operations.terminals({ scope, limit: 200 }).catch(() => emptyPage<Terminal>()),
+      operations.tables({ scope, limit: 500 }).catch(() => emptyPage<RestaurantTable>()),
+      // The kitchen clock, which had no endpoint until the KDS routes landed.
+      // `null`, not an empty page, when it cannot be read at all: a console
+      // session is not a station-bound KDS terminal and is normally refused,
+      // and "0 in the queue" is a worse answer than "—" to a full kitchen.
+      operations.kitchenQueue({ scope, limit: 200 }).then(
+        (page) => page,
+        () => null,
+      ),
+    ]);
+
+    /**
+     * FR-KDS-020 — what is actually on the station displays right now.
+     *
+     * Both figures were `null` here for as long as there was no KDS surface
+     * to read. They are derived from the queues rather than served whole, so
+     * they stop where the queues do: a station this caller may not read
+     * (a bound KDS terminal 403s the others) is not in the count.
+     */
+    const activeTickets =
+      ticketPage?.rows.filter((ticket) => ticket.state !== "bumped") ?? null;
+    const waitSeconds = activeTickets?.map((ticket) => ticket.elapsedSeconds) ?? [];
 
     const orderRows = orderPage.rows;
     const tenantId = getTenantId() ?? "";
@@ -2728,8 +2912,11 @@ const dashboard: DashboardService = {
           (row) => row.state !== "available" && row.state !== "needs_cleaning",
         ).length,
         tablesTotal: tables.length,
-        kitchenQueueDepth: null,
-        averageWaitSeconds: null,
+        kitchenQueueDepth: activeTickets?.length ?? null,
+        averageWaitSeconds:
+          waitSeconds.length === 0
+            ? null
+            : Math.round(waitSeconds.reduce((sum, value) => sum + value, 0) / waitSeconds.length),
         // `degraded` is neither: it is reachable but unhealthy, and counting
         // it as offline would raise an outage that is not one.
         activeTerminals: terminals.filter((row) => row.status === "online").length,
@@ -2740,6 +2927,256 @@ const dashboard: DashboardService = {
         // Everything above came back from the server, so nothing is pending.
         syncBacklog: 0,
       },
+    };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Finance — day close and the daily-trading report
+// ---------------------------------------------------------------------------
+
+/**
+ * There is no day-close index, and no "list my reports" either.
+ *
+ * Both endpoints are addressed by (branch, business day), so a list has to be
+ * assembled by asking for the days a reader could plausibly act on. That is a
+ * real read of real records — a day with no Z answers 404 and is simply not
+ * there — but it is N requests, so the window is bounded and short.
+ *
+ * A trading week matches `TREND_DAYS` on the dashboard and is the range the
+ * screen's default sort ("-businessDay") is useful over.
+ */
+const DAY_CLOSE_WINDOW = 7;
+
+/**
+ * How many *unsealed* days to also read the live report for.
+ *
+ * Sealed days come from the Z snapshot alone. A day with no Z has no figures
+ * at all unless the daily-trading report is asked for it, and that report is
+ * a query-time aggregation over the transactional primary — expensive enough
+ * to be worth asking only for the days a manager can still act on.
+ */
+const REPORT_WINDOW = 3;
+
+/** YYYY-MM-DD in local time, newest first. */
+function recentBusinessDays(count: number): string[] {
+  const out: string[] = [];
+  const today = new Date();
+  for (let index = 0; index < count; index += 1) {
+    const day = new Date(today);
+    day.setDate(today.getDate() - index);
+    const month = String(day.getMonth() + 1).padStart(2, "0");
+    const date = String(day.getDate()).padStart(2, "0");
+    out.push(`${day.getFullYear()}-${month}-${date}`);
+  }
+  return out;
+}
+
+/** A 404 means "no record for that day", which is an answer, not a failure. */
+async function optional<T>(load: Promise<T>): Promise<T | null> {
+  try {
+    return await load;
+  } catch (error) {
+    if (error instanceof ServiceError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+/**
+ * The same, for the daily-trading report, which refuses in more ways.
+ *
+ * It is 403 unless the tenant has exactly one active branch (its documented
+ * Internal-MVP restriction), 400 for a day after the branch's current one,
+ * and 409 when the day saw more than one transaction currency. None of those
+ * is an outage, and none should empty a screen that has other branches or
+ * other days to show — so each reads as "no report for this one".
+ */
+async function optionalReport<T>(load: Promise<T>): Promise<T | null> {
+  try {
+    return await load;
+  } catch (error) {
+    if (error instanceof ServiceError && [400, 403, 404, 409].includes(error.status)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function dayCloseContext(branchId: Id): Promise<map.DayCloseContext> {
+  const branch = (await branchIndex()).get(branchId);
+  return {
+    tenantId: getTenantId() ?? "",
+    branchName: branch?.name ?? { en: "", ar: "" },
+  };
+}
+
+/** The branches a day-close read should cover. */
+async function branchesInScope(scope?: Scope): Promise<Id[]> {
+  if (scope?.branchId) return [scope.branchId];
+  const rows = await branchesRaw();
+  const wanted = scope?.brandId ? rows.filter((row) => row.brandId === scope.brandId) : rows;
+  return wanted.slice(0, 5).map((row) => row.id);
+}
+
+type WireReport = S.ReportingController_getDailyTradingReportResponse;
+
+/**
+ * One report per branch and day, memoised for the length of a screen.
+ *
+ * The day-close list, the tender summary and the tax summary all want the
+ * same document for the same day, and it is the most expensive read in this
+ * file — so it is fetched once and shared rather than three times over.
+ */
+const reportCache = new Map<string, { at: number; value: Promise<WireReport | null> }>();
+
+function dailyTrading(branchId: Id, businessDay: string): Promise<WireReport | null> {
+  const key = `${branchId}:${businessDay}`;
+  const hit = reportCache.get(key);
+  if (hit && Date.now() - hit.at < 20_000) return hit.value;
+
+  const value = optionalReport(
+    api.reporting.getDailyTradingReport(branchId, businessDay),
+  ).catch((error: unknown) => {
+    // A failed read must not poison the cache for the next attempt.
+    reportCache.delete(key);
+    throw error;
+  });
+
+  reportCache.set(key, { at: Date.now(), value });
+  return value;
+}
+
+function invalidateFinance(): void {
+  reportCache.clear();
+}
+
+/**
+ * The most recent report the scope can produce, for the summary screens.
+ *
+ * A day at a time, every branch at once. The report refuses (403) unless the
+ * tenant has exactly one active branch, so an unscoped read over a five-branch
+ * tenant is five refusals — and walking those one after another would be five
+ * sequential round trips to a host that cold-starts. Two rounds, not ten.
+ *
+ * An empty day still reports; only a refusal moves on to the day before.
+ */
+async function currentReport(scope: Scope): Promise<WireReport | null> {
+  const branchIds = await branchesInScope(scope);
+
+  for (const day of recentBusinessDays(2)) {
+    const reports = await Promise.all(
+      branchIds.map((branchId) => dailyTrading(branchId, day)),
+    );
+    const answered = reports.find((report) => report !== null);
+    if (answered) return answered;
+  }
+  return null;
+}
+
+const dayCloses: ReadonlyCollectionService<DayClose> = {
+  async list(query = {}) {
+    const branchIds = await branchesInScope(query.scope);
+    const days = recentBusinessDays(DAY_CLOSE_WINDOW);
+
+    const perBranchRows = await Promise.all(
+      branchIds.map(async (branchId) => {
+        const context = await dayCloseContext(branchId);
+
+        // Every day in the window: the sealed ones answer, the rest 404.
+        const sealed = await Promise.all(
+          days.map((day) =>
+            optional(api.treasury.getDayClose(branchId, day)).then((row) =>
+              row ? map.toDayClose(row, context) : null,
+            ),
+          ),
+        );
+
+        const rows = sealed.filter((row): row is DayClose => row !== null);
+        const sealedDays = new Set(rows.map((row) => row.businessDay));
+
+        // The days still to be closed, read from the live report — otherwise
+        // the screen could only ever show history, and the Close button would
+        // have nothing to act on.
+        const openDays = days.filter((day) => !sealedDays.has(day)).slice(0, REPORT_WINDOW);
+        const reports = await Promise.all(openDays.map((day) => dailyTrading(branchId, day)));
+
+        for (const report of reports) {
+          if (report) rows.push(map.dayCloseFromReport(report, context));
+        }
+
+        return rows;
+      }),
+    );
+
+    return project(perBranchRows.flat(), query, {
+      search: (row) => [row.businessDay, row.branchName],
+      branchOf: (row) => row.branchId,
+      filters: { status: (row) => row.status },
+      sorters: {
+        businessDay: (row) => row.businessDay,
+        netSales: (row) => row.netSales.amount,
+      },
+    });
+  },
+
+  /** `"<branchId>:<businessDay>"` — the pair both endpoints are keyed by. */
+  async get(id) {
+    const separator = id.lastIndexOf(":");
+    if (separator === -1) return null;
+
+    const branchId = id.slice(0, separator);
+    const businessDay = id.slice(separator + 1);
+    const context = await dayCloseContext(branchId);
+
+    const sealed = await optional(api.treasury.getDayClose(branchId, businessDay));
+    if (sealed) return map.toDayClose(sealed, context);
+
+    const report = await dailyTrading(branchId, businessDay);
+    return report ? map.dayCloseFromReport(report, context) : null;
+  },
+};
+
+const finance: FinanceService = {
+  // Still absent: there is no `GET /cash-sessions` and no expense resource.
+  cashSessions: unsupportedFinance.cashSessions,
+  expenses: unsupportedFinance.expenses,
+  dayCloses,
+
+  async paymentSummary(scope) {
+    const report = await currentReport(scope);
+    if (!report) notImplemented("A tender summary for this scope");
+    return map.reportTenderRows(report);
+  },
+
+  async taxSummary(scope) {
+    const report = await currentReport(scope);
+    if (!report) notImplemented("A tax summary for this scope");
+    return map.reportTaxRows(report);
+  },
+
+  async closeDay(branchId, businessDay) {
+    // The first request a branch ever makes activates its epoch and seals
+    // nothing; only a later one returns a Z. `outcome` discriminates the two,
+    // and the screen reports which actually happened rather than assuming.
+    const response = await api.treasury.postDayClose(branchId, businessDay, {});
+
+    invalidateFinance();
+
+    const base = {
+      branchId: response.branchId,
+      businessDay: response.businessDay,
+      activationBusinessDay: response.activationBusinessDay,
+      firstEligibleBusinessDay: response.firstEligibleBusinessDay,
+    };
+
+    if (response.outcome === "ACTIVATED") {
+      return { ...base, outcome: response.outcome, dayClose: null };
+    }
+
+    return {
+      ...base,
+      outcome: response.outcome,
+      dayClose: map.toDayClose(response.dayClose, await dayCloseContext(branchId)),
     };
   },
 };
@@ -2757,7 +3194,11 @@ export const httpServices: ServiceRegistry = {
   inventory,
   sales,
   operations,
+  kitchen,
   security,
+  // Live for the day close, the Z snapshot and the daily-trading report;
+  // still absent for the cash-session index and expenses.
+  finance,
   // Derived in the browser from live orders, waste and stock. See above.
   dashboard,
 
@@ -2766,7 +3207,6 @@ export const httpServices: ServiceRegistry = {
   purchasing: unsupportedPurchasing,
   costing: unsupportedCosting,
   workforce: unsupportedWorkforce,
-  finance: unsupportedFinance,
   governance: unsupportedGovernance,
   platform: unsupportedPlatform,
 };

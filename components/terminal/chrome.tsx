@@ -47,7 +47,7 @@ import {
   cx,
 } from "@/components/console/ui";
 import { LanguageToggle, ThemeToggle } from "@/components/console/switchers";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const TRIGGER =
   "border-line bg-raised text-fg hover:bg-sunken inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors";
@@ -375,5 +375,80 @@ function SyncQueueModal({ open, onClose }: { open: boolean; onClose: () => void 
         </p>
       ) : null}
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hold to bump — FR-KDS-026
+// ---------------------------------------------------------------------------
+
+/**
+ * Bumping requires a deliberate hold, on both kitchen displays.
+ *
+ * The progress fill is the feedback that makes an 800 ms press feel
+ * intentional rather than laggy. It lives here rather than in either screen
+ * because the demo display and the live one need exactly the same control,
+ * and two copies of an interaction this physical drift apart quickly.
+ */
+export function HoldToBump({
+  onBump,
+  disabled,
+  label,
+}: {
+  onBump: () => void;
+  disabled?: boolean;
+  /** Overrides the resting caption; the held caption is always the same. */
+  label?: string;
+}) {
+  const { t } = useI18n();
+  const [progress, setProgress] = useState(0);
+  const timer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timer.current) window.clearInterval(timer.current);
+    },
+    [],
+  );
+
+  function start() {
+    if (disabled) return;
+    const startedAt = Date.now();
+    timer.current = window.setInterval(() => {
+      const ratio = Math.min(1, (Date.now() - startedAt) / 800);
+      setProgress(ratio);
+      if (ratio >= 1) {
+        stop();
+        onBump();
+      }
+    }, 30);
+  }
+
+  function stop() {
+    if (timer.current) window.clearInterval(timer.current);
+    timer.current = null;
+    setProgress(0);
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onPointerDown={start}
+      onPointerUp={stop}
+      onPointerLeave={stop}
+      onPointerCancel={stop}
+      title={t("kds.bumpNote")}
+      className="bg-accent text-accent-fg relative flex-1 overflow-hidden rounded-lg px-3 py-2.5 text-sm font-semibold disabled:opacity-45"
+    >
+      <span
+        aria-hidden
+        className="absolute inset-y-0 start-0 bg-black/25 transition-[width] duration-75"
+        style={{ width: `${progress * 100}%` }}
+      />
+      <span className="relative">
+        {progress > 0 ? t("kds.holdToBump") : (label ?? t("kds.bumpAll"))}
+      </span>
+    </button>
   );
 }

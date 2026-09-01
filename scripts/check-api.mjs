@@ -335,7 +335,105 @@ async function checkAuthenticated(email, password) {
     await call(label, path, { token });
   }
 
+  await checkKitchenAndReporting(token);
   await checkTillSignOn(token, tenantId);
+}
+
+/**
+ * The KDS queues, the Z snapshot and the daily-trading report.
+ *
+ * These nine endpoints are the newest surface and the easiest to be wrong
+ * about, because most of them refuse for reasons that are not faults:
+ *
+ *  - A KDS queue is 403 from a console token — the read wants `kds.operate`
+ *    on a terminal *bound to that station*, which a browser session is not.
+ *  - The daily-trading report is 403 unless the tenant has exactly one
+ *    active branch, and 400 for a day after the branch's current one.
+ *  - A day close is 404 for any day the branch has not sealed.
+ *
+ * So this reports what each answered rather than counting a refusal as a
+ * failure. What it is really checking is that the *routes* are there and
+ * that the paths this client builds reach them: a 404 on the KDS queue would
+ * mean the deployment does not serve it, and that is worth knowing before a
+ * kitchen screen goes blank in service.
+ */
+async function checkKitchenAndReporting(token) {
+  console.log("");
+  console.log("Kitchen display and reporting");
+
+  const branches = await fetchJson("/org/branches", token);
+  const branchId = Array.isArray(branches) ? branches[0]?.id : undefined;
+
+  if (!branchId) {
+    console.log("  SKIP No branch visible to this account.");
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  await probe("GET /kds/stations/{id}/queue", async () => {
+    const stations = await fetchJson(`/org/branches/${branchId}/stations`, token);
+    const stationId = Array.isArray(stations) ? stations[0]?.id : undefined;
+    if (!stationId) return "SKIP — this branch has no stations.";
+    return describe(await raw(`/kds/stations/${stationId}/queue?sort=fifo`, token), (body) =>
+      `${body.tickets?.length ?? 0} tickets, recall window ${body.recallWindowSeconds}s`,
+    );
+  });
+
+  await probe(`GET /reports/.../daily-trading/${today}`, async () =>
+    describe(
+      await raw(`/reports/branches/${branchId}/daily-trading/${today}`, token),
+      (body) =>
+        `${body.periodStatus}, ${body.salesSummary?.completedOrderCount ?? 0} orders, ` +
+        `net ${body.salesSummary?.netSales} ${body.currency} (minor units)`,
+    ),
+  );
+
+  await probe(`GET /branches/.../day-closes/${today}`, async () =>
+    describe(
+      await raw(`/branches/${branchId}/day-closes/${today}`, token),
+      (body) => `Z-${body.zNumber}, closed ${body.closedAt}`,
+    ),
+  );
+}
+
+/** A read whose refusal is information, not a failure. */
+async function probe(label, run) {
+  try {
+    console.log(`  ${await run()}`);
+  } catch (error) {
+    failures += 1;
+    console.error(`  FAIL ${label} — ${error.message}`);
+  }
+}
+
+async function raw(path, token) {
+  const response = await fetch(`${base}${path}`, {
+    headers: { accept: "application/json", authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+  });
+  const text = await response.text();
+  let payload;
+  try {
+    payload = text ? JSON.parse(text) : undefined;
+  } catch {
+    payload = text.slice(0, 160);
+  }
+  return { path, status: response.status, ok: response.ok, payload };
+}
+
+function describe({ path, status, ok, payload }, summarise) {
+  if (ok) return `OK   ${path} — 200 ${summarise(payload ?? {})}`;
+  const reason = payload?.message ?? payload?.error ?? status;
+  // 400/403/404 here are documented refusals, not broken wiring. A 404 on a
+  // day close means "not sealed"; on a KDS route it would mean "not deployed",
+  // and the spec-drift check above is what catches that.
+  return `NOTE ${path} — ${status} ${JSON.stringify(reason)}`;
+}
+
+async function fetchJson(path, token) {
+  const { ok, payload } = await raw(path, token);
+  return ok ? payload : null;
 }
 
 /**

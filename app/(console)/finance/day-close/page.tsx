@@ -15,11 +15,17 @@
  * Z numbers are sequential per branch and never reused. Gaps are the thing an
  * auditor looks for first, which is why the number is issued by the close and
  * not chosen.
+ *
+ * Against a backend the rows are two different reads. A sealed day is its
+ * persisted Z snapshot, byte-stable forever. A day with no Z yet has no
+ * snapshot to read, so its figures come from the live daily-trading report —
+ * which is also where the blockers come from, and without it this screen
+ * could only ever show history and never the day anyone needs to close.
  */
 
 import { useMemo, useState } from "react";
 import { Lock } from "lucide-react";
-import type { DayClose } from "@/lib/console/types";
+import type { DayClose, DayCloseResult } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useCollection, useTransientMessage, useBranches } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
@@ -69,7 +75,7 @@ function DayCloseScreen() {
     const rows = collection.rows;
     return {
       open: rows.filter((row) => row.status !== "closed").length,
-      blocked: rows.filter((row) => row.blockingSessions.length > 0).length,
+      blocked: rows.filter((row) => isBlocked(row)).length,
       netSales: rows.reduce((sum, row) => sum + row.netSales.amount, 0),
       variance: rows.reduce((sum, row) => sum + row.cashVariance.amount, 0),
     };
@@ -77,14 +83,40 @@ function DayCloseScreen() {
 
   const currency = collection.rows[0]?.netSales.currency ?? "EGP";
 
+  const [closing, setClosing] = useState(false);
+  const [activated, setActivated] = useState<DayCloseResult | null>(null);
+
+  /**
+   * The first request a branch ever makes activates its close epoch and
+   * seals nothing. Reporting that as "business day closed" would be a lie
+   * the manager acts on, so the outcome is read and the two are worded
+   * differently — see `DayCloseResult`.
+   */
   async function closeDay(day: DayClose) {
+    setClosing(true);
     try {
-      await services.finance.closeDay(day.branchId, day.businessDay);
-      setMessage(t("fin.dayClosed"));
+      const result = await services.finance.closeDay(day.branchId, day.businessDay);
+
+      if (result.outcome === "ACTIVATED") {
+        // Consequential and easy to misread, so it stays on the page rather
+        // than passing by in a toast: nothing was sealed, and the manager
+        // needs the date they can actually close from.
+        setActivated(result);
+        setMessage(t("fin.dayActivated"));
+      } else {
+        setActivated(null);
+        setMessage(t("fin.dayClosed"));
+      }
+
       setSelected(null);
       collection.reload();
     } catch (error) {
+      // The backend's own 409 names which of several reasons refused the
+      // close — an open order, an open drawer, a day outside the epoch. It
+      // is far more useful than a generic failure, so it is shown as sent.
       setMessage(error instanceof Error ? error.message : t("state.errorTitle"));
+    } finally {
+      setClosing(false);
     }
   }
 
@@ -141,12 +173,21 @@ function DayCloseScreen() {
         key: "blocking",
         header: t("fin.blockedBy"),
         render: (row) =>
-          row.blockingSessions.length === 0 ? (
+          !isBlocked(row) ? (
             <span className="text-fg-subtle">—</span>
           ) : (
-            <Badge tone="warn">
-              {formatNumber(row.blockingSessions.length, fmt)} {t("fin.openSessions")}
-            </Badge>
+            <span className="inline-flex flex-wrap gap-1">
+              {row.blockingSessions.length > 0 ? (
+                <Badge tone="warn">
+                  {formatNumber(row.blockingSessions.length, fmt)} {t("fin.openSessions")}
+                </Badge>
+              ) : null}
+              {row.blockingOrderCount > 0 ? (
+                <Badge tone="warn">
+                  {formatNumber(row.blockingOrderCount, fmt)} {t("fin.blockedByOrders")}
+                </Badge>
+              ) : null}
+            </span>
           ),
       },
       {
@@ -174,6 +215,15 @@ function DayCloseScreen() {
       />
 
       <PageBody>
+        {activated ? (
+          <Callout tone="accent" title={t("fin.dayActivated")}>
+            {t("fin.dayActivatedNote").replace(
+              "{day}",
+              formatDate(activated.firstEligibleBusinessDay, fmt),
+            )}
+          </Callout>
+        ) : null}
+
         <TileGrid columns={4}>
           <MetricTile label={t("fin.daysOpen")} value={formatNumber(totals.open, fmt)} />
           <MetricTile
@@ -225,7 +275,12 @@ function DayCloseScreen() {
         />
       </PageBody>
 
-      <DayCloseDrawer day={selected} onClose={() => setSelected(null)} onCloseDay={closeDay} />
+      <DayCloseDrawer
+        day={selected}
+        closing={closing}
+        onClose={() => setSelected(null)}
+        onCloseDay={closeDay}
+      />
       <Toast message={message} />
     </>
   );
@@ -233,12 +288,19 @@ function DayCloseScreen() {
 
 // ---------------------------------------------------------------------------
 
+/** FR-FIN-021 — an open drawer or an open order both hold the day open. */
+function isBlocked(day: DayClose): boolean {
+  return day.blockingSessions.length > 0 || day.blockingOrderCount > 0;
+}
+
 function DayCloseDrawer({
   day,
+  closing,
   onClose,
   onCloseDay,
 }: {
   day: DayClose | null;
+  closing: boolean;
   onClose: () => void;
   onCloseDay: (day: DayClose) => void;
 }) {
@@ -274,7 +336,7 @@ function DayCloseDrawer({
   if (!day) return null;
 
   const status = labelOf(DAY_CLOSE_STATUS, day.status);
-  const blocked = day.blockingSessions.length > 0;
+  const blocked = isBlocked(day);
 
   return (
     <Drawer
@@ -287,7 +349,8 @@ function DayCloseDrawer({
           <Button
             variant="primary"
             icon={<Lock size={14} />}
-            disabled={blocked}
+            disabled={blocked || closing}
+            loading={closing}
             title={blocked ? t("fin.blockedHint") : undefined}
             onClick={() => onCloseDay(day)}
           >
@@ -299,12 +362,22 @@ function DayCloseDrawer({
       <div className="space-y-5">
         {blocked ? (
           <Callout tone="warn" title={t("fin.blockedBy")}>
-            <p>{t("fin.blockedHint")}</p>
-            <ul className="mt-2 space-y-0.5 font-mono text-[0.68rem]" dir="ltr">
-              {day.blockingSessions.map((session) => (
-                <li key={session}>{session}</li>
-              ))}
-            </ul>
+            {day.blockingSessions.length > 0 ? (
+              <>
+                <p>{t("fin.blockedHint")}</p>
+                <ul className="mt-2 space-y-0.5 font-mono text-[0.68rem]" dir="ltr">
+                  {day.blockingSessions.map((session) => (
+                    <li key={session}>{session}</li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+            {day.blockingOrderCount > 0 ? (
+              <p className={day.blockingSessions.length > 0 ? "mt-2" : undefined}>
+                {formatNumber(day.blockingOrderCount, fmt)} {t("fin.blockedByOrders")} —{" "}
+                {t("fin.blockedOrdersHint")}
+              </p>
+            ) : null}
           </Callout>
         ) : null}
 

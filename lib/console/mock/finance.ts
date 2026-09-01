@@ -285,6 +285,7 @@ export const dayCloses: DayClose[] = (() => {
         closedAt: status === "closed" ? hoursAgo(24 * d + 2) : null,
         closedBy: status === "closed" ? { en: "Amal Saeed", ar: "أمل سعيد" } : null,
         blockingSessions: blocking,
+        blockingOrderCount: d === 0 ? int(rng, 0, 3) : 0,
         grossSales: EGP(grossSales),
         discounts: EGP(discounts),
         refunds: EGP(refunds),

@@ -16,10 +16,9 @@
  * conditionally, and reading the store is a context read that costs nothing
  * when its rows go unused.
  *
- * A screen whose domain the backend does not serve at all (the kitchen
- * display, tender summaries, the audit trail) is not listed here. Those keep
- * reading the device, and `LiveNotice` says so rather than implying a link
- * that does not exist.
+ * A screen whose domain the backend does not serve at all (the audit trail,
+ * the cash-session index) is not listed here. Those keep reading the device,
+ * and `LiveNotice` says so rather than implying a link that does not exist.
  */
 
 import { useMemo } from "react";
@@ -30,7 +29,7 @@ import type { ServiceError } from "./services";
 import type { Scope } from "./services/types";
 import { useAsync } from "./hooks";
 import { useLive } from "./live/store";
-import type { Order, StockMovement, WasteRecord } from "./types";
+import type { KitchenTicket, Order, StockMovement, WasteRecord } from "./types";
 
 /** How many rows a device-facing screen asks the backend for. */
 const FEED_LIMIT = 200;
@@ -149,6 +148,40 @@ export function useWasteFeed(scope?: Scope): Feed<WasteRecord> {
   );
 
   return fromRemote(remote, live, state.waste, ready);
+}
+
+/**
+ * SRS ch.9 — the tickets on the station displays.
+ *
+ * This one used to be excluded from this file by name: there were no KDS
+ * endpoints at all, so the kitchen screens read the device even against a
+ * backend, and the banner said so. `GET /kds/stations/{id}/queue` exists
+ * now, and `operations.kitchenQueue` fans it out over the stations in scope.
+ *
+ * A KDS terminal is bound to one station and every other station answers
+ * 403, so a live fan-out returns what this caller may see rather than
+ * failing whole — which is the honest result, not a filtered one.
+ */
+export function useKitchenFeed(scope?: Scope): Feed<KitchenTicket> {
+  const live = DATA_MODE === "http";
+  const { state, ready } = useLive();
+  const key = scopeKey(scope);
+
+  const remote = useAsync<KitchenTicket[]>(
+    async () =>
+      live ? (await services.operations.kitchenQueue({ scope, limit: FEED_LIMIT })).rows : [],
+    [live, key],
+  );
+
+  const local = useMemo(
+    () =>
+      state.ticketIds
+        .map((id) => state.tickets[id]!)
+        .filter((ticket) => ticket && ticket.branchId === state.branchId),
+    [state.ticketIds, state.tickets, state.branchId],
+  );
+
+  return fromRemote(remote, live, local, ready);
 }
 
 /**

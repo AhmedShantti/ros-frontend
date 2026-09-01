@@ -608,6 +608,9 @@ function ticketLineFrom(line: OrderLine): TicketLine {
     modifiers: line.modifiers.map((m) => ({ name: m.name, kind: m.kind })),
     state: line.state,
     notes: line.notes,
+    // The demo engine acknowledges cancellations rather than timing them out,
+    // so nothing here reads this clock. See `TicketLine.cancelledAt`.
+    cancelledAt: null,
   };
 }
 

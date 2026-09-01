@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Branch, ListQuery, Page } from "./types";
+import type { Branch, ListQuery, Page, Station } from "./types";
 import { ServiceError, services, type Scope, type ScopedQuery } from "./services";
 
 export interface AsyncState<T> {
@@ -277,6 +277,26 @@ export function useBranches(scope?: Scope): Branch[] {
   );
 
   return branches.data ?? [];
+}
+
+/**
+ * The stations of the branches in scope, for a picker or a load table.
+ *
+ * Same shape and same reasoning as `useBranches`: the registry serves the
+ * demo fixtures in mock mode and `GET /org/branches/{id}/stations` against a
+ * backend, and a failure yields an empty list rather than a broken screen.
+ */
+export function useStations(scope?: Scope): Station[] {
+  const stations = useAsync(
+    () =>
+      services.operations
+        .stations({ scope, limit: 200 })
+        .then((page) => page.rows.filter((station) => station.active))
+        .catch(() => [] as Station[]),
+    [scope?.tenantId, scope?.brandId, scope?.branchId],
+  );
+
+  return stations.data ?? [];
 }
 
 /** A transient confirmation message — "Saved", "Approved", "Copied". */

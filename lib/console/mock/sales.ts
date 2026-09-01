@@ -430,6 +430,7 @@ export const kitchenTickets: KitchenTicket[] = (() => {
         modifiers: line.modifiers.map((m) => ({ name: m.name, kind: m.kind })),
         state: line.state,
         notes: line.notes,
+        cancelledAt: null,
       }));
 
       const state: TicketState = lines.every((l) => l.state === "ready" || l.state === "served")

@@ -6,18 +6,32 @@
  * Every captured payment, grouped by how it was taken. Refunds are negative
  * amounts against the same tender rather than a separate category, so the
  * net per tender is what a reconciliation actually needs.
+ *
+ * Two sources. Against a backend the totals come from the daily-trading
+ * report's `tenderTotals`, which is the server's own arithmetic over the
+ * business day. Without one they are computed from the payments the
+ * terminals on this device have taken.
+ *
+ * The report carries an amount and a payment count per tender and nothing
+ * else — there is no gross/refund split in it — so the refund column is
+ * dropped in live mode rather than rendered as a dash, which would read as
+ * "no refunds today" instead of "not a figure this source has".
  */
 
 import { useMemo } from "react";
 import type { TenderType } from "@/lib/console/types";
-import { useI18n } from "@/lib/console/providers";
+import { useI18n, useSession } from "@/lib/console/providers";
 import { useLive } from "@/lib/console/live/store";
+import { services } from "@/lib/console/services";
+import { useAsync } from "@/lib/console/hooks";
+import { DATA_MODE } from "@/lib/api/config";
 import { formatMoney, formatPercent, money, percentOf } from "@/lib/console/format";
 import { TENDER_TYPE } from "@/lib/console/labels";
 import { DataTable, type Column } from "@/components/console/data-table";
 import { PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
 import { MetricTile, MixDonut } from "@/components/console/charts";
+import { ErrorPanel, LoadingPanel } from "@/components/console/states";
 import { Card, CardHeader, Meter } from "@/components/console/ui";
 
 interface Row {
@@ -30,9 +44,17 @@ interface Row {
 
 export default function PaymentsPage() {
   const { t, tx, fmt } = useI18n();
+  const { scope } = useSession();
   const { state } = useLive();
 
-  const { rows, total, currency } = useMemo(() => {
+  const live = DATA_MODE === "http";
+
+  const remote = useAsync(
+    async () => (live ? await services.finance.paymentSummary(scope) : []),
+    [live, scope.tenantId, scope.brandId, scope.branchId],
+  );
+
+  const device = useMemo(() => {
     const map = new Map<TenderType, Row>();
     let currencyCode = "EGP";
 
@@ -64,6 +86,26 @@ export default function PaymentsPage() {
     };
   }, [state]);
 
+  const { rows, total, currency } = useMemo(() => {
+    if (!live) return device;
+
+    const list: Row[] = (remote.data ?? [])
+      .map((row) => ({
+        tender: row.tender,
+        gross: row.amount.amount,
+        refunds: 0,
+        net: row.amount.amount,
+        count: row.count,
+      }))
+      .sort((a, b) => b.net - a.net);
+
+    return {
+      rows: list,
+      total: list.reduce((sum, row) => sum + row.net, 0),
+      currency: (remote.data?.[0]?.amount.currency ?? "EGP") as "EGP" | "SAR" | "AED",
+    };
+  }, [live, device, remote.data]);
+
   const columns: Column<Row>[] = [
     {
       key: "tender",
@@ -82,17 +124,24 @@ export default function PaymentsPage() {
       numeric: true,
       render: (row) => formatMoney(money(row.gross, currency), fmt),
     },
-    {
-      key: "refunds",
-      header: t("fin.cashRefunds"),
-      numeric: true,
-      render: (row) =>
-        row.refunds === 0 ? (
-          <span className="text-fg-subtle">—</span>
-        ) : (
-          <span className="text-bad">−{formatMoney(money(row.refunds, currency), fmt)}</span>
-        ),
-    },
+    // Omitted in live mode: `tenderTotals` has no refund figure to show.
+    ...(live
+      ? []
+      : [
+          {
+            key: "refunds",
+            header: t("fin.cashRefunds"),
+            numeric: true,
+            render: (row: Row) =>
+              row.refunds === 0 ? (
+                <span className="text-fg-subtle">—</span>
+              ) : (
+                <span className="text-bad">
+                  −{formatMoney(money(row.refunds, currency), fmt)}
+                </span>
+              ),
+          } satisfies Column<Row>,
+        ]),
     {
       key: "net",
       header: t("fin.netAmount"),
@@ -120,9 +169,13 @@ export default function PaymentsPage() {
       />
 
       <PageBody>
-        <LiveNotice />
+        <LiveNotice source={live ? "backend" : "device"} />
 
-        {rows.length === 0 ? (
+        {live && remote.error ? (
+          <ErrorPanel error={remote.error} onRetry={remote.reload} />
+        ) : live && remote.loading && remote.data === null ? (
+          <LoadingPanel />
+        ) : rows.length === 0 ? (
           <LiveEmpty />
         ) : (
           <>

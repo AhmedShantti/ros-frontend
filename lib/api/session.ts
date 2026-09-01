@@ -21,6 +21,7 @@ const KEY_TERMINAL = "ros.api.terminalId";
 const KEY_CASH_SESSION = "ros.api.cashSessionId";
 const KEY_CASH_OPENING = "ros.api.cashSessionOpening";
 const KEY_POS_EMPLOYEE = "ros.api.posEmployee";
+const KEY_KDS_STATION = "ros.api.kdsStationId";
 
 export interface TokenSet {
   accessToken: string;
@@ -138,6 +139,24 @@ export function getTerminalId(): string | null {
 
 export function setTerminalId(terminalId: string | null): void {
   write(KEY_TERMINAL, terminalId);
+  announce();
+}
+
+/**
+ * The station this kitchen display is showing.
+ *
+ * The backend binds a KDS terminal to exactly one station and 403s a read
+ * aimed at any other, so the station is a property of the device rather than
+ * a per-visit choice. Kept here for the same reason the drawer is: a screen
+ * on a wall in a kitchen gets reloaded, and it must come back to the station
+ * it was showing rather than to a picker nobody is standing at.
+ */
+export function getKdsStationId(): string | null {
+  return read(KEY_KDS_STATION);
+}
+
+export function setKdsStationId(stationId: string | null): void {
+  write(KEY_KDS_STATION, stationId);
   announce();
 }
 

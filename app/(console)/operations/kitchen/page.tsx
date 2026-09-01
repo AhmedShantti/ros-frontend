@@ -6,13 +6,19 @@
  * The manager's view of the same tickets the cooks are looking at, plus the
  * two derived numbers worth acting on: which station is the bottleneck
  * (FR-KDS-043) and what ticket time is running at (FR-KDS-042).
+ *
+ * The rows come from `useKitchenFeed`, so this screen reads the backend's
+ * station queues when one is configured and the terminals on this device
+ * when one is not — and `LiveNotice` names which. It used to read the device
+ * either way, because there were no KDS endpoints to read instead.
  */
 
 import { useMemo } from "react";
 import type { KitchenTicket } from "@/lib/console/types";
-import { useI18n } from "@/lib/console/providers";
-import { elapsedSince, useLive, useNow } from "@/lib/console/live/store";
-import { stationsByBranch } from "@/lib/console/live/reducer";
+import { useI18n, useSession } from "@/lib/console/providers";
+import { elapsedSince, useNow } from "@/lib/console/live/store";
+import { useKitchenFeed } from "@/lib/console/feeds";
+import { useStations } from "@/lib/console/hooks";
 import { urgencyFor } from "@/lib/console/live/engine";
 import { formatDuration, formatElapsed } from "@/lib/console/format";
 import { ORDER_TYPE, TICKET_STATE, TICKET_URGENCY } from "@/lib/console/labels";
@@ -20,47 +26,45 @@ import { CellStack, DataTable, type Column } from "@/components/console/data-tab
 import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/page";
 import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
 import { MetricTile } from "@/components/console/charts";
+import { ErrorPanel, LoadingPanel } from "@/components/console/states";
 import { Badge, Card, CardHeader, Meter } from "@/components/console/ui";
 
 export default function KitchenPage() {
   const { t, tx, fmt } = useI18n();
-  const { state } = useLive();
+  const { scope } = useSession();
   const now = useNow(1000);
 
-  const stations = useMemo(
-    () => (stationsByBranch.get(state.branchId) ?? []).filter((s) => s.active),
-    [state.branchId],
-  );
+  const feed = useKitchenFeed(scope);
+  const stations = useStations(scope);
 
   const active = useMemo(
-    () =>
-      state.ticketIds
-        .map((id) => state.tickets[id]!)
-        .filter((ticket) => ticket.branchId === state.branchId && ticket.state !== "bumped"),
-    [state],
+    () => feed.rows.filter((ticket) => ticket.state !== "bumped"),
+    [feed.rows],
   );
 
   const bumped = useMemo(
-    () =>
-      state.ticketIds
-        .map((id) => state.tickets[id]!)
-        .filter((ticket) => ticket.branchId === state.branchId && ticket.state === "bumped"),
-    [state],
+    () => feed.rows.filter((ticket) => ticket.state === "bumped"),
+    [feed.rows],
   );
 
-  /** FR-KDS-042 — bump time minus fire time, over the tickets that finished. */
+  /**
+   * FR-KDS-042 — bump time minus fire time, over the tickets that finished.
+   *
+   * Read from the ticket's own `bumpedAt` rather than from an order line's
+   * `readyAt`: it is the same instant, it is what both sources actually
+   * carry, and the backend's queue does not ship the order behind a ticket.
+   */
   const averageTicket = useMemo(() => {
     const times = bumped
-      .map((ticket) => {
-        const order = state.orders[ticket.orderId];
-        const line = order?.lines.find((l) => l.readyAt);
-        if (!line?.readyAt) return null;
-        return (new Date(line.readyAt).getTime() - new Date(ticket.firedAt).getTime()) / 1000;
-      })
-      .filter((v): v is number => v !== null && v >= 0);
+      .map((ticket) =>
+        ticket.bumpedAt
+          ? (new Date(ticket.bumpedAt).getTime() - new Date(ticket.firedAt).getTime()) / 1000
+          : null,
+      )
+      .filter((v): v is number => v !== null && Number.isFinite(v) && v >= 0);
     if (times.length === 0) return null;
     return times.reduce((a, b) => a + b, 0) / times.length;
-  }, [bumped, state.orders]);
+  }, [bumped]);
 
   /** FR-KDS-043 — queue depth against the station's hourly throughput. */
   const load = useMemo(
@@ -157,7 +161,7 @@ export default function KitchenPage() {
       />
 
       <PageBody>
-        <LiveNotice />
+        <LiveNotice source={feed.live ? "backend" : "device"} />
 
         <TileGrid columns={3}>
           <MetricTile label={t("kds.queue")} value={String(active.length)} spec="FR-KDS-020" />
@@ -195,7 +199,11 @@ export default function KitchenPage() {
           </Card>
         ) : null}
 
-        {active.length === 0 ? (
+        {feed.error ? (
+          <ErrorPanel error={feed.error} onRetry={feed.reload} />
+        ) : !feed.ready ? (
+          <LoadingPanel />
+        ) : active.length === 0 ? (
           <LiveEmpty title={t("kds.noTickets")} />
         ) : (
           <Section title={t("kds.queue")}>

@@ -38,7 +38,11 @@ function render(schema, indent, requiredMode) {
 
   let out;
 
-  if (schema.enum) {
+  if (schema.const !== undefined) {
+    // A single-valued property. `outcome: "ACTIVATED"` is what discriminates
+    // the two arms of the day-close union; rendered as `string` it would not.
+    out = JSON.stringify(schema.const);
+  } else if (schema.enum) {
     out = schema.enum.map((value) => JSON.stringify(value)).join(" | ");
   } else if (schema.oneOf) {
     out = schema.oneOf.map((s) => render(s, indent, requiredMode)).join(" | ");
@@ -179,9 +183,25 @@ writeFileSync(outPath, chunks.join("\n"), "utf8");
 // Endpoint wrappers, grouped by tag
 // ---------------------------------------------------------------------------
 
-/** `CatalogueController_listItems` → `listItems`. */
+const BARE_VERBS = new Set(["get", "post", "put", "patch", "delete"]);
+
+/**
+ * `CatalogueController_listItems` → `listItems`.
+ *
+ * When the tail is a bare HTTP verb the controller name is folded back in —
+ * `DayCloseController_get` becomes `getDayClose` rather than `get`, which at
+ * a call site (`api.treasury.get(branchId, businessDay)`) names nothing and
+ * collides with every other resource the tag happens to carry.
+ */
 function methodName(operationId) {
-  const tail = operationId.includes("_") ? operationId.slice(operationId.indexOf("_") + 1) : operationId;
+  const separator = operationId.indexOf("_");
+  const tail = separator === -1 ? operationId : operationId.slice(separator + 1);
+
+  if (separator !== -1 && BARE_VERBS.has(tail)) {
+    const subject = operationId.slice(0, separator).replace(/Controller$/, "");
+    if (subject) return `${tail}${subject[0].toUpperCase()}${subject.slice(1)}`;
+  }
+
   // `toggle86` is a valid identifier; a leading digit would not be.
   return /^[A-Za-z_$]/.test(tail) ? tail : `op${tail}`;
 }

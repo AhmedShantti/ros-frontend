@@ -27,10 +27,10 @@ import { EmptyPanel } from "./states";
  * Three answers, and getting it wrong is the whole reason this takes a prop.
  * In demo mode every one of these screens is fed by the terminals on this
  * device. Against a backend, most are fed by the tenant's own record — but a
- * few domains (the kitchen display, tender summaries, the audit trail) have
- * no endpoint at all, and those screens are still device-fed even though the
- * console is live. Saying "take an order on the POS and it lands here" on one
- * of those is a promise the system cannot keep.
+ * few domains (the audit trail, the cash-session index) have no endpoint at
+ * all, and those screens are still device-fed even though the console is
+ * live. Saying "take an order on the POS and it lands here" on one of those
+ * is a promise the system cannot keep.
  */
 export function LiveNotice({ source = "device" }: { source?: "device" | "backend" }) {
   const { t } = useI18n();

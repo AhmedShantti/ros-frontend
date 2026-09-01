@@ -865,6 +865,10 @@ export const consoleEn = {
   "fin.blockedHint": "The day cannot close while a cash session is still taking money. The Z report is immutable once issued, so it must not be issued early.",
   "fin.dayClosed": "Business day closed",
   "fin.zSequenceNote": "Z numbers are sequential per branch and never reused. A gap in the sequence is the first thing an auditor looks for, which is why the number is issued by the close rather than chosen.",
+  "fin.dayActivated": "Day-close activated for this branch",
+  "fin.dayActivatedNote": "This was the branch's first day-close request, so it opened the branch's close epoch rather than sealing a day. The first day that can be closed is {day}.",
+  "fin.blockedByOrders": "open orders",
+  "fin.blockedOrdersHint": "Orders still open on the day block the close for the same reason an open drawer does: the Z would be issued against a total that is still moving.",
   "fin.taxInclusive": "Tax-inclusive",
   "fin.taxExclusive": "Tax-exclusive",
   "fin.perLine": "Per line",
@@ -1380,6 +1384,19 @@ export const consoleEn = {
   "kds.sortCourse": "By course",
   "kds.bottleneck": "Busiest station",
   "kds.avgTicket": "Average ticket time",
+
+  // The live display — `components/terminal/kds-live.tsx`.
+  "kds.pickStation": "Which station is this screen?",
+  "kds.pickStationNote": "A kitchen display is bound to one station on the server, and it will refuse to read any other. Chosen once; this screen comes back to it after a reload.",
+  "kds.changeStation": "Change station",
+  "kds.noStations": "This branch has no stations set up yet. Add one under Operations → Stations.",
+  "kds.noTicketsLive": "Tickets arrive here the moment an order is fired to this station.",
+  "kds.bumpedTicket": "Ticket bumped",
+  "kds.unsupportedTitle": "Not on this backend",
+  "kds.unsupportedPass": "No expediter pass view — there is no endpoint for an order across its stations.",
+  "kds.unsupportedPriority": "No rush, VIP or remake flag on a ticket.",
+  "kds.unsupportedCancelReason": "A cancelled line carries no reason, and there is nothing to acknowledge it with.",
+  "kds.unsupportedStagger": "No staggered release: a ticket's target is the server's, not computed per line.",
 
   // -- Forms ---------------------------------------------------------------
   "form.required": "required",

@@ -34,7 +34,9 @@ import type {
   CountSession,
   CountryCode,
   Currency,
+  DayClose,
   Id,
+  KitchenTicket,
   Localised,
   Menu,
   MenuCategory,
@@ -47,6 +49,8 @@ import type {
   Money,
   Order,
   OrderLine,
+  OrderLineState,
+  OrderType,
   PriceList,
   PriceListEntry,
   Quantity,
@@ -61,8 +65,13 @@ import type {
   StockLocation,
   StockMovement,
   TaxClassCode,
+  TaxSummaryRow,
+  TenderSummaryRow,
   Tenant,
   Terminal,
+  TicketLine,
+  TicketState,
+  TicketUrgency,
   UnitCode,
   Warehouse,
   WasteRecord,
@@ -1146,4 +1155,344 @@ export function toOrder(row: WireOrder, context: OrderContext): Order {
     notes: row.notes,
     version: row.version,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Kitchen — SRS ch.9
+// ---------------------------------------------------------------------------
+
+type WireStationQueue = S.KitchenController_getStationQueueResponse;
+type WireTicket = WireStationQueue["tickets"][number];
+type WireTicketLine = WireTicket["lines"][number];
+
+/**
+ * State is read from the timestamps, not from `status`.
+ *
+ * The document declares both `ticket.status` and `line.status` as a bare
+ * `{"type":"string"}` with no enum, so the set of values it can take is not
+ * knowable from the contract — and a mapping table built on guesses would
+ * mislabel a card the first time the backend used a word this file had not
+ * anticipated. The timestamps *are* specified: `startedAt`, `readyAt`,
+ * `bumpedAt`, `recalledAt` and (on a line) `cancelledAt`. They carry the
+ * same information and cannot drift.
+ *
+ * `status` is still honoured when it happens to spell a state this console
+ * knows, so a future enum needs no change here.
+ */
+const TICKET_STATES = new Set<TicketState>([
+  "queued",
+  "started",
+  "ready",
+  "bumped",
+  "recalled",
+  "cancelled",
+]);
+
+function ticketState(row: WireTicket, lines: TicketLine[]): TicketState {
+  const declared = String(row.status ?? "").toLowerCase();
+  if (TICKET_STATES.has(declared as TicketState)) return declared as TicketState;
+
+  // Every line struck off at the till: the card exists only to stop a cook.
+  if (lines.length > 0 && lines.every((line) => line.state === "voided")) return "cancelled";
+
+  if (row.bumpedAt) return "bumped";
+  if (row.recalledAt) return "recalled";
+  if (row.readyAt) return "ready";
+  if (row.startedAt) return "started";
+  return "queued";
+}
+
+function ticketLineState(row: WireTicketLine): OrderLineState {
+  if (row.cancelledAt) return "voided";
+  if (row.bumpedAt || row.readyAt) return "ready";
+  if (row.startedAt) return "preparing";
+  // Routed to a station is, by definition, fired.
+  return "fired";
+}
+
+const ORDER_TYPES: OrderType[] = [
+  "dine_in",
+  "takeaway",
+  "delivery",
+  "drive_thru",
+  "pickup",
+  "aggregator",
+];
+
+/** `orderType` is an open string on the KDS routes, unlike on `/orders`. */
+export function orderTypeOf(value: string | null | undefined): OrderType {
+  const needle = String(value ?? "").toLowerCase();
+  return ORDER_TYPES.find((type) => type === needle) ?? "dine_in";
+}
+
+const MODIFIER_KINDS: ModifierKind[] = ["addition", "removal", "substitution"];
+
+export function toTicketLine(row: WireTicketLine): TicketLine {
+  return {
+    id: row.id,
+    name: localised(row.itemNameSnapshot),
+    quantity: numberOf(row.quantity),
+    modifiers: (row.modifiers ?? []).map((modifier) => ({
+      name: localised(modifier.nameSnapshot),
+      kind: MODIFIER_KINDS.includes(modifier.kind) ? modifier.kind : "addition",
+    })),
+    state: ticketLineState(row),
+    notes: row.preparationNotes,
+    cancelledAt: row.cancelledAt,
+  };
+}
+
+export interface TicketContext {
+  /** The station's branch — a ticket carries only its station id. */
+  branchId: Id;
+  stationName: Localised;
+}
+
+export function toKitchenTicket(row: WireTicket, context: TicketContext): KitchenTicket {
+  const lines = (row.lines ?? []).map(toTicketLine);
+
+  // FR-KDS-022 — the target is a moment on the wire and a duration here.
+  const routedMs = new Date(row.routedAt).getTime();
+  const targetMs = row.targetReadyAt ? new Date(row.targetReadyAt).getTime() : null;
+  const targetSeconds =
+    targetMs !== null && Number.isFinite(targetMs) && Number.isFinite(routedMs)
+      ? Math.max(0, Math.round((targetMs - routedMs) / 1000))
+      : 0;
+
+  const courses = (row.lines ?? [])
+    .map((line) => line.course)
+    .filter((course): course is number => typeof course === "number");
+
+  return {
+    id: row.id,
+    branchId: context.branchId,
+    orderId: row.orderId,
+    orderNumber: row.orderNumber,
+    orderType: orderTypeOf(row.orderType),
+    // The service reference is the table on a dine-in order and the collection
+    // or delivery reference otherwise — the same slot either way.
+    tableLabel: row.serviceReference,
+    stationId: row.stationId,
+    stationName: context.stationName,
+    state: ticketState(row, lines),
+    urgency: urgencyOf(row.elapsedSeconds, targetSeconds),
+    course: courses.length > 0 ? Math.min(...courses) : 1,
+    // gap: the KDS routes carry no priority flag — no rush, VIP or remake.
+    priority: "normal",
+    firedAt: row.routedAt,
+    startedAt: row.startedAt,
+    bumpedAt: row.bumpedAt,
+    // gap: no cancellation reason is carried on a ticket or its lines.
+    cancelReason: null,
+    targetSeconds,
+    // Server-computed at response time; the display re-derives it from
+    // `firedAt` between polls so the clock keeps running.
+    elapsedSeconds: row.elapsedSeconds,
+    lines,
+  };
+}
+
+/** The same rule as `live/engine.ts`, kept here so mapping needs no import. */
+function urgencyOf(elapsedSeconds: number, targetSeconds: number): TicketUrgency {
+  if (targetSeconds <= 0) return "on_target";
+  const ratio = elapsedSeconds / targetSeconds;
+  if (ratio < 0.75) return "on_target";
+  if (ratio < 1) return "approaching";
+  if (ratio < 1.5) return "exceeded";
+  return "critical";
+}
+
+// ---------------------------------------------------------------------------
+// Day close and daily trading — SRS §16.5, FR-FIN-021/023, FR-RPT
+// ---------------------------------------------------------------------------
+
+/**
+ * Both of these endpoints carry money in **minor units**, like the rest of
+ * the treasury surface and unlike everything else: every amount is declared
+ * `pattern: ^-?\d+$` with "Minor-unit money amount as a decimal string".
+ * "1250" is 12.50. They go through `minorMoney`, never `money`.
+ */
+
+type WireDayClose = S.DayCloseController_getResponse;
+type WireDailyTrading = S.ReportingController_getDailyTradingReportResponse;
+
+export interface DayCloseContext {
+  tenantId: Id;
+  branchName: Localised;
+}
+
+const TAX_CLASS_CODES: TaxClassCode[] = ["standard", "reduced", "zero", "exempt"];
+
+/** taxAmount ÷ netAmount, as the whole-number percentage the table shows. */
+function taxRate(taxAmount: number, netAmount: number): number {
+  if (netAmount === 0) return 0;
+  return Math.round((taxAmount / netAmount) * 1000) / 10;
+}
+
+function taxClassOf(code: string | null | undefined, fallbackId: string): TaxSummaryRow["taxClass"] {
+  const needle = String(code ?? "").toLowerCase();
+  if ((TAX_CLASS_CODES as string[]).includes(needle)) return needle as TaxClassCode;
+  // gap: the Z snapshot carries only `taxClassId`, an opaque uuid, and the
+  // daily-trading report's `taxClassCode` is a country pack's own string.
+  // Either is shown as itself rather than relabelled as standard-rated.
+  return code?.trim() ? code.trim() : fallbackId;
+}
+
+/**
+ * The two tenders this backend settles.
+ *
+ * `POST /payments` accepts cash and a manually-keyed external card, and the
+ * totals blocks carry exactly those two. A row is emitted for each even at
+ * zero, so the tender table has a stable shape across days.
+ */
+function tenderRows(
+  totals: {
+    cash: { amountTotal: string; paymentCount: number };
+    manualExternalCard: { amountTotal: string; paymentCount: number };
+  },
+  currency: Currency,
+): TenderSummaryRow[] {
+  return [
+    {
+      tender: "cash",
+      count: totals.cash.paymentCount,
+      amount: minorMoney(totals.cash.amountTotal, currency),
+    },
+    {
+      tender: "card",
+      count: totals.manualExternalCard.paymentCount,
+      amount: minorMoney(totals.manualExternalCard.amountTotal, currency),
+    },
+  ];
+}
+
+/** A persisted Z snapshot. Byte-stable forever, so this is always `closed`. */
+export function toDayClose(row: WireDayClose, context: DayCloseContext): DayClose {
+  const currency = currencyOf(row.currency);
+  const sales = row.salesSummary;
+
+  const zNumber = Number(row.zNumber);
+
+  return {
+    id: row.id,
+    tenantId: context.tenantId,
+    branchId: row.branchId,
+    branchName: context.branchName,
+    businessDay: row.businessDay,
+    status: "closed",
+    zReportNumber: Number.isFinite(zNumber) ? zNumber : null,
+    closedAt: row.closedAt,
+    // gap: the snapshot carries the closer's ids, not a name — there is no
+    // employee-directory endpoint to resolve either one against.
+    closedBy: personLabel(row.closedBy?.employeeId ?? row.closedBy?.userId),
+    // A sealed day had nothing left open; that is what let it seal.
+    blockingSessions: [],
+    blockingOrderCount: 0,
+    grossSales: minorMoney(sales.grossSales, currency),
+    discounts: minorMoney(sales.discounts, currency),
+    refunds: minorMoney(sales.refunds, currency),
+    netSales: minorMoney(sales.netSales, currency),
+    taxTotal: minorMoney(sales.taxTotal, currency),
+    transactionCount: sales.completedOrderCount,
+    averageOrderValue: minorMoney(sales.averageOrderValue, currency),
+    voidCount: row.voidAndCompSummary.voidedLineCount,
+    compValue: minorMoney(row.voidAndCompSummary.compLineValue, currency),
+    cashVariance: minorMoney(row.cashReconciliation.varianceTotal, currency),
+    tenders: tenderRows(row.tenderTotals, currency),
+    taxRows: row.taxByClass.map((entry) => {
+      const net = minorMoney(entry.netAmount, currency);
+      const tax = minorMoney(entry.taxAmount, currency);
+      return {
+        taxClass: taxClassOf(null, entry.taxClassId),
+        rate: taxRate(tax.amount, net.amount),
+        netAmount: net,
+        taxAmount: tax,
+        grossAmount: minorMoney(entry.grossAmount, currency),
+      };
+    }),
+  };
+}
+
+/**
+ * A day that has no Z yet, read from the live report instead.
+ *
+ * The day-close screen lists days and offers to close one, and against a
+ * backend the persisted records are all sealed — so without this the screen
+ * could only ever show history and never the day a manager actually needs to
+ * close. `periodStatus` and the two blocking counts are what the report
+ * exists to answer, and they map exactly onto the status the screen renders.
+ */
+export function dayCloseFromReport(
+  row: WireDailyTrading,
+  context: DayCloseContext,
+): DayClose {
+  const currency = currencyOf(row.currency);
+  const sales = row.salesSummary;
+
+  // FR-FIN-021 — the drawers standing between this day and its Z, by id.
+  const blockingSessions = row.cashReconciliation.sessions
+    .filter((session) => session.status !== "closed")
+    .map((session) => session.cashSessionId);
+
+  const blocked = blockingSessions.length > 0 || row.openOrderCount > 0;
+
+  const variance = row.cashReconciliation.sessions.reduce(
+    (total, session) => total + minorMoney(session.variance, currency).amount,
+    0,
+  );
+
+  return {
+    // No persisted row exists yet, so the branch and day are the identity —
+    // the same pair the two endpoints are addressed by.
+    id: `${row.branchId}:${row.businessDay}`,
+    tenantId: context.tenantId,
+    branchId: row.branchId,
+    branchName: context.branchName,
+    businessDay: row.businessDay,
+    status: blocked ? "blocked" : "open",
+    zReportNumber: null,
+    closedAt: null,
+    closedBy: null,
+    blockingSessions,
+    blockingOrderCount: row.openOrderCount,
+    grossSales: minorMoney(sales.grossSales, currency),
+    discounts: minorMoney(sales.discounts, currency),
+    refunds: minorMoney(sales.refunds, currency),
+    netSales: minorMoney(sales.netSales, currency),
+    taxTotal: minorMoney(sales.taxTotal, currency),
+    transactionCount: sales.completedOrderCount,
+    averageOrderValue: minorMoney(sales.averageOrderValue, currency),
+    // gap: the report counts voided *lines* only through the day close; the
+    // live report carries no void or comp block of its own.
+    voidCount: 0,
+    compValue: minorMoney("0", currency),
+    cashVariance: { amount: variance, currency },
+    tenders: tenderRows(row.tenderTotals, currency),
+    taxRows: reportTaxRows(row),
+  };
+}
+
+export function reportTaxRows(row: WireDailyTrading): TaxSummaryRow[] {
+  const currency = currencyOf(row.currency);
+  return row.taxSummary.byClass.map((entry) => {
+    const net = minorMoney(entry.netAmount, currency);
+    const tax = minorMoney(entry.taxAmount, currency);
+    return {
+      taxClass: taxClassOf(entry.taxClassCode, entry.taxClassId),
+      rate: taxRate(tax.amount, net.amount),
+      netAmount: net,
+      taxAmount: tax,
+      grossAmount: minorMoney(entry.grossAmount, currency),
+    };
+  });
+}
+
+export function reportTenderRows(row: WireDailyTrading): TenderSummaryRow[] {
+  return tenderRows(row.tenderTotals, currencyOf(row.currency));
+}
+
+/** An identifier where a name belongs — shown as itself in both languages. */
+function personLabel(value: string | null | undefined): Localised | null {
+  const text = value?.trim();
+  return text ? { en: text, ar: text } : null;
 }

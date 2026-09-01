@@ -148,6 +148,14 @@ export const treasury = {
   createPolicy: (branchId: string, body: S.CreateCashClosePolicyDto) =>
     http.post<S.CashClosePolicyController_createPolicyResponse>("/branches/{branchId}/cash-close-policy", { params: { branchId }, body, idempotent: true }),
 
+  /** `GET /branches/{branchId}/day-closes/{businessDay}` — Retrieve a historical DayClose / Z (persisted records only). — The persisted Z snapshot. */
+  getDayClose: (branchId: string, businessDay: string) =>
+    http.get<S.DayCloseController_getResponse>("/branches/{branchId}/day-closes/{businessDay}", { params: { branchId, businessDay } }),
+
+  /** `POST /branches/{branchId}/day-closes/{businessDay}` — Close a business day, or — on the branch’s first ever DayClose request — activate the branch’s DayClose epoch. — ACTIVATED (no day sealed) or CLOSED (with the Z snapshot). Never 409 for a successful activation. */
+  postDayClose: (branchId: string, businessDay: string, body: S.PostDayCloseDto) =>
+    http.post<S.DayCloseController_postResponse>("/branches/{branchId}/day-closes/{businessDay}", { params: { branchId, businessDay }, body, idempotent: true }),
+
   /** `POST /cash-sessions` — Open a cashier shift and its cash session — FR-POS-090, FR-FIN-001/002. ONE command for the cashier, two records for the model. FR-POS-090 describes a single action ("open a shift, declaring an opening float"), and the cashier should not have to know that a shift is a Workforce concept and a session a Treasury one. They stay distinct in the schema (carried item P1D-A); only the command is unified, and both are written in one transaction. `Idempotency-Key` is MANDATORY (FR-API-020): opening a drawer is a financially significant act, and a retry over a flaky link must not produce a second shift or a second session. The two client ULIDs are independent duplicate protection beneath it. — The opened cash session and its shift, plus whether this call created them (false on an idempotent replay of an already-open pair). */
   openCashSession: (body: S.OpenCashSessionDto) =>
     http.post<S.TreasuryController_openCashSessionResponse>("/cash-sessions", { body, idempotent: true }),
@@ -444,6 +452,37 @@ export const inventory = {
 };
 
 // ---------------------------------------------------------------------------
+// kitchen
+// ---------------------------------------------------------------------------
+
+export const kitchen = {
+  /** `GET /kds/stations/{stationId}/queue` — Read a KDS station queue (FIFO, read-only). — The station queue and branch KDS config facts. */
+  getStationQueue: (stationId: string, options: { sort?: "fifo" } = {}) =>
+    http.get<S.KitchenController_getStationQueueResponse>("/kds/stations/{stationId}/queue", { params: { stationId }, query: { sort: options.sort } }),
+
+  /** `POST /kds/stations/{stationId}/tickets/view` — Acknowledge tickets as first-viewed on this station. — Count of newly-acknowledged tickets. */
+  acknowledgeViewed: (stationId: string, body: S.AcknowledgeViewedDto) =>
+    http.post<S.KitchenController_acknowledgeViewedResponse>("/kds/stations/{stationId}/tickets/view", { params: { stationId }, body, idempotent: true }),
+
+  /** `POST /kds/tickets/{ticketId}/bump-all` — Mark every eligible line on a ticket ready (bump all). — The updated ticket and the ids of lines this action bumped. */
+  bumpAll: (ticketId: string) =>
+    http.post<S.KitchenController_bumpAllResponse>("/kds/tickets/{ticketId}/bump-all", { params: { ticketId } }),
+
+  /** `POST /kds/tickets/{ticketId}/lines/{lineId}/bump` — Mark a ticket line ready (bump item). — The updated ticket and line. */
+  bumpLine: (ticketId: string, lineId: string) =>
+    http.post<S.KitchenController_bumpLineResponse>("/kds/tickets/{ticketId}/lines/{lineId}/bump", { params: { ticketId, lineId } }),
+
+  /** `POST /kds/tickets/{ticketId}/lines/{lineId}/start` — Mark a ticket line started. — The updated ticket and line. */
+  startLine: (ticketId: string, lineId: string) =>
+    http.post<S.KitchenController_startLineResponse>("/kds/tickets/{ticketId}/lines/{lineId}/start", { params: { ticketId, lineId } }),
+
+  /** `POST /kds/tickets/{ticketId}/recall` — Recall a bumped ticket back to active work. — The recalled ticket. */
+  recall: (ticketId: string) =>
+    http.post<S.KitchenController_recallResponse>("/kds/tickets/{ticketId}/recall", { params: { ticketId }, idempotent: true }),
+
+};
+
+// ---------------------------------------------------------------------------
 // production
 // ---------------------------------------------------------------------------
 
@@ -664,5 +703,16 @@ export const organisation = {
 
 };
 
+// ---------------------------------------------------------------------------
+// reporting
+// ---------------------------------------------------------------------------
+
+export const reporting = {
+  /** `GET /reports/branches/{branchId}/daily-trading/{businessDay}` — Branch daily-trading report (Internal-MVP: dashboard-only, one tenant, exactly one active branch). — The daily-trading report: salesSummary, tenderTotals (incl. completedExcessCapturedTotal), taxSummary, cashReconciliation (WHOLE_SESSION scope), dataAsOf, periodStatus (OPEN/UNSEALED/SETTLED — no SEALED, no FUTURE), currency/currencySource, and a scope block disclosing exactly what this Internal-MVP slice does and does not cover. */
+  getDailyTradingReport: (branchId: string, businessDay: string) =>
+    http.get<S.ReportingController_getDailyTradingReportResponse>("/reports/branches/{branchId}/daily-trading/{businessDay}", { params: { branchId, businessDay } }),
+
+};
+
 /** Every group, for the diagnostics screen and for `api.catalogue.listItems()` style calls. */
-export const api = { auth, rbac, password, tenants, terminals, treasury, catalogue, health, inventory, production, sales, organisation };
+export const api = { auth, rbac, password, tenants, terminals, treasury, catalogue, health, inventory, kitchen, production, sales, organisation, reporting };

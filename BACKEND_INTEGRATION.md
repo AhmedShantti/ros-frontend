@@ -113,7 +113,7 @@ npm run api:types
 | File | Contents |
 | --- | --- |
 | `lib/api/schema.ts` | Request DTOs, one response type per operation, and a route table |
-| `lib/api/endpoints.ts` | 142 typed calls, grouped by tag: `api.catalogue.listItems()` |
+| `lib/api/endpoints.ts` | 151 typed calls, grouped by tag: `api.catalogue.listItems()` |
 
 Drop in a new spec export, re-run, and `tsc --noEmit` will point at every
 call the backend has changed under you. `npm run api:check` tells you when
@@ -172,7 +172,7 @@ reloads mid-service must come back signed in.
 `API_COVERAGE` in `lib/console/services/http.ts` is the authoritative list and
 is printed to the browser console at start-up. In summary:
 
-**Live** — every one of the document's 142 operations is reachable through
+**Live** — every one of the document's 151 operations is reachable through
 the registry. That covers: authentication and password reset, tenants,
 terminals (register, bind, fingerprint, revoke), RBAC (roles, permissions,
 membership assignment), organisation (brands, branches, warehouses, central
@@ -186,27 +186,59 @@ production (recipe versions, publish, substitute groups, completeness,
 modifier recipe effects), sales (list, open, add line, void pre-fire line,
 fire, capture payment — partial *or* settling) and treasury (open a cash
 session, pay-in, pay-out, safe drop, close context, declare the count,
-finalise an above-tolerance close, publish a branch cash-close policy).
+finalise an above-tolerance close, publish a branch cash-close policy),
+the **kitchen display** (station queue, first-viewed acknowledgement, start a
+line, bump a line, bump a whole ticket, recall inside the window) and the
+**day close and daily-trading report** (retrieve a persisted Z, close a
+business day or activate a branch's close epoch, and the query-time trading
+report the tender and tax summaries are built from).
 
-**Still demo data** — dashboard, costing, purchasing, workforce, governance,
-platform, catalogue combos, inventory adjustments, kitchen queue, security
-users, and the *reporting* half of finance (expenses, day close, tender and
-tax summaries). These are not unfinished wiring: the document has no
-endpoints for them at all. The console keeps its demo data rather than
-showing empty screens, and nothing mixes invented rows into a domain the
-backend does serve.
+**Still demo data** — costing, purchasing, workforce, governance, platform,
+catalogue combos, inventory adjustments, security users, and two members of
+finance: the cash-session index and expenses. These are not unfinished
+wiring: the document has no endpoints for them at all. The console keeps its
+demo data rather than showing empty screens, and nothing mixes invented rows
+into a domain the backend does serve.
 
-Note the split inside finance. The cash **drawer** is live — every treasury
-operation above runs against the backend from
-`components/terminal/pos-drawer.tsx`. What is not live is the tenant-wide
-*list* of cash sessions, because no `GET /cash-sessions` exists: a session is
-reachable by the id this client was handed when it opened the drawer, and by
-nothing else.
+The dashboard is neither: it has no aggregate endpoint either, but it is
+*derived* in the browser from live orders, waste, stock, terminals, tables
+and — since the KDS routes landed — the station queues. What it cannot derive
+it reports as null and the screen shows a dash.
+
+Note the split inside finance. The cash **drawer** is live, and so now is the
+**day close**: `POST /branches/{id}/day-closes/{day}` seals a day and returns
+the Z, and `GET` reads a sealed one back. What is still not live is the
+tenant-wide *list* of cash sessions, because no `GET /cash-sessions` exists —
+a session is reachable by the id this client was handed when it opened the
+drawer, and by nothing else.
+
+### The day close has no index, so the list is assembled
+
+`GET /branches/{branchId}/day-closes/{businessDay}` reads one day of one
+branch and 404s for a day with no Z. There is no "list day closes". So
+`finance.dayCloses.list()` asks for the last seven days of each branch in
+scope and keeps what answers — real records only, a bounded number of
+requests, and nothing invented for the days that 404.
+
+That alone would give a screen that can only ever show history, because every
+*persisted* record is by definition already closed. The days still to be
+closed come from `GET /reports/branches/{id}/daily-trading/{day}` instead,
+which is where their figures, their `periodStatus` and their blockers
+(`openOrderCount`, unclosed cash sessions) come from. Those rows carry
+`id: "<branchId>:<businessDay>"`, since they have no persisted id yet.
+
+**A close returns one of two outcomes and they are not the same event.** The
+first request a branch ever makes *activates* its DayClose epoch and seals
+nothing (`outcome: "ACTIVATED"`); only a later request for a day inside that
+epoch performs a real close (`outcome: "CLOSED"`, with the Z snapshot).
+`services.finance.closeDay` returns a `DayCloseResult` carrying the outcome,
+and the screen words the two differently — reporting an activation as
+"business day closed" would be a lie a manager acts on.
 
 ### Which screens read which source
 
 Eight console screens were written against the in-memory engine in
-`lib/console/live/`. Four of them have a real endpoint behind them and now
+`lib/console/live/`. Six of them now have a real endpoint behind them and
 choose their source by `DATA_MODE`, through the hooks in
 `lib/console/feeds.ts`:
 
@@ -216,16 +248,24 @@ choose their source by `DATA_MODE`, through the hooks in
 | Open orders | this device | `GET /orders`, filtered by state |
 | Stock movements | this device | `GET /inventory/items/{id}/movements` |
 | Waste | this device | `GET /inventory/waste` |
-| Kitchen display | this device | this device — no KDS endpoint |
-| Payments (tender mix) | this device | this device — no summary endpoint |
+| Kitchen queue | this device | `GET /kds/stations/{id}/queue`, per station |
+| Payments (tender mix) | this device | daily-trading `tenderTotals` |
 | Audit trail | this device | this device — no audit endpoint |
 | Cash sessions | this device | this device — no session index |
 
-The bottom four keep reading the device even when the console is live, and
+The bottom two keep reading the device even when the console is live, and
 `LiveNotice` says so in as many words. It used to promise, on every one of
 these screens, that ringing something up on the POS would make rows appear —
 which against a backend was false, and left a reader staring at an empty
 table with a confident explanation for it.
+
+Two notes on the middle pair. The kitchen queue fans out over the stations of
+the branches in scope, and a KDS terminal is bound to one station and answers
+403 for the rest — so a live fan-out returns what the caller may see rather
+than failing whole. And the tender mix from `tenderTotals` has an amount and
+a payment count per tender but no gross/refund split, so the refunds column
+is dropped in live mode rather than shown as a dash that would read as "no
+refunds today".
 
 ## Shape differences worth knowing
 
@@ -275,6 +315,16 @@ Each is marked `// gap:` at the point it bites.
 | No cash-close policy read | `POST /branches/{id}/cash-close-policy` publishes a version; nothing lists them. Whether one exists is inferred from `close-context` omitting `toleranceMinorUnits`. |
 | No unit id for a sub-recipe recipe effect | `PUT /modifiers/{id}/recipe-effects` needs a unit UUID for an `add`, and the only real one available is a stock item's `baseUnitId`. The editor offers `add` against stock items; an existing sub-recipe `add` renders and round-trips but is not editable. |
 | `recipeDelta` is not on the modifier row | `GET /modifier-groups/{id}/modifiers` carries no recipe delta, so the modifiers screen reads each modifier's effects from `GET /modifiers/{id}/recipe-effects` on demand rather than fanning out over the whole list. |
+| KDS `status` is an open string | The document declares both `ticket.status` and `line.status` as a bare `{"type":"string"}` with no enum, so the values are not knowable from the contract. `map.toKitchenTicket` derives state from the timestamps instead — `startedAt`, `readyAt`, `bumpedAt`, `recalledAt`, `cancelledAt` — which are specified and cannot drift. A `status` that happens to spell a state the console knows is still honoured. |
+| No ticket priority or cancel reason | The KDS routes carry no rush/VIP/remake flag and no cancellation reason, so `priority` reads `normal` and `cancelReason` null. The live display lists both as unavailable rather than rendering an always-absent badge. |
+| No station or branch on a KDS ticket | A ticket carries `stationId` and nothing about the station. `http.ts` memoises the branches' stations and joins on it for the name and the branch. |
+| A KDS queue needs a bound terminal | The read wants `kds.operate` on a terminal bound to *that* station, so a console session is normally refused for every station. `operations.kitchenQueue` returns the stations it may read; a clean sweep of refusals is re-thrown rather than flattened into an empty table, and the dashboard reports queue depth as `null` rather than zero. Point a browser at `/kds` from a registered KDS terminal to see the queues. |
+| No bumped-ticket index | Recall is offered only for bumped tickets the station queue itself returns. If the queue drops them at the bump, the recall strip is empty rather than rebuilt from what the browser remembers. |
+| No day-close index | `GET /branches/{id}/day-closes/{day}` reads one day; there is no list. `dayCloses.list()` asks for the last seven days per branch and keeps what answers, and fills the unsealed days from the daily-trading report. |
+| Daily trading is single-branch | `GET /reports/.../daily-trading/{day}` is 403 unless the tenant has exactly one active branch, 400 for a future day and 409 on a mixed-currency day. None of those is an outage, so each reads as "no report for this branch and day" and the screen moves on. |
+| No refund split in `tenderTotals` | The report carries an amount and a payment count per tender and no gross/refund breakdown, so the payments screen drops its refunds column in live mode instead of showing a dash. |
+| Tax classes are opaque on a Z | The Z snapshot's `taxByClass` carries only `taxClassId`, a uuid; the live report also carries a free-form `taxClassCode`. Neither is coerced into one of the console's four named classes — an unrecognised one renders as itself, and the rate is computed as tax ÷ net. |
+| Day-close money is in minor units | Like treasury and unlike everything else, every amount on both new financial endpoints is a minor-unit decimal string (`pattern: ^-?\d+$`). They go through `map.minorMoney`, never `map.money`, which would multiply them by a hundred. |
 
 ## The POS against this backend
 
@@ -292,9 +342,12 @@ by `DATA_MODE`:
 | `mock` | `pos-*.tsx` | The full simulation, unchanged |
 | `http` | `pos-live.tsx` + `pos-drawer.tsx` | Open cash session → open order → add line → void pre-fire line → fire → capture payment (partial or settling) → move cash → count and close the drawer |
 
+A fired order now reaches a real kitchen display: see below.
+
 `pos-live.tsx` lists what the API cannot do rather than hiding those
 controls, because a till that appears to take a discount and does not is
-worse than one that says it cannot.
+worse than one that says it cannot. `kds-live.tsx` does the same in its side
+panel.
 
 One refusal is deliberate on the backend's side and is passed through
 verbatim rather than worked around:
@@ -337,6 +390,36 @@ Three details are easy to get wrong and are handled explicitly:
 `GET /cash-sessions/{id}/close-context` enforces the same own/other
 permission split as the writes, so a cashier cannot probe another employee's
 drawer state.
+
+## The kitchen display against this backend
+
+The same split, for the same reason. The demo KDS in
+`app/(terminal)/kds/page.tsx` runs on the in-memory engine and simulates more
+of ch.9 than the API implements: staggered release, an expediter pass view,
+cancellation acknowledgement, rush and VIP priorities. The backend implements
+six KDS operations:
+
+| Mode | Screen | Behaviour |
+| --- | --- | --- |
+| `mock` | `app/(terminal)/kds/page.tsx` | The full simulation, unchanged |
+| `http` | `components/terminal/kds-live.tsx` | Pick the station → read the queue → acknowledge first view → start a line → bump a line → bump the ticket → recall inside the window |
+
+Three things are worth knowing about the live display.
+
+**The station is a property of the device, not of the visit.** The backend
+binds a KDS terminal to exactly one station and answers 403 for any other, so
+the picker writes `ros.api.kdsStationId` to `localStorage`. A screen on a
+kitchen wall gets power-cycled, and it has to come back showing the line it
+was showing rather than a chooser nobody is standing at.
+
+**Start is per line.** There is no ticket-level start on this API, so the
+button sits with the line it applies to. Bump exists at both levels and both
+are wired: tapping a line bumps that line, and the hold-to-bump footer calls
+`POST /kds/tickets/{id}/bump-all`.
+
+**It polls.** There is no stream, and a display that is five seconds stale is
+a display that works. The interval is torn down while a mutation is in flight
+so a bump is never overwritten by a read that started before it.
 
 ### Treasury money is already in minor units
 
