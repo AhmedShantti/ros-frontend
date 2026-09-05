@@ -21,19 +21,22 @@
  * still be unable to open a till. That is a real failure this product has
  * already hit, and collecting both here is what prevents it.
  *
- * ## What this page does not do
+ * ## What this page does (SIGNUP-1)
  *
- * It does not create an account. There is no signup endpoint anywhere in
- * `api/openapi.json`, so the submit goes to `submitRegistration()` in
- * `lib/api/registration.ts` — one function, documented with the request
- * shape it should send — and that throws until someone implements it. The
- * form is deliberately honest about this rather than showing a success it
- * did not earn: the notice at the top says so before anything is typed, so
- * nobody fills in nine fields to find out at the end.
+ * `submitRegistration()` (`lib/api/registration.ts`) calls the real
+ * `POST /auth/registrations`. Today the backend only accepts `roleKey:
+ * "owner"` — creating a brand-new tenant — and returns a tenant-scoped
+ * session that this page persists immediately, skipping straight to the
+ * dashboard (no separate login step). Every other role still submits
+ * (self-registering into an *existing* organisation) but the backend
+ * answers 400: that requires an administrator-invitation flow that does not
+ * exist yet, and the form surfaces that as an ordinary submit error rather
+ * than pretending it worked.
  */
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   BadgeCheck,
@@ -50,11 +53,14 @@ import {
   type RoleKey,
   type Surface,
 } from "@/lib/console/permissions";
-import { useI18n } from "@/lib/console/providers";
+import { roleFromPermissions, takeReturnTo } from "@/lib/console/auth";
+import { useI18n, useSession } from "@/lib/console/providers";
 import { ServiceError } from "@/lib/console/services";
 import { describeError } from "@/lib/console/actions";
+import { permissions as apiPermissions } from "@/lib/api/auth";
 import {
   REGISTRATION_IS_WIRED,
+  persistRegistrationSession,
   submitRegistration,
   type RegistrationOutcome,
 } from "@/lib/api/registration";
@@ -122,6 +128,8 @@ const SURFACE_LABEL: Record<Surface, string> = {
 
 export default function SignUpPage() {
   const { t, tx } = useI18n();
+  const router = useRouter();
+  const { signIn } = useSession();
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<RegistrationOutcome | null>(null);
@@ -180,6 +188,19 @@ export default function SignUpPage() {
         pin: shape.usesTerminal ? (values.pin ?? null) : null,
         password: values.password,
       });
+
+      if (result.auth) {
+        // The signup just created exactly one tenant, and the response
+        // already carries a tenant-scoped session — enter the dashboard
+        // directly, mirroring `login/page.tsx`'s own `enterConsole()`
+        // (no separate login or tenant-selection round-trip needed).
+        persistRegistrationSession(result);
+        const granted = await apiPermissions().catch(() => [] as string[]);
+        signIn(roleFromPermissions(granted), false);
+        router.replace(takeReturnTo() ?? "/dashboard");
+        return;
+      }
+
       setOutcome(result);
     } catch (caught) {
       setSubmitError(describeError(caught));

@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import type { CountLine, CountSession } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
+import { DATA_MODE } from "@/lib/api/config";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
@@ -194,6 +195,10 @@ function CountsScreen() {
       <PageBody>
         <Callout tone="muted">{t("inv.blindNote")}</Callout>
 
+        {DATA_MODE === "http" ? (
+          <Callout tone="warn">{t("inv.countsNoIndex")}</Callout>
+        ) : null}
+
         <TileGrid columns={4}>
           <MetricTile label={t("inv.countsOpen")} value={formatNumber(totals.open, fmt)} />
           <MetricTile
@@ -262,9 +267,13 @@ function CountsScreen() {
       <OpenCountDrawer
         open={opening}
         onClose={() => setOpening(false)}
-        onOpened={() => {
+        onOpened={(session) => {
           setOpening(false);
           setMessage(t("inv.countOpened"));
+          // There is no index to find this session again by, so it is
+          // opened straight into the detail drawer rather than left to a
+          // list that cannot show it (see `inv.countsNoIndex` above).
+          setSelected(session);
           collection.reload();
         }}
       />
@@ -557,7 +566,13 @@ function RecordCountDrawer({
 
 // ---------------------------------------------------------------------------
 
-/** FR-INV-041 — open a session and freeze expected quantities for its scope. */
+/**
+ * FR-INV-041 — open a session and freeze expected quantities for its scope.
+ *
+ * `onOpened` carries the created session back to the caller: there is no
+ * index endpoint to find it again by, so this is the one and only moment
+ * the console has its id and totals without the cashier writing it down.
+ */
 function OpenCountDrawer({
   open,
   onClose,
@@ -565,7 +580,7 @@ function OpenCountDrawer({
 }: {
   open: boolean;
   onClose: () => void;
-  onOpened: () => void;
+  onOpened: (session: CountSession) => void;
 }) {
   const { t, tx } = useI18n();
   const action = useAction();

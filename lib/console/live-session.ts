@@ -12,8 +12,21 @@
  * every table renders empty with no error to explain why.
  *
  * So this module loads the real thing — the tenant on the token, the brands
- * and branches it owns, and the permission codes the server will actually
- * honour — and `providers.tsx` prefers it whenever `DATA_MODE === "http"`.
+ * and branches the *caller* may see, and the permission codes the server
+ * will actually honour — and `providers.tsx` prefers it whenever
+ * `DATA_MODE === "http"`.
+ *
+ * ## Accessible scope, not the tenant's whole roster
+ *
+ * The brand/branch switcher reads `GET /org/access`, not `GET /org/branches`
+ * (MTMB-1). The latter is deliberately tenant-owner-only and 403s for a
+ * branch- or brand-scoped actor — a cashier's own manager, say — which is
+ * ratified behaviour (`scoped-authorization-matrix.e2e-spec.ts` cases 6/7),
+ * not a bug to route around. `/org/access` resolves the caller's *live*
+ * scoped role assignments instead: a branch-scoped grant gets exactly that
+ * branch, a brand-scoped grant gets that brand and its branches, and a
+ * tenant-scoped owner gets everything — the same three rows either endpoint
+ * would return for that last case, which is why one call replaces two.
  *
  * It deliberately does not cache across sign-ins: `reload()` is called when
  * the token changes, because a different token is a different tenant.
@@ -70,10 +83,12 @@ async function loadContext(): Promise<Omit<LiveOrgContext, "ready" | "loading" |
     return { tenant: null, brands: [], branches: [], permissions: new Set(), error: null };
   }
 
-  const [memberships, brandRows, branchRows, granted, onToken] = await Promise.allSettled([
+  const [memberships, access, granted, onToken] = await Promise.allSettled([
     api.tenants.listTenants(),
-    api.organisation.listBrands(),
-    api.organisation.listBranches(),
+    // The caller's live accessible scope (MTMB-1) — never `/org/branches`,
+    // which is tenant-owner-only and correctly 403s a branch/brand-scoped
+    // actor rather than leaking every branch in the tenant to them.
+    api.organisation.getAccessibleScope(),
     api.rbac.myPermissions(),
     // What the *server* thinks this token is scoped to. Worth asking,
     // because `localStorage` and the token can disagree — a rotated token
@@ -98,7 +113,7 @@ async function loadContext(): Promise<Omit<LiveOrgContext, "ready" | "loading" |
     };
   }
 
-  const firstFailure = [memberships, brandRows, branchRows, granted, onToken].find(
+  const firstFailure = [memberships, access, granted, onToken].find(
     (result): result is PromiseRejectedResult => result.status === "rejected",
   );
 
@@ -108,13 +123,13 @@ async function loadContext(): Promise<Omit<LiveOrgContext, "ready" | "loading" |
       : undefined;
 
   const brands =
-    brandRows.status === "fulfilled"
-      ? brandRows.value.map((row) => map.toBrand(row, tenantId))
+    access.status === "fulfilled"
+      ? access.value.brands.map((row) => map.toBrand(row, tenantId))
       : [];
 
   const branches =
-    branchRows.status === "fulfilled"
-      ? branchRows.value.map((row) => map.toBranch(row, tenantId))
+    access.status === "fulfilled"
+      ? access.value.branches.map((row) => map.toBranch(row, tenantId))
       : [];
 
   // The tenant carries brand/branch counts the switcher shows.
@@ -138,9 +153,7 @@ async function loadContext(): Promise<Omit<LiveOrgContext, "ready" | "loading" |
   );
 
   const error =
-    firstFailure && !(brandRows.status === "fulfilled" && branchRows.status === "fulfilled")
-      ? toServiceError(firstFailure.reason)
-      : null;
+    firstFailure && access.status !== "fulfilled" ? toServiceError(firstFailure.reason) : null;
 
   return { tenant, brands, branches, permissions, error };
 }

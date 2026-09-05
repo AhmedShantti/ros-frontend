@@ -45,6 +45,7 @@ import type {
   DayClose,
   HourlySalesPoint,
   Id,
+  IsoDate,
   KitchenTicket,
   Menu,
   MenuCategory,
@@ -74,7 +75,9 @@ import type {
   CatalogueService,
   CollectionService,
   DashboardService,
+  DiscountInput,
   FinanceService,
+  GovernanceService,
   InventoryService,
   KitchenService,
   OperationsService,
@@ -193,6 +196,7 @@ export const API_COVERAGE = {
     "finance.closeDay",
     "finance.paymentSummary",
     "finance.taxSummary",
+    "governance.audit",
   ],
   /**
    * No endpoint exists in the document. These fail rather than fabricate.
@@ -205,7 +209,6 @@ export const API_COVERAGE = {
     "costing",
     "purchasing",
     "workforce",
-    "governance",
     "platform",
     "catalogue.combos",
     "inventory.adjustments",
@@ -215,6 +218,11 @@ export const API_COVERAGE = {
     "finance.cashSessions",
     "finance.expenses",
     "security.users",
+    // The audit trail is live — see `governance.audit` above. Approvals,
+    // anomaly flags and SoD analysis have no endpoint of their own.
+    "governance.approvals",
+    "governance.anomalies",
+    "governance.sodConflicts",
   ],
 } as const;
 
@@ -2096,7 +2104,95 @@ const orderMutations: import("./types").OrderMutationService = {
     );
     return hydrateOrder(response.order);
   },
+
+  async discountOrder(businessDay, orderId, input, options = {}) {
+    const response = await api.sales.applyOrderDiscount(
+      businessDay,
+      orderId,
+      { id: deviceId(), ...discountBody(input) },
+      { ifMatch: options.ifMatch },
+    );
+    return hydrateOrder(response.order);
+  },
+
+  async discountLine(businessDay, orderId, lineId, input, options = {}) {
+    const response = await api.sales.applyLineDiscount(
+      businessDay,
+      orderId,
+      lineId,
+      { id: deviceId(), ...discountBody(input) },
+      { ifMatch: options.ifMatch },
+    );
+    return hydrateOrder(response.order);
+  },
+
+  async comp(businessDay, orderId, lineId, input, options = {}) {
+    const response = await api.sales.applyComp(
+      businessDay,
+      orderId,
+      lineId,
+      { id: deviceId(), reasonCodeId: input.reasonCodeId },
+      { ifMatch: options.ifMatch },
+    );
+    return hydrateOrder(response.order);
+  },
+
+  async voidLinePostFire(businessDay, orderId, lineId, input, options = {}) {
+    const response = await api.sales.voidLinePostFire(
+      businessDay,
+      orderId,
+      lineId,
+      { id: deviceId(), disposition: input.disposition, reasonCodeId: input.reasonCodeId },
+      { ifMatch: options.ifMatch },
+    );
+    return hydrateOrder(response.order);
+  },
+
+  async refund(businessDay, orderId, input, options = {}) {
+    const manager = Boolean(input.managerEmployeeCode);
+    const response = await api.sales.issueRefund(
+      businessDay,
+      orderId,
+      {
+        id: deviceId(),
+        originalPaymentId: input.originalPaymentId,
+        amountMinor: input.amountMinor,
+        tender: input.tender,
+        reasonCodeId: input.reasonCodeId,
+        // REQUIRED for cash, refused for card — the exact mirror of capturePayment.
+        cashSessionId: input.tender === "cash" ? input.cashSessionId : undefined,
+        approvalRequestId: manager ? deviceId() : undefined,
+        approvalDecisionId: manager ? deviceId() : undefined,
+        managerEmployeeCode: input.managerEmployeeCode,
+        managerPin: input.managerPin,
+      },
+      { ifMatch: options.ifMatch },
+    );
+    return hydrateOrder(response.order);
+  },
 };
+
+/**
+ * `ApplyDiscountDto` shared by the order- and line-level discount calls.
+ *
+ * Fresh approval ids are minted only when a manager code is actually
+ * supplied — the console has no client-side approval threshold to decide
+ * *when* one is needed (FR-POS-047 is enforced server-side), so a discount
+ * without one is sent plainly and the server's own refusal, if any, is
+ * surfaced rather than guessed at.
+ */
+function discountBody(input: DiscountInput) {
+  const manager = Boolean(input.managerEmployeeCode);
+  return {
+    type: input.type,
+    value: input.value,
+    reasonCodeId: input.reasonCodeId,
+    approvalRequestId: manager ? deviceId() : undefined,
+    approvalDecisionId: manager ? deviceId() : undefined,
+    managerEmployeeCode: input.managerEmployeeCode,
+    managerPin: input.managerPin,
+  };
+}
 
 /** Every mutation answers with an order row; they all need the same joins. */
 async function hydrateOrder(row: Parameters<typeof map.toOrder>[0]): Promise<Order> {
@@ -2105,7 +2201,20 @@ async function hydrateOrder(row: Parameters<typeof map.toOrder>[0]): Promise<Ord
   return map.toOrder(row, { tenantId, branchName: branchesById.get(row.branchId)?.name });
 }
 
-const sales: SalesService = { orders, mutations: orderMutations };
+async function receipt(businessDay: IsoDate, orderId: Id) {
+  const row = await api.sales.receipt(businessDay, orderId);
+  const currency = map.currencyOf(row.order.currency);
+  return {
+    payments: row.payments.map((payment) => ({
+      id: payment.id,
+      tender: payment.tender,
+      amount: map.money(payment.amount, currency),
+      processedAt: payment.processedAt,
+    })),
+  };
+}
+
+const sales: SalesService = { orders, mutations: orderMutations, receipt };
 
 // ---------------------------------------------------------------------------
 // Treasury
@@ -2580,7 +2689,10 @@ const security: SecurityService = {
   },
 
   async assignRole(membershipId, roleId) {
-    await api.rbac.assignRole(membershipId, { roleId });
+    // gap: the console has no scope picker (branch/brand) for a role
+    // assignment, so this narrows to tenant-wide — the only scope that
+    // needed no argument under the previous, scope-less contract.
+    await api.rbac.assignRole(membershipId, { roleId, scope: { type: "tenant" } });
   },
 
   async removeRole(membershipId, roleId) {
@@ -3181,6 +3293,44 @@ const finance: FinanceService = {
   },
 };
 
+/**
+ * FR-AUD-008 — the tenant audit log.
+ *
+ * `GET /governance/audit/entries` is a real search endpoint, not a bare
+ * list: it takes `branchId`/`actorId`/`entityType`/`entityId`/`action`/
+ * `correlationId`/`dateFrom`/`dateTo` and answers with a keyset `nextCursor`.
+ * This reads one page — the same `FEED_LIMIT`-and-stop convention
+ * `lib/console/feeds.ts` uses for movements and waste — rather than walking
+ * the full cursor, which the audit screen does not need today.
+ *
+ * Approvals, anomaly flags and SoD analysis have no endpoint at all and
+ * keep failing through `unsupportedGovernance`.
+ */
+const governance: GovernanceService = {
+  ...unsupportedGovernance,
+  audit: {
+    async list(query = {}) {
+      const [response, branchesById] = await Promise.all([
+        api.governance.search({
+          branchId: query.scope?.branchId ?? undefined,
+          limit: query.limit,
+        }),
+        branchIndex().catch(() => new Map<Id, Branch>()),
+      ]);
+      const rows = response.entries.map((row) =>
+        map.toAuditEntry(row, row.branchId ? (branchesById.get(row.branchId)?.name ?? null) : null),
+      );
+      return { rows, total: rows.length, cursor: response.nextCursor ?? undefined };
+    },
+    async get() {
+      // gap: no `GET /governance/audit/entries/{id}` — only the search
+      // route exists, and the screen that reads this never calls `get`
+      // (a row it already fetched is opened from memory, not refetched).
+      notImplemented("Reading a single audit entry by id");
+    },
+  },
+};
+
 // ---------------------------------------------------------------------------
 // The registry
 // ---------------------------------------------------------------------------
@@ -3207,8 +3357,11 @@ export const httpServices: ServiceRegistry = {
   purchasing: unsupportedPurchasing,
   costing: unsupportedCosting,
   workforce: unsupportedWorkforce,
-  governance: unsupportedGovernance,
   platform: unsupportedPlatform,
+
+  // Live for the audit trail; still absent for approvals, anomaly flags and
+  // SoD analysis. See the `governance` const above.
+  governance,
 };
 
 announceCoverage();

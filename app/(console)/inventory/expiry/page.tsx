@@ -21,15 +21,34 @@ import { useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import type { Batch } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
+import { useAction } from "@/lib/console/actions";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
-import { formatDate, formatMoney, formatNumber, formatQuantity } from "@/lib/console/format";
+import {
+  formatDate,
+  formatMoney,
+  formatNumber,
+  formatQuantity,
+  numberFromInput,
+} from "@/lib/console/format";
 import { BATCH_STATUS, labelOf } from "@/lib/console/labels";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
+import { AsyncPanel } from "@/components/console/states";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
-import { Badge, Button, Callout, Toast, cx } from "@/components/console/ui";
+import {
+  Badge,
+  Button,
+  Callout,
+  Drawer,
+  Field,
+  Input,
+  Select,
+  Textarea,
+  Toast,
+  cx,
+} from "@/components/console/ui";
 
 /** How much time is left to do something about it. */
 type Horizon = "expired" | "today" | "soon" | "later";
@@ -61,6 +80,7 @@ function ExpiryScreen() {
   const { scope } = useSession();
   const canRecordWaste = usePermission("inventory.waste.record");
   const [message, setMessage] = useTransientMessage();
+  const [writingOff, setWritingOff] = useState<Batch | null>(null);
 
   // Locations from the service, so the filter offers ids that exist.
   const locationList = useAsync(() => services.organisation.locations(), []);
@@ -170,7 +190,7 @@ function ExpiryScreen() {
               variant="danger"
               onClick={(event) => {
                 event.stopPropagation();
-                setMessage(t("common.notInBuild"));
+                setWritingOff(row);
               }}
             >
               {t("inv.writeOff")}
@@ -180,7 +200,7 @@ function ExpiryScreen() {
           ),
       },
     ],
-    [t, tx, fmt, canRecordWaste, setMessage],
+    [t, tx, fmt, canRecordWaste],
   );
 
   const urgent = buckets.count.expired + buckets.count.today;
@@ -273,7 +293,120 @@ function ExpiryScreen() {
         />
       </PageBody>
 
+      <WriteOffDrawer
+        batch={writingOff}
+        onClose={() => setWritingOff(null)}
+        onWritten={() => {
+          setWritingOff(null);
+          setMessage(t("inv.writeOffDone"));
+          collection.reload();
+        }}
+      />
+
       <Toast message={message} />
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * FR-INV-024 — writing off an expired batch is a waste record, not a
+ * special document of its own: `services.inventory.waste.create` (the same
+ * call the waste ledger reads back) is what this button was always meant to
+ * reach. The reason is required — the backend refuses a waste line without
+ * one — and the quantity defaults to the whole batch but stays editable,
+ * because part of a batch can still be usable right up to the cutoff.
+ */
+function WriteOffDrawer({
+  batch,
+  onClose,
+  onWritten,
+}: {
+  batch: Batch | null;
+  onClose: () => void;
+  onWritten: () => void;
+}) {
+  const { t, tx, fmt } = useI18n();
+  const action = useAction();
+  const [quantity, setQuantity] = useState(() => batch?.quantity.value ?? "");
+  const [reasonCode, setReasonCode] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const reasons = useAsync(() => services.inventory.reasonCodes(), []);
+
+  if (!batch) return null;
+
+  const parsed = numberFromInput(quantity);
+  const max = Number(batch.quantity.value);
+  const valid = parsed !== null && parsed > 0 && parsed <= max && Boolean(reasonCode);
+
+  async function submit() {
+    if (!batch || !valid) return;
+    await action.run(
+      () =>
+        services.inventory.waste.create({
+          locationId: batch.locationId,
+          itemId: batch.itemId,
+          quantity: { value: quantity.trim(), unit: batch.quantity.unit },
+          reasonCode,
+          notes: notes.trim() || undefined,
+        }),
+      { onSuccess: onWritten },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={`${t("inv.writeOff")} · ${tx(batch.itemName)}`}
+      footer={
+        <div className="flex gap-2">
+          <Button variant="danger" loading={action.pending} disabled={!valid} onClick={submit}>
+            {t("inv.writeOff")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Field label={t("inv.onHand")} hint={formatQuantity(batch.quantity, fmt)}>
+          <Input
+            inputMode="decimal"
+            value={quantity}
+            onChange={(event) => setQuantity(event.target.value)}
+            aria-label={t("common.quantity")}
+          />
+        </Field>
+
+        <AsyncPanel
+          state={reasons}
+          isEmpty={(rows) => rows.length === 0}
+          empty={<Callout tone="warn">{t("pos.noReasonCodes")}</Callout>}
+        >
+          {(rows) => (
+            <Field label={t("inv.reason")} required>
+              <Select value={reasonCode} onChange={(event) => setReasonCode(event.target.value)}>
+                <option value="">—</option>
+                {rows.map((reason) => (
+                  <option key={reason.id} value={reason.id}>
+                    {tx(reason.label)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+        </AsyncPanel>
+
+        <Field label={t("shift.comment")}>
+          <Textarea rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </Field>
+      </div>
+    </Drawer>
   );
 }

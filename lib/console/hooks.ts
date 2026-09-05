@@ -12,6 +12,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Branch, ListQuery, Page, Station } from "./types";
 import { ServiceError, services, type Scope, type ScopedQuery } from "./services";
+import { DATA_MODE } from "@/lib/api/config";
+import { useSession } from "./providers";
 
 export interface AsyncState<T> {
   data: T | null;
@@ -258,25 +260,31 @@ export function useDismissable(open: boolean, onClose: () => void) {
  * nobody, next to rows belonging to the tenant — and picking one filtered
  * the table to an id the server had never heard of, so it emptied.
  *
- * Going through the registry is right in both modes: the mock services
- * serve those same fixtures, so the demo build is unchanged, and a live
- * console offers the tenant's own branches.
- *
- * An empty list on failure is deliberate. A filter that cannot be built is
- * better absent than populated with guesses, and the table beside it still
- * loads unfiltered.
+ * Live mode reads `useSession().availableBranches` rather than issuing its
+ * own request. That list already comes from `GET /org/access` (MTMB-1), the
+ * caller's *accessible* scope — every call site here passes `useSession().scope`
+ * straight through, so a second, independent call to `GET /org/branches`
+ * would not just be redundant, it would 403 outright for a branch- or
+ * brand-scoped actor (that route is deliberately tenant-owner-only) and
+ * silently empty the very filter this hook exists to build. Mock mode is
+ * unchanged — it still asks the registry, which still serves the fixtures.
  */
 export function useBranches(scope?: Scope): Branch[] {
-  const branches = useAsync(
+  const live = DATA_MODE === "http";
+  const { availableBranches } = useSession();
+
+  const mock = useAsync(
     () =>
-      services.organisation.branches
-        .list({ scope, limit: 200 })
-        .then((page) => page.rows)
-        .catch(() => [] as Branch[]),
-    [scope?.tenantId, scope?.brandId, scope?.branchId],
+      live
+        ? Promise.resolve([] as Branch[])
+        : services.organisation.branches
+            .list({ scope, limit: 200 })
+            .then((page) => page.rows)
+            .catch(() => [] as Branch[]),
+    [live, scope?.tenantId, scope?.brandId, scope?.branchId],
   );
 
-  return branches.data ?? [];
+  return live ? availableBranches : (mock.data ?? []);
 }
 
 /**

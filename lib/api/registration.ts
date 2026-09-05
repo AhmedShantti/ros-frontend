@@ -1,64 +1,26 @@
 /**
- * Requesting an account — the seam between this form and a backend.
+ * Requesting an account — SIGNUP-1 (FR-PLT-020).
  *
- * ## Read this first
+ * `POST /auth/registrations` is real, but it currently accepts exactly one
+ * shape of request: `roleKey: "owner"`, which creates a brand-new tenant (an
+ * atomic first user + tenant + working branch + Owner role, all-or-nothing)
+ * and returns a tenant-scoped session so the caller can enter the dashboard
+ * immediately — no separate login or tenant-selection step needed.
  *
- * **The API has no endpoint for this.** Across all 142 operations in
- * `api/openapi.json` there is no signup, no user creation, no invitation and
- * no way to set an employee PIN. `employeeCode` appears in exactly two
- * request bodies (`PinLoginDto`, `FinalizeCashSessionCloseDto`) and in no
- * response anywhere: the API can consume a staff code but can never produce
- * one, and `/auth/me` returns a user with no employee attached.
- *
- * That is why this file exists rather than a call to `api.auth.something`.
- * The form is complete and validated; the transport is one function, and it
- * refuses loudly instead of pretending. Nothing here writes to a store,
- * fakes a delay, or returns a success the server never gave — a signup that
- * appears to work and creates nothing is worse than one that plainly says it
- * is not connected.
- *
- * ## What to implement
- *
- * Replace the body of `submitRegistration` with the real call. The shape
- * below is what the form already produces, so a backend that accepts it
- * needs no change on this side:
- *
- *   POST /auth/registrations
- *   Content-Type: application/json
- *   Idempotency-Key: <uuid>          // a double-tap must not make two people
- *
- *   {
- *     "fullName":     "Areej ...",
- *     "email":        "areej@example.com",   // lowercased already
- *     "phone":        "+20 100 000 0000",    // optional
- *     "roleKey":      "cashier",             // one of ROLE_KEYS
- *     "organisation": "Trendow Restaurants",
- *     "scopeName":    "Maadi",               // null for tenant-wide roles
- *     "employeeCode": "areej",               // null unless the role uses a terminal
- *     "pin":          "1234",                // null unless the role uses a terminal
- *     "password":     "..."                  // never logged, never echoed
- *   }
- *
- * Three things the server has to decide, not this form:
- *
- *  1. **Whether a request becomes an account at all.** Self-service signup
- *     into a tenant's books is not obviously right for this product; an
- *     approval queue is the safer reading, and `RegistrationOutcome` carries
- *     `status` so the page can say "submitted for approval" rather than
- *     "you're in" when that is the truth.
- *  2. **The role.** A form cannot be trusted to grant `owner`. Treat
- *     `roleKey` as what the person *asked* for, and let an administrator
- *     confirm it — FR-SEC-004 scopes do not leak, and a role granted
- *     tenant-wide by a text field is a permissions incident.
- *  3. **Resolving `organisation` and `scopeName`.** They are names typed by
- *     a person, not ids. The server matches them to a tenant and a
- *     brand/branch, or rejects them.
- *
- * If the endpoint lands under a different path or shape, this is the only
- * file that changes.
+ * Every OTHER `roleKey` (joining an *existing* organisation in a narrower
+ * role) is **not implemented yet** and the backend answers 400: resolving a
+ * free-text `organisation`/`scopeName` against an existing tenant with no
+ * invitation/approval mechanism would be a tenant-isolation risk, and a form
+ * cannot be trusted to grant a role — a proper administrator-invitation flow
+ * is a separate, larger, unratified feature. `RegistrationOutcome.status`
+ * stays `"pending_approval"`-capable so this page degrades gracefully if
+ * that flow is added later; today only `"created"` (and `auth` present)
+ * actually happens.
  */
 
-import { ServiceError } from "../console/services/types";
+import { http } from "./client";
+import { setDefaultCurrency } from "../console/services/map";
+import { setTenantId, setTokens } from "./session";
 import type { RoleKey } from "../console/permissions";
 
 /** Exactly what the form collects, after validation and normalisation. */
@@ -76,40 +38,63 @@ export interface RegistrationRequest {
   password: string;
 }
 
+interface RegistrationAuth {
+  tokenType: "Bearer";
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  user: { id: string; email: string; displayName: string };
+}
+
+interface RegistrationTenant {
+  id: string;
+  slug: string;
+  legalName: string;
+  status: string;
+  defaultCurrency: string;
+  defaultLocale: string;
+}
+
 /**
  * What the page renders after a successful submit.
  *
  * `status` exists because "created" and "waiting for an administrator" are
  * different sentences to the person reading them, and only the server knows
- * which one is true.
+ * which one is true. `auth`/`tenant`/`membership` are present only for
+ * `status === "created"` — the caller already has a usable tenant-scoped
+ * session and does not need to log in separately.
  */
 export interface RegistrationOutcome {
   status: "created" | "pending_approval";
   /** Echoed back so the confirmation can name the address to check. */
   email: string;
+  auth?: RegistrationAuth;
+  tenant?: RegistrationTenant;
+  membership?: { membershipId: string; status: string };
+}
+
+/** Submits a tenant self-service signup request. */
+export function submitRegistration(
+  request: RegistrationRequest,
+): Promise<RegistrationOutcome> {
+  return http.post<RegistrationOutcome>("/auth/registrations", {
+    body: request,
+    idempotent: true,
+    anonymous: true,
+  });
 }
 
 /**
- * Submits an account request.
- *
- * Throws `ServiceError("NOT_IMPLEMENTED")` until a backend exists. The
- * console renders that code as a neutral "not available from this backend"
- * panel rather than as an outage, because nothing is broken — the route has
- * simply not been built yet.
+ * Persists the auth state a successful signup returns, exactly like an
+ * ordinary login + tenant-selection would — so the caller can proceed
+ * straight to `GET /auth/permissions` and the dashboard.
  */
-export async function submitRegistration(
-  request: RegistrationRequest,
-): Promise<RegistrationOutcome> {
-  void request;
-
-  throw new ServiceError(
-    "NOT_IMPLEMENTED",
-    "Account requests are not connected to a backend yet.",
-    501,
-    "No signup, user-creation or PIN-setting endpoint exists in api/openapi.json. " +
-      "Implement submitRegistration() in lib/api/registration.ts once the route is live.",
-  );
+export function persistRegistrationSession(outcome: RegistrationOutcome): void {
+  if (!outcome.auth || !outcome.tenant) return;
+  setTokens(outcome.auth);
+  setTenantId(outcome.tenant.id);
+  setDefaultCurrency(outcome.tenant.defaultCurrency);
 }
 
-/** True while `submitRegistration` is still the placeholder above. */
-export const REGISTRATION_IS_WIRED = false;
+/** True now that `submitRegistration` calls the real backend. */
+export const REGISTRATION_IS_WIRED = true;

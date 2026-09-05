@@ -696,6 +696,21 @@ export interface RecipeLineInput {
  * saw as `ifMatch` and a stale write is refused with 412 rather than
  * silently overwriting a colleague's line.
  */
+
+/** FR-POS-045/046/047 — a discount is a reason, a size, and (above the
+ *  backend's own threshold) a manager. The manager fields are always
+ *  optional here: only the server knows the threshold, and passing none
+ *  when none is needed is the honest default. */
+export interface DiscountInput {
+  type: "percentage" | "fixed";
+  /** `percentage`: exact decimal string, `0 < value <= 100`. `fixed`: a
+   *  whole number of minor units expressed as a string (ADR-008). */
+  value: string;
+  reasonCodeId: Id;
+  managerEmployeeCode?: string;
+  managerPin?: string;
+}
+
 export interface OrderMutationService {
   /** FR-POS-001 — open an order. The id is minted here (FR-OFF-015). */
   open(input: {
@@ -768,12 +783,95 @@ export interface OrderMutationService {
     },
     options?: { ifMatch?: number },
   ): Promise<Order>;
+
+  /** FR-POS-045/046/047 — discount the whole order. */
+  discountOrder(
+    businessDay: IsoDate,
+    orderId: Id,
+    input: DiscountInput,
+    options?: { ifMatch?: number },
+  ): Promise<Order>;
+
+  /** FR-POS-045/046/047 — discount one line. */
+  discountLine(
+    businessDay: IsoDate,
+    orderId: Id,
+    lineId: Id,
+    input: DiscountInput,
+    options?: { ifMatch?: number },
+  ): Promise<Order>;
+
+  /** FR-POS-050 — comp a line: it still costs, it is never charged. */
+  comp(
+    businessDay: IsoDate,
+    orderId: Id,
+    lineId: Id,
+    input: { reasonCodeId: Id },
+    options?: { ifMatch?: number },
+  ): Promise<Order>;
+
+  /**
+   * FR-POS-070/071 — void a line the kitchen already has.
+   *
+   * Unlike a pre-fire void this asks for a disposition, because the stock
+   * movement Fire created still stands (PROGRESS.md — stock depletes at
+   * Fire, not at payment) and this is what says where the food went.
+   */
+  voidLinePostFire(
+    businessDay: IsoDate,
+    orderId: Id,
+    lineId: Id,
+    input: {
+      disposition: "returned_to_stock" | "wasted" | "given_to_staff";
+      reasonCodeId: Id;
+    },
+    options?: { ifMatch?: number },
+  ): Promise<Order>;
+
+  /**
+   * FR-POS-072/073/074 — refund against one specific, already-settled
+   * payment. There is no "refund the order"; the payment being reversed is
+   * named explicitly.
+   */
+  refund(
+    businessDay: IsoDate,
+    orderId: Id,
+    input: {
+      originalPaymentId: Id;
+      /** Minor units, exact integer string (ADR-008). Never more than the payment. */
+      amountMinor: string;
+      tender: "cash" | "manual_external_card";
+      reasonCodeId: Id;
+      /** Required for a cash refund; refused for card. */
+      cashSessionId?: Id;
+      managerEmployeeCode?: string;
+      managerPin?: string;
+    },
+    options?: { ifMatch?: number },
+  ): Promise<Order>;
+}
+
+/** One settled payment, as the receipt reports it — enough to refund against. */
+export interface OrderPaymentSummary {
+  id: Id;
+  tender: "cash" | "manual_external_card";
+  amount: Money;
+  processedAt: IsoDateTime;
 }
 
 export interface SalesService {
   orders: ReadonlyCollectionService<Order>;
   /** The write half of the order lifecycle. */
   mutations: OrderMutationService;
+  /**
+   * FR-FIN-020 — the non-fiscal receipt of a completed order.
+   *
+   * There is no `GET /payments` and `Order.payments` is deliberately left
+   * empty (see `map.toOrder`) because no endpoint fills it — the receipt is
+   * the only place a completed order's payment ids are readable, so it is
+   * what a refund's payment picker reads from.
+   */
+  receipt(businessDay: IsoDate, orderId: Id): Promise<{ payments: OrderPaymentSummary[] }>;
 }
 
 /** FR-POS-091 — the three ways cash moves without a sale. */

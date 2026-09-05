@@ -25,6 +25,8 @@
 import type { ModifierRecipeEffect } from "./types";
 
 import type {
+  ActorType,
+  AuditEntry,
   Batch,
   Branch,
   Brand,
@@ -1495,4 +1497,62 @@ export function reportTenderRows(row: WireDailyTrading): TenderSummaryRow[] {
 function personLabel(value: string | null | undefined): Localised | null {
   const text = value?.trim();
   return text ? { en: text, ar: text } : null;
+}
+
+// ---------------------------------------------------------------------------
+// Governance — SRS ch.20
+// ---------------------------------------------------------------------------
+
+type WireAuditEntry = S.AuditQueryController_searchResponse["entries"][number];
+
+/**
+ * `AuditEntry.actorType` has no `anonymous` member — the console never had
+ * an unauthenticated actor to model before this endpoint. Read as `system`
+ * rather than invented, since neither is a person and the label the reader
+ * sees ("System") is the less misleading of the two.
+ */
+function actorTypeOf(value: WireAuditEntry["actorType"]): ActorType {
+  if (value === "terminal") return "device";
+  if (value === "anonymous") return "system"; // gap: no "anonymous" actor type on the console.
+  return value;
+}
+
+/**
+ * There is no join here — `GET /governance/audit/entries` returns ids, not
+ * names, for the actor, approver and impersonator, and there is no roster
+ * endpoint in scope to resolve them against (workforce is out of scope; see
+ * BACKEND_INTEGRATION.md). Showing the id via `personLabel` is the honest
+ * middle ground between a blank cell and a fabricated name. The branch is
+ * different: branches are already live and memoised, so its name is a real
+ * join via `branchName`.
+ */
+export function toAuditEntry(row: WireAuditEntry, branchName: Localised | null): AuditEntry {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    branchId: row.branchId,
+    branchName,
+    occurredAt: row.occurredAt,
+    recordedAt: row.recordedAt,
+    actorId: row.actorId ?? "",
+    actorName: personLabel(row.actorId) ?? EMPTY,
+    actorType: actorTypeOf(row.actorType),
+    impersonatedBy: personLabel(row.impersonatedBy),
+    action: row.action,
+    entityType: row.entityType,
+    entityId: row.entityId ?? "",
+    before: (row.beforeState as Record<string, unknown> | null) ?? null,
+    after: (row.afterState as Record<string, unknown> | null) ?? null,
+    reasonCode: row.reasonCode,
+    reasonText: row.reasonText,
+    approverName: personLabel(row.approverId),
+    ipAddress: row.ipAddress ?? "",
+    terminalId: row.terminalId,
+    correlationId: row.correlationId,
+    hash: row.entryHash,
+    // gap: the document marks this null only for a chain's first entry —
+    // the domain type carries no null arm, so the genesis entry reads as
+    // an empty string rather than a fabricated hash.
+    previousHash: row.previousHash ?? "",
+  };
 }
