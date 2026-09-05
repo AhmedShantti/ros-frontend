@@ -13,6 +13,8 @@ import { useMemo, useState } from "react";
 import type { StockMovement } from "@/lib/console/types";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { useMovementFeed } from "@/lib/console/feeds";
+import { useAsync } from "@/lib/console/hooks";
+import { services } from "@/lib/console/services";
 import { formatDateTime, formatMoney, formatNumber, money, unitLabel } from "@/lib/console/format";
 import { MOVEMENT_TYPE, labelOf } from "@/lib/console/labels";
 import { CellStack, DataTable, type Column } from "@/components/console/data-table";
@@ -20,13 +22,25 @@ import { PageBody, PageHeader, SearchInput, TileGrid, Toolbar } from "@/componen
 import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
 import { ErrorPanel } from "@/components/console/states";
 import { MetricTile } from "@/components/console/charts";
-import { Badge, cx } from "@/components/console/ui";
+import { Badge, Callout, Field, Select, cx } from "@/components/console/ui";
 
 export default function MovementsPage() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [term, setTerm] = useState("");
-  const feed = useMovementFeed(scope);
+
+  /**
+   * FR-INV — the ledger is addressable per item only (there is no index
+   * across every item), so live mode needs one chosen before it can ask the
+   * backend for anything. Mock mode ignores this: the device's own reducer
+   * already carries every movement it ever wrote.
+   */
+  const [itemId, setItemId] = useState("");
+  const feed = useMovementFeed(scope, itemId || undefined);
+  const stockItems = useAsync(
+    () => (feed.live ? services.inventory.items.list({ limit: 500 }) : Promise.resolve(null)),
+    [feed.live],
+  );
   const movements = feed.rows;
 
   const rows = useMemo(() => {
@@ -124,6 +138,19 @@ export default function MovementsPage() {
       <PageBody>
         <LiveNotice source={feed.live ? "backend" : "device"} />
 
+        {feed.live ? (
+          <Field label={t("inv.item")} hint={t("inv.movementsChooseItem")}>
+            <Select value={itemId} onChange={(event) => setItemId(event.target.value)}>
+              <option value="">—</option>
+              {(stockItems.data?.rows ?? []).map((item) => (
+                <option key={item.id} value={item.id}>
+                  {tx(item.name)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+
         <TileGrid columns={3}>
           <MetricTile label={t("inv.movementsTitle")} value={String(movements.length)} />
           <MetricTile
@@ -144,7 +171,9 @@ export default function MovementsPage() {
 
         {feed.error ? <ErrorPanel error={feed.error} onRetry={feed.reload} /> : null}
 
-        {movements.length === 0 ? (
+        {feed.live && !itemId ? (
+          <Callout tone="muted">{t("inv.movementsChooseItem")}</Callout>
+        ) : movements.length === 0 ? (
           <LiveEmpty source={feed.live ? "backend" : "device"} />
         ) : (
           <>

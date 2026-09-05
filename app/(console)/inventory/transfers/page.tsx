@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Plus } from "lucide-react";
 import type { Transfer, TransferLine } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
+import { DATA_MODE } from "@/lib/api/config";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
@@ -174,6 +175,10 @@ function TransfersScreen() {
       />
 
       <PageBody>
+        {DATA_MODE === "http" ? (
+          <Callout tone="warn">{t("inv.transfersNoIndex")}</Callout>
+        ) : null}
+
         <TileGrid columns={3}>
           <MetricTile label={t("inv.inTransit")} value={formatNumber(totals.inTransit, fmt)} />
           <MetricTile
@@ -241,9 +246,12 @@ function TransfersScreen() {
       <DispatchTransferDrawer
         open={dispatching}
         onClose={() => setDispatching(false)}
-        onDispatched={() => {
+        onDispatched={(transfer) => {
           setDispatching(false);
           setMessage(t("inv.transferDispatched"));
+          // There is no index to find this transfer again by, so it is
+          // opened straight into the detail drawer (see `inv.transfersNoIndex`).
+          setSelected(transfer);
           collection.reload();
         }}
       />
@@ -522,7 +530,13 @@ function ReceiveTransferDrawer({
 
 // ---------------------------------------------------------------------------
 
-/** FR-INV-030 — dispatch a transfer, writing the `transfer_out` leg. */
+/**
+ * FR-INV-030 — dispatch a transfer, writing the `transfer_out` leg.
+ *
+ * `onDispatched` carries the created transfer back: there is no index
+ * endpoint to find it again by, so this is the one and only moment the
+ * console has its id without someone writing it down.
+ */
 function DispatchTransferDrawer({
   open,
   onClose,
@@ -530,7 +544,7 @@ function DispatchTransferDrawer({
 }: {
   open: boolean;
   onClose: () => void;
-  onDispatched: () => void;
+  onDispatched: (transfer: Transfer) => void;
 }) {
   const { t, tx } = useI18n();
   const action = useAction();

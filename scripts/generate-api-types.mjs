@@ -212,6 +212,11 @@ for (const op of operations) {
   byTag.get(op.tag).push(op);
 }
 
+/** `workforce-attendance` → `workforceAttendance`; a tag is not guaranteed to already be a valid identifier. */
+function tagIdentifier(tag) {
+  return tag.replace(/[-_ ]+([A-Za-z0-9])/g, (_, c) => c.toUpperCase()).replace(/^[^A-Za-z_$]/, "_$&");
+}
+
 const IDEMPOTENCY_HEADER = "idempotency-key";
 const IF_MATCH_HEADER = "if-match";
 
@@ -236,7 +241,7 @@ const usedNames = new Map();
 
 for (const [tag, ops] of byTag) {
   endpointChunks.push(`// ---------------------------------------------------------------------------\n// ${tag}\n// ---------------------------------------------------------------------------\n`);
-  endpointChunks.push(`export const ${tag} = {`);
+  endpointChunks.push(`export const ${tagIdentifier(tag)} = {`);
 
   for (const op of ops) {
     const name = methodName(op.id);
@@ -293,7 +298,7 @@ for (const [tag, ops] of byTag) {
 }
 
 endpointChunks.push(`/** Every group, for the diagnostics screen and for \`api.catalogue.listItems()\` style calls. */`);
-endpointChunks.push(`export const api = { ${[...byTag.keys()].join(", ")} };\n`);
+endpointChunks.push(`export const api = { ${[...byTag.keys()].map(tagIdentifier).join(", ")} };\n`);
 
 writeFileSync(resolve(root, "lib/api/endpoints.ts"), endpointChunks.join("\n"), "utf8");
 

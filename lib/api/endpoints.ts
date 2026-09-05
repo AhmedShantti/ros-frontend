@@ -44,17 +44,33 @@ export const auth = {
 // ---------------------------------------------------------------------------
 
 export const rbac = {
-  /** `POST /auth/memberships/{membershipId}/roles` — Assign a role to a membership. — Role assigned. */
+  /** `GET /auth/memberships/{membershipId}/roles` — A membership's scoped role assignments, including expired ones. — Assignments, oldest first. */
+  listAssignments: (membershipId: string) =>
+    http.get<S.RbacController_listAssignmentsResponse>("/auth/memberships/{membershipId}/roles", { params: { membershipId } }),
+
+  /** `POST /auth/memberships/{membershipId}/roles` — Assign a role to a membership at an EXPLICIT scope (tenant, brand or branch). — The created assignment. */
   assignRole: (membershipId: string, body: S.AssignRoleDto) =>
     http.post<S.RbacController_assignRoleResponse>("/auth/memberships/{membershipId}/roles", { params: { membershipId }, body }),
 
-  /** `DELETE /auth/memberships/{membershipId}/roles/{roleId}` — Remove a role from a membership. — Role removed. */
+  /** `DELETE /auth/memberships/{membershipId}/roles/{roleId}` — DEPRECATED — remove a role from a membership by role id. — Role removed (or already absent). */
   removeRole: (membershipId: string, roleId: string) =>
     http.delete<S.RbacController_removeRoleResponse>("/auth/memberships/{membershipId}/roles/{roleId}", { params: { membershipId, roleId } }),
 
-  /** `GET /auth/permissions` — Effective permissions of the caller's active membership. — The caller's effective permission codes, sorted. */
+  /** `GET /auth/permissions` — The caller's effective, scope-qualified authority (presentation only). — Tenant-scoped permission codes, every scoped grant, the symbolic permitted-branch set, the live authorization epoch, and whether inherited-scope review is still outstanding. */
   myPermissions: () =>
     http.get<S.RbacController_myPermissionsResponse>("/auth/permissions"),
+
+  /** `PATCH /auth/role-assignments/{assignmentId}` — Re-scope an assignment and/or change its validity window. — The updated assignment. */
+  updateAssignment: (assignmentId: string, body: S.UpdateAssignmentDto) =>
+    http.patch<S.RbacController_updateAssignmentResponse>("/auth/role-assignments/{assignmentId}", { params: { assignmentId }, body }),
+
+  /** `DELETE /auth/role-assignments/{assignmentId}` — Remove ONE scoped assignment by its stable id. — Assignment removed. */
+  removeAssignment: (assignmentId: string) =>
+    http.delete<S.RbacController_removeAssignmentResponse>("/auth/role-assignments/{assignmentId}", { params: { assignmentId } }),
+
+  /** `POST /auth/role-assignments/{assignmentId}/review` — Explicitly review an INHERITED (migration-originated) tenant-wide assignment. — The reviewed assignment. */
+  reviewAssignment: (assignmentId: string) =>
+    http.post<S.RbacController_reviewAssignmentResponse>("/auth/role-assignments/{assignmentId}/review", { params: { assignmentId } }),
 
   /** `GET /auth/roles` — Roles visible to the tenant: its own roles plus shared system roles. — Roles, system roles first, then by name. */
   listRoles: () =>
@@ -346,6 +362,21 @@ export const catalogue = {
 };
 
 // ---------------------------------------------------------------------------
+// governance
+// ---------------------------------------------------------------------------
+
+export const governance = {
+  /** `GET /governance/audit/entries` — Search/filter the tenant audit log (FR-AUD-008). Requires audit.view. — A page of audit entries, most recent first. */
+  search: (options: { dateFrom?: string; dateTo?: string; cursor?: string; limit?: number; branchId?: string; actorId?: string; entityType?: string; entityId?: string; action?: string; correlationId?: string } = {}) =>
+    http.get<S.AuditQueryController_searchResponse>("/governance/audit/entries", { query: { dateFrom: options.dateFrom, dateTo: options.dateTo, cursor: options.cursor, limit: options.limit, branchId: options.branchId, actorId: options.actorId, entityType: options.entityType, entityId: options.entityId, action: options.action, correlationId: options.correlationId } }),
+
+  /** `GET /governance/audit/entries/export` — Export the tenant audit log (FR-AUD-008). Requires audit.view AND report.export. — The complete, bounded set of matching audit entries. */
+  exportEntries: (options: { dateFrom?: string; dateTo?: string; branchId?: string; actorId?: string; entityType?: string; entityId?: string; action?: string; correlationId?: string } = {}) =>
+    http.get<S.AuditQueryController_exportEntriesResponse>("/governance/audit/entries/export", { query: { dateFrom: options.dateFrom, dateTo: options.dateTo, branchId: options.branchId, actorId: options.actorId, entityType: options.entityType, entityId: options.entityId, action: options.action, correlationId: options.correlationId } }),
+
+};
+
+// ---------------------------------------------------------------------------
 // health
 // ---------------------------------------------------------------------------
 
@@ -554,6 +585,10 @@ export const sales = {
   findOne: (businessDay: string, id: string) =>
     http.get<S.OrdersController_findOneResponse>("/orders/{businessDay}/{id}", { params: { businessDay, id } }),
 
+  /** `POST /orders/{businessDay}/{id}/discount` — Apply an order-level discount. — The order with its new discount applied. */
+  applyOrderDiscount: (businessDay: string, id: string, body: S.ApplyDiscountDto, options: { ifMatch?: string | number } = {}) =>
+    http.post<S.OrdersController_applyOrderDiscountResponse>("/orders/{businessDay}/{id}/discount", { params: { businessDay, id }, body, ifMatch: options.ifMatch, idempotent: true }),
+
   /** `POST /orders/{businessDay}/{id}/fire` — Fire eligible pending lines to production (explicit MVP Fire — no auto-Fire). — The order after Fire, including every line (previously-fired and newly-fired alike). */
   fire: (businessDay: string, id: string, options: { ifMatch?: string | number } = {}) =>
     http.post<S.OrdersController_fireResponse>("/orders/{businessDay}/{id}/fire", { params: { businessDay, id }, ifMatch: options.ifMatch, idempotent: true }),
@@ -566,9 +601,29 @@ export const sales = {
   voidLine: (businessDay: string, id: string, lineId: string, body: S.VoidOrderLineDto, options: { ifMatch?: string | number } = {}) =>
     http.delete<S.OrdersController_voidLineResponse>("/orders/{businessDay}/{id}/lines/{lineId}", { params: { businessDay, id, lineId }, body, ifMatch: options.ifMatch }),
 
+  /** `POST /orders/{businessDay}/{id}/lines/{lineId}/comp` — Give a complimentary item (comp). — The comped line and the order it belongs to. */
+  applyComp: (businessDay: string, id: string, lineId: string, body: S.ApplyCompDto, options: { ifMatch?: string | number } = {}) =>
+    http.post<S.OrdersController_applyCompResponse>("/orders/{businessDay}/{id}/lines/{lineId}/comp", { params: { businessDay, id, lineId }, body, ifMatch: options.ifMatch, idempotent: true }),
+
+  /** `POST /orders/{businessDay}/{id}/lines/{lineId}/discount` — Apply a line-level discount. — The discounted line and the order it belongs to. */
+  applyLineDiscount: (businessDay: string, id: string, lineId: string, body: S.ApplyDiscountDto, options: { ifMatch?: string | number } = {}) =>
+    http.post<S.OrdersController_applyLineDiscountResponse>("/orders/{businessDay}/{id}/lines/{lineId}/discount", { params: { businessDay, id, lineId }, body, ifMatch: options.ifMatch, idempotent: true }),
+
+  /** `POST /orders/{businessDay}/{id}/lines/{lineId}/void-postfire` — Void a post-fire line, with mandatory disposition. — The voided line, the order, and the disposition record. */
+  voidLinePostFire: (businessDay: string, id: string, lineId: string, body: S.VoidOrderLinePostFireDto, options: { ifMatch?: string | number } = {}) =>
+    http.post<S.OrdersController_voidLinePostFireResponse>("/orders/{businessDay}/{id}/lines/{lineId}/void-postfire", { params: { businessDay, id, lineId }, body, ifMatch: options.ifMatch, idempotent: true }),
+
   /** `POST /orders/{businessDay}/{id}/payments` — Capture a partial, or final settling, CASH or manual/external-card payment. A settling payment completes the order atomically. — The newly captured Payment and the order it now belongs to (paidTotal/roundingAdjustment/state/version updated). */
   capturePayment: (businessDay: string, id: string, body: S.CapturePaymentDto, options: { ifMatch?: string | number } = {}) =>
     http.post<S.OrdersController_capturePaymentResponse>("/orders/{businessDay}/{id}/payments", { params: { businessDay, id }, body, ifMatch: options.ifMatch, idempotent: true }),
+
+  /** `GET /orders/{businessDay}/{id}/receipt` — An itemized, INTERNAL, NON-FISCAL receipt for a completed order. — The non-fiscal receipt document. Available only once the order is completed. */
+  receipt: (businessDay: string, id: string) =>
+    http.get<S.OrdersController_receiptResponse>("/orders/{businessDay}/{id}/receipt", { params: { businessDay, id } }),
+
+  /** `POST /orders/{businessDay}/{id}/refunds` — Issue a refund against a completed order. — The new Refund and the order it was issued against. */
+  issueRefund: (businessDay: string, id: string, body: S.IssueRefundDto, options: { ifMatch?: string | number } = {}) =>
+    http.post<S.OrdersController_issueRefundResponse>("/orders/{businessDay}/{id}/refunds", { params: { businessDay, id }, body, ifMatch: options.ifMatch, idempotent: true }),
 
 };
 
@@ -577,6 +632,10 @@ export const sales = {
 // ---------------------------------------------------------------------------
 
 export const organisation = {
+  /** `GET /org/access` — The caller's live, authorized brands and branches (frontend discovery). — Brands and branches visible under the current, live scoped authority. */
+  getAccessibleScope: () =>
+    http.get<S.OrganisationController_getAccessibleScopeResponse>("/org/access"),
+
   /** `GET /org/branches` — All branches in the tenant. */
   listBranches: () =>
     http.get<S.OrganisationController_listBranchesResponse>("/org/branches"),
@@ -708,11 +767,115 @@ export const organisation = {
 // ---------------------------------------------------------------------------
 
 export const reporting = {
-  /** `GET /reports/branches/{branchId}/daily-trading/{businessDay}` — Branch daily-trading report (Internal-MVP: dashboard-only, one tenant, exactly one active branch). — The daily-trading report: salesSummary, tenderTotals (incl. completedExcessCapturedTotal), taxSummary, cashReconciliation (WHOLE_SESSION scope), dataAsOf, periodStatus (OPEN/UNSEALED/SETTLED — no SEALED, no FUTURE), currency/currencySource, and a scope block disclosing exactly what this Internal-MVP slice does and does not cover. */
+  /** `GET /reports/branches/{branchId}/daily-trading/{businessDay}` — Branch daily-trading report (dashboard-only; authorized against the branch it names). — The daily-trading report: salesSummary, tenderTotals (incl. completedExcessCapturedTotal), taxSummary, cashReconciliation (WHOLE_SESSION scope), dataAsOf, periodStatus (OPEN/UNSEALED/SETTLED — no SEALED, no FUTURE), currency/currencySource, and a scope block disclosing exactly what this Internal-MVP slice does and does not cover. */
   getDailyTradingReport: (branchId: string, businessDay: string) =>
     http.get<S.ReportingController_getDailyTradingReportResponse>("/reports/branches/{branchId}/daily-trading/{businessDay}", { params: { branchId, businessDay } }),
 
 };
 
+// ---------------------------------------------------------------------------
+// sync
+// ---------------------------------------------------------------------------
+
+export const sync = {
+  /** `POST /v1/sync/batch` — Upload a batch of offline operations — Per-operation results. Always 200 for a well-formed authorised batch, whatever the individual outcomes. */
+  uploadBatch_v1: (body: S.SyncBatchDto) =>
+    http.post<S.SyncController_uploadBatch_v1Response>("/v1/sync/batch", { body }),
+
+  /** `POST /v1/sync/recovery/grants` — Authorize a bounded, one-shot recovery upload window for a disabled or revoked terminal's committed offline backlog (D1-1 GD-D1-07). — The recovery grant. */
+  issueGrant_v1: (body: S.IssueRecoveryGrantDto) =>
+    http.post<S.SyncRecoveryController_issueGrant_v1Response>("/v1/sync/recovery/grants", { body }),
+
+  /** `POST /v1/sync/recovery/{grantId}/batch` — Upload one batch of a revoked terminal's committed offline backlog, authenticated as the admin who holds (or was granted) recovery authority for it — never as the terminal itself (see the service docblock for why). — Per-operation results — identical shape to ordinary sync. */
+  uploadRecoveryBatch_v1: (grantId: string, body: S.SyncBatchDto) =>
+    http.post<S.SyncRecoveryController_uploadRecoveryBatch_v1Response>("/v1/sync/recovery/{grantId}/batch", { params: { grantId }, body }),
+
+};
+
+// ---------------------------------------------------------------------------
+// workforce-attendance
+// ---------------------------------------------------------------------------
+
+export const workforceAttendance = {
+  /** `POST /workforce/attendance/clock-in` — FR-HRM-020/021/022/023 — POS-terminal PIN clock-in. NO `@RequirePermission`: the caller acts on their OWN employment record via a PIN-verified POS session, never on an RBAC grant — every active employee must be able to clock themselves in regardless of what else they are permitted to do. §15.2's Workforce catalogue has no "clock in" verb to invent one from. See `REVIEWED_UNPROTECTED_ROUTES` in `authorization-coverage.spec.ts`. */
+  clockIn: (body: S.ClockInDto) =>
+    http.post<S.AttendanceController_clockInResponse>("/workforce/attendance/clock-in", { body }),
+
+  /** `POST /workforce/attendance/clock-out` — FR-HRM-020/021/022 — POS-terminal PIN clock-out. Same authority as clock-in. */
+  clockOut: (body: S.ClockOutDto) =>
+    http.post<S.AttendanceController_clockOutResponse>("/workforce/attendance/clock-out", { body }),
+
+  /** `POST /workforce/attendance/settings` — FR-HRM-022/023 threshold configuration — a NEW effective-dated version. `settings.branch.manage` ("Branch configuration"), NOT an HR code: the exact `treasury/cash-close-policy` precedent for reusing this already-seeded Organisation permission for a new per-branch policy table, declared as a plain string literal to avoid a new `workforce->organisation` private-path import. */
+  setSettings: (body: S.SetAttendanceSettingsDto) =>
+    http.post<S.AttendanceController_setSettingsResponse>("/workforce/attendance/settings", { body }),
+
+  /** `GET /workforce/attendance/{attendanceRecordId}` */
+  getAttendance: (attendanceRecordId: string) =>
+    http.get<S.AttendanceController_getResponse>("/workforce/attendance/{attendanceRecordId}", { params: { attendanceRecordId } }),
+
+  /** `POST /workforce/attendance/{attendanceRecordId}/correct` — FR-HRM-025 — manual correction: permission-gated, reasoned, evidenced. */
+  correct: (attendanceRecordId: string, body: S.CorrectAttendanceDto) =>
+    http.post<S.AttendanceController_correctResponse>("/workforce/attendance/{attendanceRecordId}/correct", { params: { attendanceRecordId }, body }),
+
+};
+
+// ---------------------------------------------------------------------------
+// workforce-employees
+// ---------------------------------------------------------------------------
+
+export const workforceEmployees = {
+  /** `GET /workforce/employees` */
+  list: (options: { branchId?: string } = {}) =>
+    http.get<S.EmployeesController_listResponse>("/workforce/employees", { query: { branchId: options.branchId } }),
+
+  /** `POST /workforce/employees` — FR-HRM-001/002/005 — create a full employee record. */
+  create: (body: S.CreateEmployeeDto) =>
+    http.post<S.EmployeesController_createResponse>("/workforce/employees", { body }),
+
+  /** `GET /workforce/employees/{employeeId}` */
+  getEmployees: (employeeId: string) =>
+    http.get<S.EmployeesController_getResponse>("/workforce/employees/{employeeId}", { params: { employeeId } }),
+
+  /** `PATCH /workforce/employees/{employeeId}` */
+  update: (employeeId: string, body: S.UpdateEmployeeDto) =>
+    http.patch<S.EmployeesController_updateResponse>("/workforce/employees/{employeeId}", { params: { employeeId }, body }),
+
+  /** `POST /workforce/employees/{employeeId}/branches` — FR-HRM-005 — multi-branch assignment. */
+  addBranch: (employeeId: string, body: S.AddPermittedBranchDto) =>
+    http.post<S.EmployeesController_addBranchResponse>("/workforce/employees/{employeeId}/branches", { params: { employeeId }, body }),
+
+  /** `GET /workforce/employees/{employeeId}/compensation` — FR-HRM-003 — restricted to `hr.compensation.view` holders only. — The current compensation version, or null if none has ever been set. */
+  currentCompensation: (employeeId: string) =>
+    http.get<S.EmployeesController_currentCompensationResponse>("/workforce/employees/{employeeId}/compensation", { params: { employeeId } }),
+
+  /** `POST /workforce/employees/{employeeId}/compensation` — FR-HRM-003 — a new effective-dated version. No `hr.compensation.manage` code exists in §15.2 (only `.view`); writing pay is therefore gated on `hr.employee.manage`, the same "no write verb given" discipline `SALES_PERMISSIONS` documents for `pos.order.create`. */
+  setCompensation: (employeeId: string, body: S.SetCompensationDto) =>
+    http.post<S.EmployeesController_setCompensationResponse>("/workforce/employees/{employeeId}/compensation", { params: { employeeId }, body }),
+
+  /** `POST /workforce/employees/{employeeId}/deactivate` — FR-HRM-006 — deactivate, never hard-delete. */
+  deactivate: (employeeId: string, body: S.DeactivateEmployeeDto) =>
+    http.post<S.EmployeesController_deactivateResponse>("/workforce/employees/{employeeId}/deactivate", { params: { employeeId }, body }),
+
+};
+
+// ---------------------------------------------------------------------------
+// workforce-schedules
+// ---------------------------------------------------------------------------
+
+export const workforceSchedules = {
+  /** `POST /workforce/schedules` — FR-HRM-010 — create a schedule by branch and week. */
+  create: (body: S.CreateScheduleDto) =>
+    http.post<S.ScheduleController_createResponse>("/workforce/schedules", { body }),
+
+  /** `GET /workforce/schedules/{scheduleId}` */
+  getSchedule: (scheduleId: string) =>
+    http.get<S.ScheduleController_getResponse>("/workforce/schedules/{scheduleId}", { params: { scheduleId } }),
+
+  /** `POST /workforce/schedules/{scheduleId}/shifts` — FR-HRM-010/012 — create one validated scheduled shift. */
+  createShift: (scheduleId: string, body: S.CreateScheduledShiftDto) =>
+    http.post<S.ScheduleController_createShiftResponse>("/workforce/schedules/{scheduleId}/shifts", { params: { scheduleId }, body }),
+
+};
+
 /** Every group, for the diagnostics screen and for `api.catalogue.listItems()` style calls. */
-export const api = { auth, rbac, password, tenants, terminals, treasury, catalogue, health, inventory, kitchen, production, sales, organisation, reporting };
+export const api = { auth, rbac, password, tenants, terminals, treasury, catalogue, governance, health, inventory, kitchen, production, sales, organisation, reporting, sync, workforceAttendance, workforceEmployees, workforceSchedules };

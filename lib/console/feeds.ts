@@ -16,9 +16,9 @@
  * conditionally, and reading the store is a context read that costs nothing
  * when its rows go unused.
  *
- * A screen whose domain the backend does not serve at all (the audit trail,
- * the cash-session index) is not listed here. Those keep reading the device,
- * and `LiveNotice` says so rather than implying a link that does not exist.
+ * A screen whose domain the backend does not serve at all (the cash-session
+ * index) is not listed here. That keeps reading the device, and `LiveNotice`
+ * says so rather than implying a link that does not exist.
  */
 
 import { useMemo } from "react";
@@ -29,7 +29,7 @@ import type { ServiceError } from "./services";
 import type { Scope } from "./services/types";
 import { useAsync } from "./hooks";
 import { useLive } from "./live/store";
-import type { KitchenTicket, Order, StockMovement, WasteRecord } from "./types";
+import type { AuditEntry, KitchenTicket, Order, StockMovement, WasteRecord } from "./types";
 
 /** How many rows a device-facing screen asks the backend for. */
 const FEED_LIMIT = 200;
@@ -120,16 +120,27 @@ export function useOpenOrderFeed(scope?: Scope): Feed<Order> {
   return fromRemote(remote, live, local, ready);
 }
 
-/** SRS §7.4.3 — the append-only stock ledger. */
-export function useMovementFeed(scope?: Scope): Feed<StockMovement> {
+/**
+ * SRS §7.4.3 — the append-only stock ledger.
+ *
+ * The endpoint is addressable per item only — `GET /inventory/items/{id}/movements`
+ * — there is no index across every item. `itemId` undefined is not "no
+ * filter"; in live mode it means nothing has been asked for yet, so this
+ * does not call the backend at all rather than firing a request the service
+ * layer would answer with an empty page anyway.
+ */
+export function useMovementFeed(scope?: Scope, itemId?: string): Feed<StockMovement> {
   const live = DATA_MODE === "http";
   const { state, ready } = useLive();
   const key = scopeKey(scope);
 
   const remote = useAsync<StockMovement[]>(
     async () =>
-      live ? (await services.inventory.movements.list({ scope, limit: FEED_LIMIT })).rows : [],
-    [live, key],
+      live && itemId
+        ? (await services.inventory.movements.list({ scope, limit: FEED_LIMIT, filters: { itemId } }))
+            .rows
+        : [],
+    [live, key, itemId],
   );
 
   return fromRemote(remote, live, state.movements, ready);
@@ -148,6 +159,29 @@ export function useWasteFeed(scope?: Scope): Feed<WasteRecord> {
   );
 
   return fromRemote(remote, live, state.waste, ready);
+}
+
+/**
+ * SRS ch.20 — the tamper-evident audit trail.
+ *
+ * `GET /governance/audit/entries` (FR-AUD-008) exists now, so this reads one
+ * page from it in live mode rather than the local reducer, which only ever
+ * saw what *this device* did. `governance.audit.list` reads one bounded
+ * page — the audit screen has no cursor UI yet, so walking `nextCursor`
+ * would fetch rows nothing renders.
+ */
+export function useAuditFeed(scope?: Scope): Feed<AuditEntry> {
+  const live = DATA_MODE === "http";
+  const { state, ready } = useLive();
+  const key = scopeKey(scope);
+
+  const remote = useAsync<AuditEntry[]>(
+    async () =>
+      live ? (await services.governance.audit.list({ scope, limit: FEED_LIMIT })).rows : [],
+    [live, key],
+  );
+
+  return fromRemote(remote, live, state.audit, ready);
 }
 
 /**

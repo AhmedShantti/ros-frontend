@@ -581,11 +581,29 @@ const orderMutations: OrderMutationService = {
   async capturePayment() {
     noBackend("Capturing a payment");
   },
+  async discountOrder() {
+    noBackend("Discounting an order");
+  },
+  async discountLine() {
+    noBackend("Discounting a line");
+  },
+  async comp() {
+    noBackend("Comping a line");
+  },
+  async voidLinePostFire() {
+    noBackend("Voiding a fired line");
+  },
+  async refund() {
+    noBackend("Issuing a refund");
+  },
 };
 
 const sales: SalesService = {
   orders: readonlyOf(ordersCollection),
   mutations: orderMutations,
+  async receipt() {
+    noBackend("Reading an order receipt");
+  },
 };
 
 /**

@@ -7,43 +7,54 @@
  * recorded, newest first, each entry carrying the hash of the one before it
  * (FR-AUD-004). Removing an entry from the middle breaks the chain, which is
  * the entire point.
+ *
+ * Live mode reads `GET /governance/audit/entries` (FR-AUD-008) through
+ * `useAuditFeed`, not the local reducer — the device never saw what other
+ * terminals or the backend itself did. The backend has no free-text search
+ * of its own (only structured filters this screen does not yet expose:
+ * `branchId`/`actorId`/`entityType`/`entityId`/`action`/`correlationId`/
+ * date range), so the search box stays exactly what it always was: a
+ * client-side filter over the page of rows already fetched, never a claim
+ * that the server searched anything.
  */
 
 import { useMemo, useState } from "react";
 import type { AuditEntry } from "@/lib/console/types";
-import { useI18n } from "@/lib/console/providers";
-import { useLive } from "@/lib/console/live/store";
+import { useI18n, useSession } from "@/lib/console/providers";
+import { useAuditFeed } from "@/lib/console/feeds";
 import { formatDateTime } from "@/lib/console/format";
 import { ACTOR_TYPE, labelOf } from "@/lib/console/labels";
 import { CellStack, DataTable, type Column } from "@/components/console/data-table";
 import { PageBody, PageHeader, SearchInput, Toolbar } from "@/components/console/page";
 import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
+import { ErrorPanel } from "@/components/console/states";
 import { Badge, Callout, Drawer, DescList, DescRow } from "@/components/console/ui";
 
 export default function AuditPage() {
   const { t, tx, fmt } = useI18n();
-  const { state } = useLive();
+  const { scope } = useSession();
+  const feed = useAuditFeed(scope);
   const [term, setTerm] = useState("");
   const [selected, setSelected] = useState<AuditEntry | null>(null);
 
   const rows = useMemo(() => {
     const needle = term.trim().toLowerCase();
-    if (!needle) return state.audit;
-    return state.audit.filter(
+    if (!needle) return feed.rows;
+    return feed.rows.filter(
       (entry) =>
         entry.action.toLowerCase().includes(needle) ||
         entry.entityId.toLowerCase().includes(needle) ||
         entry.actorName.en.toLowerCase().includes(needle),
     );
-  }, [state.audit, term]);
+  }, [feed.rows, term]);
 
   /** Recompute the chain: every entry must carry its predecessor's hash. */
   const chainIntact = useMemo(() => {
-    for (let i = 0; i < state.audit.length - 1; i += 1) {
-      if (state.audit[i]!.previousHash !== state.audit[i + 1]!.hash) return false;
+    for (let i = 0; i < feed.rows.length - 1; i += 1) {
+      if (feed.rows[i]!.previousHash !== feed.rows[i + 1]!.hash) return false;
     }
     return true;
-  }, [state.audit]);
+  }, [feed.rows]);
 
   const columns: Column<AuditEntry>[] = [
     {
@@ -107,14 +118,16 @@ export default function AuditPage() {
       />
 
       <PageBody>
-        <LiveNotice />
+        <LiveNotice source={feed.live ? "backend" : "device"} />
 
         <Callout tone={chainIntact ? "good" : "bad"} title={t("audit.chainVerified")}>
           {t("audit.chainNote")}
         </Callout>
 
-        {state.audit.length === 0 ? (
-          <LiveEmpty />
+        {feed.error ? <ErrorPanel error={feed.error} onRetry={feed.reload} /> : null}
+
+        {feed.rows.length === 0 ? (
+          <LiveEmpty source={feed.live ? "backend" : "device"} />
         ) : (
           <>
             <Toolbar>

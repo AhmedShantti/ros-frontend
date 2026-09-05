@@ -7,8 +7,8 @@
  *
  * `components/terminal/pos-*.tsx` run on the in-memory engine in
  * `lib/console/live/`, which simulates far more than the API implements:
- * discounts, comps, splits, refunds, table state, courses, KDS tickets. The
- * backend offers this much against an order and its drawer:
+ * splits, table state, courses, KDS tickets. The backend offers this much
+ * against an order and its drawer:
  *
  *   POST   /cash-sessions                       open the drawer
  *   POST   /cash-sessions/{id}/pay-in|-out|…    move cash without a sale
@@ -20,16 +20,16 @@
  *   DELETE /orders/{day}/{id}/lines/{lineId}    void a pre-fire line
  *   POST   /orders/{day}/{id}/fire              fire to production
  *   POST   /orders/{day}/{id}/payments          pay, partially or in full
+ *   POST   /orders/{day}/{id}/discount           discount the order
+ *   POST   /orders/{day}/{id}/lines/{l}/discount discount one line
+ *   POST   /orders/{day}/{id}/lines/{l}/comp     comp one line
+ *   POST   /orders/{day}/{id}/lines/{l}/void-postfire  void a fired line
+ *   POST   /orders/{day}/{id}/refunds            refund a settled payment
  *
  * Bridging the simulator onto that surface would mean a screen where half
  * the controls silently do nothing to the server — a till that looks like
  * it took a discount and did not. So this renders only what the API can
  * actually perform, and names the rest as unavailable.
- *
- * ## One thing the API still refuses on purpose
- *
- * **Voiding a fired line.** Only pre-fire voids exist. After Fire the line
- * is the kitchen's, and there is no endpoint to take it back.
  *
  * Optimistic concurrency is real here: every mutation sends the `version`
  * last seen as `if-match`, so a second terminal editing the same order gets
@@ -40,9 +40,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Banknote,
   Flame,
+  Gift,
+  Percent,
   Plus,
   Receipt,
   Trash2,
+  Undo2,
 } from "lucide-react";
 
 import type { MenuItem, Order } from "@/lib/console/types";
@@ -51,7 +54,7 @@ import { useAsync } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { formatMoney } from "@/lib/console/format";
-import { ORDER_TYPE, TENDER_TYPE, labelOf } from "@/lib/console/labels";
+import { ORDER_LINE_STATE, ORDER_TYPE, TENDER_TYPE, labelOf } from "@/lib/console/labels";
 import {
   getCashSessionId,
   getPendingCashOpen,
@@ -82,14 +85,12 @@ import {
   Select,
   Spinner,
   Toast,
+  cx,
 } from "@/components/console/ui";
 
-/** What the API cannot do, listed once so the copy stays consistent. */
+/** What the API still cannot do, listed once so the copy stays consistent. */
 const UNSUPPORTED_KEYS = [
-  "pos.unsupportedDiscount",
-  "pos.unsupportedComp",
   "pos.unsupportedSplit",
-  "pos.unsupportedRefund",
   "pos.unsupportedTable",
   "pos.unsupportedCourse",
   "pos.unsupportedKds",
@@ -734,7 +735,7 @@ function OrderPane({
 }) {
   const { t, tx, fmt } = useI18n();
   const action = useAction();
-  const [voiding, setVoiding] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<PosSheet>(null);
   const [paying, setPaying] = useState(false);
 
   // The drawer outlives any one order, so its control sits outside the
@@ -791,34 +792,70 @@ function OrderPane({
           <p className="text-fg-subtle py-6 text-center text-sm">{t("pos.noLines")}</p>
         ) : (
           <ul className="divide-line divide-y">
-            {order.lines.map((line) => (
-              <li key={line.id} className="flex items-start gap-2 py-2.5">
-                <span className="text-fg-subtle w-6 shrink-0 text-xs tabular-nums">
-                  {line.quantity}×
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-fg truncate text-sm">{tx(line.itemNameSnapshot)}</p>
-                  <p className="text-fg-subtle text-xs">
-                    {line.state === "pending" ? t("pos.pending") : line.state}
-                  </p>
-                </div>
-                <span className="text-fg shrink-0 font-mono text-sm tabular-nums">
-                  {formatMoney(line.lineTotal, fmt)}
-                </span>
-                {/* Only a pre-fire line can be voided — there is no endpoint
-                    to take back a line the kitchen already has. */}
-                {line.state === "pending" ? (
-                  <Button
-                    variant="ghost"
-                    disabled={action.pending}
-                    onClick={() => setVoiding(line.id)}
-                  >
-                    <Trash2 size={13} aria-hidden />
-                    <span className="sr-only">{t("pos.void")}</span>
-                  </Button>
-                ) : null}
-              </li>
-            ))}
+            {order.lines.map((line) => {
+              const closed = line.state === "voided" || line.state === "comped";
+              const editable = !closed && order.state !== "completed" && order.state !== "cancelled";
+              return (
+                <li key={line.id} className="py-2.5">
+                  <div className="flex items-start gap-2">
+                    <span className="text-fg-subtle w-6 shrink-0 text-xs tabular-nums">
+                      {line.quantity}×
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-fg truncate text-sm">{tx(line.itemNameSnapshot)}</p>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                        <span className="text-fg-subtle text-xs">
+                          {tx(labelOf(ORDER_LINE_STATE, line.state).label)}
+                        </span>
+                        {line.isComp ? <Badge tone="warn">{t("pos.comp")}</Badge> : null}
+                        {line.lineDiscount.amount > 0 ? (
+                          <Badge tone="bad">−{formatMoney(line.lineDiscount, fmt)}</Badge>
+                        ) : null}
+                      </div>
+                    </div>
+                    <span
+                      className={cx(
+                        "text-fg shrink-0 font-mono text-sm tabular-nums",
+                        (closed) && "line-through",
+                      )}
+                    >
+                      {formatMoney(line.lineTotal, fmt)}
+                    </span>
+                  </div>
+
+                  {editable ? (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1 ps-8">
+                      <Button
+                        variant="ghost"
+                        disabled={action.pending}
+                        onClick={() => setSheet({ kind: "discountLine", lineId: line.id })}
+                      >
+                        <Percent size={13} aria-hidden />
+                        <span className="sr-only">{t("pos.discount")}</span>
+                      </Button>
+                      {!line.isComp ? (
+                        <Button
+                          variant="ghost"
+                          disabled={action.pending}
+                          onClick={() => setSheet({ kind: "comp", lineId: line.id })}
+                        >
+                          <Gift size={13} aria-hidden />
+                          <span className="sr-only">{t("pos.comp")}</span>
+                        </Button>
+                      ) : null}
+                      <Button
+                        variant="ghost"
+                        disabled={action.pending}
+                        onClick={() => setSheet({ kind: "void", lineId: line.id })}
+                      >
+                        <Trash2 size={13} aria-hidden />
+                        <span className="sr-only">{t("pos.void")}</span>
+                      </Button>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -828,6 +865,11 @@ function OrderPane({
           <DescRow label={t("orders.net")} mono>
             {formatMoney(order.subtotal, fmt)}
           </DescRow>
+          {order.discountTotal.amount > 0 ? (
+            <DescRow label={t("pos.discountTotal")} mono>
+              <span className="text-bad">−{formatMoney(order.discountTotal, fmt)}</span>
+            </DescRow>
+          ) : null}
           <DescRow label={t("orders.tax")} mono>
             {formatMoney(order.taxTotal, fmt)}
           </DescRow>
@@ -860,6 +902,33 @@ function OrderPane({
         </div>
 
         <div className="grid grid-cols-2 gap-2">
+          <Button
+            size="sm"
+            icon={<Percent size={13} />}
+            disabled={
+              order.lines.filter((l) => l.state !== "voided" && l.state !== "comped").length ===
+                0 ||
+              order.state === "completed" ||
+              order.state === "cancelled"
+            }
+            onClick={() => setSheet({ kind: "discountOrder" })}
+          >
+            {t("pos.discountOrder")}
+          </Button>
+          <Button
+            size="sm"
+            icon={<Undo2 size={13} />}
+            disabled={
+              order.paidTotal.amount <= 0 ||
+              (order.state !== "completed" && order.state !== "partially_refunded")
+            }
+            onClick={() => setSheet({ kind: "refund" })}
+          >
+            {t("pos.refund")}
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
           <Button variant="ghost" onClick={onClear}>
             {t("pos.closeOrder")}
           </Button>
@@ -869,12 +938,47 @@ function OrderPane({
 
       <VoidLineDrawer
         order={order}
-        lineId={voiding}
-        onClose={() => setVoiding(null)}
+        lineId={sheet?.kind === "void" ? sheet.lineId : null}
+        onClose={() => setSheet(null)}
         onVoided={(next) => {
-          setVoiding(null);
+          setSheet(null);
           onOrder(next);
           onMessage(t("pos.lineVoided"));
+        }}
+      />
+
+      <DiscountDrawer
+        order={order}
+        lineId={sheet?.kind === "discountLine" ? sheet.lineId : null}
+        open={sheet?.kind === "discountOrder" || sheet?.kind === "discountLine"}
+        onClose={() => setSheet(null)}
+        onApplied={(next) => {
+          setSheet(null);
+          onOrder(next);
+          onMessage(t("pos.discountApplied"));
+        }}
+      />
+
+      <CompDrawer
+        order={order}
+        lineId={sheet?.kind === "comp" ? sheet.lineId : null}
+        onClose={() => setSheet(null)}
+        onComped={(next) => {
+          setSheet(null);
+          onOrder(next);
+          onMessage(t("pos.compApplied"));
+        }}
+      />
+
+      <RefundDrawer
+        order={order}
+        cashSessionId={cashSessionId}
+        open={sheet?.kind === "refund"}
+        onClose={() => setSheet(null)}
+        onRefunded={(next) => {
+          setSheet(null);
+          onOrder(next);
+          onMessage(t("pos.refunded"));
         }}
       />
 
@@ -896,12 +1000,28 @@ function OrderPane({
   );
 }
 
+/** Which sheet `OrderPane` has open, and the line it applies to (if any). */
+type PosSheet =
+  | { kind: "void"; lineId: string }
+  | { kind: "discountOrder" }
+  | { kind: "discountLine"; lineId: string }
+  | { kind: "comp"; lineId: string }
+  | { kind: "refund" }
+  | null;
+
 // ---------------------------------------------------------------------------
 
 /**
- * FR-POS-013 — a void carries a reason, and the reason is a real reason-code
- * id from `inventory.reason_codes`. The database refuses a voided row
- * without one, so this is required rather than optional.
+ * FR-POS-013/070/071 — a void carries a reason, and the reason is a real
+ * reason-code id from `inventory.reason_codes`. The database refuses a
+ * voided row without one, so this is required rather than optional.
+ *
+ * Which route this calls depends on the line, not on the cashier's choice:
+ * a `pending` line has never reached the kitchen, so it comes off the bill
+ * with `DELETE .../lines/{lineId}`. Any other open state has already been
+ * fired — the stock movement Fire created still stands — so this calls the
+ * accepted post-fire route instead, which additionally asks where the food
+ * went (FR-POS-070).
  */
 function VoidLineDrawer({
   order,
@@ -917,18 +1037,31 @@ function VoidLineDrawer({
   const { t, tx } = useI18n();
   const action = useAction();
   const [reasonCodeId, setReasonCodeId] = useState("");
+  const [disposition, setDisposition] = useState<"returned_to_stock" | "wasted" | "given_to_staff">(
+    "wasted",
+  );
 
   const reasons = useAsync(() => services.inventory.reasonCodes(), []);
 
-  if (!lineId) return null;
+  const line = order.lines.find((l) => l.id === lineId) ?? null;
+  if (!lineId || !line) return null;
+  const preFire = line.state === "pending";
 
   async function submit() {
     if (!reasonCodeId) return;
     await action.run(
       () =>
-        services.sales.mutations.voidLine(order.businessDay, order.id, lineId!, reasonCodeId, {
-          ifMatch: orderVersion(order),
-        }),
+        preFire
+          ? services.sales.mutations.voidLine(order.businessDay, order.id, lineId!, reasonCodeId, {
+              ifMatch: orderVersion(order),
+            })
+          : services.sales.mutations.voidLinePostFire(
+              order.businessDay,
+              order.id,
+              lineId!,
+              { disposition, reasonCodeId },
+              { ifMatch: orderVersion(order) },
+            ),
       { onSuccess: onVoided },
     );
   }
@@ -937,7 +1070,7 @@ function VoidLineDrawer({
     <Drawer
       open
       onClose={onClose}
-      title={t("pos.void")}
+      title={`${t("pos.void")} · ${tx(line.itemNameSnapshot)}`}
       footer={
         <div className="flex gap-2">
           <Button
@@ -956,6 +1089,10 @@ function VoidLineDrawer({
     >
       <div className="space-y-4">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Callout tone={preFire ? "neutral" : "warn"}>
+          {preFire ? t("pos.voidPreFire") : t("pos.voidPostFire")}
+        </Callout>
 
         <AsyncPanel
           state={reasons}
@@ -978,6 +1115,509 @@ function VoidLineDrawer({
             </Field>
           )}
         </AsyncPanel>
+
+        {!preFire ? (
+          <Field label={t("pos.disposition")} hint={t("pos.dispositionNote")} required>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  ["returned_to_stock", t("pos.dispositionReturn")],
+                  ["wasted", t("pos.dispositionWaste")],
+                  ["given_to_staff", t("pos.dispositionStaff")],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setDisposition(value)}
+                  className={cx(
+                    "rounded-lg border px-3 py-2 text-sm",
+                    disposition === value
+                      ? "border-accent bg-accent-soft text-accent font-medium"
+                      : "border-line bg-raised text-fg-muted",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </Field>
+        ) : null}
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * FR-POS-045/046/047 — a discount by percentage or by a fixed minor-unit
+ * amount, with a required reason. `lineId` set discounts one line;
+ * `lineId` null discounts the whole order.
+ *
+ * The manager fields are optional: only the backend's own threshold decides
+ * whether one is needed (FR-POS-047), and this console has no copy of that
+ * number. A discount goes without them first; if the server refuses, its
+ * own permission error is what tells the cashier to ask a manager, rather
+ * than this screen guessing at a threshold it cannot see.
+ */
+function DiscountDrawer({
+  order,
+  lineId,
+  open,
+  onClose,
+  onApplied,
+}: {
+  order: Order;
+  lineId: string | null;
+  open: boolean;
+  onClose: () => void;
+  onApplied: (order: Order) => void;
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const [type, setType] = useState<"percentage" | "fixed">("percentage");
+  const [value, setValue] = useState("10");
+  const [reasonCodeId, setReasonCodeId] = useState("");
+  const [managerEmployeeCode, setManagerEmployeeCode] = useState("");
+  const [managerPin, setManagerPin] = useState("");
+
+  const reasons = useAsync(
+    async () => (open ? services.inventory.reasonCodes() : []),
+    [open],
+  );
+
+  if (!open) return null;
+  const line = lineId ? (order.lines.find((l) => l.id === lineId) ?? null) : null;
+  if (lineId && !line) return null;
+
+  const parsed = Number(value);
+  const validValue =
+    value.trim() !== "" &&
+    Number.isFinite(parsed) &&
+    (type === "percentage" ? parsed > 0 && parsed <= 100 : parsed > 0);
+  const valid = validValue && Boolean(reasonCodeId);
+
+  async function submit() {
+    if (!valid) return;
+    const input = {
+      type,
+      // percentage: exact decimal string. fixed: a whole number of minor
+      // units — the field holds a major-unit amount, so it is scaled here,
+      // the same convention as every other amount input on this screen.
+      value: type === "percentage" ? value.trim() : String(Math.round(parsed * 100)),
+      reasonCodeId,
+      managerEmployeeCode: managerEmployeeCode.trim() || undefined,
+      managerPin: managerPin.trim() ? managerPin : undefined,
+    };
+    await action.run(
+      () =>
+        line
+          ? services.sales.mutations.discountLine(order.businessDay, order.id, line.id, input, {
+              ifMatch: orderVersion(order),
+            })
+          : services.sales.mutations.discountOrder(order.businessDay, order.id, input, {
+              ifMatch: orderVersion(order),
+            }),
+      {
+        onSuccess: (next) => {
+          setManagerPin("");
+          onApplied(next);
+        },
+      },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={
+        line ? `${t("pos.discountLine")} · ${tx(line.itemNameSnapshot)}` : t("pos.discountOrder")
+      }
+      footer={
+        <div className="flex gap-2">
+          <Button variant="primary" loading={action.pending} disabled={!valid} onClick={submit}>
+            {t("pos.apply")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Field label={t("pos.discountType")}>
+          <div className="flex gap-1.5">
+            {(
+              [
+                ["percentage", t("pos.discountByPercent")],
+                ["fixed", t("pos.discountByFixed")],
+              ] as const
+            ).map(([kind, label]) => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => {
+                  setType(kind);
+                  setValue(kind === "percentage" ? "10" : "");
+                }}
+                className={cx(
+                  "flex-1 rounded-lg border px-3 py-2 text-sm",
+                  type === kind
+                    ? "border-accent bg-accent-soft text-accent font-medium"
+                    : "border-line bg-raised text-fg-muted",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        {type === "percentage" ? (
+          <Field label={t("pos.discountPercent")} required>
+            <div className="flex flex-wrap gap-1.5">
+              {["5", "10", "15", "20", "25", "50"].map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setValue(p)}
+                  className={cx(
+                    "rounded-lg border px-3 py-2 text-sm tabular-nums",
+                    value === p
+                      ? "border-accent bg-accent-soft text-accent font-medium"
+                      : "border-line bg-raised text-fg-muted",
+                  )}
+                >
+                  {p}%
+                </button>
+              ))}
+            </div>
+            <div className="mt-2">
+              <Input
+                inputMode="decimal"
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+                aria-label={t("pos.discountPercent")}
+              />
+            </div>
+          </Field>
+        ) : (
+          <Field label={`${t("pos.discountAmount")} (${order.currency})`} required>
+            <Input
+              inputMode="decimal"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+            />
+          </Field>
+        )}
+
+        <AsyncPanel
+          state={reasons}
+          isEmpty={(rows) => rows.length === 0}
+          empty={<Callout tone="warn">{t("pos.noReasonCodes")}</Callout>}
+        >
+          {(rows) => (
+            <Field label={t("pos.discountReason")} required>
+              <Select value={reasonCodeId} onChange={(event) => setReasonCodeId(event.target.value)}>
+                <option value="">—</option>
+                {rows.map((reason) => (
+                  <option key={reason.id} value={reason.id}>
+                    {tx(reason.label)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+        </AsyncPanel>
+
+        <Field label={t("shift.managerCode")} hint={t("pos.approvalHint")}>
+          <Input
+            dir="ltr"
+            autoComplete="off"
+            value={managerEmployeeCode}
+            onChange={(event) => setManagerEmployeeCode(event.target.value)}
+          />
+        </Field>
+        <Field label={t("shift.managerPin")}>
+          <Input
+            type="password"
+            inputMode="numeric"
+            dir="ltr"
+            autoComplete="off"
+            value={managerPin}
+            onChange={(event) => setManagerPin(event.target.value)}
+          />
+        </Field>
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** FR-POS-050 — a comp still costs (the stock is still gone) but is never charged. */
+function CompDrawer({
+  order,
+  lineId,
+  onClose,
+  onComped,
+}: {
+  order: Order;
+  lineId: string | null;
+  onClose: () => void;
+  onComped: (order: Order) => void;
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const [reasonCodeId, setReasonCodeId] = useState("");
+
+  const reasons = useAsync(() => services.inventory.reasonCodes(), []);
+
+  const line = lineId ? (order.lines.find((l) => l.id === lineId) ?? null) : null;
+  if (!lineId || !line) return null;
+
+  async function submit() {
+    if (!reasonCodeId || !line) return;
+    await action.run(
+      () =>
+        services.sales.mutations.comp(
+          order.businessDay,
+          order.id,
+          line.id,
+          { reasonCodeId },
+          { ifMatch: orderVersion(order) },
+        ),
+      { onSuccess: onComped },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={`${t("pos.comp")} · ${tx(line.itemNameSnapshot)}`}
+      footer={
+        <div className="flex gap-2">
+          <Button variant="primary" loading={action.pending} disabled={!reasonCodeId} onClick={submit}>
+            {t("pos.comp")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+        <Callout tone="warn">{t("pos.compNote")}</Callout>
+
+        <AsyncPanel
+          state={reasons}
+          isEmpty={(rows) => rows.length === 0}
+          empty={<Callout tone="warn">{t("pos.noReasonCodes")}</Callout>}
+        >
+          {(rows) => (
+            <Field label={t("pos.discountReason")} required>
+              <Select value={reasonCodeId} onChange={(event) => setReasonCodeId(event.target.value)}>
+                <option value="">—</option>
+                {rows.map((reason) => (
+                  <option key={reason.id} value={reason.id}>
+                    {tx(reason.label)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+        </AsyncPanel>
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * FR-POS-072/073/074 — a refund is issued against one specific,
+ * already-settled payment, never against the order in the abstract.
+ *
+ * There is no payment index (no `GET /payments`), and `Order.payments` is
+ * deliberately left empty by the mapper — the non-fiscal receipt is the
+ * only route that reads a completed order's payment ids back, so this
+ * reads it to build the picker rather than inventing one.
+ */
+function RefundDrawer({
+  order,
+  cashSessionId,
+  open,
+  onClose,
+  onRefunded,
+}: {
+  order: Order;
+  cashSessionId: string;
+  open: boolean;
+  onClose: () => void;
+  onRefunded: (order: Order) => void;
+}) {
+  const { t, tx, fmt } = useI18n();
+  const action = useAction();
+  const [paymentId, setPaymentId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [reasonCodeId, setReasonCodeId] = useState("");
+  const [managerEmployeeCode, setManagerEmployeeCode] = useState("");
+  const [managerPin, setManagerPin] = useState("");
+
+  const receiptState = useAsync(
+    async () => (open ? services.sales.receipt(order.businessDay, order.id) : null),
+    [open, order.businessDay, order.id],
+  );
+  const reasons = useAsync(
+    async () => (open ? services.inventory.reasonCodes() : []),
+    [open],
+  );
+
+  if (!open) return null;
+
+  const payments = receiptState.data?.payments ?? [];
+  const payment = payments.find((row) => row.id === paymentId) ?? null;
+
+  const parsed = Number(amount);
+  const minor = Math.round(parsed * 100);
+  const valid =
+    Boolean(payment) &&
+    Boolean(reasonCodeId) &&
+    amount.trim() !== "" &&
+    Number.isFinite(minor) &&
+    minor > 0 &&
+    minor <= (payment?.amount.amount ?? 0);
+
+  async function submit() {
+    if (!valid || !payment) return;
+    await action.run(
+      () =>
+        services.sales.mutations.refund(
+          order.businessDay,
+          order.id,
+          {
+            originalPaymentId: payment.id,
+            amountMinor: String(minor),
+            tender: payment.tender,
+            reasonCodeId,
+            // REQUIRED for cash, refused for card — the exact mirror of capturePayment.
+            cashSessionId: payment.tender === "cash" ? cashSessionId : undefined,
+            managerEmployeeCode: managerEmployeeCode.trim() || undefined,
+            managerPin: managerPin.trim() ? managerPin : undefined,
+          },
+          { ifMatch: orderVersion(order) },
+        ),
+      {
+        onSuccess: (next) => {
+          setManagerPin("");
+          onRefunded(next);
+        },
+      },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={t("pos.refund")}
+      footer={
+        <div className="flex gap-2">
+          <Button variant="danger" loading={action.pending} disabled={!valid} onClick={submit}>
+            {t("pos.refund")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+        <Callout tone="warn">{t("pos.refundNote")}</Callout>
+
+        <AsyncPanel
+          state={receiptState}
+          isEmpty={() => payments.length === 0}
+          empty={<Callout tone="warn">{t("pos.refundNoPayments")}</Callout>}
+        >
+          {() => (
+            <Field label={t("pos.refundPayment")} required>
+              <Select
+                value={paymentId}
+                onChange={(event) => {
+                  const id = event.target.value;
+                  setPaymentId(id);
+                  const next = payments.find((row) => row.id === id);
+                  if (next) setAmount((next.amount.amount / 100).toFixed(2));
+                }}
+              >
+                <option value="">—</option>
+                {payments.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.tender === "cash"
+                      ? tx(labelOf(TENDER_TYPE, "cash").label)
+                      : t("orders.card")}{" "}
+                    · {formatMoney(row.amount, fmt)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+        </AsyncPanel>
+
+        <Field label={`${t("pos.refundAmount")} (${order.currency})`} required>
+          <Input
+            inputMode="decimal"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            disabled={!payment}
+          />
+        </Field>
+
+        <AsyncPanel
+          state={reasons}
+          isEmpty={(rows) => rows.length === 0}
+          empty={<Callout tone="warn">{t("pos.noReasonCodes")}</Callout>}
+        >
+          {(rows) => (
+            <Field label={t("pos.refundReason")} required>
+              <Select value={reasonCodeId} onChange={(event) => setReasonCodeId(event.target.value)}>
+                <option value="">—</option>
+                {rows.map((reason) => (
+                  <option key={reason.id} value={reason.id}>
+                    {tx(reason.label)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+        </AsyncPanel>
+
+        <Field label={t("shift.managerCode")} hint={t("pos.approvalHint")}>
+          <Input
+            dir="ltr"
+            autoComplete="off"
+            value={managerEmployeeCode}
+            onChange={(event) => setManagerEmployeeCode(event.target.value)}
+          />
+        </Field>
+        <Field label={t("shift.managerPin")}>
+          <Input
+            type="password"
+            inputMode="numeric"
+            dir="ltr"
+            autoComplete="off"
+            value={managerPin}
+            onChange={(event) => setManagerPin(event.target.value)}
+          />
+        </Field>
       </div>
     </Drawer>
   );

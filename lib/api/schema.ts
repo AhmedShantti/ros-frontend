@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 111 paths, 82 request DTOs.
+ * `api/openapi.json`. 138 paths, 103 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -45,8 +45,31 @@ export interface AddPermissionsDto {
   permissionCodes: string[];
 }
 
+export interface AddPermittedBranchDto {
+  branchId: string;
+}
+
 export interface AddSubstituteMemberDto {
   stockItemId: string;
+}
+
+export interface ApplyCompDto {
+  id?: string;
+  reasonCodeId: string;
+}
+
+export interface ApplyDiscountDto {
+  approvalDecisionId?: string;
+  approvalRequestId?: string;
+  /** FR-OFF-015 — the ULID the device assigned to this Discount. */
+  id?: string;
+  managerEmployeeCode?: string;
+  managerPin?: string;
+  /** REQUIRED — FR-POS-046: selection from a configurable list, never free text. */
+  reasonCodeId: string;
+  type: "percentage" | "fixed";
+  /** `type: percentage` — exact decimal string, at most 2 decimal places, `0 < value <= 100` (e.g. `"15.50"`). `type: fixed` — a whole number of minor units expressed as a string (ADR-008). */
+  value: string;
 }
 
 export interface AssignBranchDto {
@@ -55,6 +78,19 @@ export interface AssignBranchDto {
 
 export interface AssignRoleDto {
   roleId: string;
+  scope: AssignmentScopeDto;
+  /** FR-SEC-005 — defaults to now when omitted. */
+  validFrom?: string;
+  /** FR-SEC-005 — omit or null for an open-ended assignment. */
+  validTo?: string | null;
+}
+
+export interface AssignmentScopeDto {
+  /** Required iff `type = branch`. */
+  branchId?: string;
+  /** Required iff `type = brand`. */
+  brandId?: string;
+  type: "tenant" | "brand" | "branch";
 }
 
 export interface BindTerminalDto {
@@ -98,6 +134,20 @@ export interface ChangeBaseUnitDto {
 export interface ChangePasswordDto {
   currentPassword: string;
   newPassword: string;
+}
+
+export interface ClockInDto {
+  gps?: GpsDto;
+}
+
+export interface ClockOutDto {
+  gps?: GpsDto;
+}
+
+export interface CorrectAttendanceDto {
+  correctedValue: string;
+  field: "clock_in_at" | "clock_out_at";
+  reason: string;
 }
 
 export interface CreateAvailabilityRuleDto {
@@ -148,6 +198,23 @@ export interface CreateCategoryDto {
 export interface CreateCentralKitchenDto {
   name: string;
   warehouseId: string;
+}
+
+export interface CreateEmployeeDto {
+  code: string;
+  contactDetails?: Record<string, unknown>;
+  dateOfBirth?: string;
+  department?: string;
+  displayName: string;
+  emergencyContact?: Record<string, unknown>;
+  employmentType: "full_time" | "part_time" | "casual" | "contractor" | "trainee";
+  hireDate?: string;
+  homeBranchId: string;
+  namesLocalized?: Record<string, unknown>;
+  nationalId?: string;
+  permittedBranchIds?: string[];
+  position?: string;
+  userId?: string;
 }
 
 export interface CreateMenuDto {
@@ -231,7 +298,7 @@ export interface CreatePriceListDto {
   recurrenceRule?: Record<string, unknown>;
   scopeId?: string;
   /** C-06: `branch_group` is intentionally absent from the enum. */
-  scopeType: "branch" | "tenant" | "brand";
+  scopeType: "tenant" | "brand" | "branch";
   status?: "scheduled" | "active" | "expired";
   validFrom?: string;
   validTo?: string;
@@ -277,6 +344,18 @@ export interface CreateRecipeVersionDto {
 export interface CreateRoleDto {
   description?: string;
   name: string;
+}
+
+export interface CreateScheduleDto {
+  branchId: string;
+  weekStartDate: string;
+}
+
+export interface CreateScheduledShiftDto {
+  employeeId: string;
+  endsAt: string;
+  position?: string;
+  startsAt: string;
 }
 
 export interface CreateStationDto {
@@ -333,6 +412,12 @@ export interface CreateWarehouseDto {
   warehouseType?: "branch" | "central" | "virtual";
 }
 
+export interface DeactivateEmployeeDto {
+  reason: string;
+  status: "suspended" | "terminated";
+  terminationDate?: string;
+}
+
 export interface DeclareCashSessionCloseDto {
   /** FR-OFF-015 — the device's permanent ULID for this close attempt. REQUIRED. */
   closeAttemptId: string;
@@ -382,6 +467,34 @@ export interface FinalizeCashSessionCloseDto {
 
 export interface ForgotPasswordDto {
   email: string;
+}
+
+export interface GpsDto {
+  lat: number;
+  lng: number;
+}
+
+export interface IssueRecoveryGrantDto {
+  reason: string;
+  terminalId: string;
+  /** Default and cap enforced server-side in `SyncRecoveryService`. */
+  ttlMinutes?: number;
+}
+
+export interface IssueRefundDto {
+  /** Minor units, exact integer string (ADR-008). */
+  amountMinor: string;
+  approvalDecisionId?: string;
+  approvalRequestId?: string;
+  /** REQUIRED for a `cash` refund; refused for `manual_external_card`. */
+  cashSessionId?: string;
+  id?: string;
+  managerEmployeeCode?: string;
+  managerPin?: string;
+  /** REQUIRED — the exact Payment this refund is issued against. */
+  originalPaymentId: string;
+  reasonCodeId: string;
+  tender: "cash" | "manual_external_card";
 }
 
 export interface LinkModifierGroupDto {
@@ -533,8 +646,26 @@ export interface SetActiveDto {
   isActive: boolean;
 }
 
+export interface SetAttendanceSettingsDto {
+  branchId: string;
+  earlyClockInMinutes?: number;
+  effectiveFrom?: string;
+  geofenceCenterLat?: number;
+  geofenceCenterLng?: number;
+  geofenceRadiusMeters?: number;
+  graceMinutes?: number;
+}
+
 export interface SetBranchStatusDto {
   status: "active" | "inactive";
+}
+
+export interface SetCompensationDto {
+  /** Exact non-negative integer minor units, as a string (never a float). */
+  amountMinorUnits: string;
+  basis: "hourly" | "monthly_salary" | "per_shift";
+  currency: string;
+  effectiveFrom?: string;
 }
 
 export interface SetPriceEntryDto {
@@ -553,10 +684,47 @@ export interface SetTerminalStatusDto {
   status: "active" | "disabled" | "revoked";
 }
 
+export interface SyncBatchDto {
+  /** SRS §21.5.1 — "idempotency key for the batch". */
+  batchId: string;
+  /** Must equal the authenticated terminal. A mismatch is 403, not a hint. */
+  deviceId: string;
+  /** Opaque to the client; `null` on a first sync. D4-2 gives it meaning. */
+  lastServerCursor?: string | null;
+  operations: SyncOperationDto[];
+  protocolVersion: number;
+}
+
+export interface SyncOperationDto {
+  /** Per-OPERATION, not per-batch: a 72-hour batch spans shift changes (`UC-OFF-01` step 8), and a batch-level actor would attribute a whole outage to one employee. */
+  actorEmployeeId?: string | null;
+  /** `FR-OFF-022` — the opId of the causal parent. A child whose parent has not been applied is DEFERRED, never rejected. */
+  causedBy?: string | null;
+  /** The aggregate this operation concerns. Never reassigned (`FR-OFF-015`). */
+  entityId: string;
+  /** `FR-OFF-041`. Stored verbatim; the server never rewrites it. */
+  hlc: string;
+  /** The DEVICE's wall clock, preserved alongside the server's receipt time (`FR-OFF-042`). Distinct from `hlc`: one is causal, one is what the receipt says. */
+  occurredAt: string;
+  /** `FR-OFF-021` / SRS §21.5.1 — "idempotency key for the operation". There is no separate idempotency field: `opId` IS it. */
+  opId: string;
+  /** Handler-specific. Validated by the registered handler, not here. */
+  payload: Record<string, unknown>;
+  /** Payload shape version for THIS operation type. */
+  schemaVersion: number;
+  type: string;
+}
+
 export interface Toggle86Dto {
   autoReenableAt?: string;
   isManual86: boolean;
   reasonText?: string;
+}
+
+export interface UpdateAssignmentDto {
+  scope?: AssignmentScopeDto;
+  validFrom?: string;
+  validTo?: string | null;
 }
 
 export interface UpdateBranchDto {
@@ -584,6 +752,19 @@ export interface UpdateCategoryDto {
 export interface UpdateCentralKitchenDto {
   name?: string;
   warehouseId?: string;
+}
+
+export interface UpdateEmployeeDto {
+  contactDetails?: Record<string, unknown>;
+  dateOfBirth?: string;
+  department?: string;
+  displayName?: string;
+  emergencyContact?: Record<string, unknown>;
+  employmentType?: "full_time" | "part_time" | "casual" | "contractor" | "trainee";
+  hireDate?: string;
+  namesLocalized?: Record<string, unknown>;
+  nationalId?: string;
+  position?: string;
 }
 
 export interface UpdateMenuDto {
@@ -644,6 +825,12 @@ export interface VoidOrderLineDto {
   reasonCodeId: string;
 }
 
+export interface VoidOrderLinePostFireDto {
+  disposition: "returned_to_stock" | "wasted" | "given_to_staff";
+  id?: string;
+  reasonCodeId: string;
+}
+
 export interface WasteLineDto {
   quantity: string;
   stockItemId: string;
@@ -692,12 +879,49 @@ export type AuthController_meResponse = {
   updatedAt: string;
 };
 
-/** `POST /auth/memberships/{membershipId}/roles` — Assign a role to a membership. — Role assigned. */
-export type RbacController_assignRoleResponse = void;
+/** `GET /auth/memberships/{membershipId}/roles` — A membership's scoped role assignments, including expired ones. — Assignments, oldest first. */
+export type RbacController_listAssignmentsResponse = ({
+  createdAt: string;
+  /** Stable assignment identity (FR-SEC-003). */
+  id: string;
+  membershipId: string;
+  /** migration = inherited by the B1-2 backfill and not deliberately granted. */
+  origin: "explicit" | "migration";
+  /** When an inherited grant was explicitly reviewed. */
+  reviewedAt: string | null;
+  roleId: string;
+  /** Set iff scopeType = branch. */
+  scopeBranchId: string | null;
+  /** Set iff scopeType = brand. */
+  scopeBrandId: string | null;
+  scopeType: "tenant" | "brand" | "branch";
+  validFrom: string;
+  validTo: string | null;
+})[];
+
+/** `POST /auth/memberships/{membershipId}/roles` — Assign a role to a membership at an EXPLICIT scope (tenant, brand or branch). — The created assignment. */
+export type RbacController_assignRoleResponse = {
+  createdAt: string;
+  /** Stable assignment identity (FR-SEC-003). */
+  id: string;
+  membershipId: string;
+  /** migration = inherited by the B1-2 backfill and not deliberately granted. */
+  origin: "explicit" | "migration";
+  /** When an inherited grant was explicitly reviewed. */
+  reviewedAt: string | null;
+  roleId: string;
+  /** Set iff scopeType = branch. */
+  scopeBranchId: string | null;
+  /** Set iff scopeType = brand. */
+  scopeBrandId: string | null;
+  scopeType: "tenant" | "brand" | "branch";
+  validFrom: string;
+  validTo: string | null;
+};
 
 export type RbacController_assignRoleBody = AssignRoleDto;
 
-/** `DELETE /auth/memberships/{membershipId}/roles/{roleId}` — Remove a role from a membership. — Role removed. */
+/** `DELETE /auth/memberships/{membershipId}/roles/{roleId}` — DEPRECATED — remove a role from a membership by role id. — Role removed (or already absent). */
 export type RbacController_removeRoleResponse = void;
 
 /** `POST /auth/password/change` — Change password (proves the current password). — Password changed; other sessions revoked. */
@@ -715,9 +939,29 @@ export type PasswordController_resetResponse = void;
 
 export type PasswordController_resetBody = ResetPasswordDto;
 
-/** `GET /auth/permissions` — Effective permissions of the caller's active membership. — The caller's effective permission codes, sorted. */
+/** `GET /auth/permissions` — The caller's effective, scope-qualified authority (presentation only). — Tenant-scoped permission codes, every scoped grant, the symbolic permitted-branch set, the live authorization epoch, and whether inherited-scope review is still outstanding. */
 export type RbacController_myPermissionsResponse = {
+  /** Live authorization epoch. A client holding a token minted at an older epoch must refresh. */
+  authorizationEpoch: number;
+  /** TENANT-scoped permission codes only — what an unscoped, target-less endpoint authorises today. */
   permissions: string[];
+  /** SYMBOLIC permitted-branch set. `all: true` means every branch in the tenant; `all: false` with empty lists means NO branches. Omission never means unrestricted. */
+  permittedBranches: {
+    all: boolean;
+    branches: string[];
+    brands: string[];
+    v: number;
+  };
+  /** M-4+ — the tenant still holds unreviewed migration-originated TENANT grants. */
+  scopeReviewRequired: boolean;
+  /** Every effective assignment, scope-qualified. */
+  scopes: ({
+    assignmentId: string;
+    branchId: string | null;
+    brandId: string | null;
+    permissions: string[];
+    scopeType: "tenant" | "brand" | "branch";
+  })[];
 };
 
 /** `POST /auth/pin` — Authenticate with a terminal-scoped employee PIN (POS). — Access token, refresh token, and user. The session is POS-only. */
@@ -763,6 +1007,51 @@ export type AuthController_refreshResponse = {
 };
 
 export type AuthController_refreshBody = RefreshDto;
+
+/** `PATCH /auth/role-assignments/{assignmentId}` — Re-scope an assignment and/or change its validity window. — The updated assignment. */
+export type RbacController_updateAssignmentResponse = {
+  createdAt: string;
+  /** Stable assignment identity (FR-SEC-003). */
+  id: string;
+  membershipId: string;
+  /** migration = inherited by the B1-2 backfill and not deliberately granted. */
+  origin: "explicit" | "migration";
+  /** When an inherited grant was explicitly reviewed. */
+  reviewedAt: string | null;
+  roleId: string;
+  /** Set iff scopeType = branch. */
+  scopeBranchId: string | null;
+  /** Set iff scopeType = brand. */
+  scopeBrandId: string | null;
+  scopeType: "tenant" | "brand" | "branch";
+  validFrom: string;
+  validTo: string | null;
+};
+
+export type RbacController_updateAssignmentBody = UpdateAssignmentDto;
+
+/** `DELETE /auth/role-assignments/{assignmentId}` — Remove ONE scoped assignment by its stable id. — Assignment removed. */
+export type RbacController_removeAssignmentResponse = void;
+
+/** `POST /auth/role-assignments/{assignmentId}/review` — Explicitly review an INHERITED (migration-originated) tenant-wide assignment. — The reviewed assignment. */
+export type RbacController_reviewAssignmentResponse = {
+  createdAt: string;
+  /** Stable assignment identity (FR-SEC-003). */
+  id: string;
+  membershipId: string;
+  /** migration = inherited by the B1-2 backfill and not deliberately granted. */
+  origin: "explicit" | "migration";
+  /** When an inherited grant was explicitly reviewed. */
+  reviewedAt: string | null;
+  roleId: string;
+  /** Set iff scopeType = branch. */
+  scopeBranchId: string | null;
+  /** Set iff scopeType = brand. */
+  scopeBrandId: string | null;
+  scopeType: "tenant" | "brand" | "branch";
+  validFrom: string;
+  validTo: string | null;
+};
 
 /** `GET /auth/roles` — Roles visible to the tenant: its own roles plus shared system roles. — Roles, system roles first, then by name. */
 export type RbacController_listRolesResponse = ({
@@ -1865,6 +2154,76 @@ export type CatalogueController_setVariantActiveResponse = {
 
 export type CatalogueController_setVariantActiveBody = SetActiveDto;
 
+/** `GET /governance/audit/entries` — Search/filter the tenant audit log (FR-AUD-008). Requires audit.view. — A page of audit entries, most recent first. */
+export type AuditQueryController_searchResponse = {
+  entries: ({
+    action: string;
+    actorId: string | null;
+    actorType: "user" | "anonymous" | "system" | "terminal";
+    afterState: unknown | null;
+    approvalId: string | null;
+    approverId: string | null;
+    beforeState: unknown | null;
+    branchId: string | null;
+    causationId: string | null;
+    correlationId: string;
+    entityId: string | null;
+    entityType: string;
+    /** Hex-encoded SHA-256 tamper-evidence hash (FR-AUD-004). */
+    entryHash: string;
+    id: string;
+    impersonatedBy: string | null;
+    ipAddress: string | null;
+    occurredAt: string;
+    /** Hex-encoded; null for a chain's first entry. */
+    previousHash: string | null;
+    reasonCode: string | null;
+    reasonText: string | null;
+    recordedAt: string;
+    /** Per-tenant hash-chain position (BigInt on the wire). */
+    sequenceNo: string;
+    tenantId: string;
+    terminalId: string | null;
+    userAgent: string | null;
+  })[];
+  nextCursor: string | null;
+};
+
+/** `GET /governance/audit/entries/export` — Export the tenant audit log (FR-AUD-008). Requires audit.view AND report.export. — The complete, bounded set of matching audit entries. */
+export type AuditQueryController_exportEntriesResponse = {
+  count: number;
+  entries: ({
+    action: string;
+    actorId: string | null;
+    actorType: "user" | "anonymous" | "system" | "terminal";
+    afterState: unknown | null;
+    approvalId: string | null;
+    approverId: string | null;
+    beforeState: unknown | null;
+    branchId: string | null;
+    causationId: string | null;
+    correlationId: string;
+    entityId: string | null;
+    entityType: string;
+    /** Hex-encoded SHA-256 tamper-evidence hash (FR-AUD-004). */
+    entryHash: string;
+    id: string;
+    impersonatedBy: string | null;
+    ipAddress: string | null;
+    occurredAt: string;
+    /** Hex-encoded; null for a chain's first entry. */
+    previousHash: string | null;
+    reasonCode: string | null;
+    reasonText: string | null;
+    recordedAt: string;
+    /** Per-tenant hash-chain position (BigInt on the wire). */
+    sequenceNo: string;
+    tenantId: string;
+    terminalId: string | null;
+    userAgent: string | null;
+  })[];
+};
+
 /** `GET /health` — Service is up. */
 export type HealthController_checkResponse = {
   service: string;
@@ -2533,7 +2892,7 @@ export type OrdersController_listResponse = {
     closedBy: string | null;
     completedAt: string | null;
     /** FR-LOC-021 — the pack version this order was priced under, pinned. */
-    countryPackVersion: number;
+    countryPackVersion: string;
     createdAt: string;
     /** ISO 4217 currency code. */
     currency: string;
@@ -2566,7 +2925,7 @@ export type OrdersController_listResponse = {
       priceEntryId: string | null;
       priceListId: string | null;
       /** Opaque pricing-rule provenance snapshot. */
-      priceRule: Record<string, unknown>;
+      priceRule: string | null;
       /** Decimal quantity as a string (preserves exact precision). */
       quantity: string;
       readyAt: string | null;
@@ -2576,7 +2935,7 @@ export type OrdersController_listResponse = {
       state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
       /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
       taxAmount: string;
-      taxClassId: string | null;
+      taxClassId: string;
       /** Decimal quantity as a string (preserves exact precision). */
       unitCostSnapshot: string | null;
       /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -2620,7 +2979,7 @@ export type OrdersController_createResponse = {
   closedBy: string | null;
   completedAt: string | null;
   /** FR-LOC-021 — the pack version this order was priced under, pinned. */
-  countryPackVersion: number;
+  countryPackVersion: string;
   createdAt: string;
   /** ISO 4217 currency code. */
   currency: string;
@@ -2653,7 +3012,7 @@ export type OrdersController_createResponse = {
     priceEntryId: string | null;
     priceListId: string | null;
     /** Opaque pricing-rule provenance snapshot. */
-    priceRule: Record<string, unknown>;
+    priceRule: string | null;
     /** Decimal quantity as a string (preserves exact precision). */
     quantity: string;
     readyAt: string | null;
@@ -2663,7 +3022,7 @@ export type OrdersController_createResponse = {
     state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
     /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
     taxAmount: string;
-    taxClassId: string | null;
+    taxClassId: string;
     /** Decimal quantity as a string (preserves exact precision). */
     unitCostSnapshot: string | null;
     /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -2708,7 +3067,7 @@ export type OrdersController_findOneResponse = {
   closedBy: string | null;
   completedAt: string | null;
   /** FR-LOC-021 — the pack version this order was priced under, pinned. */
-  countryPackVersion: number;
+  countryPackVersion: string;
   createdAt: string;
   /** ISO 4217 currency code. */
   currency: string;
@@ -2741,7 +3100,7 @@ export type OrdersController_findOneResponse = {
     priceEntryId: string | null;
     priceListId: string | null;
     /** Opaque pricing-rule provenance snapshot. */
-    priceRule: Record<string, unknown>;
+    priceRule: string | null;
     /** Decimal quantity as a string (preserves exact precision). */
     quantity: string;
     readyAt: string | null;
@@ -2751,7 +3110,7 @@ export type OrdersController_findOneResponse = {
     state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
     /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
     taxAmount: string;
-    taxClassId: string | null;
+    taxClassId: string;
     /** Decimal quantity as a string (preserves exact precision). */
     unitCostSnapshot: string | null;
     /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -2785,6 +3144,120 @@ export type OrdersController_findOneResponse = {
   version: number;
 };
 
+/** `POST /orders/{businessDay}/{id}/discount` — Apply an order-level discount. — The order with its new discount applied. */
+export type OrdersController_applyOrderDiscountResponse = {
+  discount: {
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    amountMinor: string;
+    appliedByEmployeeId: string;
+    appliedByUserId: string;
+    approvalRequestId: string | null;
+    approvalRequired: boolean;
+    approvedByEmployeeId: string | null;
+    approvedByUserId: string | null;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    createdAt: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    fixedValueMinor: string | null;
+    id: string;
+    kind: "discount" | "comp";
+    orderId: string;
+    orderLineId: string | null;
+    orderVersionAfter: number;
+    /** Basis points — 1bp = 0.01 percentage point (1500 = 15.00%). Exact integer string. */
+    percentageValueBp: string | null;
+    reasonCodeId: string;
+    valueType: "percentage" | "fixed" | null | null;
+  };
+  order: {
+    branchId: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    channel: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
+    closedBy: string | null;
+    completedAt: string | null;
+    /** FR-LOC-021 — the pack version this order was priced under, pinned. */
+    countryPackVersion: string;
+    createdAt: string;
+    /** ISO 4217 currency code. */
+    currency: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discountTotal: string;
+    firstFiredAt: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grandTotal: string;
+    guestCount: number | null;
+    id: string;
+    /** Present only where the endpoint populates line snapshots. */
+    lines: ({
+      course: number | null;
+      createdAt: string;
+      firedAt: string | null;
+      id: string;
+      isComp: boolean;
+      /** Opaque localized-name snapshot (locale -> name), persisted at capture time. */
+      itemNameSnapshot: Record<string, unknown>;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineDiscount: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineSubtotal: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineTotal: string;
+      menuItemId: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      modifierTotal: string;
+      notes: string | null;
+      priceEntryId: string | null;
+      priceListId: string | null;
+      /** Opaque pricing-rule provenance snapshot. */
+      priceRule: string | null;
+      /** Decimal quantity as a string (preserves exact precision). */
+      quantity: string;
+      readyAt: string | null;
+      recipeVersionId: string | null;
+      seatNumber: number | null;
+      sequence: number;
+      state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      taxAmount: string;
+      taxClassId: string;
+      /** Decimal quantity as a string (preserves exact precision). */
+      unitCostSnapshot: string | null;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      unitPrice: string;
+      variantId: string;
+    })[];
+    notes: string | null;
+    openedAt: string;
+    openedBy: string;
+    orderNumber: string;
+    orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
+    originDeviceTime: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    paidTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    roundingAdjustment: string;
+    servedBy: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    serviceChargeTotal: string;
+    state: "draft" | "open" | "held" | "parked" | "partially_paid" | "completed" | "cancelled" | "partially_refunded" | "refunded";
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    subtotal: string;
+    tableId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+    terminalId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    tipTotal: string;
+    updatedAt: string;
+    /** Optimistic-concurrency version; also the ETag validator (§24.6.4). */
+    version: number;
+  };
+};
+
+export type OrdersController_applyOrderDiscountBody = ApplyDiscountDto;
+
 /** `POST /orders/{businessDay}/{id}/fire` — Fire eligible pending lines to production (explicit MVP Fire — no auto-Fire). — The order after Fire, including every line (previously-fired and newly-fired alike). */
 export type OrdersController_fireResponse = {
   branchId: string;
@@ -2794,7 +3267,7 @@ export type OrdersController_fireResponse = {
   closedBy: string | null;
   completedAt: string | null;
   /** FR-LOC-021 — the pack version this order was priced under, pinned. */
-  countryPackVersion: number;
+  countryPackVersion: string;
   createdAt: string;
   /** ISO 4217 currency code. */
   currency: string;
@@ -2827,7 +3300,7 @@ export type OrdersController_fireResponse = {
     priceEntryId: string | null;
     priceListId: string | null;
     /** Opaque pricing-rule provenance snapshot. */
-    priceRule: Record<string, unknown>;
+    priceRule: string | null;
     /** Decimal quantity as a string (preserves exact precision). */
     quantity: string;
     readyAt: string | null;
@@ -2837,7 +3310,7 @@ export type OrdersController_fireResponse = {
     state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
     /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
     taxAmount: string;
-    taxClassId: string | null;
+    taxClassId: string;
     /** Decimal quantity as a string (preserves exact precision). */
     unitCostSnapshot: string | null;
     /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -2894,7 +3367,7 @@ export type OrdersController_addLineResponse = {
     priceEntryId: string | null;
     priceListId: string | null;
     /** Opaque pricing-rule provenance snapshot. */
-    priceRule: Record<string, unknown>;
+    priceRule: string | null;
     /** Decimal quantity as a string (preserves exact precision). */
     quantity: string;
     readyAt: string | null;
@@ -2904,7 +3377,7 @@ export type OrdersController_addLineResponse = {
     state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
     /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
     taxAmount: string;
-    taxClassId: string | null;
+    taxClassId: string;
     /** Decimal quantity as a string (preserves exact precision). */
     unitCostSnapshot: string | null;
     /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -2919,7 +3392,7 @@ export type OrdersController_addLineResponse = {
     closedBy: string | null;
     completedAt: string | null;
     /** FR-LOC-021 — the pack version this order was priced under, pinned. */
-    countryPackVersion: number;
+    countryPackVersion: string;
     createdAt: string;
     /** ISO 4217 currency code. */
     currency: string;
@@ -2952,7 +3425,7 @@ export type OrdersController_addLineResponse = {
       priceEntryId: string | null;
       priceListId: string | null;
       /** Opaque pricing-rule provenance snapshot. */
-      priceRule: Record<string, unknown>;
+      priceRule: string | null;
       /** Decimal quantity as a string (preserves exact precision). */
       quantity: string;
       readyAt: string | null;
@@ -2962,7 +3435,7 @@ export type OrdersController_addLineResponse = {
       state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
       /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
       taxAmount: string;
-      taxClassId: string | null;
+      taxClassId: string;
       /** Decimal quantity as a string (preserves exact precision). */
       unitCostSnapshot: string | null;
       /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -3022,7 +3495,7 @@ export type OrdersController_voidLineResponse = {
     priceEntryId: string | null;
     priceListId: string | null;
     /** Opaque pricing-rule provenance snapshot. */
-    priceRule: Record<string, unknown>;
+    priceRule: string | null;
     /** Decimal quantity as a string (preserves exact precision). */
     quantity: string;
     readyAt: string | null;
@@ -3032,7 +3505,7 @@ export type OrdersController_voidLineResponse = {
     state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
     /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
     taxAmount: string;
-    taxClassId: string | null;
+    taxClassId: string;
     /** Decimal quantity as a string (preserves exact precision). */
     unitCostSnapshot: string | null;
     /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -3047,7 +3520,7 @@ export type OrdersController_voidLineResponse = {
     closedBy: string | null;
     completedAt: string | null;
     /** FR-LOC-021 — the pack version this order was priced under, pinned. */
-    countryPackVersion: number;
+    countryPackVersion: string;
     createdAt: string;
     /** ISO 4217 currency code. */
     currency: string;
@@ -3080,7 +3553,7 @@ export type OrdersController_voidLineResponse = {
       priceEntryId: string | null;
       priceListId: string | null;
       /** Opaque pricing-rule provenance snapshot. */
-      priceRule: Record<string, unknown>;
+      priceRule: string | null;
       /** Decimal quantity as a string (preserves exact precision). */
       quantity: string;
       readyAt: string | null;
@@ -3090,7 +3563,7 @@ export type OrdersController_voidLineResponse = {
       state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
       /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
       taxAmount: string;
-      taxClassId: string | null;
+      taxClassId: string;
       /** Decimal quantity as a string (preserves exact precision). */
       unitCostSnapshot: string | null;
       /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -3127,8 +3600,70 @@ export type OrdersController_voidLineResponse = {
 
 export type OrdersController_voidLineBody = VoidOrderLineDto;
 
-/** `POST /orders/{businessDay}/{id}/payments` — Capture a partial, or final settling, CASH or manual/external-card payment. A settling payment completes the order atomically. — The newly captured Payment and the order it now belongs to (paidTotal/roundingAdjustment/state/version updated). */
-export type OrdersController_capturePaymentResponse = {
+/** `POST /orders/{businessDay}/{id}/lines/{lineId}/comp` — Give a complimentary item (comp). — The comped line and the order it belongs to. */
+export type OrdersController_applyCompResponse = {
+  discount: {
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    amountMinor: string;
+    appliedByEmployeeId: string;
+    appliedByUserId: string;
+    approvalRequestId: string | null;
+    approvalRequired: boolean;
+    approvedByEmployeeId: string | null;
+    approvedByUserId: string | null;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    createdAt: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    fixedValueMinor: string | null;
+    id: string;
+    kind: "discount" | "comp";
+    orderId: string;
+    orderLineId: string | null;
+    orderVersionAfter: number;
+    /** Basis points — 1bp = 0.01 percentage point (1500 = 15.00%). Exact integer string. */
+    percentageValueBp: string | null;
+    reasonCodeId: string;
+    valueType: "percentage" | "fixed" | null | null;
+  };
+  line: {
+    course: number | null;
+    createdAt: string;
+    firedAt: string | null;
+    id: string;
+    isComp: boolean;
+    /** Opaque localized-name snapshot (locale -> name), persisted at capture time. */
+    itemNameSnapshot: Record<string, unknown>;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineDiscount: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineSubtotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineTotal: string;
+    menuItemId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    modifierTotal: string;
+    notes: string | null;
+    priceEntryId: string | null;
+    priceListId: string | null;
+    /** Opaque pricing-rule provenance snapshot. */
+    priceRule: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    readyAt: string | null;
+    recipeVersionId: string | null;
+    seatNumber: number | null;
+    sequence: number;
+    state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxAmount: string;
+    taxClassId: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    unitCostSnapshot: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitPrice: string;
+    variantId: string;
+  };
   order: {
     branchId: string;
     /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
@@ -3137,7 +3672,7 @@ export type OrdersController_capturePaymentResponse = {
     closedBy: string | null;
     completedAt: string | null;
     /** FR-LOC-021 — the pack version this order was priced under, pinned. */
-    countryPackVersion: number;
+    countryPackVersion: string;
     createdAt: string;
     /** ISO 4217 currency code. */
     currency: string;
@@ -3170,7 +3705,7 @@ export type OrdersController_capturePaymentResponse = {
       priceEntryId: string | null;
       priceListId: string | null;
       /** Opaque pricing-rule provenance snapshot. */
-      priceRule: Record<string, unknown>;
+      priceRule: string | null;
       /** Decimal quantity as a string (preserves exact precision). */
       quantity: string;
       readyAt: string | null;
@@ -3180,7 +3715,391 @@ export type OrdersController_capturePaymentResponse = {
       state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
       /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
       taxAmount: string;
-      taxClassId: string | null;
+      taxClassId: string;
+      /** Decimal quantity as a string (preserves exact precision). */
+      unitCostSnapshot: string | null;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      unitPrice: string;
+      variantId: string;
+    })[];
+    notes: string | null;
+    openedAt: string;
+    openedBy: string;
+    orderNumber: string;
+    orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
+    originDeviceTime: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    paidTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    roundingAdjustment: string;
+    servedBy: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    serviceChargeTotal: string;
+    state: "draft" | "open" | "held" | "parked" | "partially_paid" | "completed" | "cancelled" | "partially_refunded" | "refunded";
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    subtotal: string;
+    tableId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+    terminalId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    tipTotal: string;
+    updatedAt: string;
+    /** Optimistic-concurrency version; also the ETag validator (§24.6.4). */
+    version: number;
+  };
+};
+
+export type OrdersController_applyCompBody = ApplyCompDto;
+
+/** `POST /orders/{businessDay}/{id}/lines/{lineId}/discount` — Apply a line-level discount. — The discounted line and the order it belongs to. */
+export type OrdersController_applyLineDiscountResponse = {
+  discount: {
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    amountMinor: string;
+    appliedByEmployeeId: string;
+    appliedByUserId: string;
+    approvalRequestId: string | null;
+    approvalRequired: boolean;
+    approvedByEmployeeId: string | null;
+    approvedByUserId: string | null;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    createdAt: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    fixedValueMinor: string | null;
+    id: string;
+    kind: "discount" | "comp";
+    orderId: string;
+    orderLineId: string | null;
+    orderVersionAfter: number;
+    /** Basis points — 1bp = 0.01 percentage point (1500 = 15.00%). Exact integer string. */
+    percentageValueBp: string | null;
+    reasonCodeId: string;
+    valueType: "percentage" | "fixed" | null | null;
+  };
+  line: {
+    course: number | null;
+    createdAt: string;
+    firedAt: string | null;
+    id: string;
+    isComp: boolean;
+    /** Opaque localized-name snapshot (locale -> name), persisted at capture time. */
+    itemNameSnapshot: Record<string, unknown>;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineDiscount: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineSubtotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineTotal: string;
+    menuItemId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    modifierTotal: string;
+    notes: string | null;
+    priceEntryId: string | null;
+    priceListId: string | null;
+    /** Opaque pricing-rule provenance snapshot. */
+    priceRule: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    readyAt: string | null;
+    recipeVersionId: string | null;
+    seatNumber: number | null;
+    sequence: number;
+    state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxAmount: string;
+    taxClassId: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    unitCostSnapshot: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitPrice: string;
+    variantId: string;
+  };
+  order: {
+    branchId: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    channel: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
+    closedBy: string | null;
+    completedAt: string | null;
+    /** FR-LOC-021 — the pack version this order was priced under, pinned. */
+    countryPackVersion: string;
+    createdAt: string;
+    /** ISO 4217 currency code. */
+    currency: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discountTotal: string;
+    firstFiredAt: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grandTotal: string;
+    guestCount: number | null;
+    id: string;
+    /** Present only where the endpoint populates line snapshots. */
+    lines: ({
+      course: number | null;
+      createdAt: string;
+      firedAt: string | null;
+      id: string;
+      isComp: boolean;
+      /** Opaque localized-name snapshot (locale -> name), persisted at capture time. */
+      itemNameSnapshot: Record<string, unknown>;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineDiscount: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineSubtotal: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineTotal: string;
+      menuItemId: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      modifierTotal: string;
+      notes: string | null;
+      priceEntryId: string | null;
+      priceListId: string | null;
+      /** Opaque pricing-rule provenance snapshot. */
+      priceRule: string | null;
+      /** Decimal quantity as a string (preserves exact precision). */
+      quantity: string;
+      readyAt: string | null;
+      recipeVersionId: string | null;
+      seatNumber: number | null;
+      sequence: number;
+      state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      taxAmount: string;
+      taxClassId: string;
+      /** Decimal quantity as a string (preserves exact precision). */
+      unitCostSnapshot: string | null;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      unitPrice: string;
+      variantId: string;
+    })[];
+    notes: string | null;
+    openedAt: string;
+    openedBy: string;
+    orderNumber: string;
+    orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
+    originDeviceTime: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    paidTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    roundingAdjustment: string;
+    servedBy: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    serviceChargeTotal: string;
+    state: "draft" | "open" | "held" | "parked" | "partially_paid" | "completed" | "cancelled" | "partially_refunded" | "refunded";
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    subtotal: string;
+    tableId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+    terminalId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    tipTotal: string;
+    updatedAt: string;
+    /** Optimistic-concurrency version; also the ETag validator (§24.6.4). */
+    version: number;
+  };
+};
+
+export type OrdersController_applyLineDiscountBody = ApplyDiscountDto;
+
+/** `POST /orders/{businessDay}/{id}/lines/{lineId}/void-postfire` — Void a post-fire line, with mandatory disposition. — The voided line, the order, and the disposition record. */
+export type OrdersController_voidLinePostFireResponse = {
+  line: {
+    course: number | null;
+    createdAt: string;
+    firedAt: string | null;
+    id: string;
+    isComp: boolean;
+    /** Opaque localized-name snapshot (locale -> name), persisted at capture time. */
+    itemNameSnapshot: Record<string, unknown>;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineDiscount: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineSubtotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineTotal: string;
+    menuItemId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    modifierTotal: string;
+    notes: string | null;
+    priceEntryId: string | null;
+    priceListId: string | null;
+    /** Opaque pricing-rule provenance snapshot. */
+    priceRule: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    readyAt: string | null;
+    recipeVersionId: string | null;
+    seatNumber: number | null;
+    sequence: number;
+    state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxAmount: string;
+    taxClassId: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    unitCostSnapshot: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitPrice: string;
+    variantId: string;
+  };
+  order: {
+    branchId: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    channel: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
+    closedBy: string | null;
+    completedAt: string | null;
+    /** FR-LOC-021 — the pack version this order was priced under, pinned. */
+    countryPackVersion: string;
+    createdAt: string;
+    /** ISO 4217 currency code. */
+    currency: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discountTotal: string;
+    firstFiredAt: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grandTotal: string;
+    guestCount: number | null;
+    id: string;
+    /** Present only where the endpoint populates line snapshots. */
+    lines: ({
+      course: number | null;
+      createdAt: string;
+      firedAt: string | null;
+      id: string;
+      isComp: boolean;
+      /** Opaque localized-name snapshot (locale -> name), persisted at capture time. */
+      itemNameSnapshot: Record<string, unknown>;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineDiscount: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineSubtotal: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineTotal: string;
+      menuItemId: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      modifierTotal: string;
+      notes: string | null;
+      priceEntryId: string | null;
+      priceListId: string | null;
+      /** Opaque pricing-rule provenance snapshot. */
+      priceRule: string | null;
+      /** Decimal quantity as a string (preserves exact precision). */
+      quantity: string;
+      readyAt: string | null;
+      recipeVersionId: string | null;
+      seatNumber: number | null;
+      sequence: number;
+      state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      taxAmount: string;
+      taxClassId: string;
+      /** Decimal quantity as a string (preserves exact precision). */
+      unitCostSnapshot: string | null;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      unitPrice: string;
+      variantId: string;
+    })[];
+    notes: string | null;
+    openedAt: string;
+    openedBy: string;
+    orderNumber: string;
+    orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
+    originDeviceTime: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    paidTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    roundingAdjustment: string;
+    servedBy: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    serviceChargeTotal: string;
+    state: "draft" | "open" | "held" | "parked" | "partially_paid" | "completed" | "cancelled" | "partially_refunded" | "refunded";
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    subtotal: string;
+    tableId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+    terminalId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    tipTotal: string;
+    updatedAt: string;
+    /** Optimistic-concurrency version; also the ETag validator (§24.6.4). */
+    version: number;
+  };
+  postFireVoidRecord: {
+    actorUserId: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    createdAt: string;
+    disposition: "returned_to_stock" | "wasted" | "given_to_staff";
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    financialAmountRemoved: string;
+    id: string;
+    inventoryMovementIds: string[];
+    orderId: string;
+    orderLineId: string;
+    reasonCodeId: string;
+  };
+};
+
+export type OrdersController_voidLinePostFireBody = VoidOrderLinePostFireDto;
+
+/** `POST /orders/{businessDay}/{id}/payments` — Capture a partial, or final settling, CASH or manual/external-card payment. A settling payment completes the order atomically. — The newly captured Payment and the order it now belongs to (paidTotal/roundingAdjustment/state/version updated). */
+export type OrdersController_capturePaymentResponse = {
+  order: {
+    branchId: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    channel: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
+    closedBy: string | null;
+    completedAt: string | null;
+    /** FR-LOC-021 — the pack version this order was priced under, pinned. */
+    countryPackVersion: string;
+    createdAt: string;
+    /** ISO 4217 currency code. */
+    currency: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discountTotal: string;
+    firstFiredAt: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grandTotal: string;
+    guestCount: number | null;
+    id: string;
+    /** Present only where the endpoint populates line snapshots. */
+    lines: ({
+      course: number | null;
+      createdAt: string;
+      firedAt: string | null;
+      id: string;
+      isComp: boolean;
+      /** Opaque localized-name snapshot (locale -> name), persisted at capture time. */
+      itemNameSnapshot: Record<string, unknown>;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineDiscount: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineSubtotal: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineTotal: string;
+      menuItemId: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      modifierTotal: string;
+      notes: string | null;
+      priceEntryId: string | null;
+      priceListId: string | null;
+      /** Opaque pricing-rule provenance snapshot. */
+      priceRule: string | null;
+      /** Decimal quantity as a string (preserves exact precision). */
+      quantity: string;
+      readyAt: string | null;
+      recipeVersionId: string | null;
+      seatNumber: number | null;
+      sequence: number;
+      state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      taxAmount: string;
+      taxClassId: string;
       /** Decimal quantity as a string (preserves exact precision). */
       unitCostSnapshot: string | null;
       /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -3244,6 +4163,247 @@ export type OrdersController_capturePaymentResponse = {
 };
 
 export type OrdersController_capturePaymentBody = CapturePaymentDto;
+
+/** `GET /orders/{businessDay}/{id}/receipt` — An itemized, INTERNAL, NON-FISCAL receipt for a completed order. — The non-fiscal receipt document. Available only once the order is completed. */
+export type OrdersController_receiptResponse = {
+  /** Localization key for the visible non-fiscal disclosure text. */
+  disclosureKey: string;
+  /** Primary machine-readable non-fiscal classification. */
+  documentType: "INTERNAL_NON_FISCAL_RECEIPT";
+  /** Always false. This is never a fiscal document. */
+  fiscal: false;
+  lines: ({
+    /** Opaque localized-name snapshot (locale -> name), persisted at capture time. Never re-resolved from Catalogue. */
+    itemNameSnapshot: Record<string, unknown>;
+    /** Minor-unit money amount as a decimal string. Always "0" under the current runtime — discounts are not implemented — reported verbatim, never invented. */
+    lineDiscount: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineSubtotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineTotal: string;
+    menuItemId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    modifierTotal: string;
+    modifiers: ({
+      modifierId: string;
+      /** Opaque localized-name snapshot (locale -> name), persisted at capture time. Never re-resolved from Catalogue. */
+      nameSnapshot: Record<string, unknown>;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      priceDelta: string;
+      quantity: number;
+    })[];
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sequence: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxAmount: string;
+    /** The sale-time tax-class identity (never re-resolved). Non-null: a MenuItem with no TaxClass is not sellable. */
+    taxClassId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitPrice: string;
+    variantId: string;
+  })[];
+  order: {
+    branchId: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    channel: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
+    completedAt: string;
+    /** FR-LOC-021 — the pack version this order was priced under, pinned. Provenance only; never re-resolved. */
+    countryPackVersion: string;
+    /** ISO 4217 currency code. */
+    currency: string;
+    id: string;
+    /** FR-POS-002 operational order number, e.g. <branch_code>-<business_day_seq>, drawn from a terminal block. This is NOT a fiscal invoice sequence: it is neither gapless nor globally ordered. */
+    orderNumber: string;
+    orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
+    /** Always completed — a receipt cannot be produced for any other order state. */
+    state: "completed";
+    terminalId: string | null;
+  };
+  payments: ({
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    amount: string;
+    /** manual_external_card only, when supplied. Exactly 4 digits. */
+    cardLast4: string | null;
+    /** manual_external_card only, when supplied. */
+    cardScheme: string | null;
+    /** CASH only. Null for manual_external_card. */
+    changeGiven: string | null;
+    /** ISO 4217 currency code. */
+    currency: string;
+    id: string;
+    /** Server clock at capture. */
+    processedAt: string;
+    /** CASH-only cash-drawer rounding adjustment for this payment. Zero for manual_external_card. Never part of the order grandTotal or paidTotal. */
+    roundingAdjustment: string;
+    tender: "cash" | "manual_external_card";
+    /** CASH only. Null for manual_external_card. */
+    tenderedAmount: string | null;
+  })[];
+  /** FR-FIN-031 — whether the pinned country pack priced this order tax-inclusive or tax-exclusive, derived from the frozen order totals only. NOT_APPLICABLE when taxTotal is zero. */
+  taxPresentation: "INCLUSIVE" | "EXCLUSIVE" | "NOT_APPLICABLE" | "UNDETERMINED";
+  totals: {
+    /** A separate cash-drawer-reconciliation figure. Never part of grandTotal or paidTotal. */
+    cashRoundingAdjustment: string;
+    /** Always "0" under the current runtime — discounts are not implemented — reported verbatim, never invented. */
+    discountTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grandTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    paidTotal: string;
+    /** Always "0" under the current runtime — service charge is not implemented. */
+    serviceChargeTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    subtotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+    /** Always "0" under the current runtime — tips are not implemented. */
+    tipTotal: string;
+  };
+};
+
+/** `POST /orders/{businessDay}/{id}/refunds` — Issue a refund against a completed order. — The new Refund and the order it was issued against. */
+export type OrdersController_issueRefundResponse = {
+  order: {
+    branchId: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    channel: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
+    closedBy: string | null;
+    completedAt: string | null;
+    /** FR-LOC-021 — the pack version this order was priced under, pinned. */
+    countryPackVersion: string;
+    createdAt: string;
+    /** ISO 4217 currency code. */
+    currency: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discountTotal: string;
+    firstFiredAt: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grandTotal: string;
+    guestCount: number | null;
+    id: string;
+    /** Present only where the endpoint populates line snapshots. */
+    lines: ({
+      course: number | null;
+      createdAt: string;
+      firedAt: string | null;
+      id: string;
+      isComp: boolean;
+      /** Opaque localized-name snapshot (locale -> name), persisted at capture time. */
+      itemNameSnapshot: Record<string, unknown>;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineDiscount: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineSubtotal: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineTotal: string;
+      menuItemId: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      modifierTotal: string;
+      notes: string | null;
+      priceEntryId: string | null;
+      priceListId: string | null;
+      /** Opaque pricing-rule provenance snapshot. */
+      priceRule: string | null;
+      /** Decimal quantity as a string (preserves exact precision). */
+      quantity: string;
+      readyAt: string | null;
+      recipeVersionId: string | null;
+      seatNumber: number | null;
+      sequence: number;
+      state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      taxAmount: string;
+      taxClassId: string;
+      /** Decimal quantity as a string (preserves exact precision). */
+      unitCostSnapshot: string | null;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      unitPrice: string;
+      variantId: string;
+    })[];
+    notes: string | null;
+    openedAt: string;
+    openedBy: string;
+    orderNumber: string;
+    orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
+    originDeviceTime: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    paidTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    roundingAdjustment: string;
+    servedBy: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    serviceChargeTotal: string;
+    state: "draft" | "open" | "held" | "parked" | "partially_paid" | "completed" | "cancelled" | "partially_refunded" | "refunded";
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    subtotal: string;
+    tableId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+    terminalId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    tipTotal: string;
+    updatedAt: string;
+    /** Optimistic-concurrency version; also the ETag validator (§24.6.4). */
+    version: number;
+  };
+  refund: {
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    amountMinor: string;
+    appliedByEmployeeId: string;
+    appliedByUserId: string;
+    approvalRequestId: string | null;
+    approvalRequired: boolean;
+    approvedByEmployeeId: string | null;
+    approvedByUserId: string | null;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    cashSessionId: string | null;
+    createdAt: string;
+    id: string;
+    orderId: string;
+    originalPaymentId: string;
+    reasonCodeId: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    refundBusinessDay: string;
+    tender: "cash" | "manual_external_card";
+  };
+};
+
+export type OrdersController_issueRefundBody = IssueRefundDto;
+
+/** `GET /org/access` — The caller's live, authorized brands and branches (frontend discovery). — Brands and branches visible under the current, live scoped authority. */
+export type OrganisationController_getAccessibleScopeResponse = {
+  /** Branches the caller's live scoped authority can see, both active and inactive (status is returned so the frontend can grey out an inactive branch rather than have it silently disappear). Resolved from LIVE scoped role assignments on every call — never from a JWT claim, a home branch, or `EmployeeBranch`, none of which grant visibility on their own. */
+  branches: ({
+    /** Opaque address JSON, as stored. */
+    address: Record<string, unknown>;
+    automaticAvailability: boolean;
+    /** ISO 4217 currency code. */
+    baseCurrency: string;
+    brandId: string;
+    code: string;
+    countryCode: string;
+    createdAt: string;
+    id: string;
+    name: string;
+    status: "active" | "inactive";
+    timezone: string;
+  })[];
+  /** Brands the caller's live scoped authority can see. A tenant-scoped grant sees every brand; a brand-scoped grant sees that brand; a branch-scoped grant sees that branch's own brand. Never every brand in the tenant merely because the tenant has one. */
+  brands: ({
+    createdAt: string;
+    /** Opaque default-settings JSON, as stored. */
+    defaultSettings: Record<string, unknown>;
+    id: string;
+    name: string;
+    /** Opaque brand theme JSON, as stored. */
+    theme: Record<string, unknown>;
+  })[];
+  tenantId: string;
+};
 
 /** `GET /org/branches` — All branches in the tenant. */
 export type OrganisationController_listBranchesResponse = ({
@@ -3841,7 +5001,7 @@ export type ProductionController_publishResponse = {
   yieldUnitId: string;
 };
 
-/** `GET /reports/branches/{branchId}/daily-trading/{businessDay}` — Branch daily-trading report (Internal-MVP: dashboard-only, one tenant, exactly one active branch). — The daily-trading report: salesSummary, tenderTotals (incl. completedExcessCapturedTotal), taxSummary, cashReconciliation (WHOLE_SESSION scope), dataAsOf, periodStatus (OPEN/UNSEALED/SETTLED — no SEALED, no FUTURE), currency/currencySource, and a scope block disclosing exactly what this Internal-MVP slice does and does not cover. */
+/** `GET /reports/branches/{branchId}/daily-trading/{businessDay}` — Branch daily-trading report (dashboard-only; authorized against the branch it names). — The daily-trading report: salesSummary, tenderTotals (incl. completedExcessCapturedTotal), taxSummary, cashReconciliation (WHOLE_SESSION scope), dataAsOf, periodStatus (OPEN/UNSEALED/SETTLED — no SEALED, no FUTURE), currency/currencySource, and a scope block disclosing exactly what this Internal-MVP slice does and does not cover. */
 export type ReportingController_getDailyTradingReportResponse = {
   /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
   branchCurrentBusinessDay: string;
@@ -3990,6 +5150,463 @@ export type ProductionController_addGroupMemberResponse = {
 
 export type ProductionController_addGroupMemberBody = AddSubstituteMemberDto;
 
+/** `POST /v1/sync/batch` — Upload a batch of offline operations — Per-operation results. Always 200 for a well-formed authorised batch, whatever the individual outcomes. */
+export type SyncController_uploadBatch_v1Response = {
+  /** The batch id the client supplied, echoed unchanged. */
+  batchId: string;
+  /** True when the skew exceeded the configured threshold (default 5 minutes). The skew is recorded and an alert raised; the operations are still accepted and their original timestamps preserved. */
+  clockSkewExceededThreshold: boolean;
+  /** Largest observed |device HLC physical clock − server receipt|, signed: positive means the device runs AHEAD. Reported, never silently corrected (FR-OFF-042). */
+  clockSkewMs: number;
+  /** Per-status totals for this batch. */
+  counts: {
+    accepted: number;
+    conflict: number;
+    deferred: number;
+    duplicate: number;
+    rejected: number;
+  };
+  protocolVersion: number;
+  /** The server's own receipt instant. */
+  receivedAt: string;
+  /** True when this batch had already been completed and the stored response was replayed verbatim. Nothing was re-applied (FR-OFF-025). */
+  replayed: boolean;
+  /** One result per submitted operation, in submission order. */
+  results: ({
+    /** The sync.conflict_records row raised for this operation, when status is conflict. */
+    conflictId: string | null;
+    /** True exactly when the client may delete this operation from its outbox. Restated as a field so a client never has to hard-code the status vocabulary to decide. */
+    definitive: boolean;
+    /** Handler-supplied result detail, echoed to the client. */
+    detail: Record<string, unknown> | null;
+    /** The client-generated operation id, echoed back UNCHANGED — FR-OFF-015: the server never reassigns an identifier. */
+    opId: string;
+    /** Machine-readable reason. Always present on rejected, conflict and deferred, so a client can decide between dead-lettering, fixing and resending, or waiting for a causal parent. */
+    reasonCode: string | null;
+    /** Human-readable explanation. */
+    reasonDetail: string | null;
+    /** accepted | duplicate | conflict | rejected are DEFINITIVE — the client may remove the operation from its outbox. deferred is NOT definitive: the causal parent has not been applied, so retain the operation and resend it once the parent is accepted (FR-OFF-022 / FR-OFF-024). */
+    status: "accepted" | "duplicate" | "conflict" | "rejected" | "deferred";
+  })[];
+};
+
+export type SyncController_uploadBatch_v1Body = SyncBatchDto;
+
+/** `POST /v1/sync/recovery/grants` — Authorize a bounded, one-shot recovery upload window for a disabled or revoked terminal's committed offline backlog (D1-1 GD-D1-07). — The recovery grant. */
+export type SyncRecoveryController_issueGrant_v1Response = {
+  branchId: string;
+  expiresAt: string;
+  id: string;
+  issuedAt: string;
+  status: "pending";
+  terminalId: string;
+};
+
+export type SyncRecoveryController_issueGrant_v1Body = IssueRecoveryGrantDto;
+
+/** `POST /v1/sync/recovery/{grantId}/batch` — Upload one batch of a revoked terminal's committed offline backlog, authenticated as the admin who holds (or was granted) recovery authority for it — never as the terminal itself (see the service docblock for why). — Per-operation results — identical shape to ordinary sync. */
+export type SyncRecoveryController_uploadRecoveryBatch_v1Response = {
+  /** The batch id the client supplied, echoed unchanged. */
+  batchId: string;
+  /** True when the skew exceeded the configured threshold (default 5 minutes). The skew is recorded and an alert raised; the operations are still accepted and their original timestamps preserved. */
+  clockSkewExceededThreshold: boolean;
+  /** Largest observed |device HLC physical clock − server receipt|, signed: positive means the device runs AHEAD. Reported, never silently corrected (FR-OFF-042). */
+  clockSkewMs: number;
+  /** Per-status totals for this batch. */
+  counts: {
+    accepted: number;
+    conflict: number;
+    deferred: number;
+    duplicate: number;
+    rejected: number;
+  };
+  protocolVersion: number;
+  /** The server's own receipt instant. */
+  receivedAt: string;
+  /** True when this batch had already been completed and the stored response was replayed verbatim. Nothing was re-applied (FR-OFF-025). */
+  replayed: boolean;
+  /** One result per submitted operation, in submission order. */
+  results: ({
+    /** The sync.conflict_records row raised for this operation, when status is conflict. */
+    conflictId: string | null;
+    /** True exactly when the client may delete this operation from its outbox. Restated as a field so a client never has to hard-code the status vocabulary to decide. */
+    definitive: boolean;
+    /** Handler-supplied result detail, echoed to the client. */
+    detail: Record<string, unknown> | null;
+    /** The client-generated operation id, echoed back UNCHANGED — FR-OFF-015: the server never reassigns an identifier. */
+    opId: string;
+    /** Machine-readable reason. Always present on rejected, conflict and deferred, so a client can decide between dead-lettering, fixing and resending, or waiting for a causal parent. */
+    reasonCode: string | null;
+    /** Human-readable explanation. */
+    reasonDetail: string | null;
+    /** accepted | duplicate | conflict | rejected are DEFINITIVE — the client may remove the operation from its outbox. deferred is NOT definitive: the causal parent has not been applied, so retain the operation and resend it once the parent is accepted (FR-OFF-022 / FR-OFF-024). */
+    status: "accepted" | "duplicate" | "conflict" | "rejected" | "deferred";
+  })[];
+};
+
+export type SyncRecoveryController_uploadRecoveryBatch_v1Body = SyncBatchDto;
+
+/** `POST /workforce/attendance/clock-in` — FR-HRM-020/021/022/023 — POS-terminal PIN clock-in. NO `@RequirePermission`: the caller acts on their OWN employment record via a PIN-verified POS session, never on an RBAC grant — every active employee must be able to clock themselves in regardless of what else they are permitted to do. §15.2's Workforce catalogue has no "clock in" verb to invent one from. See `REVIEWED_UNPROTECTED_ROUTES` in `authorization-coverage.spec.ts`. */
+export type AttendanceController_clockInResponse = {
+  branchId: string;
+  clockInAt: string;
+  clockOutAt: string | null;
+  createdAt: string;
+  earlyDeparture: boolean;
+  employeeId: string;
+  id: string;
+  lateArrival: boolean;
+  missingClockOut: boolean;
+  outsideGeofence: boolean;
+  scheduledShiftId: string | null;
+  status: "open" | "closed";
+  tenantId: string;
+  unscheduled: boolean;
+};
+
+export type AttendanceController_clockInBody = ClockInDto;
+
+/** `POST /workforce/attendance/clock-out` — FR-HRM-020/021/022 — POS-terminal PIN clock-out. Same authority as clock-in. */
+export type AttendanceController_clockOutResponse = {
+  branchId: string;
+  clockInAt: string;
+  clockOutAt: string | null;
+  createdAt: string;
+  earlyDeparture: boolean;
+  employeeId: string;
+  id: string;
+  lateArrival: boolean;
+  missingClockOut: boolean;
+  outsideGeofence: boolean;
+  scheduledShiftId: string | null;
+  status: "open" | "closed";
+  tenantId: string;
+  unscheduled: boolean;
+};
+
+export type AttendanceController_clockOutBody = ClockOutDto;
+
+/** `POST /workforce/attendance/settings` — FR-HRM-022/023 threshold configuration — a NEW effective-dated version. `settings.branch.manage` ("Branch configuration"), NOT an HR code: the exact `treasury/cash-close-policy` precedent for reusing this already-seeded Organisation permission for a new per-branch policy table, declared as a plain string literal to avoid a new `workforce->organisation` private-path import. */
+export type AttendanceController_setSettingsResponse = {
+  branchId: string;
+  createdAt: string;
+  createdBy: string;
+  earlyClockInMinutes: number | null;
+  effectiveFrom: string;
+  geofenceCenterLat: string | null;
+  geofenceCenterLng: string | null;
+  geofenceRadiusMeters: number | null;
+  graceMinutes: number | null;
+  id: string;
+  tenantId: string;
+};
+
+export type AttendanceController_setSettingsBody = SetAttendanceSettingsDto;
+
+/** `GET /workforce/attendance/{attendanceRecordId}` */
+export type AttendanceController_getResponse = {
+  branchId: string;
+  clockEvents: ({
+    attendanceRecordId: string;
+    branchId: string;
+    deviceId: string | null;
+    employeeId: string;
+    eventType: "clock_in" | "clock_out";
+    gpsLat: string | null;
+    gpsLng: string | null;
+    id: string;
+    method: "pos_pin" | "mobile" | "biometric";
+    occurredAt: string;
+    tenantId: string;
+    terminalId: string | null;
+  })[];
+  clockInAt: string;
+  clockOutAt: string | null;
+  corrections: ({
+    actorId: string;
+    attendanceRecordId: string;
+    branchId: string;
+    correctedValue: string;
+    createdAt: string;
+    employeeId: string;
+    field: "clock_in_at" | "clock_out_at";
+    id: string;
+    originalValue: string | null;
+    reason: string;
+    tenantId: string;
+  })[];
+  createdAt: string;
+  earlyDeparture: boolean;
+  employeeId: string;
+  id: string;
+  lateArrival: boolean;
+  missingClockOut: boolean;
+  outsideGeofence: boolean;
+  scheduledShiftId: string | null;
+  status: "open" | "closed";
+  tenantId: string;
+  unscheduled: boolean;
+};
+
+/** `POST /workforce/attendance/{attendanceRecordId}/correct` — FR-HRM-025 — manual correction: permission-gated, reasoned, evidenced. */
+export type AttendanceController_correctResponse = {
+  actorId: string;
+  attendanceRecordId: string;
+  branchId: string;
+  correctedValue: string;
+  createdAt: string;
+  employeeId: string;
+  field: "clock_in_at" | "clock_out_at";
+  id: string;
+  originalValue: string | null;
+  reason: string;
+  tenantId: string;
+};
+
+export type AttendanceController_correctBody = CorrectAttendanceDto;
+
+/** `GET /workforce/employees` */
+export type EmployeesController_listResponse = ({
+  branches: ({
+    branchId: string;
+  })[];
+  code: string;
+  /** { phone?, email?, address? } */
+  contactDetails: Record<string, unknown> | null;
+  createdAt: string;
+  dateOfBirth: string | null;
+  department: string | null;
+  displayName: string;
+  /** { name?, phone?, relation? } */
+  emergencyContact: Record<string, unknown> | null;
+  employmentType: "full_time" | "part_time" | "casual" | "contractor" | "trainee" | null | null;
+  hireDate: string | null;
+  homeBranchId: string;
+  id: string;
+  /** Locale -> localised name, e.g. {"en": "...", "ar": "..."}. */
+  namesLocalized: Record<string, unknown>;
+  nationalId: string | null;
+  position: string | null;
+  status: "active" | "suspended" | "terminated";
+  tenantId: string;
+  terminationDate: string | null;
+  updatedAt: string;
+  userId: string | null;
+})[];
+
+/** `POST /workforce/employees` — FR-HRM-001/002/005 — create a full employee record. */
+export type EmployeesController_createResponse = {
+  branches: ({
+    branchId: string;
+  })[];
+  code: string;
+  /** { phone?, email?, address? } */
+  contactDetails: Record<string, unknown> | null;
+  createdAt: string;
+  dateOfBirth: string | null;
+  department: string | null;
+  displayName: string;
+  /** { name?, phone?, relation? } */
+  emergencyContact: Record<string, unknown> | null;
+  employmentType: "full_time" | "part_time" | "casual" | "contractor" | "trainee" | null | null;
+  hireDate: string | null;
+  homeBranchId: string;
+  id: string;
+  /** Locale -> localised name, e.g. {"en": "...", "ar": "..."}. */
+  namesLocalized: Record<string, unknown>;
+  nationalId: string | null;
+  permittedBranchIds: string[];
+  position: string | null;
+  status: "active" | "suspended" | "terminated";
+  tenantId: string;
+  terminationDate: string | null;
+  updatedAt: string;
+  userId: string | null;
+};
+
+export type EmployeesController_createBody = CreateEmployeeDto;
+
+/** `GET /workforce/employees/{employeeId}` */
+export type EmployeesController_getResponse = {
+  branches: ({
+    branchId: string;
+  })[];
+  code: string;
+  /** { phone?, email?, address? } */
+  contactDetails: Record<string, unknown> | null;
+  createdAt: string;
+  dateOfBirth: string | null;
+  department: string | null;
+  displayName: string;
+  /** { name?, phone?, relation? } */
+  emergencyContact: Record<string, unknown> | null;
+  employmentType: "full_time" | "part_time" | "casual" | "contractor" | "trainee" | null | null;
+  hireDate: string | null;
+  homeBranchId: string;
+  id: string;
+  /** Locale -> localised name, e.g. {"en": "...", "ar": "..."}. */
+  namesLocalized: Record<string, unknown>;
+  nationalId: string | null;
+  position: string | null;
+  status: "active" | "suspended" | "terminated";
+  tenantId: string;
+  terminationDate: string | null;
+  updatedAt: string;
+  userId: string | null;
+};
+
+/** `PATCH /workforce/employees/{employeeId}` */
+export type EmployeesController_updateResponse = {
+  branches: ({
+    branchId: string;
+  })[];
+  code: string;
+  /** { phone?, email?, address? } */
+  contactDetails: Record<string, unknown> | null;
+  createdAt: string;
+  dateOfBirth: string | null;
+  department: string | null;
+  displayName: string;
+  /** { name?, phone?, relation? } */
+  emergencyContact: Record<string, unknown> | null;
+  employmentType: "full_time" | "part_time" | "casual" | "contractor" | "trainee" | null | null;
+  hireDate: string | null;
+  homeBranchId: string;
+  id: string;
+  /** Locale -> localised name, e.g. {"en": "...", "ar": "..."}. */
+  namesLocalized: Record<string, unknown>;
+  nationalId: string | null;
+  position: string | null;
+  status: "active" | "suspended" | "terminated";
+  tenantId: string;
+  terminationDate: string | null;
+  updatedAt: string;
+  userId: string | null;
+};
+
+export type EmployeesController_updateBody = UpdateEmployeeDto;
+
+/** `POST /workforce/employees/{employeeId}/branches` — FR-HRM-005 — multi-branch assignment. */
+export type EmployeesController_addBranchResponse = {
+  branchId: string;
+  createdAt: string;
+  employeeId: string;
+  tenantId: string;
+};
+
+export type EmployeesController_addBranchBody = AddPermittedBranchDto;
+
+/** `GET /workforce/employees/{employeeId}/compensation` — FR-HRM-003 — restricted to `hr.compensation.view` holders only. — The current compensation version, or null if none has ever been set. */
+export type EmployeesController_currentCompensationResponse = {
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  amountMinorUnits: string;
+  basis: "hourly" | "monthly_salary" | "per_shift";
+  createdAt: string;
+  createdBy: string;
+  currency: string;
+  effectiveFrom: string;
+  employeeId: string;
+  id: string;
+  tenantId: string;
+} | null;
+
+/** `POST /workforce/employees/{employeeId}/compensation` — FR-HRM-003 — a new effective-dated version. No `hr.compensation.manage` code exists in §15.2 (only `.view`); writing pay is therefore gated on `hr.employee.manage`, the same "no write verb given" discipline `SALES_PERMISSIONS` documents for `pos.order.create`. */
+export type EmployeesController_setCompensationResponse = {
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  amountMinorUnits: string;
+  basis: "hourly" | "monthly_salary" | "per_shift";
+  createdAt: string;
+  createdBy: string;
+  currency: string;
+  effectiveFrom: string;
+  employeeId: string;
+  id: string;
+  tenantId: string;
+};
+
+export type EmployeesController_setCompensationBody = SetCompensationDto;
+
+/** `POST /workforce/employees/{employeeId}/deactivate` — FR-HRM-006 — deactivate, never hard-delete. */
+export type EmployeesController_deactivateResponse = {
+  branches: ({
+    branchId: string;
+  })[];
+  code: string;
+  /** { phone?, email?, address? } */
+  contactDetails: Record<string, unknown> | null;
+  createdAt: string;
+  dateOfBirth: string | null;
+  department: string | null;
+  displayName: string;
+  /** { name?, phone?, relation? } */
+  emergencyContact: Record<string, unknown> | null;
+  employmentType: "full_time" | "part_time" | "casual" | "contractor" | "trainee" | null | null;
+  hireDate: string | null;
+  homeBranchId: string;
+  id: string;
+  /** Locale -> localised name, e.g. {"en": "...", "ar": "..."}. */
+  namesLocalized: Record<string, unknown>;
+  nationalId: string | null;
+  position: string | null;
+  status: "active" | "suspended" | "terminated";
+  tenantId: string;
+  terminationDate: string | null;
+  updatedAt: string;
+  userId: string | null;
+};
+
+export type EmployeesController_deactivateBody = DeactivateEmployeeDto;
+
+/** `POST /workforce/schedules` — FR-HRM-010 — create a schedule by branch and week. */
+export type ScheduleController_createResponse = {
+  branchId: string;
+  createdAt: string;
+  createdBy: string;
+  id: string;
+  tenantId: string;
+  weekStartDate: string;
+};
+
+export type ScheduleController_createBody = CreateScheduleDto;
+
+/** `GET /workforce/schedules/{scheduleId}` */
+export type ScheduleController_getResponse = {
+  branchId: string;
+  createdAt: string;
+  createdBy: string;
+  id: string;
+  shifts: ({
+    branchId: string;
+    createdAt: string;
+    createdBy: string;
+    employeeId: string;
+    endsAt: string;
+    id: string;
+    position: string | null;
+    scheduleId: string;
+    startsAt: string;
+    tenantId: string;
+  })[];
+  tenantId: string;
+  weekStartDate: string;
+};
+
+/** `POST /workforce/schedules/{scheduleId}/shifts` — FR-HRM-010/012 — create one validated scheduled shift. */
+export type ScheduleController_createShiftResponse = {
+  branchId: string;
+  createdAt: string;
+  createdBy: string;
+  employeeId: string;
+  endsAt: string;
+  id: string;
+  position: string | null;
+  scheduleId: string;
+  startsAt: string;
+  tenantId: string;
+};
+
+export type ScheduleController_createShiftBody = CreateScheduledShiftDto;
+
 // ---------------------------------------------------------------------------
 // Route table
 // ---------------------------------------------------------------------------
@@ -3998,6 +5615,7 @@ export const ROUTES = {
   AuthController_login: { method: "POST", path: "/auth/login" },
   AuthController_logout: { method: "POST", path: "/auth/logout" },
   AuthController_me: { method: "GET", path: "/auth/me" },
+  RbacController_listAssignments: { method: "GET", path: "/auth/memberships/{membershipId}/roles" },
   RbacController_assignRole: { method: "POST", path: "/auth/memberships/{membershipId}/roles" },
   RbacController_removeRole: { method: "DELETE", path: "/auth/memberships/{membershipId}/roles/{roleId}" },
   PasswordController_change: { method: "POST", path: "/auth/password/change" },
@@ -4006,6 +5624,9 @@ export const ROUTES = {
   RbacController_myPermissions: { method: "GET", path: "/auth/permissions" },
   AuthController_loginWithPin: { method: "POST", path: "/auth/pin" },
   AuthController_refresh: { method: "POST", path: "/auth/refresh" },
+  RbacController_updateAssignment: { method: "PATCH", path: "/auth/role-assignments/{assignmentId}" },
+  RbacController_removeAssignment: { method: "DELETE", path: "/auth/role-assignments/{assignmentId}" },
+  RbacController_reviewAssignment: { method: "POST", path: "/auth/role-assignments/{assignmentId}/review" },
   RbacController_listRoles: { method: "GET", path: "/auth/roles" },
   RbacController_createRole: { method: "POST", path: "/auth/roles" },
   RbacController_addRolePermissions: { method: "POST", path: "/auth/roles/{roleId}/permissions" },
@@ -4066,6 +5687,8 @@ export const ROUTES = {
   CatalogueController_listPriceEntries: { method: "GET", path: "/catalogue/price-lists/{priceListId}/entries" },
   CatalogueController_setPriceEntry: { method: "POST", path: "/catalogue/price-lists/{priceListId}/entries" },
   CatalogueController_setVariantActive: { method: "POST", path: "/catalogue/variants/{variantId}/status" },
+  AuditQueryController_search: { method: "GET", path: "/governance/audit/entries" },
+  AuditQueryController_exportEntries: { method: "GET", path: "/governance/audit/entries/export" },
   HealthController_check: { method: "GET", path: "/health" },
   InventoryController_recordCount: { method: "POST", path: "/inventory/count-lines/{lineId}" },
   InventoryController_openCount: { method: "POST", path: "/inventory/counts" },
@@ -4100,10 +5723,17 @@ export const ROUTES = {
   OrdersController_list: { method: "GET", path: "/orders" },
   OrdersController_create: { method: "POST", path: "/orders" },
   OrdersController_findOne: { method: "GET", path: "/orders/{businessDay}/{id}" },
+  OrdersController_applyOrderDiscount: { method: "POST", path: "/orders/{businessDay}/{id}/discount" },
   OrdersController_fire: { method: "POST", path: "/orders/{businessDay}/{id}/fire" },
   OrdersController_addLine: { method: "POST", path: "/orders/{businessDay}/{id}/lines" },
   OrdersController_voidLine: { method: "DELETE", path: "/orders/{businessDay}/{id}/lines/{lineId}" },
+  OrdersController_applyComp: { method: "POST", path: "/orders/{businessDay}/{id}/lines/{lineId}/comp" },
+  OrdersController_applyLineDiscount: { method: "POST", path: "/orders/{businessDay}/{id}/lines/{lineId}/discount" },
+  OrdersController_voidLinePostFire: { method: "POST", path: "/orders/{businessDay}/{id}/lines/{lineId}/void-postfire" },
   OrdersController_capturePayment: { method: "POST", path: "/orders/{businessDay}/{id}/payments" },
+  OrdersController_receipt: { method: "GET", path: "/orders/{businessDay}/{id}/receipt" },
+  OrdersController_issueRefund: { method: "POST", path: "/orders/{businessDay}/{id}/refunds" },
+  OrganisationController_getAccessibleScope: { method: "GET", path: "/org/access" },
   OrganisationController_listBranches: { method: "GET", path: "/org/branches" },
   OrganisationController_createBranch: { method: "POST", path: "/org/branches" },
   OrganisationController_getBranch: { method: "GET", path: "/org/branches/{branchId}" },
@@ -4146,6 +5776,25 @@ export const ROUTES = {
   ProductionController_listGroups: { method: "GET", path: "/substitute-groups" },
   ProductionController_createGroup: { method: "POST", path: "/substitute-groups" },
   ProductionController_addGroupMember: { method: "POST", path: "/substitute-groups/{groupId}/members" },
+  SyncController_uploadBatch_v1: { method: "POST", path: "/v1/sync/batch" },
+  SyncRecoveryController_issueGrant_v1: { method: "POST", path: "/v1/sync/recovery/grants" },
+  SyncRecoveryController_uploadRecoveryBatch_v1: { method: "POST", path: "/v1/sync/recovery/{grantId}/batch" },
+  AttendanceController_clockIn: { method: "POST", path: "/workforce/attendance/clock-in" },
+  AttendanceController_clockOut: { method: "POST", path: "/workforce/attendance/clock-out" },
+  AttendanceController_setSettings: { method: "POST", path: "/workforce/attendance/settings" },
+  AttendanceController_get: { method: "GET", path: "/workforce/attendance/{attendanceRecordId}" },
+  AttendanceController_correct: { method: "POST", path: "/workforce/attendance/{attendanceRecordId}/correct" },
+  EmployeesController_list: { method: "GET", path: "/workforce/employees" },
+  EmployeesController_create: { method: "POST", path: "/workforce/employees" },
+  EmployeesController_get: { method: "GET", path: "/workforce/employees/{employeeId}" },
+  EmployeesController_update: { method: "PATCH", path: "/workforce/employees/{employeeId}" },
+  EmployeesController_addBranch: { method: "POST", path: "/workforce/employees/{employeeId}/branches" },
+  EmployeesController_currentCompensation: { method: "GET", path: "/workforce/employees/{employeeId}/compensation" },
+  EmployeesController_setCompensation: { method: "POST", path: "/workforce/employees/{employeeId}/compensation" },
+  EmployeesController_deactivate: { method: "POST", path: "/workforce/employees/{employeeId}/deactivate" },
+  ScheduleController_create: { method: "POST", path: "/workforce/schedules" },
+  ScheduleController_get: { method: "GET", path: "/workforce/schedules/{scheduleId}" },
+  ScheduleController_createShift: { method: "POST", path: "/workforce/schedules/{scheduleId}/shifts" },
 } as const;
 
 /** Every operation the document describes. */
