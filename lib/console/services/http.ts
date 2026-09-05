@@ -8,12 +8,14 @@
  * ## What is live and what is not
  *
  * The document at `api/openapi.json` is explicit that it describes only the
- * implemented surface — Fire, Payment, Completion, KDS bump/recall and the
- * whole of purchasing, workforce and finance are absent from the backend,
- * not merely undocumented. Those domains keep their demo data so the console
- * still runs end to end; `API_COVERAGE` below records exactly which, and
- * a one-time console warning names them at start-up. Nothing silently mixes
- * invented rows into a domain the backend does serve.
+ * implemented surface — Fire, Payment, Completion, KDS bump/recall and most
+ * of purchasing, workforce and finance are absent from the backend, not
+ * merely undocumented (LIVE-DEMO-HOTFIX-1: `workforce.employees` and
+ * `workforce.setEmployeePin` are the exception — real, wired, live).
+ * Those domains keep their demo data so the console still runs end to end;
+ * `API_COVERAGE` below records exactly which, and a one-time console warning
+ * names them at start-up. Nothing silently mixes invented rows into a domain
+ * the backend does serve.
  *
  * ## Shape mismatches
  *
@@ -103,6 +105,8 @@ import {
   unsupportedUsers,
   unsupportedWorkforce,
 } from "./unsupported";
+import type { WorkforceService } from "./types";
+import type { Employee } from "../types";
 import * as map from "./map";
 
 // ---------------------------------------------------------------------------
@@ -197,6 +201,11 @@ export const API_COVERAGE = {
     "finance.paymentSummary",
     "finance.taxSummary",
     "governance.audit",
+    // LIVE-DEMO-HOTFIX-1 — `workforce/employees` (list/create/get/update/
+    // remove, plus PIN set) is wired to the real backend. `shifts`/
+    // `attendance`/`overtime`/`performance` remain absent (see below).
+    "workforce.employees",
+    "workforce.setEmployeePin",
   ],
   /**
    * No endpoint exists in the document. These fail rather than fabricate.
@@ -208,7 +217,12 @@ export const API_COVERAGE = {
   absent: [
     "costing",
     "purchasing",
-    "workforce",
+    // `workforce.employees`/`workforce.setEmployeePin` are live — see above.
+    // `shifts`/`attendance`/`overtime`/`performance` remain absent.
+    "workforce.shifts",
+    "workforce.attendance",
+    "workforce.overtime",
+    "workforce.performance",
     "platform",
     "catalogue.combos",
     "inventory.adjustments",
@@ -2673,6 +2687,103 @@ const roles: CollectionService<Role> = {
   },
 };
 
+/**
+ * LIVE-DEMO-HOTFIX-1 — `workforce/employees` is a real, documented backend
+ * surface (`api.workforceEmployees.*`); only this console wiring was
+ * missing. `shifts`/`attendance`/`overtime`/`performance` stay on the
+ * unsupported stub — nothing else in Workforce Core is wired here.
+ */
+const employees: CollectionService<Employee> = {
+  async list(query = {}) {
+    const tenantId = tenantOf(query);
+    const branchesById = await branchIndex().catch(() => new Map<Id, Branch>());
+    const rows = await api.workforceEmployees.list({});
+    const mapped = rows.map((row) => map.toEmployee(row, branchesById));
+    return project(mapped, query, {
+      search: (row) => [row.name, row.code, row.position, row.department],
+      filters: {
+        status: (row) => row.status,
+        homeBranchId: (row) => row.homeBranchId,
+      },
+      sorters: {
+        code: (row) => row.code,
+        hiredOn: (row) => row.hiredOn,
+      },
+    });
+    void tenantId;
+  },
+
+  async get(id) {
+    const branchesById = await branchIndex().catch(() => new Map<Id, Branch>());
+    const row = await api.workforceEmployees.getEmployees(String(id)).catch(() => null);
+    if (!row) return null;
+    const employee = map.toEmployee(row, branchesById);
+    const compensation = await api.workforceEmployees
+      .currentCompensation(String(id))
+      .catch(() => null);
+    if (compensation) {
+      employee.hourlyRate = map.minorMoney(
+        compensation.amountMinorUnits,
+        compensation.currency,
+      );
+    }
+    return employee;
+  },
+
+  async create(input) {
+    const branchesById = await branchIndex().catch(() => new Map<Id, Branch>());
+    if (!input.homeBranchId) {
+      throw new ServiceError("VALIDATION", "A home branch is required.", 400);
+    }
+    if (!input.employmentType) {
+      throw new ServiceError("VALIDATION", "An employment type is required.", 400);
+    }
+    const row = await api.workforceEmployees.create({
+      code: input.code ?? `EMP-${Date.now()}`,
+      displayName: input.name?.en || input.name?.ar || "New Employee",
+      homeBranchId: input.homeBranchId,
+      employmentType: input.employmentType,
+      ...(input.position?.en ? { position: input.position.en } : {}),
+      ...(input.department?.en ? { department: input.department.en } : {}),
+      ...(input.phone || input.email
+        ? { contactDetails: { phone: input.phone, email: input.email } }
+        : {}),
+    });
+    return map.toEmployee(row, branchesById);
+  },
+
+  async update(id, patch) {
+    const branchesById = await branchIndex().catch(() => new Map<Id, Branch>());
+    const row = await api.workforceEmployees.update(String(id), {
+      ...(patch.name?.en ? { displayName: patch.name.en } : {}),
+      ...(patch.position?.en !== undefined ? { position: patch.position.en } : {}),
+      ...(patch.department?.en !== undefined ? { department: patch.department.en } : {}),
+      ...(patch.employmentType ? { employmentType: patch.employmentType } : {}),
+      ...(patch.phone || patch.email
+        ? { contactDetails: { phone: patch.phone, email: patch.email } }
+        : {}),
+    });
+    return map.toEmployee(row, branchesById);
+  },
+
+  /** The API never hard-deletes an employee (FR-HRM-006) — this deactivates
+   *  (terminates) instead, which is the closest honest equivalent to "remove". */
+  async remove(id) {
+    await api.workforceEmployees.deactivate(String(id), {
+      status: "terminated",
+      reason: "Removed from the console.",
+    });
+  },
+};
+
+const workforce: WorkforceService = {
+  ...unsupportedWorkforce,
+  employees,
+  async setEmployeePin(employeeId, pin) {
+    await api.workforceEmployees.setPin(String(employeeId), { pin });
+  },
+};
+
 const security: SecurityService = {
   // No user index endpoint; memberships are reachable only by id.
   users: unsupportedUsers,
@@ -3356,7 +3467,7 @@ export const httpServices: ServiceRegistry = {
   // NOT_IMPLEMENTED rather than serving invented rows. See API_COVERAGE.
   purchasing: unsupportedPurchasing,
   costing: unsupportedCosting,
-  workforce: unsupportedWorkforce,
+  workforce,
   platform: unsupportedPlatform,
 
   // Live for the audit trail; still absent for approvals, anomaly flags and

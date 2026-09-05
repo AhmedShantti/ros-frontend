@@ -37,6 +37,10 @@ export const auth = {
   refresh: (body: S.RefreshDto) =>
     http.post<S.AuthController_refreshResponse>("/auth/refresh", { body }),
 
+  /** `POST /auth/registrations` — Tenant self-service signup (FR-PLT-020). Creates a first user, a tenant, a working branch, and an Owner role with the full permission catalog, atomically. Returns a tenant-scoped auth result so the caller can enter the dashboard immediately. Supports roleKey "owner" only in this slice. — Tenant created; tenant-scoped access token issued. */
+  register: (body: S.RegisterTenantDto) =>
+    http.post<S.RegistrationsController_registerResponse>("/auth/registrations", { body }),
+
 };
 
 // ---------------------------------------------------------------------------
@@ -771,6 +775,10 @@ export const reporting = {
   getDailyTradingReport: (branchId: string, businessDay: string) =>
     http.get<S.ReportingController_getDailyTradingReportResponse>("/reports/branches/{branchId}/daily-trading/{businessDay}", { params: { branchId, businessDay } }),
 
+  /** `GET /reports/branches/{branchId}/overview` — Branch operational overview — sales, cash, inventory, workforce, kds (dashboard-only; authorized against the branch it names). — The operational overview: sales, cash (WHOLE_SESSION scope, unchanged from daily-trading), inventory (branch-scoped low-stock count + calendar-day waste), workforce (branch-scoped calendar-day attendance summary), kds (business-day ticket counts + real prep duration where measurable), and a scope block disclosing exactly what this Demo/Operational slice does and does not cover. */
+  getOperationalOverview: (branchId: string, options: { businessDay?: string } = {}) =>
+    http.get<S.ReportingController_getOperationalOverviewResponse>("/reports/branches/{branchId}/overview", { params: { branchId }, query: { businessDay: options.businessDay } }),
+
 };
 
 // ---------------------------------------------------------------------------
@@ -855,6 +863,10 @@ export const workforceEmployees = {
   /** `POST /workforce/employees/{employeeId}/deactivate` — FR-HRM-006 — deactivate, never hard-delete. */
   deactivate: (employeeId: string, body: S.DeactivateEmployeeDto) =>
     http.post<S.EmployeesController_deactivateResponse>("/workforce/employees/{employeeId}/deactivate", { params: { employeeId }, body }),
+
+  /** `POST /workforce/employees/{employeeId}/pin` — LIVE-DEMO-HOTFIX-1 — set/rotate this employee's POS PIN through the real Workforce Employees surface. Thin passthrough to the existing `PinService.setPin` (identity/employees) — no logic duplicated here, and `PinService.authenticate`'s verification path is completely untouched. */
+  setPin: (employeeId: string, body: S.SetEmployeePinDto) =>
+    http.post<S.EmployeesController_setPinResponse>("/workforce/employees/{employeeId}/pin", { params: { employeeId }, body }),
 
 };
 

@@ -106,6 +106,7 @@ export const unsupportedWorkforce: WorkforceService = {
   attendance: absentCollection("Attendance"),
   overtime: absentCollection("Overtime"),
   performance: absentReadonly("Employee performance"),
+  setEmployeePin: () => notImplemented("Employee PIN"),
 };
 
 /**
