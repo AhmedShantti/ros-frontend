@@ -1706,6 +1706,9 @@ const workforce: WorkforceService = {
       documents: [],
     }),
   }),
+  // Demo/offline fixture — no real credential concept to mutate; a no-op
+  // resolve is honest here (the console has nothing to verify against).
+  async setEmployeePin() {},
   shifts: makeCollection({
     rows: scheduledShifts,
     idOf: (s) => s.id,

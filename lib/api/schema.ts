@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 138 paths, 103 request DTOs.
+ * `api/openapi.json`. 141 paths, 105 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -616,6 +616,22 @@ export interface RefreshDto {
   refreshToken: string;
 }
 
+export interface RegisterTenantDto {
+  email: string;
+  /** POS/KDS sign-on. Accepted for frontend contract parity; unused for the owner path (owner is not a terminal role in this slice). */
+  employeeCode?: string;
+  fullName: string;
+  /** New tenant's legal/business name. */
+  organisation: string;
+  /** FR-SEC-025 — signup requires a minimum of 10 characters. */
+  password: string;
+  phone?: string;
+  pin?: string;
+  roleKey: string;
+  /** First branch name. Optional — defaults to "Main" when omitted. */
+  scopeName?: string;
+}
+
 export interface RegisterTerminalDto {
   appVersion?: string;
   branchId: string;
@@ -666,6 +682,11 @@ export interface SetCompensationDto {
   basis: "hourly" | "monthly_salary" | "per_shift";
   currency: string;
   effectiveFrom?: string;
+}
+
+export interface SetEmployeePinDto {
+  /** FR-SEC-020 — 4 to 8 digits. Never logged. */
+  pin: string;
 }
 
 export interface SetPriceEntryDto {
@@ -1007,6 +1028,43 @@ export type AuthController_refreshResponse = {
 };
 
 export type AuthController_refreshBody = RefreshDto;
+
+/** `POST /auth/registrations` — Tenant self-service signup (FR-PLT-020). Creates a first user, a tenant, a working branch, and an Owner role with the full permission catalog, atomically. Returns a tenant-scoped auth result so the caller can enter the dashboard immediately. Supports roleKey "owner" only in this slice. — Tenant created; tenant-scoped access token issued. */
+export type RegistrationsController_registerResponse = {
+  auth: {
+    accessToken: string;
+    expiresIn: number;
+    refreshToken: string;
+    tokenType: "Bearer";
+    user: {
+      createdAt: string;
+      displayName: string;
+      email: string;
+      id: string;
+      lastLoginAt: string | null;
+      phone: string | null;
+      preferredLocale: string;
+      status: "active" | "disabled" | "locked";
+      updatedAt: string;
+    };
+  };
+  email: string;
+  membership: {
+    membershipId: string;
+    status: "active";
+  };
+  status: "created";
+  tenant: {
+    defaultCurrency: string;
+    defaultLocale: string;
+    id: string;
+    legalName: string;
+    slug: string;
+    status: "active" | "suspended" | "closed";
+  };
+};
+
+export type RegistrationsController_registerBody = RegisterTenantDto;
 
 /** `PATCH /auth/role-assignments/{assignmentId}` — Re-scope an assignment and/or change its validity window. — The updated assignment. */
 export type RbacController_updateAssignmentResponse = {
@@ -5123,6 +5181,122 @@ export type ReportingController_getDailyTradingReportResponse = {
   unclosedContributingSessionCount: number;
 };
 
+/** `GET /reports/branches/{branchId}/overview` — Branch operational overview — sales, cash, inventory, workforce, kds (dashboard-only; authorized against the branch it names). — The operational overview: sales, cash (WHOLE_SESSION scope, unchanged from daily-trading), inventory (branch-scoped low-stock count + calendar-day waste), workforce (branch-scoped calendar-day attendance summary), kds (business-day ticket counts + real prep duration where measurable), and a scope block disclosing exactly what this Demo/Operational slice does and does not cover. */
+export type ReportingController_getOperationalOverviewResponse = {
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  branchCurrentBusinessDay: string;
+  branchId: string;
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  businessDay: string;
+  cash: {
+    closedSessionCount: number;
+    contributingSessionCount: number;
+    scope: "WHOLE_SESSION";
+    sessions: ({
+      cashSessionId: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      countedCash: string | null;
+      currency: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      expectedCash: string | null;
+      isFinalised: boolean;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      openingFloat: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      payInTotal: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      payOutTotal: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      safeDropTotal: string;
+      status: "open" | "closing" | "closed";
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      variance: string | null;
+    })[];
+    unclosedSessionCount: number;
+  };
+  /** ISO 4217 currency code. */
+  currency: string;
+  currencySource: "TRANSACTION" | "BRANCH_FALLBACK";
+  dataAsOf: string;
+  inventory: {
+    lowStockItemCount: number;
+    notes: string[];
+    waste: {
+      /** Decimal quantity as a string (preserves exact precision). */
+      quantityTotal: string;
+      recordCount: number;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      valueTotal: string;
+      windowFrom: string;
+      windowTo: string;
+    };
+  };
+  kds: {
+    averagePrepDurationSeconds: number | null;
+    measuredPrepDurationCount: number;
+    notes: string[];
+    statusCounts: Record<string, unknown>;
+    ticketCount: number;
+  };
+  periodStatus: "OPEN" | "UNSEALED" | "SETTLED";
+  sales: {
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    averageOrderValue: string | null;
+    completedOrderCount: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discounts: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grossSales: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    netSales: string;
+    openOrderCount: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    refunds: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+    tenderTotals: {
+      cash: {
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        amountTotal: string;
+        paymentCount: number;
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        roundingAdjustmentTotal: string;
+      };
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      cashDrawerContribution: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      completedExcessCapturedTotal: string;
+      manualExternalCard: {
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        amountTotal: string;
+        paymentCount: number;
+        /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+        roundingAdjustmentTotal: string;
+      };
+      paymentCount: number;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      tenderGrandTotal: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      unsettledCapturedTotal: string;
+    };
+  };
+  scope: {
+    notes: string[];
+  };
+  workforce: {
+    attendanceRecordCount: number;
+    clockedInCount: number;
+    earlyDepartureCount: number;
+    lateArrivalCount: number;
+    missingClockOutCount: number;
+    notes: string[];
+    outsideGeofenceCount: number;
+    unscheduledCount: number;
+    windowFrom: string;
+    windowTo: string;
+  };
+};
+
 /** `GET /substitute-groups` — List substitute groups. — Substitute groups with their member stock items. */
 export type ProductionController_listGroupsResponse = ({
   id: string;
@@ -5557,6 +5731,11 @@ export type EmployeesController_deactivateResponse = {
 
 export type EmployeesController_deactivateBody = DeactivateEmployeeDto;
 
+/** `POST /workforce/employees/{employeeId}/pin` — LIVE-DEMO-HOTFIX-1 — set/rotate this employee's POS PIN through the real Workforce Employees surface. Thin passthrough to the existing `PinService.setPin` (identity/employees) — no logic duplicated here, and `PinService.authenticate`'s verification path is completely untouched. */
+export type EmployeesController_setPinResponse = void;
+
+export type EmployeesController_setPinBody = SetEmployeePinDto;
+
 /** `POST /workforce/schedules` — FR-HRM-010 — create a schedule by branch and week. */
 export type ScheduleController_createResponse = {
   branchId: string;
@@ -5624,6 +5803,7 @@ export const ROUTES = {
   RbacController_myPermissions: { method: "GET", path: "/auth/permissions" },
   AuthController_loginWithPin: { method: "POST", path: "/auth/pin" },
   AuthController_refresh: { method: "POST", path: "/auth/refresh" },
+  RegistrationsController_register: { method: "POST", path: "/auth/registrations" },
   RbacController_updateAssignment: { method: "PATCH", path: "/auth/role-assignments/{assignmentId}" },
   RbacController_removeAssignment: { method: "DELETE", path: "/auth/role-assignments/{assignmentId}" },
   RbacController_reviewAssignment: { method: "POST", path: "/auth/role-assignments/{assignmentId}/review" },
@@ -5773,6 +5953,7 @@ export const ROUTES = {
   ProductionController_replaceLines: { method: "PUT", path: "/recipes/{recipeId}/versions/{version}/lines" },
   ProductionController_publish: { method: "POST", path: "/recipes/{recipeId}/versions/{version}/publish" },
   ReportingController_getDailyTradingReport: { method: "GET", path: "/reports/branches/{branchId}/daily-trading/{businessDay}" },
+  ReportingController_getOperationalOverview: { method: "GET", path: "/reports/branches/{branchId}/overview" },
   ProductionController_listGroups: { method: "GET", path: "/substitute-groups" },
   ProductionController_createGroup: { method: "POST", path: "/substitute-groups" },
   ProductionController_addGroupMember: { method: "POST", path: "/substitute-groups/{groupId}/members" },
@@ -5792,6 +5973,7 @@ export const ROUTES = {
   EmployeesController_currentCompensation: { method: "GET", path: "/workforce/employees/{employeeId}/compensation" },
   EmployeesController_setCompensation: { method: "POST", path: "/workforce/employees/{employeeId}/compensation" },
   EmployeesController_deactivate: { method: "POST", path: "/workforce/employees/{employeeId}/deactivate" },
+  EmployeesController_setPin: { method: "POST", path: "/workforce/employees/{employeeId}/pin" },
   ScheduleController_create: { method: "POST", path: "/workforce/schedules" },
   ScheduleController_get: { method: "GET", path: "/workforce/schedules/{scheduleId}" },
   ScheduleController_createShift: { method: "POST", path: "/workforce/schedules/{scheduleId}/shifts" },

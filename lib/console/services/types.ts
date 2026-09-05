@@ -514,6 +514,12 @@ export interface WorkforceService {
   attendance: CollectionService<AttendanceRecord>;
   overtime: CollectionService<OvertimeRecord>;
   performance: ReadonlyCollectionService<EmployeePerformance>;
+  /**
+   * LIVE-DEMO-HOTFIX-1 — set/rotate a POS employee's PIN. Not part of
+   * `CollectionService<Employee>`: a PIN is a credential, not a field on the
+   * employee record itself, and `PinService.setPin` is a dedicated write.
+   */
+  setEmployeePin(employeeId: Id, pin: string): Promise<void>;
 }
 
 /** A user's membership of a tenant — what a role is actually assigned to. */

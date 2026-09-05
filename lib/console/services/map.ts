@@ -37,7 +37,11 @@ import type {
   CountryCode,
   Currency,
   DayClose,
+  Employee,
+  EmployeeStatus,
+  EmploymentType,
   Id,
+  IsoDate,
   KitchenTicket,
   Localised,
   Menu,
@@ -1554,5 +1558,72 @@ export function toAuditEntry(row: WireAuditEntry, branchName: Localised | null):
     // the domain type carries no null arm, so the genesis entry reads as
     // an empty string rather than a fabricated hash.
     previousHash: row.previousHash ?? "",
+  };
+}
+
+/**
+ * LIVE-DEMO-HOTFIX-1 — the shape common to every `workforce/employees`
+ * response the console actually renders a row from (list/get/create/update
+ * all share these fields; `branches`/`permittedBranchIds` differ by
+ * endpoint, so both are accepted and normalised here).
+ */
+interface WireEmployee {
+  id: string;
+  tenantId: string;
+  code: string;
+  displayName: string;
+  namesLocalized: Record<string, unknown>;
+  homeBranchId: string;
+  employmentType: EmploymentType | null;
+  status: EmployeeStatus;
+  hireDate: string | null;
+  createdAt: string;
+  position: string | null;
+  department: string | null;
+  contactDetails: Record<string, unknown> | null;
+  userId: string | null;
+  branches?: { branchId: string }[];
+  permittedBranchIds?: string[];
+}
+
+export function toEmployee(
+  row: WireEmployee,
+  branchesById: Map<Id, Branch>,
+): Employee {
+  const contact = (row.contactDetails ?? {}) as {
+    phone?: string;
+    email?: string;
+  };
+  const permittedBranchIds =
+    row.permittedBranchIds ?? row.branches?.map((b) => b.branchId) ?? [];
+  const homeBranch = branchesById.get(row.homeBranchId);
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    code: row.code,
+    name: localised(row.namesLocalized, { en: row.displayName, ar: row.displayName }),
+    // gap: position/department are the API's single default-locale strings,
+    // not a localised map.
+    position: { en: row.position ?? "", ar: row.position ?? "" },
+    department: { en: row.department ?? "", ar: row.department ?? "" },
+    homeBranchId: row.homeBranchId,
+    homeBranchName: homeBranch?.name ?? EMPTY,
+    permittedBranchIds,
+    // gap: `employmentType`/`status` are nullable pre-HR-1 rows on the API;
+    // the console's domain type is not, so a genuinely absent value falls
+    // back to the least-privileged reading rather than a guess.
+    employmentType: row.employmentType ?? "casual",
+    status: row.status,
+    hiredOn: (row.hireDate ?? row.createdAt ?? "").slice(0, 10) as IsoDate,
+    phone: contact.phone ?? "",
+    email: contact.email ?? "",
+    // gap: compensation is its own endpoint (`GET .../compensation`), fetched
+    // separately by `get()` — `list()` never carries it, matching this
+    // file's own "list() returns what one call gives, get() fills the detail
+    // in" fan-out convention.
+    hourlyRate: { amount: 0, currency: "EGP" },
+    userId: row.userId,
+    // gap: no document-storage endpoint exists.
+    documents: [],
   };
 }

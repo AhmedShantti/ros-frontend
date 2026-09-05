@@ -19,9 +19,10 @@
 
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import type { Employee, EmployeeDocument } from "@/lib/console/types";
+import type { Branch, Employee, EmployeeDocument, Id } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { DATA_MODE } from "@/lib/api/config";
+import { useAction } from "@/lib/console/actions";
 import { useCollection, useTransientMessage, useBranches } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatDate, formatMoney, formatNumber } from "@/lib/console/format";
@@ -38,6 +39,9 @@ import {
   DescList,
   DescRow,
   Drawer,
+  Field,
+  Input,
+  Select,
   Toast,
 } from "@/components/console/ui";
 
@@ -54,7 +58,9 @@ function EmployeesScreen() {
   const { scope } = useSession();
   const branches = useBranches(scope);
   const canSeePay = usePermission("hr.compensation.view");
+  const canManage = usePermission("hr.employee.manage");
   const [selected, setSelected] = useState<Employee | null>(null);
+  const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();
 
   const collection = useCollection<Employee>(
@@ -171,13 +177,11 @@ function EmployeesScreen() {
         subtitle={t("wf.employeesSubtitle")}
         spec="FR-HRM-001"
         actions={
-          <Button
-            variant="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
-          >
-            {t("common.new")}
-          </Button>
+          canManage ? (
+            <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
+              {t("common.new")}
+            </Button>
+          ) : undefined
         }
       />
 
@@ -241,8 +245,20 @@ function EmployeesScreen() {
       <EmployeeDrawer
         employee={selected}
         canSeePay={canSeePay}
+        canManage={canManage}
         onClose={() => setSelected(null)}
       />
+      {creating ? (
+        <NewEmployeeDrawer
+          branches={branches}
+          onClose={() => setCreating(false)}
+          onCreated={() => {
+            setCreating(false);
+            setMessage(t("wf.employeeCreated"));
+            collection.reload();
+          }}
+        />
+      ) : null}
       <Toast message={message} />
     </>
   );
@@ -269,10 +285,12 @@ function DocumentCell({ documents }: { documents: EmployeeDocument[] }) {
 function EmployeeDrawer({
   employee,
   canSeePay,
+  canManage,
   onClose,
 }: {
   employee: Employee | null;
   canSeePay: boolean;
+  canManage: boolean;
   onClose: () => void;
 }) {
   const { t, tx, fmt } = useI18n();
@@ -293,6 +311,7 @@ function EmployeeDrawer({
       }
     >
       <div className="space-y-5">
+        {canManage ? <SetPinSection employeeId={employee.id} /> : null}
         <DescList>
           <DescRow label={t("wf.position")}>{tx(employee.position)}</DescRow>
           <DescRow label={t("wf.department")}>{tx(employee.department)}</DescRow>
@@ -363,6 +382,163 @@ function EmployeeDrawer({
         ) : null}
 
         {!canSeePay ? <Callout tone="muted">{t("wf.compensationHidden")}</Callout> : null}
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * LIVE-DEMO-HOTFIX-1 — `POST /workforce/employees/:employeeId/pin`. The only
+ * way an employee created here gets a POS PIN credential at all: without
+ * this, the employee can never pass `POST /auth/pin`.
+ */
+function SetPinSection({ employeeId }: { employeeId: Id }) {
+  const { t } = useI18n();
+  const action = useAction();
+  const [pin, setPin] = useState("");
+  const [done, setDone] = useState(false);
+
+  async function submit() {
+    if (!/^\d{4,8}$/.test(pin)) return;
+    await action.run(() => services.workforce.setEmployeePin(employeeId, pin), {
+      onSuccess: () => {
+        setDone(true);
+        setPin("");
+      },
+    });
+  }
+
+  return (
+    <section className="border-line space-y-2 rounded-lg border p-3">
+      <h3 className="text-fg text-sm font-semibold">{t("wf.setPin")}</h3>
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      {done ? <Callout tone="good">{t("wf.pinSet")}</Callout> : null}
+      <div className="flex items-end gap-2">
+        <div className="flex-1">
+          <Field label={t("wf.pinLabel")}>
+            <Input
+              dir="ltr"
+              inputMode="numeric"
+              value={pin}
+              onChange={(event) => {
+                setDone(false);
+                setPin(event.target.value.replace(/\D/g, "").slice(0, 8));
+              }}
+              maxLength={8}
+            />
+          </Field>
+        </div>
+        <Button
+          variant="secondary"
+          loading={action.pending}
+          disabled={!/^\d{4,8}$/.test(pin)}
+          onClick={submit}
+        >
+          {t("common.save")}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** `POST /workforce/employees` — a new POS/roster employee. Omitting the
+ *  linked-user id auto-provisions an internal identity + PIN-ready credential
+ *  slot server-side (LIVE-DEMO-HOTFIX-1). */
+function NewEmployeeDrawer({
+  branches,
+  onClose,
+  onCreated,
+}: {
+  branches: Branch[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [homeBranchId, setHomeBranchId] = useState(branches[0]?.id ?? "");
+  const [employmentType, setEmploymentType] = useState<keyof typeof EMPLOYMENT_TYPE>("full_time");
+
+  async function create() {
+    if (!name.trim() || !homeBranchId) return;
+    await action.run(
+      () =>
+        services.workforce.employees.create({
+          name: { en: name.trim(), ar: name.trim() },
+          code: code.trim() || undefined,
+          homeBranchId,
+          employmentType,
+        }),
+      { onSuccess: onCreated },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={t("wf.newEmployee")}
+      footer={
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            loading={action.pending}
+            disabled={!name.trim() || !homeBranchId}
+            onClick={create}
+          >
+            {t("common.create")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Field label={t("common.name")} required>
+          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
+        </Field>
+
+        <Field label={t("wf.employeeCode")} hint={t("wf.employeeCodeHint")}>
+          <Input
+            dir="ltr"
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            maxLength={32}
+          />
+        </Field>
+
+        <Field label={t("wf.homeBranch")} required>
+          <Select value={homeBranchId} onChange={(event) => setHomeBranchId(event.target.value)}>
+            {branches.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {tx(branch.name)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field label={t("wf.employmentType")} required>
+          <Select
+            value={employmentType}
+            onChange={(event) =>
+              setEmploymentType(event.target.value as keyof typeof EMPLOYMENT_TYPE)
+            }
+          >
+            {Object.entries(EMPLOYMENT_TYPE).map(([value, entry]) => (
+              <option key={value} value={value}>
+                {tx(entry.label)}
+              </option>
+            ))}
+          </Select>
+        </Field>
       </div>
     </Drawer>
   );
