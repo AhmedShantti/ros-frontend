@@ -838,7 +838,7 @@ export const workforceEmployees = {
 
   /** `POST /workforce/employees` — FR-HRM-001/002/005 — create a full employee record. */
   create: (body: S.CreateEmployeeDto) =>
-    http.post<S.EmployeesController_createResponse>("/workforce/employees", { body }),
+    http.post<S.EmployeesController_createResponse>("/workforce/employees", { body, idempotent: true }),
 
   /** `GET /workforce/employees/{employeeId}` */
   getEmployees: (employeeId: string) =>
@@ -866,7 +866,7 @@ export const workforceEmployees = {
 
   /** `POST /workforce/employees/{employeeId}/pin` — LIVE-DEMO-HOTFIX-1 — set/rotate this employee's POS PIN through the real Workforce Employees surface. Thin passthrough to the existing `PinService.setPin` (identity/employees) — no logic duplicated here, and `PinService.authenticate`'s verification path is completely untouched. */
   setPin: (employeeId: string, body: S.SetEmployeePinDto) =>
-    http.post<S.EmployeesController_setPinResponse>("/workforce/employees/{employeeId}/pin", { params: { employeeId }, body }),
+    http.post<S.EmployeesController_setPinResponse>("/workforce/employees/{employeeId}/pin", { params: { employeeId }, body, idempotent: true }),
 
 };
 
