@@ -53,7 +53,7 @@ export default function BranchesPage() {
 function BranchesScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope, availableBrands } = useSession();
-  const canManage = usePermission("org.manage");
+  const canManage = usePermission("settings.branch.manage");
   const [selected, setSelected] = useState<Branch | null>(null);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();
@@ -291,7 +291,7 @@ function BranchDrawer({
 }) {
   const { t, tx, fmt } = useI18n();
   const { availableBrands } = useSession();
-  const canManage = usePermission("org.branch.manage");
+  const canManage = usePermission("settings.branch.manage");
   if (!branch) return null;
 
   const brand = availableBrands.find((row) => row.id === branch.brandId) ?? null;
