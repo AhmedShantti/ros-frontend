@@ -11,13 +11,86 @@
  * service must come back signed in. It is also, equally deliberately, only
  * the token — no permission set is cached here, because the server is the
  * authority on every request (FR-SEC-045).
+ *
+ * DEMO-SESSION-ISOLATION-HOTFIX — the identity fields (access/refresh token,
+ * its expiry, the selected tenant) are kept in TWO INDEPENDENT storage slots,
+ * one per "surface": `console` (password login, `(console)`/`(auth)` route
+ * groups — the dashboard) and `terminal` (PIN login, `(terminal)` route
+ * group — POS/KDS). Before this, `signInWithPin` overwrote the SAME
+ * `ros.api.*` keys a signed-in Owner's dashboard session was reading, so a
+ * cashier PIN login on the same browser silently replaced the Owner's own
+ * token — every `/dashboard` call afterwards 403'd, authenticated as the
+ * Cashier instead. `setActiveSurface`, called once by each route group's own
+ * root layout (module scope, before any child can fire a request), picks
+ * which slot every one of the functions below reads and writes — every
+ * existing call site (`lib/api/auth.ts`, `lib/api/client.ts`,
+ * `lib/console/services/http.ts`'s ~50 `getTenantId()` reads,
+ * `components/terminal/pos-live.tsx`) keeps calling the SAME function names
+ * unchanged, and is automatically correct for whichever surface it runs on.
+ *
+ * `terminalId`/`kdsStationId` stay a SINGLE shared value on purpose: they
+ * name the PHYSICAL DEVICE ("which terminal/station is this till"), not an
+ * authenticated identity — `/register-device` (a console-authenticated
+ * screen) sets it once, and the SAME value must be visible to `/pos`/`/kds`
+ * afterwards for a PIN sign-on to even know which terminal it is signing
+ * into. `cashSessionId`/`cashSessionOpening`/`posEmployee` stay shared too —
+ * they are already exclusively read and written by terminal code (never by
+ * console code), so no cross-surface collision was ever possible for them.
  */
 
-const KEY_ACCESS = "ros.api.accessToken";
-const KEY_REFRESH = "ros.api.refreshToken";
-const KEY_EXPIRES = "ros.api.expiresAt";
-const KEY_TENANT = "ros.api.tenantId";
+type AuthSurface = "console" | "terminal";
+
+/**
+ * Defaults to `console`: the safer failure mode for any code that runs
+ * before a layout has claimed a surface (e.g. a module evaluated during a
+ * test, or a race during the very first paint) is to see NO token rather
+ * than accidentally read a terminal one.
+ */
+let activeSurface: AuthSurface = "console";
+
+/** Called once, at module scope, by each route group's own root layout. */
+export function setActiveSurface(surface: AuthSurface): void {
+  activeSurface = surface;
+}
+
+export function getActiveSurface(): AuthSurface {
+  return activeSurface;
+}
+
+const CONSOLE_KEYS = {
+  access: "ros.api.accessToken",
+  refresh: "ros.api.refreshToken",
+  expires: "ros.api.expiresAt",
+  tenant: "ros.api.tenantId",
+};
+
+const TERMINAL_KEYS = {
+  access: "ros.terminal.accessToken",
+  refresh: "ros.terminal.refreshToken",
+  expires: "ros.terminal.expiresAt",
+  tenant: "ros.terminal.tenantId",
+};
+
+function identityKeys() {
+  return activeSurface === "console" ? CONSOLE_KEYS : TERMINAL_KEYS;
+}
+
 const KEY_TERMINAL = "ros.api.terminalId";
+/**
+ * DEMO-SESSION-ISOLATION-HOTFIX — which tenant THIS DEVICE operates under,
+ * as a DEVICE-level fact, independent of either surface's own active
+ * identity. The Cashier PIN sign-on form has no tenant picker (FR-SEC-020 —
+ * a till identifies staff by code and PIN, never by typing a tenant id) and
+ * needs a tenantId to even attempt `POST /auth/pin`; before the surfaces
+ * were separated it silently borrowed the shared `tenantId` slot, which
+ * happened to already hold the right value only because the SAME browser
+ * had, at some point, also been used for a console login as the manager who
+ * registered this device. Kept here, set whenever EITHER surface
+ * successfully resolves a tenant, and never cleared by a mere sign-out of
+ * either one — the physical till does not change tenants just because
+ * someone logged out of it.
+ */
+const KEY_DEVICE_TENANT = "ros.api.deviceTenantId";
 const KEY_CASH_SESSION = "ros.api.cashSessionId";
 const KEY_CASH_OPENING = "ros.api.cashSessionOpening";
 const KEY_POS_EMPLOYEE = "ros.api.posEmployee";
@@ -68,10 +141,11 @@ export function onSessionChange(listener: Listener): () => void {
 // ---------------------------------------------------------------------------
 
 export function getTokens(): TokenSet | null {
-  const accessToken = read(KEY_ACCESS);
-  const refreshToken = read(KEY_REFRESH);
+  const keys = identityKeys();
+  const accessToken = read(keys.access);
+  const refreshToken = read(keys.refresh);
   if (!accessToken || !refreshToken) return null;
-  return { accessToken, refreshToken, expiresAt: Number(read(KEY_EXPIRES) ?? 0) };
+  return { accessToken, refreshToken, expiresAt: Number(read(keys.expires) ?? 0) };
 }
 
 export function setTokens(tokens: {
@@ -79,45 +153,54 @@ export function setTokens(tokens: {
   refreshToken?: string;
   expiresIn?: number;
 }): void {
-  write(KEY_ACCESS, tokens.accessToken);
-  if (tokens.refreshToken) write(KEY_REFRESH, tokens.refreshToken);
+  const keys = identityKeys();
+  write(keys.access, tokens.accessToken);
+  if (tokens.refreshToken) write(keys.refresh, tokens.refreshToken);
   // A minute of headroom, so a token does not expire in flight.
   const lifetime = (tokens.expiresIn ?? 900) * 1000;
-  write(KEY_EXPIRES, String(Date.now() + lifetime - 60_000));
+  write(keys.expires, String(Date.now() + lifetime - 60_000));
   announce();
 }
 
+/**
+ * Clears the CURRENT surface's own identity only — a console sign-out must
+ * never touch a terminal's PIN session (or the device's own terminal/KDS
+ * binding) and vice versa. Terminal-only display/custody state
+ * (`cashSessionId`/`cashSessionOpening`/`posEmployee`) is cleared alongside
+ * a terminal sign-out specifically: a cash session belongs to the employee
+ * who opened it, not to the till, so leaving the id behind would hand the
+ * next cashier someone else's drawer to count and close.
+ */
 export function clearSession(): void {
-  write(KEY_ACCESS, null);
-  write(KEY_REFRESH, null);
-  write(KEY_EXPIRES, null);
-  write(KEY_TENANT, null);
-  write(KEY_TERMINAL, null);
-  // A cash session belongs to the employee who opened it, not to the till.
-  // Leaving the id behind would hand the next cashier to sign in someone
-  // else's drawer to count and close.
-  write(KEY_CASH_SESSION, null);
-  write(KEY_CASH_OPENING, null);
-  write(KEY_POS_EMPLOYEE, null);
+  const keys = identityKeys();
+  write(keys.access, null);
+  write(keys.refresh, null);
+  write(keys.expires, null);
+  write(keys.tenant, null);
+  if (activeSurface === "terminal") {
+    write(KEY_CASH_SESSION, null);
+    write(KEY_CASH_OPENING, null);
+    write(KEY_POS_EMPLOYEE, null);
+  }
   announce();
 }
 
 export function getAccessToken(): string | null {
-  return read(KEY_ACCESS);
+  return read(identityKeys().access);
 }
 
 export function getRefreshToken(): string | null {
-  return read(KEY_REFRESH);
+  return read(identityKeys().refresh);
 }
 
 /** True once the stored lifetime has run out — refresh before sending. */
 export function isAccessTokenStale(): boolean {
-  const expiresAt = Number(read(KEY_EXPIRES) ?? 0);
+  const expiresAt = Number(read(identityKeys().expires) ?? 0);
   return expiresAt > 0 && Date.now() >= expiresAt;
 }
 
 export function isSignedIn(): boolean {
-  return Boolean(read(KEY_ACCESS));
+  return Boolean(read(identityKeys().access));
 }
 
 // ---------------------------------------------------------------------------
@@ -125,12 +208,23 @@ export function isSignedIn(): boolean {
 // ---------------------------------------------------------------------------
 
 export function getTenantId(): string | null {
-  return read(KEY_TENANT);
+  return read(identityKeys().tenant);
 }
 
 export function setTenantId(tenantId: string | null): void {
-  write(KEY_TENANT, tenantId);
+  write(identityKeys().tenant, tenantId);
+  if (tenantId) write(KEY_DEVICE_TENANT, tenantId);
   announce();
+}
+
+/**
+ * Which tenant this DEVICE is known to operate under — see `KEY_DEVICE_TENANT`.
+ * This is what the Cashier PIN sign-on form reads (never `getTenantId()`,
+ * which is this surface's own current session and starts empty on a
+ * terminal that has never signed anyone on yet).
+ */
+export function getDeviceTenantId(): string | null {
+  return read(KEY_DEVICE_TENANT);
 }
 
 export function getTerminalId(): string | null {

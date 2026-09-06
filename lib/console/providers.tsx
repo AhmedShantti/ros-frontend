@@ -50,6 +50,7 @@ import { tx } from "./format";
 import type { Scope } from "./services";
 import { DATA_MODE } from "@/lib/api/config";
 import { signOut as apiSignOut } from "@/lib/api/auth";
+import { setActiveSurface } from "@/lib/api/session";
 import { useLiveOrgContext, type LiveOrgContext } from "./live-session";
 
 // ---------------------------------------------------------------------------
@@ -542,7 +543,26 @@ export function usePermission(permission: PermissionKey): boolean {
 
 // ---------------------------------------------------------------------------
 
-export function ConsoleProvider({ children }: { children: ReactNode }) {
+/**
+ * DEMO-SESSION-ISOLATION-HOTFIX — `surface` picks which of the two
+ * independent `lib/api/session.ts` identity slots every API call made
+ * beneath this subtree reads and writes. `ConsoleProvider` is shared by
+ * `(console)`, `(auth)` AND `(terminal)` (the same live org-context/session
+ * plumbing backs the dashboard and the terminal apps), so the route group
+ * that mounts it is the one thing that knows which it actually is — set
+ * once here, synchronously, before any child's own effect can fire a
+ * request. Defaults to `"console"`: the two callers that omit it
+ * (`(console)`, `(auth)`) are exactly the ones that must never be mistaken
+ * for a PIN/terminal session.
+ */
+export function ConsoleProvider({
+  children,
+  surface = "console",
+}: {
+  children: ReactNode;
+  surface?: "console" | "terminal";
+}) {
+  setActiveSurface(surface);
   return (
     <PreferencesProvider>
       <SessionProvider>{children}</SessionProvider>
