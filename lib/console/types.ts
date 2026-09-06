@@ -217,6 +217,16 @@ export interface Station {
   active: boolean;
 }
 
+/** FR-FIN-001 — the physical cash container a shift's CashSession opens over. */
+export interface Drawer {
+  id: Id;
+  branchId: Id;
+  name: string;
+  /** Set when this drawer may only be opened from one specific terminal. */
+  terminalId: Id | null;
+  isActive: boolean;
+}
+
 export type TableState =
   | "available"
   | "seated"

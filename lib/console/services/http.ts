@@ -179,6 +179,9 @@ export const API_COVERAGE = {
     "treasury.declareClose",
     "treasury.finalizeClose",
     "treasury.setCashClosePolicy",
+    "treasury.listDrawers",
+    "treasury.createDrawer",
+    "treasury.listSessionDrawers",
     "kitchen.queue",
     "kitchen.acknowledgeViewed",
     "kitchen.startLine",
@@ -2386,6 +2389,24 @@ const treasury: import("./types").TreasuryService = {
       createdBy: row.createdBy,
       createdAt: row.createdAt,
     };
+  },
+
+  async listDrawers(branchId) {
+    const rows = await api.treasury.listDrawers(branchId);
+    return rows.map(map.toDrawer);
+  },
+
+  async createDrawer(branchId, input) {
+    const row = await api.treasury.createDrawer(branchId, {
+      name: input.name,
+      terminalId: input.terminalId,
+    });
+    return map.toDrawer(row);
+  },
+
+  async listSessionDrawers() {
+    const rows = await api.treasury.listSessionDrawers();
+    return rows.map(map.toDrawer);
   },
 };
 

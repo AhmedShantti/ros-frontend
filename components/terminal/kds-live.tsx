@@ -108,6 +108,23 @@ export function LiveKds() {
     setStation(next);
   }, []);
 
+  /**
+   * DEMO-OPS-HOTFIX-3 — a station persisted in `localStorage` from a PRIOR
+   * visit may no longer exist in the real backend result (deleted, or this
+   * device's setting predates the branch's stations being provisioned at
+   * all). Only clears on POSITIVE evidence — a non-empty, genuinely fetched
+   * `stations` list that does not contain it — never while `stations` is
+   * merely still loading (which `useStations` cannot distinguish from
+   * "branch really has none"), so a valid persisted station is never
+   * dropped just because the list hasn't arrived yet.
+   */
+  useEffect(() => {
+    if (!mounted || !stationId || stations.length === 0) return;
+    if (!stations.some((station) => station.id === stationId)) {
+      chooseStation(null);
+    }
+  }, [mounted, stationId, stations, chooseStation]);
+
   const [message, setMessage] = useState<string | null>(null);
   const action = useAction(setMessage);
 

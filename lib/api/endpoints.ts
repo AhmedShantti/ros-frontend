@@ -176,9 +176,21 @@ export const treasury = {
   postDayClose: (branchId: string, businessDay: string, body: S.PostDayCloseDto) =>
     http.post<S.DayCloseController_postResponse>("/branches/{branchId}/day-closes/{businessDay}", { params: { branchId, businessDay }, body, idempotent: true }),
 
+  /** `GET /branches/{branchId}/drawers` — All drawers in the branch. */
+  listDrawers: (branchId: string) =>
+    http.get<S.DrawersController_listDrawersResponse>("/branches/{branchId}/drawers", { params: { branchId } }),
+
+  /** `POST /branches/{branchId}/drawers` — The newly created drawer. */
+  createDrawer: (branchId: string, body: S.CreateDrawerDto) =>
+    http.post<S.DrawersController_createDrawerResponse>("/branches/{branchId}/drawers", { params: { branchId }, body, idempotent: true }),
+
   /** `POST /cash-sessions` — Open a cashier shift and its cash session — FR-POS-090, FR-FIN-001/002. ONE command for the cashier, two records for the model. FR-POS-090 describes a single action ("open a shift, declaring an opening float"), and the cashier should not have to know that a shift is a Workforce concept and a session a Treasury one. They stay distinct in the schema (carried item P1D-A); only the command is unified, and both are written in one transaction. `Idempotency-Key` is MANDATORY (FR-API-020): opening a drawer is a financially significant act, and a retry over a flaky link must not produce a second shift or a second session. The two client ULIDs are independent duplicate protection beneath it. — The opened cash session and its shift, plus whether this call created them (false on an idempotent replay of an already-open pair). */
   openCashSession: (body: S.OpenCashSessionDto) =>
     http.post<S.TreasuryController_openCashSessionResponse>("/cash-sessions", { body, idempotent: true }),
+
+  /** `GET /cash-sessions/drawers` — DEMO-OPS-HOTFIX-3 — the real drawers a Cashier may open a shift over, for the POS Open-Shift drawer selector. Resolves the branch from the CALLER'S OWN terminal (`DrawersService.listForTerminal`), never a caller-supplied branchId — a cashier cannot browse another branch's drawers by asking for one. Gated on `cash.session.open`, the SAME permission `POST /cash-sessions` already requires, deliberately NOT `settings.branch.manage` — this is a read of what a Cashier may already act on, not a drawer-administration grant (that lives on the separate `DrawersController`). — The caller's own terminal-bound branch's drawers. */
+  listSessionDrawers: () =>
+    http.get<S.TreasuryController_listSessionDrawersResponse>("/cash-sessions/drawers"),
 
   /** `POST /cash-sessions/{sessionId}/close` — Declare the physical cash count — FR-POS-094/096/097 [M]. Within tolerance, this closes the session in the SAME request. Above tolerance, it freezes the session (`open -> closing`) and the disclosed figures in THIS response are the first and only legitimate disclosure — FR-POS-095's blind-count control is that expected cash/variance are revealed strictly AFTER the count is durably committed, never before. `POST .../close/finalize` is the ONLY way out of `closing` — there is no above-tolerance one-request path (a manager PIN entered before this response exists could not be an informed decision). — The committed count declaration — closed immediately if within tolerance, otherwise frozen awaiting a manager decision. */
   declareClose: (sessionId: string, body: S.DeclareCashSessionCloseDto) =>
