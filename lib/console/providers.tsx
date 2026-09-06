@@ -22,6 +22,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -50,7 +51,7 @@ import { tx } from "./format";
 import type { Scope } from "./services";
 import { DATA_MODE } from "@/lib/api/config";
 import { signOut as apiSignOut } from "@/lib/api/auth";
-import { setActiveSurface } from "@/lib/api/session";
+import { isSignedIn, onSessionChange, setActiveSurface } from "@/lib/api/session";
 import { useLiveOrgContext, type LiveOrgContext } from "./live-session";
 
 // ---------------------------------------------------------------------------
@@ -300,6 +301,29 @@ function SessionProvider({ children }: { children: ReactNode }) {
 
   const live = DATA_MODE === "http";
 
+  /**
+   * PROD-AUTH-EXPIRY-P0 — `authenticated` (this surface's OWN "am I signed
+   * in" flag) was only ever set by `signIn()`/`signOut()` above; it never
+   * learned that `lib/api/client.ts`'s `refreshSession()` had genuinely
+   * given up and called `clearSession()` (an expired refresh token, a
+   * revoked session). That left `authenticated` stuck `true` with no real
+   * token behind it: `ConsoleShell`'s sign-in redirect never fired, and the
+   * screen was left showing whatever the LAST real fetch had returned,
+   * frozen, forever — not mock data (the hard rule this task closes), but
+   * not a real live session either. `isSignedIn()` is already surface-aware
+   * (this provider's own `surface` prop set it), so this only ever reacts
+   * to THIS surface's own token disappearing — never the other one's.
+   */
+  useEffect(() => {
+    if (!live) return;
+    return onSessionChange(() => {
+      if (!isSignedIn() && authenticated) {
+        setAuthenticated(false);
+        write(KEY_AUTH, "false");
+      }
+    });
+  }, [live, authenticated]);
+
   const session = useMemo(
     () => (authenticated ? buildSession(roleKey, mfaSatisfied) : null),
     [authenticated, roleKey, mfaSatisfied],
@@ -471,12 +495,34 @@ function SessionProvider({ children }: { children: ReactNode }) {
     return shared ? codes : null;
   }, [live, org.ready, org.permissions]);
 
+  /**
+   * PROD-AUTH-EXPIRY-P0 — the LAST real tenant this live session actually
+   * resolved. `org.tenant` legitimately goes briefly `null` while
+   * `useLiveOrgContext` re-fetches (a token refresh re-triggers it — see
+   * `client.ts`'s `refreshSession()`) — that used to fall through to
+   * `tenants.find(ACTIVE_TENANT_ID)`, the DEMO FIXTURE tenant, which is
+   * exactly a real Owner's dashboard silently showing sample data around
+   * the ~900s access-token expiry the HARD RULE this task closes is about.
+   * Once a live session has shown a real tenant even once, it is shown
+   * again (not blanked, not replaced by fixture data) for every subsequent
+   * re-fetch until a NEW one actually resolves or the user signs out.
+   */
+  const lastRealTenantRef = useRef<Tenant | null>(null);
+  if (live && org.tenant) lastRealTenantRef.current = org.tenant;
+  if (!authenticated) lastRealTenantRef.current = null;
+
   const value = useMemo<SessionValue>(() => {
     const rolePermissions = session?.permissions ?? new Set<PermissionKey>();
     const has = (permission: PermissionKey) =>
       granted ? granted.has(permission) : rolePermissions.has(permission);
 
-    const tenant = (live ? org.tenant : null) ?? tenants.find((t) => t.id === ACTIVE_TENANT_ID)!;
+    // Mock/fixture data is reachable ONLY in demo mode (`!live`) or on this
+    // live session's OWN very first bootstrap, before any real tenant has
+    // ever resolved even once — never as recovery from an established
+    // session's expired/failed refresh (see `lastRealTenantRef` above).
+    const tenant =
+      (live ? (org.tenant ?? lastRealTenantRef.current) : null) ??
+      tenants.find((t) => t.id === ACTIVE_TENANT_ID)!;
 
     return {
       session,

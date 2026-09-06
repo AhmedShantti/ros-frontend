@@ -23,6 +23,7 @@
 import { API_BASE_URL, API_IS_PROXIED, DATA_MODE, REQUEST_TIMEOUT_MS, apiUrl } from "./config";
 import { ServiceError } from "../console/services/types";
 import {
+  announceSessionChange,
   clearSession,
   getAccessToken,
   getRefreshToken,
@@ -139,7 +140,12 @@ async function refreshSession(): Promise<boolean> {
           body: { refreshToken },
           anonymous: true,
         });
-        setTokens(rotated);
+        // Silent: this is the BASE, tenant-less token — announcing it would
+        // let a listener (`useLiveOrgContext`) re-fetch the org context
+        // using it before the tenant/terminal replay below has restored
+        // scope, which reliably fails and looked exactly like a real
+        // session's data vanishing.
+        setTokens(rotated, { silent: true });
       } catch {
         clearSession();
         return false;
@@ -154,7 +160,7 @@ async function refreshSession(): Promise<boolean> {
             anonymous: true,
             bearer: getAccessToken(),
           });
-          setTokens(scoped);
+          setTokens(scoped, { silent: true });
         } catch {
           // The membership may have been revoked while we were away. The next
           // scoped call 403s and the UI sends the user back to tenant pick.
@@ -169,12 +175,16 @@ async function refreshSession(): Promise<boolean> {
             anonymous: true,
             bearer: getAccessToken(),
           });
-          setTokens(bound);
+          setTokens(bound, { silent: true });
         } catch {
           // Terminal revoked or reassigned; POS screens prompt to re-bind.
         }
       }
 
+      // One announce, now that the FULL replay (base, then tenant, then
+      // terminal) has settled — whatever a listener re-fetches with is the
+      // final, fully-scoped token, never an intermediate one.
+      announceSessionChange();
       return true;
     })().finally(() => {
       refreshInFlight = null;
