@@ -37,6 +37,7 @@ import type {
   CountryCode,
   Currency,
   DayClose,
+  Drawer,
   Employee,
   EmployeeRoleAssignment,
   EmployeeStatus,
@@ -476,6 +477,18 @@ export function toStation(row: WireStation): Station {
     colour: colourOf(row.displayColour),
     capacityPerHour: numberOf(capacity.perHour ?? capacity.capacityPerHour),
     active: true, // gap: stations have no status on the API.
+  };
+}
+
+type WireDrawer = S.DrawersController_createDrawerResponse;
+
+export function toDrawer(row: WireDrawer): Drawer {
+  return {
+    id: row.id,
+    branchId: row.branchId,
+    name: row.name,
+    terminalId: row.terminalId,
+    isActive: row.isActive,
   };
 }
 

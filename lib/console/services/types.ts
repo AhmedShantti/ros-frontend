@@ -31,6 +31,7 @@ import type {
   DashboardData,
   DayClose,
   DayCloseResult,
+  Drawer,
   Employee,
   EmployeePerformance,
   EmployeeRoleAssignment,
@@ -1066,6 +1067,20 @@ export interface TreasuryService {
       effectiveFrom?: IsoDateTime;
     },
   ): Promise<CashClosePolicy>;
+
+  /** DEMO-OPS-HOTFIX-3 — all drawers in a branch, for the Owner's Operations -> Drawers admin page. */
+  listDrawers(branchId: Id): Promise<Drawer[]>;
+
+  /** DEMO-OPS-HOTFIX-3 — provision a new drawer. Owner/authorized-manager only. */
+  createDrawer(branchId: Id, input: { name: string; terminalId?: Id }): Promise<Drawer>;
+
+  /**
+   * DEMO-OPS-HOTFIX-3 — the REAL drawers a Cashier's own terminal-bound
+   * branch has, for the POS Open-Shift drawer selector. The branch is
+   * resolved server-side from the caller's own terminal; there is no
+   * branchId to pass.
+   */
+  listSessionDrawers(): Promise<Drawer[]>;
 }
 
 /** Everything the console can talk to. */

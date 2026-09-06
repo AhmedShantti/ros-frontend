@@ -635,6 +635,15 @@ const treasury: TreasuryService = {
   async setCashClosePolicy() {
     noBackend("Publishing a cash-close policy");
   },
+  async listDrawers() {
+    noBackend("Listing branch drawers");
+  },
+  async createDrawer() {
+    noBackend("Creating a drawer");
+  },
+  async listSessionDrawers() {
+    noBackend("Listing this terminal's drawers");
+  },
 };
 
 const openOrdersCollection: CollectionService<Order> = makeCollection<Order>({

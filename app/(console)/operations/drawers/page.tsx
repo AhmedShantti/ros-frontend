@@ -1,22 +1,21 @@
 "use client";
 
 /**
- * Stations — FR-KDS-001.
+ * Drawers — FR-FIN-001.
  *
- * A station is what a KDS screen binds to (`GET /kds/stations/{id}/queue`
- * refuses any station a terminal is not bound to). Without at least one
- * station configured for a branch, that branch's KDS has nothing to bind to
- * at all — this page is the one place that gap gets closed.
+ * The physical cash container a shift's CashSession opens over. Without at
+ * least one real drawer provisioned for a branch, a Cashier's own "Open
+ * Shift" always 404s ("Drawer not found") — this page is the one place that
+ * gap gets closed.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
-import type { Station } from "@/lib/console/types";
+import type { Drawer as DrawerRow } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useAction } from "@/lib/console/actions";
 import { useAsync } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
-import { formatNumber } from "@/lib/console/format";
 import { Gate } from "@/components/console/states";
 import { PageBody, PageHeader, Section } from "@/components/console/page";
 import {
@@ -31,33 +30,24 @@ import {
   Toast,
 } from "@/components/console/ui";
 
-export default function StationsPage() {
+export default function DrawersPage() {
   return (
     <Gate permissions={["settings.branch.manage"]}>
-      <StationsScreen />
+      <DrawersScreen />
     </Gate>
   );
 }
 
-function StationsScreen() {
-  const { t, tx, fmt } = useI18n();
-  const { scope, branch, availableBranches } = useSession();
+function DrawersScreen() {
+  const { t, tx } = useI18n();
+  const { branch, availableBranches } = useSession();
   const [branchId, setBranchId] = useState("");
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessageLocal();
 
-  /**
-   * DEMO-OPS-HOTFIX-3 — `branch`/`availableBranches` resolve ASYNCHRONOUSLY
-   * (live org-context rehydration, `useLiveOrgContext`): on first mount, or
-   * right after a hard reload, both are still empty/null. A plain
-   * `useState(branch?.id ?? availableBranches[0]?.id ?? "")` initializer only
-   * ever runs ONCE, so a branchId captured before rehydration finished would
-   * stay `""` (or a stale id) forever, silently emptying this page's own
-   * list — never a stale STATION, but a stale BRANCH SELECTION. This effect
-   * re-syncs to the live default whenever the CURRENT selection is no longer
-   * a real, visible branch, and otherwise leaves an explicit user choice
-   * alone.
-   */
+  // Same branch-context re-sync as the Stations page (DEMO-OPS-HOTFIX-3):
+  // `branch`/`availableBranches` resolve asynchronously, so a one-time
+  // initializer would lock onto an empty/stale selection forever.
   useEffect(() => {
     const defaultBranchId = branch?.id ?? availableBranches[0]?.id ?? "";
     setBranchId((current) => {
@@ -68,29 +58,22 @@ function StationsScreen() {
     });
   }, [branch, availableBranches]);
 
-  const stationScope = useMemo(
-    () => ({ ...scope, branchId: branchId || null }),
-    [scope, branchId],
-  );
-
-  const stationsQuery = useAsync(
+  const drawersQuery = useAsync(
     () =>
       branchId
-        ? services.operations
-            .stations({ scope: stationScope, limit: 200 })
-            .then((page) => page.rows)
-        : Promise.resolve([] as Station[]),
-    [branchId, stationScope],
+        ? services.treasury.listDrawers(branchId)
+        : Promise.resolve([] as DrawerRow[]),
+    [branchId],
   );
 
-  const stations = stationsQuery.data ?? [];
+  const drawers = drawersQuery.data ?? [];
 
   return (
     <>
       <PageHeader
-        title={t("stations.title")}
-        subtitle={t("stations.subtitle")}
-        spec="FR-KDS-001"
+        title={t("drawers.title")}
+        subtitle={t("drawers.subtitle")}
+        spec="FR-FIN-001"
       />
 
       <PageBody>
@@ -107,7 +90,7 @@ function StationsScreen() {
         ) : null}
 
         <Section
-          title={t("stations.listTitle")}
+          title={t("drawers.listTitle")}
           action={
             <Button
               variant="primary"
@@ -115,30 +98,27 @@ function StationsScreen() {
               disabled={!branchId}
               onClick={() => setCreating(true)}
             >
-              {t("stations.new")}
+              {t("drawers.new")}
             </Button>
           }
         >
-          {stationsQuery.loading ? (
+          {drawersQuery.loading ? (
             <Callout tone="muted">{t("state.loading")}</Callout>
-          ) : stations.length === 0 ? (
-            <Callout tone="muted">{t("stations.empty")}</Callout>
+          ) : drawers.length === 0 ? (
+            <Callout tone="muted">{t("drawers.empty")}</Callout>
           ) : (
             <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {stations.map((station) => (
-                <li key={station.id}>
+              {drawers.map((drawer) => (
+                <li key={drawer.id}>
                   <Card className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-fg text-sm font-semibold">
-                        {tx(station.name)}
-                      </span>
-                      <Badge tone="neutral">{station.type}</Badge>
+                      <span className="text-fg text-sm font-semibold">{drawer.name}</span>
+                      <Badge tone={drawer.isActive ? "good" : "muted"} dot>
+                        {drawer.isActive ? t("common.active") : t("common.inactive")}
+                      </Badge>
                     </div>
-                    {station.capacityPerHour > 0 ? (
-                      <p className="text-fg-subtle text-xs">
-                        {t("stations.capacityPerHourPrefix")}
-                        {formatNumber(station.capacityPerHour, fmt)}
-                      </p>
+                    {drawer.terminalId ? (
+                      <p className="text-fg-subtle text-xs">{t("drawers.terminalBound")}</p>
                     ) : null}
                   </Card>
                 </li>
@@ -149,13 +129,13 @@ function StationsScreen() {
       </PageBody>
 
       {creating ? (
-        <NewStationDrawer
+        <NewDrawerDrawer
           branchId={branchId}
           onClose={() => setCreating(false)}
           onCreated={() => {
             setCreating(false);
-            setMessage(t("stations.created"));
-            stationsQuery.reload();
+            setMessage(t("drawers.created"));
+            drawersQuery.reload();
           }}
         />
       ) : null}
@@ -177,7 +157,7 @@ function useTransientMessageLocal() {
   ] as const;
 }
 
-function NewStationDrawer({
+function NewDrawerDrawer({
   branchId,
   onClose,
   onCreated,
@@ -189,16 +169,11 @@ function NewStationDrawer({
   const { t } = useI18n();
   const action = useAction();
   const [name, setName] = useState("");
-  const [capacityPerHour, setCapacityPerHour] = useState("");
 
   async function create() {
     if (!name.trim() || !branchId) return;
     await action.run(
-      () =>
-        services.operations.createStation(branchId, {
-          name: { en: name.trim(), ar: name.trim() },
-          capacityPerHour: capacityPerHour ? Number(capacityPerHour) : undefined,
-        }),
+      () => services.treasury.createDrawer(branchId, { name: name.trim() }),
       { onSuccess: onCreated },
     );
   }
@@ -207,7 +182,7 @@ function NewStationDrawer({
     <Drawer
       open
       onClose={onClose}
-      title={t("stations.new")}
+      title={t("drawers.new")}
       footer={
         <div className="flex gap-2">
           <Button
@@ -229,16 +204,6 @@ function NewStationDrawer({
 
         <Field label={t("common.name")} required>
           <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={64} />
-        </Field>
-
-        <Field label={t("stations.capacityPerHourLabel")} hint={t("stations.capacityPerHourHint")}>
-          <Input
-            dir="ltr"
-            inputMode="numeric"
-            value={capacityPerHour}
-            onChange={(event) => setCapacityPerHour(event.target.value.replace(/[^0-9]/g, ""))}
-            maxLength={4}
-          />
         </Field>
       </div>
     </Drawer>

@@ -216,7 +216,6 @@ export function LivePos() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-md space-y-3 p-4">
           <OpenDrawer
-            terminal={bound.data}
             cashier={cashier}
             onNeedsSignOn={() => {
               // The token stopped identifying an employee — a refresh can
@@ -373,20 +372,22 @@ function CashierSignOn({
 /**
  * FR-POS-090, FR-FIN-001/002 — a shift and its cash session, in one call.
  *
- * The drawer is not named by the cashier. It used to be a text field
- * defaulting to "DRAWER-1", which the server rejects outright: `drawerId` is
- * validated as a UUID, like every other id it stores. A till has one drawer,
- * so the drawer *is* the terminal, and the terminal's id is one the server
- * issued and will accept. It is shown, not asked for — a cashier has no way
- * to know a UUID and no reason to choose one.
+ * The drawer is a REAL `Drawer` row (DEMO-OPS-HOTFIX-3,
+ * `GET /cash-sessions/drawers` — resolved server-side from this terminal's
+ * own branch, never a caller-supplied branchId). It used to submit the
+ * TERMINAL's own id as `drawerId` on the theory that "a till has one
+ * drawer" — the server correctly rejected that with 404 "Drawer not
+ * found", since a Drawer and a Terminal are different rows even when
+ * paired one-to-one. With exactly one real drawer this still shows it,
+ * not asks for it, matching the original intent; with more than one it
+ * offers a real choice, and with none it says so rather than submitting a
+ * placeholder id.
  */
 function OpenDrawer({
-  terminal,
   cashier,
   onNeedsSignOn,
   onOpened,
 }: {
-  terminal: { id: string; name: string } | null;
   cashier: PosEmployee;
   onNeedsSignOn: () => void;
   onOpened: (cashSessionId: string) => void;
@@ -394,8 +395,19 @@ function OpenDrawer({
   const { t } = useI18n();
   const action = useAction();
   const [float, setFloat] = useState("500.00");
+  const [drawerId, setDrawerId] = useState("");
 
-  const drawerId = terminal?.id ?? "";
+  const drawers = useAsync(() => services.treasury.listSessionDrawers(), []);
+  const drawerRows = drawers.data ?? [];
+
+  useEffect(() => {
+    if (drawerRows.length === 0) return;
+    setDrawerId((current) =>
+      drawerRows.some((row) => row.id === current) ? current : drawerRows[0].id,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawerRows]);
+
   const valid = drawerId !== "" && Number.isFinite(Number(float)) && Number(float) >= 0;
 
   async function open() {
@@ -457,7 +469,21 @@ function OpenDrawer({
         </Field>
 
         <Field label={t("shift.drawer")} hint={t("shift.drawerHint")}>
-          <Input dir="ltr" value={terminal?.name ?? ""} readOnly disabled />
+          {drawers.loading ? (
+            <Input dir="ltr" value={t("state.loading")} readOnly disabled />
+          ) : drawerRows.length === 0 ? (
+            <Callout tone="warn">{t("shift.noDrawer")}</Callout>
+          ) : drawerRows.length === 1 ? (
+            <Input dir="ltr" value={drawerRows[0].name} readOnly disabled />
+          ) : (
+            <Select value={drawerId} onChange={(event) => setDrawerId(event.target.value)}>
+              {drawerRows.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.name}
+                </option>
+              ))}
+            </Select>
+          )}
         </Field>
 
         <Field label={t("shift.openingFloat")} hint={t("shift.openingFloatHint")} required>

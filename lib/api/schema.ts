@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 143 paths, 105 request DTOs.
+ * `api/openapi.json`. 145 paths, 106 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -198,6 +198,13 @@ export interface CreateCategoryDto {
 export interface CreateCentralKitchenDto {
   name: string;
   warehouseId: string;
+}
+
+export interface CreateDrawerDto {
+  /** `Drawer.name` — VARCHAR(64). */
+  name: string;
+  /** Optional device binding. When set, a cash session may only be opened against this drawer from THAT terminal — `DrawersService.create` enforces same-branch (ADR 0008 D-16). Omitted = any terminal in the branch may open a session over this drawer. */
+  terminalId?: string;
 }
 
 export interface CreateEmployeeDto {
@@ -1516,6 +1523,26 @@ export type DayCloseController_postResponse = {
 
 export type DayCloseController_postBody = PostDayCloseDto;
 
+/** `GET /branches/{branchId}/drawers` — All drawers in the branch. */
+export type DrawersController_listDrawersResponse = ({
+  branchId: string;
+  id: string;
+  isActive: boolean;
+  name: string;
+  terminalId: string | null;
+})[];
+
+/** `POST /branches/{branchId}/drawers` — The newly created drawer. */
+export type DrawersController_createDrawerResponse = {
+  branchId: string;
+  id: string;
+  isActive: boolean;
+  name: string;
+  terminalId: string | null;
+};
+
+export type DrawersController_createDrawerBody = CreateDrawerDto;
+
 /** `POST /cash-sessions` — Open a cashier shift and its cash session — FR-POS-090, FR-FIN-001/002. ONE command for the cashier, two records for the model. FR-POS-090 describes a single action ("open a shift, declaring an opening float"), and the cashier should not have to know that a shift is a Workforce concept and a session a Treasury one. They stay distinct in the schema (carried item P1D-A); only the command is unified, and both are written in one transaction. `Idempotency-Key` is MANDATORY (FR-API-020): opening a drawer is a financially significant act, and a retry over a flaky link must not produce a second shift or a second session. The two client ULIDs are independent duplicate protection beneath it. — The opened cash session and its shift, plus whether this call created them (false on an idempotent replay of an already-open pair). */
 export type TreasuryController_openCashSessionResponse = {
   cashSession: {
@@ -1543,6 +1570,15 @@ export type TreasuryController_openCashSessionResponse = {
 };
 
 export type TreasuryController_openCashSessionBody = OpenCashSessionDto;
+
+/** `GET /cash-sessions/drawers` — DEMO-OPS-HOTFIX-3 — the real drawers a Cashier may open a shift over, for the POS Open-Shift drawer selector. Resolves the branch from the CALLER'S OWN terminal (`DrawersService.listForTerminal`), never a caller-supplied branchId — a cashier cannot browse another branch's drawers by asking for one. Gated on `cash.session.open`, the SAME permission `POST /cash-sessions` already requires, deliberately NOT `settings.branch.manage` — this is a read of what a Cashier may already act on, not a drawer-administration grant (that lives on the separate `DrawersController`). — The caller's own terminal-bound branch's drawers. */
+export type TreasuryController_listSessionDrawersResponse = ({
+  branchId: string;
+  id: string;
+  isActive: boolean;
+  name: string;
+  terminalId: string | null;
+})[];
 
 /** `POST /cash-sessions/{sessionId}/close` — Declare the physical cash count — FR-POS-094/096/097 [M]. Within tolerance, this closes the session in the SAME request. Above tolerance, it freezes the session (`open -> closing`) and the disclosed figures in THIS response are the first and only legitimate disclosure — FR-POS-095's blind-count control is that expected cash/variance are revealed strictly AFTER the count is durably committed, never before. `POST .../close/finalize` is the ONLY way out of `closing` — there is no above-tolerance one-request path (a manager PIN entered before this response exists could not be an informed decision). — The committed count declaration — closed immediately if within tolerance, otherwise frozen awaiting a manager decision. */
 export type TreasuryController_declareCloseResponse = {
@@ -5865,7 +5901,10 @@ export const ROUTES = {
   CashClosePolicyController_createPolicy: { method: "POST", path: "/branches/{branchId}/cash-close-policy" },
   DayCloseController_get: { method: "GET", path: "/branches/{branchId}/day-closes/{businessDay}" },
   DayCloseController_post: { method: "POST", path: "/branches/{branchId}/day-closes/{businessDay}" },
+  DrawersController_listDrawers: { method: "GET", path: "/branches/{branchId}/drawers" },
+  DrawersController_createDrawer: { method: "POST", path: "/branches/{branchId}/drawers" },
   TreasuryController_openCashSession: { method: "POST", path: "/cash-sessions" },
+  TreasuryController_listSessionDrawers: { method: "GET", path: "/cash-sessions/drawers" },
   TreasuryController_declareClose: { method: "POST", path: "/cash-sessions/{sessionId}/close" },
   TreasuryController_getCloseContext: { method: "GET", path: "/cash-sessions/{sessionId}/close-context" },
   TreasuryController_finalizeClose: { method: "POST", path: "/cash-sessions/{sessionId}/close/finalize" },
