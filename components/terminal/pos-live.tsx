@@ -63,7 +63,7 @@ import {
   setPendingCashOpen,
   getPosEmployee,
   setPosEmployee,
-  getTenantId,
+  getDeviceTenantId,
   type PosEmployee,
 } from "@/lib/api/session";
 import { api } from "@/lib/api/endpoints";
@@ -303,7 +303,7 @@ function CashierSignOn({
   const [employeeCode, setEmployeeCode] = useState("");
   const [pin, setPin] = useState("");
 
-  const tenantId = getTenantId();
+  const tenantId = getDeviceTenantId();
   const valid = employeeCode.trim() !== "" && /^[0-9]{4,8}$/.test(pin) && Boolean(tenantId);
 
   async function signOn() {

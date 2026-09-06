@@ -21,7 +21,7 @@ export default function TerminalLayout({ children }: { children: React.ReactNode
   return (
     <>
       <ConsoleThemeScript />
-      <ConsoleProvider>
+      <ConsoleProvider surface="terminal">
         <LiveProvider>
           <ConsoleRoot className="bg-surface flex h-dvh flex-col overflow-hidden">
             {children}
