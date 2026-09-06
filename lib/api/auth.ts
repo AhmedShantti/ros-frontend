@@ -180,11 +180,36 @@ export async function signOut(): Promise<void> {
   }
 }
 
+/**
+ * Every permission code the server will actually honour for this session,
+ * across every scope the token carries.
+ *
+ * `GET /auth/permissions` answers two things and it is easy to read only the
+ * first: the top-level `permissions` array is documented as "TENANT-scoped
+ * permission codes only — what an unscoped, target-less endpoint authorises
+ * today." The operational grants a console actually gates navigation on —
+ * `kds.operate`, `pos.order.create`, `inventory.view`, `cash.session.view`,
+ * `audit.view` and the like — are typically held at brand or branch scope,
+ * so they never appear there; they live in `scopes[]`, "every effective
+ * assignment, scope-qualified." Reading `permissions` alone is why an Owner
+ * with the full catalogue still loses whole sections of the sidebar: the
+ * codes were never missing server-side, this call just never asked for them.
+ */
+export function effectivePermissionCodes(
+  response: S.RbacController_myPermissionsResponse,
+): string[] {
+  const codes = new Set(response.permissions);
+  for (const scope of response.scopes) {
+    for (const code of scope.permissions) codes.add(code);
+  }
+  return [...codes];
+}
+
 /** The permission codes the server will actually honour for this session. */
 export async function permissions(): Promise<string[]> {
   if (!getTenantId()) return [];
   const response = await api.rbac.myPermissions();
-  return response.permissions;
+  return effectivePermissionCodes(response);
 }
 
 /**

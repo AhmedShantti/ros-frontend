@@ -95,7 +95,7 @@ export const PERMISSION_CATALOGUE = [
     "Reopen a completed order. Highly restricted.", "إعادة فتح طلب مكتمل. مقيّد للغاية.", true),
 
   // -- Kitchen and live operations -----------------------------------------
-  def("kds.view", "kitchen", "View kitchen queue", "عرض طابور المطبخ",
+  def("kds.operate", "kitchen", "View kitchen queue", "عرض طابور المطبخ",
     "See station queues and ticket timing.", "الاطلاع على طوابير المحطات وتوقيت التذاكر."),
   def("kds.station.manage", "kitchen", "Manage stations", "إدارة المحطات",
     "Configure stations, routing rules, and capacity.", "ضبط المحطات وقواعد التوجيه والسعة."),
@@ -393,7 +393,7 @@ const READ_ONLY: PermissionKey[] = ALL_PERMISSIONS.filter(
     (k.includes(".view") ||
       k.startsWith("report.view") ||
       k === "audit.view" ||
-      k === "kds.view"),
+      k === "kds.operate"),
 );
 
 export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
@@ -419,7 +419,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
     permissions: [
       "pos.order.view", "pos.order.cancel", "pos.discount.approve", "pos.refund.issue",
       "pos.order.reopen", "pos.reprint.receipt",
-      "kds.view", "kds.station.manage", "ops.live.view", "ops.terminal.view", "ops.terminal.manage",
+      "kds.operate", "kds.station.manage", "ops.live.view", "ops.terminal.view", "ops.terminal.manage",
       "cash.session.view", "cash.session.close_other", "cash.variance.approve", "cash.day.close",
       "finance.expense.view", "finance.expense.manage", "finance.expense.approve", "finance.tax.view",
       "inventory.view", "inventory.item.manage", "inventory.count.post",
@@ -447,7 +447,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
     defaultScope: "brand",
     permissions: [
       "pos.order.view",
-      "kds.view", "ops.live.view", "ops.terminal.view",
+      "kds.operate", "ops.live.view", "ops.terminal.view",
       "inventory.view", "inventory.cost.view",
       "menu.view", "menu.item.manage", "menu.price.change", "menu.availability.toggle",
       "recipe.view", "recipe.edit", "recipe.publish",
@@ -471,7 +471,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "pos.order.void_line_postfire", "pos.order.cancel", "pos.discount.apply",
       "pos.discount.approve", "pos.comp.apply", "pos.price.override", "pos.refund.issue",
       "pos.reprint.receipt", "pos.order.transfer",
-      "kds.view", "kds.station.manage", "ops.live.view", "ops.terminal.view",
+      "kds.operate", "kds.station.manage", "ops.live.view", "ops.terminal.view",
       "cash.session.view", "cash.session.open", "cash.session.close",
       "cash.session.close_other", "cash.drawer.open_no_sale", "cash.payin", "cash.payout",
       "cash.safedrop", "cash.variance.approve", "cash.day.close",
@@ -504,7 +504,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "pos.order.void_line_postfire", "pos.order.cancel", "pos.discount.apply",
       "pos.discount.approve", "pos.comp.apply", "pos.refund.issue",
       "pos.reprint.receipt", "pos.order.transfer",
-      "kds.view", "ops.live.view", "ops.terminal.view",
+      "kds.operate", "ops.live.view", "ops.terminal.view",
       "cash.session.view", "cash.session.open", "cash.session.close",
       "cash.session.close_other", "cash.drawer.open_no_sale",
       "cash.payin", "cash.payout", "cash.safedrop",
@@ -544,7 +544,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
     permissions: [
       "pos.order.view", "pos.order.create", "pos.order.void_line_prefire",
       "pos.order.transfer",
-      "ops.live.view", "kds.view",
+      "ops.live.view", "kds.operate",
       "menu.view",
     ],
   },
@@ -558,7 +558,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
     },
     defaultScope: "branch",
     permissions: [
-      "kds.view",
+      "kds.operate",
       "menu.view", "menu.availability.toggle",
       "recipe.view",
       "inventory.waste.record",
@@ -575,7 +575,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
     defaultScope: "branch_set",
     permissions: [
       "pos.order.view",
-      "kds.view", "kds.station.manage", "ops.live.view",
+      "kds.operate", "kds.station.manage", "ops.live.view",
       "inventory.view", "inventory.count.perform", "inventory.waste.record",
       "inventory.cost.view",
       "menu.view", "menu.availability.toggle",
@@ -634,7 +634,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
     },
     defaultScope: "branch_set",
     permissions: [
-      "kds.view", "ops.live.view",
+      "kds.operate", "ops.live.view",
       "inventory.view", "inventory.item.manage", "inventory.count.perform",
       "inventory.count.post", "inventory.adjust",
       "inventory.transfer.create", "inventory.transfer.receive",
@@ -707,7 +707,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
     defaultScope: "branch_set",
     permissions: [
       "pos.order.view", "pos.discount.approve", "pos.refund.issue", "pos.reprint.receipt",
-      "kds.view", "ops.live.view", "ops.terminal.view",
+      "kds.operate", "ops.live.view", "ops.terminal.view",
       "cash.session.view", "cash.variance.approve", "cash.day.close",
       "finance.expense.view", "finance.expense.manage", "finance.expense.approve",
       "finance.tax.view",
@@ -789,7 +789,7 @@ export function surfacesForRole(role: RoleKey): Surface[] {
   const surfaces: Surface[] = [];
   if (CONSOLE_PERMISSIONS.some((p) => held.has(p))) surfaces.push("console");
   if (held.has("pos.order.create")) surfaces.push("pos");
-  if (held.has("kds.view")) surfaces.push("kds");
+  if (held.has("kds.operate")) surfaces.push("kds");
   return surfaces.length > 0 ? surfaces : ["console"];
 }
 
