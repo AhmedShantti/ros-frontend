@@ -302,6 +302,24 @@ function indexBy<T>(rows: T[], key: (row: T) => string): Map<string, T> {
 // ---------------------------------------------------------------------------
 
 const branchesRaw = cached(() => api.organisation.listBranches());
+/**
+ * DEMO-POS-BRANCH-CONTEXT-HOTFIX — `GET /org/branches` is deliberately
+ * tenant-owner-only (`OrganisationController#listBranches`'s own
+ * `@RequirePermission(BRANCH_READ)`, a tenant-target permission a
+ * branch-scoped Cashier/Kitchen-Staff role never holds), so nothing that
+ * can be reached by a non-owner session may call `branchesRaw()` as a
+ * fallback. `GET /org/access` already returns exactly the caller's own
+ * live-scoped branches — every one for a tenant-scoped Owner (same rows
+ * `listBranches` would give), just this caller's own for a branch/brand-
+ * scoped role — and needs no extra permission beyond being authenticated.
+ * Same wire shape as `listBranches()`'s rows (verified against the
+ * generated schema), so it is a safe, universal drop-in wherever the
+ * caller's OWN accessible set — not the tenant's whole roster — is what's
+ * actually needed.
+ */
+const accessibleBranchesRaw = cached(() =>
+  api.organisation.getAccessibleScope().then((r) => r.branches),
+);
 const warehousesRaw = cached(() => api.organisation.listWarehouses());
 const stockItemsRaw = cached(() => api.inventory.listItems());
 const menusRaw = cached(() => api.catalogue.listMenus());
@@ -2416,14 +2434,25 @@ const treasury: import("./types").TreasuryService = {
 
 const OPEN_STATES = new Set(["draft", "open", "held", "parked", "partially_paid"]);
 
-/** Fans a per-branch endpoint over the branches in scope. */
+/**
+ * Fans a per-branch endpoint over the branches in scope.
+ *
+ * DEMO-POS-BRANCH-CONTEXT-HOTFIX: the "no explicit branchId" fallback used
+ * to call `branchesRaw()` (`GET /org/branches`, tenant-owner-only) for
+ * EVERY caller — fine for an Owner, a 403 for anyone else (a Cashier's KDS
+ * screen calling `useStations` with no branch pre-selected, say). Uses the
+ * caller's own accessible set (`GET /org/access`) instead, which answers
+ * correctly for both: the same full roster for an Owner, just the caller's
+ * own branch(es) for a scoped role — and never denies. Failure defaults to
+ * an empty fan-out, never an unhandled rejection.
+ */
 async function perBranch<T>(
   scope: Scope | undefined,
   fetch: (branchId: Id) => Promise<T[]>,
 ): Promise<T[]> {
   if (scope?.branchId) return fetch(scope.branchId);
 
-  const branchRows = await branchesRaw();
+  const branchRows = await accessibleBranchesRaw().catch(() => []);
   const wanted = scope?.brandId
     ? branchRows.filter((row) => row.brandId === scope.brandId)
     : branchRows;
@@ -2589,7 +2618,11 @@ const operations: OperationsService = {
  * rarely, so it is memoised like the other lookup tables.
  */
 const stationsRaw = cached(async (): Promise<Station[]> => {
-  const branchRows = await branchesRaw();
+  // DEMO-POS-BRANCH-CONTEXT-HOTFIX: same reasoning as `perBranch` — this
+  // lookup table is built for whoever is looking (a Cashier/Kitchen-Staff
+  // KDS session included), so it must use the caller's OWN accessible
+  // branches, never the tenant-owner-only list.
+  const branchRows = await accessibleBranchesRaw().catch(() => []);
   const perBranchRows = await Promise.all(
     branchRows
       .slice(0, 25)
