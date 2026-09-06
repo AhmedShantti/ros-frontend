@@ -94,7 +94,7 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: MonitorSmartphone,
     items: [
       { href: "/pos", labelKey: "nav.pos", icon: ShoppingCart, permissions: [], external: true },
-      { href: "/kds", labelKey: "nav.kds", icon: ChefHat, permissions: ["kds.view"], external: true },
+      { href: "/kds", labelKey: "nav.kds", icon: ChefHat, permissions: ["kds.operate"], external: true },
     ],
   },
   {
@@ -105,7 +105,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: "/orders", labelKey: "nav.orders", icon: ReceiptText, permissions: ["pos.order.view"], matchPrefix: true },
       { href: "/operations/open-orders", labelKey: "nav.openOrders", icon: ClipboardList, permissions: ["ops.live.view", "pos.order.view"] },
       { href: "/operations/tables", labelKey: "nav.tables", icon: Table2, permissions: ["ops.live.view"] },
-      { href: "/operations/kitchen", labelKey: "nav.kitchen", icon: ChefHat, permissions: ["kds.view"] },
+      { href: "/operations/kitchen", labelKey: "nav.kitchen", icon: ChefHat, permissions: ["kds.operate"] },
       { href: "/operations/terminals", labelKey: "nav.terminals", icon: MonitorSmartphone, permissions: ["ops.terminal.view"] },
     ],
   },

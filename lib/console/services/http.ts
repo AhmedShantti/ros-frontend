@@ -206,6 +206,10 @@ export const API_COVERAGE = {
     // `attendance`/`overtime`/`performance` remain absent (see below).
     "workforce.employees",
     "workforce.setEmployeePin",
+    // DEMO-EMPLOYEE-RBAC-1 — the employee-scoped role-assignment facade
+    // (`workforce/employees/{id}/role-assignments`). The role picker itself
+    // is `security.roles`, already real (see below).
+    "workforce.roleAssignments",
   ],
   /**
    * No endpoint exists in the document. These fail rather than fabricate.
@@ -2781,6 +2785,20 @@ const workforce: WorkforceService = {
   employees,
   async setEmployeePin(employeeId, pin) {
     await api.workforceEmployees.setPin(String(employeeId), { pin });
+  },
+  async roleAssignments(employeeId) {
+    const rows = await api.workforceEmployees.listRoleAssignments(String(employeeId));
+    return rows.map(map.toEmployeeRoleAssignment);
+  },
+  async assignEmployeeRole(employeeId, roleId, scope) {
+    const row = await api.workforceEmployees.assignRole(String(employeeId), {
+      roleId: String(roleId),
+      scope,
+    });
+    return map.toEmployeeRoleAssignment(row);
+  },
+  async removeEmployeeRoleAssignment(employeeId, assignmentId) {
+    await api.workforceEmployees.removeRoleAssignment(String(employeeId), String(assignmentId));
   },
 };
 

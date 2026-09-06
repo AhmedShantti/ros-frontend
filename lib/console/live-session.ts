@@ -35,6 +35,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "@/lib/api/endpoints";
+import { effectivePermissionCodes } from "@/lib/api/auth";
 import { DATA_MODE } from "@/lib/api/config";
 import { getAccessToken, getTenantId, onSessionChange } from "@/lib/api/session";
 import { ServiceError } from "./services/types";
@@ -148,8 +149,12 @@ async function loadContext(): Promise<Omit<LiveOrgContext, "ready" | "loading" |
     brand.branchCount = perBrand.get(brand.id) ?? 0;
   }
 
+  // `granted.value.permissions` alone is only the caller's TENANT-scoped
+  // codes (see `effectivePermissionCodes`) — the brand/branch-scoped grants
+  // that gate KDS, POS, inventory, cash and audit live in `.scopes[]` and are
+  // silently dropped if this only reads the top-level field.
   const permissions = new Set(
-    granted.status === "fulfilled" ? granted.value.permissions : [],
+    granted.status === "fulfilled" ? effectivePermissionCodes(granted.value) : [],
   );
 
   const error =

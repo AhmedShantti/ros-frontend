@@ -11,6 +11,7 @@ import type {
   Branch,
   Brand,
   CentralKitchen,
+  EmployeeRoleAssignment,
   Id,
   KitchenTicket,
   Localised,
@@ -1673,6 +1674,10 @@ const purchasing: PurchasingService = {
 // Workforce
 // ---------------------------------------------------------------------------
 
+// DEMO-EMPLOYEE-RBAC-1 — demo/offline fixture store, module-scoped (reset on
+// reload), keyed by employee id.
+const mockRoleAssignments = new Map<string, EmployeeRoleAssignment[]>();
+
 const workforce: WorkforceService = {
   employees: makeCollection({
     rows: employees,
@@ -1709,6 +1714,32 @@ const workforce: WorkforceService = {
   // Demo/offline fixture — no real credential concept to mutate; a no-op
   // resolve is honest here (the console has nothing to verify against).
   async setEmployeePin() {},
+  // DEMO-EMPLOYEE-RBAC-1 — demo/offline fixture. A small in-memory store
+  // (module-scoped, reset on reload) so the "Access / Role" drawer is
+  // interactively demoable without a backend, mirroring `makeCollection`'s
+  // own in-memory mutation style elsewhere in this file.
+  async roleAssignments(employeeId) {
+    return mockRoleAssignments.get(String(employeeId)) ?? [];
+  },
+  async assignEmployeeRole(employeeId, roleId, scope) {
+    const role = roles.find((r) => r.id === roleId);
+    const assignment: EmployeeRoleAssignment = {
+      id: `mock-assignment-${Date.now()}`,
+      roleId,
+      roleName: role?.name.en ?? null,
+      scopeType: scope.type,
+      scopeBranchId: scope.type === "branch" ? scope.branchId : null,
+    };
+    mockRoleAssignments.set(String(employeeId), [assignment]);
+    return assignment;
+  },
+  async removeEmployeeRoleAssignment(employeeId, assignmentId) {
+    const existing = mockRoleAssignments.get(String(employeeId)) ?? [];
+    mockRoleAssignments.set(
+      String(employeeId),
+      existing.filter((a) => a.id !== assignmentId),
+    );
+  },
   shifts: makeCollection({
     rows: scheduledShifts,
     idOf: (s) => s.id,

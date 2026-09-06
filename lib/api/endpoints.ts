@@ -868,6 +868,18 @@ export const workforceEmployees = {
   setPin: (employeeId: string, body: S.SetEmployeePinDto) =>
     http.post<S.EmployeesController_setPinResponse>("/workforce/employees/{employeeId}/pin", { params: { employeeId }, body, idempotent: true }),
 
+  /** `GET /workforce/employees/{employeeId}/role-assignments` — DEMO-EMPLOYEE-RBAC-1 — this employee's scoped role assignments. A thin facade: the Employees UI knows only `employeeId`, never the raw `membershipId` `POST /auth/memberships/{membershipId}/roles` addresses — `WorkforceEmployeesService.listRoleAssignments` resolves that link and delegates entirely to the existing `MembershipRolesService`. — This employee's assignments, oldest first. */
+  listRoleAssignments: (employeeId: string) =>
+    http.get<S.EmployeesController_listRoleAssignmentsResponse>("/workforce/employees/{employeeId}/role-assignments", { params: { employeeId } }),
+
+  /** `POST /workforce/employees/{employeeId}/role-assignments` — DEMO-EMPLOYEE-RBAC-1 — assign a role to this employee at an EXPLICIT scope. Same `AssignRoleDto`/`AssignmentScopeDto` shape `POST /auth/memberships/{membershipId}/roles` already accepts — no parallel contract. Delegates to `MembershipRolesService.create`, which performs the atomic scoped-assignment insert + `authzEpoch` bump + audit write; nothing is reimplemented here. — The created assignment. */
+  assignRole: (employeeId: string, body: S.AssignRoleDto) =>
+    http.post<S.EmployeesController_assignRoleResponse>("/workforce/employees/{employeeId}/role-assignments", { params: { employeeId }, body, idempotent: true }),
+
+  /** `DELETE /workforce/employees/{employeeId}/role-assignments/{assignmentId}` — DEMO-EMPLOYEE-RBAC-1 — remove ONE of this employee's role assignments. `WorkforceEmployeesService.removeRoleAssignment` confirms the assignment actually belongs to this employee before delegating to `MembershipRolesService.remove`. */
+  removeRoleAssignment: (employeeId: string, assignmentId: string) =>
+    http.delete<S.EmployeesController_removeRoleAssignmentResponse>("/workforce/employees/{employeeId}/role-assignments/{assignmentId}", { params: { employeeId, assignmentId } }),
+
 };
 
 // ---------------------------------------------------------------------------

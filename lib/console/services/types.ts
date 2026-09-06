@@ -33,6 +33,7 @@ import type {
   DayCloseResult,
   Employee,
   EmployeePerformance,
+  EmployeeRoleAssignment,
   Expense,
   FoodCostRow,
   GoodsReceipt,
@@ -520,6 +521,21 @@ export interface WorkforceService {
    * employee record itself, and `PinService.setPin` is a dedicated write.
    */
   setEmployeePin(employeeId: Id, pin: string): Promise<void>;
+  /**
+   * DEMO-EMPLOYEE-RBAC-1 — this employee's scoped role assignments, and
+   * assigning/removing one. Available system roles for the picker come from
+   * `services.security.roles` (already real and tenant-wide) — these three
+   * exist only because the API has no "membership id for this employee"
+   * lookup, so an employee-scoped facade resolves it server-side instead of
+   * handing a raw membership id to the browser.
+   */
+  roleAssignments(employeeId: Id): Promise<EmployeeRoleAssignment[]>;
+  assignEmployeeRole(
+    employeeId: Id,
+    roleId: Id,
+    scope: { type: "tenant" } | { type: "branch"; branchId: Id },
+  ): Promise<EmployeeRoleAssignment>;
+  removeEmployeeRoleAssignment(employeeId: Id, assignmentId: Id): Promise<void>;
 }
 
 /** A user's membership of a tenant — what a role is actually assigned to. */
