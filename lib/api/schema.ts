@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 141 paths, 105 request DTOs.
+ * `api/openapi.json`. 143 paths, 105 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -5736,6 +5736,49 @@ export type EmployeesController_setPinResponse = void;
 
 export type EmployeesController_setPinBody = SetEmployeePinDto;
 
+/** `GET /workforce/employees/{employeeId}/role-assignments` — DEMO-EMPLOYEE-RBAC-1 — this employee's scoped role assignments. A thin facade: the Employees UI knows only `employeeId`, never the raw `membershipId` `POST /auth/memberships/{membershipId}/roles` addresses — `WorkforceEmployeesService.listRoleAssignments` resolves that link and delegates entirely to the existing `MembershipRolesService`. — This employee's assignments, oldest first. */
+export type EmployeesController_listRoleAssignmentsResponse = ({
+  createdAt: string;
+  /** Stable assignment identity (FR-SEC-003). */
+  id: string;
+  membershipId: string;
+  origin: "explicit" | "migration";
+  reviewedAt: string | null;
+  roleId: string;
+  roleName: string | null;
+  /** Set iff scopeType = branch. */
+  scopeBranchId: string | null;
+  /** Set iff scopeType = brand. */
+  scopeBrandId: string | null;
+  scopeType: "tenant" | "brand" | "branch";
+  validFrom: string;
+  validTo: string | null;
+})[];
+
+/** `POST /workforce/employees/{employeeId}/role-assignments` — DEMO-EMPLOYEE-RBAC-1 — assign a role to this employee at an EXPLICIT scope. Same `AssignRoleDto`/`AssignmentScopeDto` shape `POST /auth/memberships/{membershipId}/roles` already accepts — no parallel contract. Delegates to `MembershipRolesService.create`, which performs the atomic scoped-assignment insert + `authzEpoch` bump + audit write; nothing is reimplemented here. — The created assignment. */
+export type EmployeesController_assignRoleResponse = {
+  createdAt: string;
+  /** Stable assignment identity (FR-SEC-003). */
+  id: string;
+  membershipId: string;
+  origin: "explicit" | "migration";
+  reviewedAt: string | null;
+  roleId: string;
+  roleName: string | null;
+  /** Set iff scopeType = branch. */
+  scopeBranchId: string | null;
+  /** Set iff scopeType = brand. */
+  scopeBrandId: string | null;
+  scopeType: "tenant" | "brand" | "branch";
+  validFrom: string;
+  validTo: string | null;
+};
+
+export type EmployeesController_assignRoleBody = AssignRoleDto;
+
+/** `DELETE /workforce/employees/{employeeId}/role-assignments/{assignmentId}` — DEMO-EMPLOYEE-RBAC-1 — remove ONE of this employee's role assignments. `WorkforceEmployeesService.removeRoleAssignment` confirms the assignment actually belongs to this employee before delegating to `MembershipRolesService.remove`. */
+export type EmployeesController_removeRoleAssignmentResponse = void;
+
 /** `POST /workforce/schedules` — FR-HRM-010 — create a schedule by branch and week. */
 export type ScheduleController_createResponse = {
   branchId: string;
@@ -5974,6 +6017,9 @@ export const ROUTES = {
   EmployeesController_setCompensation: { method: "POST", path: "/workforce/employees/{employeeId}/compensation" },
   EmployeesController_deactivate: { method: "POST", path: "/workforce/employees/{employeeId}/deactivate" },
   EmployeesController_setPin: { method: "POST", path: "/workforce/employees/{employeeId}/pin" },
+  EmployeesController_listRoleAssignments: { method: "GET", path: "/workforce/employees/{employeeId}/role-assignments" },
+  EmployeesController_assignRole: { method: "POST", path: "/workforce/employees/{employeeId}/role-assignments" },
+  EmployeesController_removeRoleAssignment: { method: "DELETE", path: "/workforce/employees/{employeeId}/role-assignments/{assignmentId}" },
   ScheduleController_create: { method: "POST", path: "/workforce/schedules" },
   ScheduleController_get: { method: "GET", path: "/workforce/schedules/{scheduleId}" },
   ScheduleController_createShift: { method: "POST", path: "/workforce/schedules/{scheduleId}/shifts" },

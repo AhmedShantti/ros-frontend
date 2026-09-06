@@ -107,6 +107,9 @@ export const unsupportedWorkforce: WorkforceService = {
   overtime: absentCollection("Overtime"),
   performance: absentReadonly("Employee performance"),
   setEmployeePin: () => notImplemented("Employee PIN"),
+  roleAssignments: () => notImplemented("Employee role assignments"),
+  assignEmployeeRole: () => notImplemented("Employee role assignments"),
+  removeEmployeeRoleAssignment: () => notImplemented("Employee role assignments"),
 };
 
 /**

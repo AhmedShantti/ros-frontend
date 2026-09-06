@@ -23,7 +23,7 @@ import type { Branch, Employee, EmployeeDocument, Id } from "@/lib/console/types
 import { services } from "@/lib/console/services";
 import { DATA_MODE } from "@/lib/api/config";
 import { useAction } from "@/lib/console/actions";
-import { useCollection, useTransientMessage, useBranches } from "@/lib/console/hooks";
+import { useAsync, useCollection, useTransientMessage, useBranches } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatDate, formatMoney, formatNumber } from "@/lib/console/format";
 import { EMPLOYEE_STATUS, EMPLOYMENT_TYPE, labelOf } from "@/lib/console/labels";
@@ -246,6 +246,7 @@ function EmployeesScreen() {
         employee={selected}
         canSeePay={canSeePay}
         canManage={canManage}
+        branches={branches}
         onClose={() => setSelected(null)}
       />
       {creating ? (
@@ -286,11 +287,13 @@ function EmployeeDrawer({
   employee,
   canSeePay,
   canManage,
+  branches,
   onClose,
 }: {
   employee: Employee | null;
   canSeePay: boolean;
   canManage: boolean;
+  branches: Branch[];
   onClose: () => void;
 }) {
   const { t, tx, fmt } = useI18n();
@@ -311,6 +314,7 @@ function EmployeeDrawer({
       }
     >
       <div className="space-y-5">
+        {canManage ? <AccessRoleSection employeeId={employee.id} branches={branches} /> : null}
         {canManage ? <SetPinSection employeeId={employee.id} /> : null}
         <DescList>
           <DescRow label={t("wf.position")}>{tx(employee.position)}</DescRow>
@@ -388,6 +392,129 @@ function EmployeeDrawer({
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * DEMO-EMPLOYEE-RBAC-1 — assign/replace this employee's ONE system-role
+ * grant, at tenant or branch scope. Available roles come from
+ * `services.security.roles` (already real, tenant-wide `GET /auth/roles`);
+ * the assignment itself goes through the employee-scoped facade
+ * (`services.workforce.roleAssignments`/`assignEmployeeRole`/
+ * `removeEmployeeRoleAssignment`), which resolves `employeeId ->
+ * membershipId` server-side rather than handing that internal id to the
+ * browser. P0 UX: a single role at a time — replacing means removing any
+ * existing assignment(s) first, then creating the new one; multiple
+ * simultaneous assignments are a backend-supported but deliberately
+ * out-of-scope editor for this release.
+ */
+function AccessRoleSection({
+  employeeId,
+  branches,
+}: {
+  employeeId: Id;
+  branches: Branch[];
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const [roleId, setRoleId] = useState("");
+  const [branchId, setBranchId] = useState(""); // "" = tenant-wide
+  const [saved, setSaved] = useState(false);
+
+  const rolesQuery = useAsync(() => services.security.roles.list({ limit: 500 }), []);
+  const assignmentsQuery = useAsync(() => services.workforce.roleAssignments(employeeId), [employeeId]);
+
+  const roleOptions = rolesQuery.data?.rows ?? [];
+  const current = assignmentsQuery.data ?? [];
+
+  async function save() {
+    if (!roleId) return;
+    await action.run(
+      async () => {
+        for (const assignment of current) {
+          await services.workforce.removeEmployeeRoleAssignment(employeeId, assignment.id);
+        }
+        await services.workforce.assignEmployeeRole(
+          employeeId,
+          roleId,
+          branchId ? { type: "branch", branchId } : { type: "tenant" },
+        );
+      },
+      {
+        onSuccess: () => {
+          setSaved(true);
+          assignmentsQuery.reload();
+        },
+      },
+    );
+  }
+
+  return (
+    <section className="border-line space-y-2 rounded-lg border p-3">
+      <h3 className="text-fg text-sm font-semibold">{t("wf.accessRole")}</h3>
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      {saved ? <Callout tone="good">{t("wf.roleAssigned")}</Callout> : null}
+
+      {current.length > 0 ? (
+        <ul className="space-y-1">
+          {current.map((assignment) => {
+            const branch = branches.find((b) => b.id === assignment.scopeBranchId);
+            return (
+              <li key={assignment.id} className="text-fg-subtle text-xs">
+                <Badge tone="accent">{assignment.roleName ?? t("wf.role")}</Badge>{" "}
+                {assignment.scopeType === "branch" && branch
+                  ? tx(branch.name)
+                  : t("wf.scopeTenantWide")}
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="text-fg-subtle text-xs">{t("wf.noRoleAssigned")}</p>
+      )}
+
+      <div className="flex items-end gap-2">
+        <div className="flex-1">
+          <Field label={t("wf.role")}>
+            <Select
+              value={roleId}
+              onChange={(event) => {
+                setSaved(false);
+                setRoleId(event.target.value);
+              }}
+            >
+              <option value="">—</option>
+              {roleOptions.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {tx(role.name)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        <div className="flex-1">
+          <Field label={t("wf.scope")}>
+            <Select
+              value={branchId}
+              onChange={(event) => {
+                setSaved(false);
+                setBranchId(event.target.value);
+              }}
+            >
+              <option value="">{t("wf.scopeTenantWide")}</option>
+              {branches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {tx(branch.name)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        <Button variant="secondary" loading={action.pending} disabled={!roleId} onClick={save}>
+          {t("common.save")}
+        </Button>
+      </div>
+    </section>
+  );
+}
 
 /**
  * LIVE-DEMO-HOTFIX-1 — `POST /workforce/employees/:employeeId/pin`. The only

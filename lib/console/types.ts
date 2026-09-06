@@ -1209,6 +1209,16 @@ export interface Employee {
   documents: EmployeeDocument[];
 }
 
+/** DEMO-EMPLOYEE-RBAC-1 — one of an employee's scoped system-role grants. */
+export interface EmployeeRoleAssignment {
+  id: Id;
+  roleId: Id;
+  /** Present when the role could be resolved (it always is, in practice). */
+  roleName: string | null;
+  scopeType: "tenant" | "brand" | "branch";
+  scopeBranchId: Id | null;
+}
+
 export type ShiftStatus = "draft" | "published" | "acknowledged" | "completed";
 
 export interface ScheduledShift {

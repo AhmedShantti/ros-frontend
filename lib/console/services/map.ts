@@ -38,6 +38,7 @@ import type {
   Currency,
   DayClose,
   Employee,
+  EmployeeRoleAssignment,
   EmployeeStatus,
   EmploymentType,
   Id,
@@ -512,6 +513,21 @@ export function toRole(row: WireRole, permissions: Role["permissions"] = []): Ro
     permissions,
     defaultScope: row.tenantId === null ? "tenant" : "branch",
     userCount: 0, // gap: no membership count on the role record.
+  };
+}
+
+// DEMO-EMPLOYEE-RBAC-1
+type WireEmployeeRoleAssignment = S.EmployeesController_assignRoleResponse;
+
+export function toEmployeeRoleAssignment(
+  row: WireEmployeeRoleAssignment,
+): EmployeeRoleAssignment {
+  return {
+    id: row.id,
+    roleId: row.roleId,
+    roleName: row.roleName,
+    scopeType: row.scopeType,
+    scopeBranchId: row.scopeBranchId,
   };
 }
 
