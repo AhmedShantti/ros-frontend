@@ -2033,6 +2033,7 @@ export const consoleEn = {
   "shift.drawer": "Drawer",
   "shift.drawerHint": "This branch's real drawer, provisioned by an Owner or manager.",
   "shift.noDrawer": "No drawer is set up for this branch yet. Ask an Owner or manager to add one under Operations -> Drawers.",
+  "shift.drawerAuthError": "This session cannot open a drawer right now. Sign on again.",
   "shift.signOnTitle": "Sign on to the till",
   "shift.signOnNote": "A drawer is taken into someone's custody, so the till has to know whose. Signing in to the console is not the same thing.",
   "shift.signOn": "Sign on",

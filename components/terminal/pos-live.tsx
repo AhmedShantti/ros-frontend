@@ -49,7 +49,7 @@ import {
 } from "lucide-react";
 
 import type { MenuItem, Order } from "@/lib/console/types";
-import { services } from "@/lib/console/services";
+import { services, ServiceError } from "@/lib/console/services";
 import { useAsync } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
@@ -471,6 +471,20 @@ function OpenDrawer({
         <Field label={t("shift.drawer")} hint={t("shift.drawerHint")}>
           {drawers.loading ? (
             <Input dir="ltr" value={t("state.loading")} readOnly disabled />
+          ) : drawers.error ? (
+            // DEMO-DRAWER-AUTHZ-HOTFIX-4 — a 401/403 (or any other API
+            // failure) must never be presented as "no drawer configured":
+            // that told a Cashier whose SESSION is the actual problem to go
+            // ask an Owner to add a drawer that already exists. `useAsync`
+            // resets `data` to `null` on any error, so `drawerRows` alone
+            // cannot tell a real empty list apart from a failed request —
+            // `drawers.error` is checked first, always.
+            <Callout tone="bad">
+              {drawers.error instanceof ServiceError &&
+              (drawers.error.code === "UNAUTHENTICATED" || drawers.error.code === "FORBIDDEN")
+                ? t("shift.drawerAuthError")
+                : drawers.error.message || t("common.actionFailed")}
+            </Callout>
           ) : drawerRows.length === 0 ? (
             <Callout tone="warn">{t("shift.noDrawer")}</Callout>
           ) : drawerRows.length === 1 ? (
