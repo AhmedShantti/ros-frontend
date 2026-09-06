@@ -107,6 +107,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: "/operations/tables", labelKey: "nav.tables", icon: Table2, permissions: ["ops.live.view"] },
       { href: "/operations/kitchen", labelKey: "nav.kitchen", icon: ChefHat, permissions: ["kds.operate"] },
       { href: "/operations/terminals", labelKey: "nav.terminals", icon: MonitorSmartphone, permissions: ["ops.terminal.view"] },
+      { href: "/operations/stations", labelKey: "nav.stations", icon: Layers, permissions: ["settings.branch.manage"] },
     ],
   },
   {
