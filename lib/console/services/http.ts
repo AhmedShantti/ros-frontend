@@ -2959,9 +2959,17 @@ async function kitchenOverview(
   scope: Scope | undefined,
 ): Promise<{ openTickets: number; averageWaitSeconds: number | null } | null> {
   const branchIds = await branchesInScope(scope);
+  // `businessDay` is REQUIRED — the endpoint 400s on `businessDay must match
+  // /^\d{4}-\d{2}-\d{2}$/` when it is omitted, it does not default to today
+  // on its own. `recentBusinessDays(1)[0]` is the same local-calendar-date
+  // helper the daily-trading report already relies on, reused rather than a
+  // second, possibly UTC-off-by-one, formatting of "today" invented here.
+  const businessDay = recentBusinessDays(1)[0]!;
   const rows = (
     await Promise.all(
-      branchIds.map((branchId) => optionalReport(api.reporting.getOperationalOverview(branchId))),
+      branchIds.map((branchId) =>
+        optionalReport(api.reporting.getOperationalOverview(branchId, { businessDay })),
+      ),
     )
   ).filter((row): row is S.ReportingController_getOperationalOverviewResponse => row !== null);
 
@@ -2971,11 +2979,22 @@ async function kitchenOverview(
   let weightedSeconds = 0;
   let weight = 0;
   for (const row of rows) {
-    const bumped = typeof row.kds.statusCounts.bumped === "number" ? row.kds.statusCounts.bumped : 0;
-    openTickets += Math.max(0, row.kds.ticketCount - bumped);
-    if (row.kds.averagePrepDurationSeconds !== null && row.kds.measuredPrepDurationCount > 0) {
-      weightedSeconds += row.kds.averagePrepDurationSeconds * row.kds.measuredPrepDurationCount;
-      weight += row.kds.measuredPrepDurationCount;
+    // The generated type promises `kds` and its fields are always present,
+    // but this route names itself a "Demo/Operational slice" in its own
+    // description — so this reads it the way every other live boundary in
+    // this file does, as a payload that might not keep that promise, not as
+    // a value to index into blindly.
+    const kds = row.kds;
+    if (!kds) continue;
+    const statusCounts = kds.statusCounts ?? {};
+    const bumped = typeof statusCounts.bumped === "number" ? statusCounts.bumped : 0;
+    const ticketCount = typeof kds.ticketCount === "number" ? kds.ticketCount : 0;
+    openTickets += Math.max(0, ticketCount - bumped);
+    const avgPrep = kds.averagePrepDurationSeconds;
+    const measured = kds.measuredPrepDurationCount;
+    if (typeof avgPrep === "number" && typeof measured === "number" && measured > 0) {
+      weightedSeconds += avgPrep * measured;
+      weight += measured;
     }
   }
 
