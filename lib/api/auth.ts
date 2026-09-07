@@ -7,10 +7,16 @@
  *
  *   1. POST /auth/login     → access + refresh token, no tenant claim
  *   2. POST /auth/tenant    → the access token is rotated to carry a tenant
- *   3. POST /auth/terminal  → optional; POS/KDS screens need a bound device
+ *   3. POST /auth/terminal  → a CONSOLE (password-signed-in) user binding a
+ *                             device, e.g. from `/register-device`.
  *
  * `signIn()` does 1 and 2, picking the tenant automatically when the account
  * belongs to exactly one — which is the ordinary case, and one screen fewer.
+ *
+ * Step 3 is a console-only path, not a third step every session takes:
+ * `signInWithPin` below mints a token that is ALREADY terminal-bound in one
+ * request, and step 3's own route refuses a PIN-issued token outright — see
+ * that function's comment.
  */
 
 import { api } from "./endpoints";
@@ -80,7 +86,11 @@ export async function selectTenant(
 }
 
 /**
- * Step 3 — required by the endpoints that record who rang something up.
+ * Step 3 — a CONSOLE (password) session's own path to a terminal-scoped
+ * token, e.g. `/register-device` binding this device for the first time. A
+ * PIN session never calls this: `POST /auth/pin` already mints a
+ * terminal-bound token in one request, and this route refuses a PIN-issued
+ * bearer outright (no `@AllowPosSession()`) — see `signInWithPin`.
  *
  * The response already carries the full terminal record — name included —
  * so it is saved here once. No screen needs to re-derive it later from
@@ -162,16 +172,22 @@ export async function setTerminalStatus(
  * POS identifies staff by employee code and PIN — never by email — and the
  * terminal and tenant are known from the device, not typed (FR-SEC-020).
  *
- * `POST /auth/pin` is step 1 only — it authenticates the employee and
- * scopes the token to the tenant named in the request, but its response
- * carries no `terminal` object (unlike `POST /auth/terminal`'s own "a
- * terminal-scoped access token"), so the token it returns is not yet
- * terminal-bound. `GET /cash-sessions/drawers` resolves its branch from
- * "the CALLER'S OWN terminal" and needs exactly that binding, so this
- * always runs step 3 (`bindTerminal`, the same step `/register-device`'s
- * console flow already takes) immediately after — never relying on the
- * client's own refresh-replay to pick up the bind later, since that only
- * fires reactively on a 401 and only after the access token goes stale.
+ * `POST /auth/pin` is already the terminal-scoped issue, not step 1 of a
+ * two-step one: `PinLoginDto.terminalId` is minted straight into the access
+ * token as `trm`, alongside `tid`/`mid`/`emp`, so a fresh PIN token already
+ * carries everything `GET /cash-sessions/drawers` needs. `bindTerminal`
+ * (`POST /auth/terminal`, "Step 3" above) is the CONSOLE's own path to a
+ * terminal-scoped session — for a user who signed in with a password and has
+ * no terminal claim yet — and it is not merely unnecessary for a PIN
+ * session, it is refused: that route carries no `@AllowPosSession()`, so
+ * `JwtAuthGuard` 403s a `typ: 'pos'` bearer on it outright ("PIN (POS)
+ * sessions cannot access dashboard or back-office endpoints"). A prior
+ * version of this function called it anyway, on the mistaken assumption
+ * that PIN login alone was not terminal-bound — do not reintroduce that
+ * call. See `test/drawers-provisioning.e2e-spec.ts` (backend repo) for the
+ * proof both ways: a bare PIN token already gets 200 from the drawers read,
+ * and a rebind attempt after PIN login gets 403 from `POST /auth/terminal`
+ * itself.
  */
 export async function signInWithPin(input: {
   tenantId: string;
@@ -180,14 +196,9 @@ export async function signInWithPin(input: {
   pin: string;
 }): Promise<void> {
   const session = await api.auth.loginWithPin(input);
-  // Silent: this token is not yet terminal-bound, and a listener reacting
-  // to it here (rather than to the fully-bound token `bindTerminal` is
-  // about to write) would read a session that cannot yet do what any
-  // terminal-scoped call needs — the same reasoning `setTokens`'s own
-  // `silent` option documents for a refresh's multi-step replay.
-  setTokens(session, { silent: true });
+  setTokens(session);
   setTenantId(input.tenantId);
-  await bindTerminal(input.terminalId);
+  setTerminalId(input.terminalId);
   // The till shows who is on it, and knows to ask when nobody is.
   setPosEmployee({
     code: input.employeeCode,
