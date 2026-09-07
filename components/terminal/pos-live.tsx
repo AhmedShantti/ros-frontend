@@ -49,11 +49,11 @@ import {
 } from "lucide-react";
 
 import type { MenuItem, Order } from "@/lib/console/types";
-import { services, ServiceError } from "@/lib/console/services";
-import { useAsync } from "@/lib/console/hooks";
+import { services, ServiceError, type Scope } from "@/lib/console/services";
+import { useAsync, type AsyncState } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
-import { formatMoney } from "@/lib/console/format";
+import { formatDateTime, formatMoney } from "@/lib/console/format";
 import { ORDER_LINE_STATE, ORDER_TYPE, TENDER_TYPE, labelOf } from "@/lib/console/labels";
 import {
   getCashSessionId,
@@ -66,11 +66,10 @@ import {
   getDeviceTenantId,
   type PosEmployee,
 } from "@/lib/api/session";
-import { api } from "@/lib/api/endpoints";
 import { signInWithPin } from "@/lib/api/auth";
 import { deviceId } from "@/lib/api/ids";
 import { AsyncPanel } from "@/components/console/states";
-import { CashClosePolicyCard, DrawerSheet } from "@/components/terminal/pos-drawer";
+import { DrawerSheet } from "@/components/terminal/pos-drawer";
 import {
   Badge,
   Button,
@@ -129,24 +128,6 @@ export function LivePos() {
   };
 
   const terminalId = mounted ? getTerminalId() : null;
-
-  /*
-   * The terminal this device is bound to, as the server describes it.
-   *
-   * Two things on this screen need it. `drawerId` must be a UUID the server
-   * will accept, and a till has exactly one drawer, so the terminal's own id
-   * is it — a cashier typing "DRAWER-1" was never going to pass validation.
-   * And the cash-close policy is published per branch, which on a POS is
-   * whichever branch the terminal belongs to, not a console-side selection
-   * the cashier may never have made.
-   */
-  const bound = useAsync(async () => {
-    if (!terminalId) return null;
-    const registered = await api.terminals.list().catch(() => []);
-    return registered.find((row) => row.id === terminalId) ?? null;
-  }, [terminalId]);
-
-  const branchId = scope.branchId ?? bound.data?.branchId ?? null;
 
   if (!mounted) {
     return (
@@ -208,9 +189,16 @@ export function LivePos() {
      * layout is `h-dvh overflow-hidden` — a POS must never scroll the page
      * out from under a cashier mid-service. So the pane scrolls, not the
      * document. Without `min-h-0` the flex child refuses to shrink below its
-     * content and the overflow never engages, which is what put the policy
-     * card's Publish button off the bottom of the screen with no way to
-     * reach it.
+     * content and the overflow never engages.
+     *
+     * No cash-close policy card here (GOLDEN-PATH-FINAL-INTEGRATION): the
+     * endpoint it published through is a dashboard/back-office route that
+     * `JwtAuthGuard` refuses for every PIN-issued session by construction
+     * (FR-SEC-021, `typ: 'pos'`) — a cashier signed onto this till could
+     * never actually publish through it, only see a form that 403s. The
+     * real surface is the Owner/authorized-manager admin page at
+     * Finance -> Cash-close policy, gated on `settings.branch.manage` and
+     * unreachable from a PIN session.
      */
     return (
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -226,7 +214,6 @@ export function LivePos() {
             }}
             onOpened={setCashSessionId}
           />
-          <CashClosePolicyCard branchId={branchId} onMessage={setMessage} />
           <Toast message={message} />
         </div>
       </div>
@@ -242,6 +229,7 @@ export function LivePos() {
           <NewOrderPane
             branchId={scope.branchId}
             terminalId={terminalId}
+            scope={scope}
             onOpened={(next) => {
               setOrder(next);
               setMessage(t("pos.orderOpened"));
@@ -528,18 +516,42 @@ function OpenDrawer({
 function NewOrderPane({
   branchId,
   terminalId,
+  scope,
   onOpened,
 }: {
   branchId: string | null;
   terminalId: string;
+  scope: Scope;
   onOpened: (order: Order) => void;
 }) {
   const { t, tx } = useI18n();
   const action = useAction();
-  const [orderType, setOrderType] = useState<"dine_in" | "takeaway" | "pickup">("dine_in");
+  // Takeaway by default: it needs no table, so a fresh order is always
+  // immediately fireable. Dine-in is offered, but FR-POS-003 requires a
+  // real tableId — see `tables` below — so it stays unavailable until one
+  // exists and is picked, rather than 422ing on Fire with none attached.
+  const [orderType, setOrderType] = useState<"dine_in" | "takeaway" | "pickup">("takeaway");
   const [guestCount, setGuestCount] = useState("2");
+  const [tableId, setTableId] = useState("");
+
+  const tables = useAsync(
+    () => services.operations.tables({ scope, limit: 200 }),
+    [scope.tenantId, scope.branchId],
+  );
+  const tableRows = useMemo(() => tables.data?.rows ?? [], [tables.data]);
+
+  useEffect(() => {
+    if (tableRows.length === 0) return;
+    setTableId((current) =>
+      tableRows.some((row) => row.id === current) ? current : tableRows[0].id,
+    );
+  }, [tableRows]);
+
+  const dineInAvailable = tableRows.length > 0;
+  const canOpen = orderType !== "dine_in" || (dineInAvailable && tableId !== "");
 
   async function open() {
+    if (!canOpen) return;
     await action.run(
       () =>
         services.sales.mutations.open({
@@ -547,6 +559,7 @@ function NewOrderPane({
           channel: "pos",
           terminalId,
           guestCount: Number(guestCount) || undefined,
+          tableId: orderType === "dine_in" ? tableId : undefined,
         }),
       { onSuccess: onOpened },
     );
@@ -569,12 +582,42 @@ function NewOrderPane({
               }
             >
               {(["dine_in", "takeaway", "pickup"] as const).map((value) => (
-                <option key={value} value={value}>
+                <option key={value} value={value} disabled={value === "dine_in" && !dineInAvailable}>
                   {tx(labelOf(ORDER_TYPE, value).label)}
                 </option>
               ))}
             </Select>
           </Field>
+
+          {orderType === "dine_in" ? (
+            <Field label={t("pos.selectTable")}>
+              {tables.loading ? (
+                <Input dir="ltr" value={t("state.loading")} readOnly disabled />
+              ) : tables.error ? (
+                // A 401/403 here must never read as "no tables exist" — this
+                // session (e.g. a Cashier without settings.branch.read) simply
+                // cannot list them, which is a different problem than there
+                // being none. Either way dine-in stays disabled: takeaway is
+                // still the real, always-available path.
+                <Callout tone="bad">
+                  {tables.error instanceof ServiceError &&
+                  (tables.error.code === "UNAUTHENTICATED" || tables.error.code === "FORBIDDEN")
+                    ? t("pos.tablesAuthError")
+                    : tables.error.message || t("common.actionFailed")}
+                </Callout>
+              ) : !dineInAvailable ? (
+                <Callout tone="warn">{t("ops.noTables")}</Callout>
+              ) : (
+                <Select value={tableId} onChange={(event) => setTableId(event.target.value)}>
+                  {tableRows.map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {row.label}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          ) : null}
 
           <Field label={t("pos.guests")}>
             <Input
@@ -589,6 +632,7 @@ function NewOrderPane({
             variant="primary"
             className="w-full"
             loading={action.pending}
+            disabled={!canOpen}
             icon={<Plus size={14} />}
             onClick={open}
           >
@@ -797,6 +841,11 @@ function OrderPane({
 
   const pending = order.lines.filter((line) => line.state === "pending");
   const outstanding = order.grandTotal.amount - order.paidTotal.amount;
+  // POS-FIN-1 — the receipt endpoint answers for these three states only.
+  const hasReceipt =
+    order.state === "completed" ||
+    order.state === "partially_refunded" ||
+    order.state === "refunded";
 
   async function fire() {
     await action.run(
@@ -968,6 +1017,18 @@ function OrderPane({
           </Button>
         </div>
 
+        {hasReceipt ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="w-full"
+            icon={<Receipt size={13} />}
+            onClick={() => setSheet({ kind: "receipt" })}
+          >
+            {t("pos.viewReceipt")}
+          </Button>
+        ) : null}
+
         <div className="grid grid-cols-2 gap-2">
           <Button variant="ghost" onClick={onClear}>
             {t("pos.closeOrder")}
@@ -1022,6 +1083,12 @@ function OrderPane({
         }}
       />
 
+      <ReceiptDrawer
+        order={order}
+        open={sheet?.kind === "receipt"}
+        onClose={() => setSheet(null)}
+      />
+
       <PaymentDrawer
         order={order}
         open={paying}
@@ -1047,6 +1114,7 @@ type PosSheet =
   | { kind: "discountLine"; lineId: string }
   | { kind: "comp"; lineId: string }
   | { kind: "refund" }
+  | { kind: "receipt" }
   | null;
 
 // ---------------------------------------------------------------------------
@@ -1659,6 +1727,144 @@ function RefundDrawer({
           />
         </Field>
       </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * FR-FIN-020 — the itemized, non-fiscal receipt of a completed order
+ * (POS-FIN-1: also available once refunded or partially refunded).
+ *
+ * Read-only — nothing here mutates the order. "Print" hands the drawer's
+ * own content to the browser's print dialog, the standard mechanism; there
+ * is no fiscal-printer integration to target instead.
+ */
+function ReceiptDrawer({
+  order,
+  open,
+  onClose,
+}: {
+  order: Order;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { t, tx, fmt } = useI18n();
+
+  const receiptState = useAsync(
+    async () => (open ? services.sales.receipt(order.businessDay, order.id) : null),
+    [open, order.businessDay, order.id],
+  );
+
+  if (!open) return null;
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={t("pos.receipt")}
+      footer={
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            disabled={!receiptState.data}
+            onClick={() => window.print()}
+          >
+            {t("pos.printReceipt")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.close")}
+          </Button>
+        </div>
+      }
+    >
+      <AsyncPanel state={receiptState as AsyncState<Awaited<ReturnType<typeof services.sales.receipt>>>}>
+        {(receipt) => (
+          <div className="space-y-4">
+            <div className="text-center">
+              <p className="text-fg text-sm font-bold">{receipt.orderNumber}</p>
+              <p className="text-fg-subtle text-xs">
+                {tx(labelOf(ORDER_TYPE, receipt.orderType).label)} ·{" "}
+                {formatDateTime(receipt.completedAt, fmt)}
+              </p>
+            </div>
+
+            <ul className="divide-line divide-y">
+              {receipt.lines.map((line, index) => (
+                <li key={`${line.menuItemId}-${index}`} className="py-2">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-fg text-sm">
+                      {line.quantity} × {tx(line.name)}
+                    </span>
+                    <span className="text-fg font-mono text-sm">
+                      {formatMoney(line.lineTotal, fmt)}
+                    </span>
+                  </div>
+                  {line.modifiers.map((modifier) => (
+                    <div
+                      key={modifier.modifierId}
+                      className="text-fg-subtle ps-4 flex justify-between gap-2 text-xs"
+                    >
+                      <span>+ {tx(modifier.name)}</span>
+                      <span className="font-mono">{formatMoney(modifier.priceDelta, fmt)}</span>
+                    </div>
+                  ))}
+                </li>
+              ))}
+            </ul>
+
+            <DescList>
+              <DescRow label={t("orders.net")} mono>
+                {formatMoney(receipt.totals.subtotal, fmt)}
+              </DescRow>
+              {receipt.totals.discountTotal.amount > 0 ? (
+                <DescRow label={t("pos.discountTotal")} mono>
+                  <span className="text-bad">−{formatMoney(receipt.totals.discountTotal, fmt)}</span>
+                </DescRow>
+              ) : null}
+              <DescRow label={t("orders.tax")} mono>
+                {formatMoney(receipt.totals.taxTotal, fmt)}
+              </DescRow>
+              <DescRow label={t("orders.grandTotal")} mono>
+                {formatMoney(receipt.totals.grandTotal, fmt)}
+              </DescRow>
+              <DescRow label={t("orders.paid")} mono>
+                {formatMoney(receipt.totals.paidTotal, fmt)}
+              </DescRow>
+            </DescList>
+
+            <div className="space-y-1">
+              {receipt.payments.map((payment) => (
+                <div key={payment.id} className="flex justify-between gap-2 text-xs">
+                  <span className="text-fg-subtle">
+                    {payment.tender === "cash"
+                      ? tx(labelOf(TENDER_TYPE, "cash").label)
+                      : t("orders.card")}
+                    {payment.cardLast4 ? ` •••• ${payment.cardLast4}` : ""}
+                  </span>
+                  <span className="text-fg font-mono">{formatMoney(payment.amount, fmt)}</span>
+                </div>
+              ))}
+              {receipt.payments.some((payment) => payment.changeGiven) ? (
+                <div className="flex justify-between gap-2 text-xs">
+                  <span className="text-fg-subtle">{t("pos.receiptChange")}</span>
+                  <span className="text-fg font-mono">
+                    {formatMoney(
+                      receipt.payments.find((payment) => payment.changeGiven)!.changeGiven!,
+                      fmt,
+                    )}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+
+            <p className="text-fg-subtle text-center text-[0.65rem]">
+              {t("pos.receiptNonFiscalNotice")}
+            </p>
+          </div>
+        )}
+      </AsyncPanel>
     </Drawer>
   );
 }

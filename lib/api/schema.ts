@@ -1261,6 +1261,22 @@ export type TerminalController_setStatusResponse = {
 
 export type TerminalController_setStatusBody = SetTerminalStatusDto;
 
+/** `GET /branches/{branchId}/cash-close-policy` — The currently-effective cash-close policy for a branch, wrapped as `{ policy: ... | null }` — GOLDEN-PATH-BACKEND-CLOSURE (2026-09-07). `policy` is `null` when none has ever been configured; a bare top-level `null` body is deliberately avoided (Express sends an empty body for a handler returning `null`, which is indistinguishable on the wire from "no response content" — a wrapper object keeps `null` an unambiguous, inspectable JSON value). Not FR-PLT-027's settings inspector (see class docblock) — a single resolved value, not a level-by-level override trace. — `policy` is null if the branch has none configured yet. */
+export type CashClosePolicyController_getPolicyResponse = {
+  policy: {
+    branchId: string;
+    countMode: "blind" | "open";
+    createdAt: string;
+    /** ISO 4217 currency code — the branch's own base currency. */
+    currency: string;
+    effectiveFrom: string;
+    id: string;
+    varianceApprovalExpirySeconds: number;
+    /** Non-negative minor-unit tolerance as a decimal string. */
+    varianceToleranceMinorUnits: string;
+  } | null;
+};
+
 /** `POST /branches/{branchId}/cash-close-policy` — Create a new immutable cash-close policy version for a branch — R-1(a), R-4(a), R-5. `Idempotency-Key` is MANDATORY (FR-API-020): a retry over a flaky link must not produce a second version. — The newly created cash-close policy version. */
 export type CashClosePolicyController_createPolicyResponse = {
   branchId: string;
@@ -5898,6 +5914,7 @@ export const ROUTES = {
   TerminalController_register: { method: "POST", path: "/auth/terminals" },
   TerminalController_addFingerprint: { method: "POST", path: "/auth/terminals/{terminalId}/fingerprints" },
   TerminalController_setStatus: { method: "POST", path: "/auth/terminals/{terminalId}/status" },
+  CashClosePolicyController_getPolicy: { method: "GET", path: "/branches/{branchId}/cash-close-policy" },
   CashClosePolicyController_createPolicy: { method: "POST", path: "/branches/{branchId}/cash-close-policy" },
   DayCloseController_get: { method: "GET", path: "/branches/{branchId}/day-closes/{businessDay}" },
   DayCloseController_post: { method: "POST", path: "/branches/{branchId}/day-closes/{businessDay}" },

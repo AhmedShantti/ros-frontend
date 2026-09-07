@@ -148,17 +148,40 @@ export function getTokens(): TokenSet | null {
   return { accessToken, refreshToken, expiresAt: Number(read(keys.expires) ?? 0) };
 }
 
-export function setTokens(tokens: {
-  accessToken: string;
-  refreshToken?: string;
-  expiresIn?: number;
-}): void {
+/**
+ * PROD-AUTH-EXPIRY-P0 — `silent` skips the `announce()` at the end. A token
+ * refresh is a MULTI-STEP replay (base token, then tenant re-select, then
+ * terminal re-bind — see `client.ts`'s `refreshSession()`), each of which
+ * calls this. Announcing after every intermediate step let
+ * `useLiveOrgContext`'s own `onSessionChange` listener re-trigger its FULL
+ * org bootstrap mid-replay, using whatever PARTIALLY-scoped token happened
+ * to exist at that instant (e.g. the bare, tenant-less base token, before
+ * the tenant re-select step had even started) — that premature fetch then
+ * genuinely failed, and the failure path is what a real session's data
+ * disappearing around the access-token expiry actually was. Only the LAST
+ * write of a replay should announce; every caller outside a replay
+ * (sign-in, PIN sign-on, tenant selection, terminal bind — all genuinely
+ * one-shot) is unaffected, since they never pass `silent`.
+ */
+export function setTokens(
+  tokens: {
+    accessToken: string;
+    refreshToken?: string;
+    expiresIn?: number;
+  },
+  options?: { silent?: boolean },
+): void {
   const keys = identityKeys();
   write(keys.access, tokens.accessToken);
   if (tokens.refreshToken) write(keys.refresh, tokens.refreshToken);
   // A minute of headroom, so a token does not expire in flight.
   const lifetime = (tokens.expiresIn ?? 900) * 1000;
   write(keys.expires, String(Date.now() + lifetime - 60_000));
+  if (!options?.silent) announce();
+}
+
+/** Exposed so a multi-step caller (a token refresh replay) can announce ONCE, after its last silent write, rather than after every intermediate one. */
+export function announceSessionChange(): void {
   announce();
 }
 

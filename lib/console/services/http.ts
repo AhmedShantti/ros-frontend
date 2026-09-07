@@ -2242,15 +2242,7 @@ async function hydrateOrder(row: Parameters<typeof map.toOrder>[0]): Promise<Ord
 
 async function receipt(businessDay: IsoDate, orderId: Id) {
   const row = await api.sales.receipt(businessDay, orderId);
-  const currency = map.currencyOf(row.order.currency);
-  return {
-    payments: row.payments.map((payment) => ({
-      id: payment.id,
-      tender: payment.tender,
-      amount: map.money(payment.amount, currency),
-      processedAt: payment.processedAt,
-    })),
-  };
+  return map.toReceipt(row);
 }
 
 const sales: SalesService = { orders, mutations: orderMutations, receipt };
@@ -2387,6 +2379,21 @@ const treasury: import("./types").TreasuryService = {
     });
 
     return { status: row.status, outcome: row.outcome };
+  },
+
+  async getCashClosePolicy(branchId) {
+    const { policy } = await api.treasury.getPolicy(branchId);
+    if (!policy) return null;
+    return {
+      id: policy.id,
+      branchId: policy.branchId,
+      effectiveFrom: policy.effectiveFrom,
+      countMode: policy.countMode,
+      tolerance: map.minorMoney(policy.varianceToleranceMinorUnits, policy.currency),
+      varianceApprovalExpirySeconds: policy.varianceApprovalExpirySeconds,
+      createdBy: null,
+      createdAt: policy.createdAt,
+    };
   },
 
   async setCashClosePolicy(branchId, input) {

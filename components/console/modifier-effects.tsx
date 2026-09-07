@@ -51,7 +51,7 @@ export function ModifierEffects({
   onSaved: (message: string) => void;
 }) {
   const { t } = useI18n();
-  const canManage = usePermission("menu.manage");
+  const canManage = usePermission("menu.item.manage");
   const [editing, setEditing] = useState(false);
   const [nonce, setNonce] = useState(0);
 

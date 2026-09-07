@@ -139,6 +139,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: "/inventory/batches", labelKey: "nav.batches", icon: Layers, permissions: ["inventory.view"] },
       { href: "/inventory/expiry", labelKey: "nav.expiry", icon: AlertTriangle, permissions: ["inventory.view"] },
       { href: "/inventory/adjustments", labelKey: "nav.adjustments", icon: ClipboardCheck, permissions: ["inventory.view"] },
+      { href: "/inventory/reason-codes", labelKey: "nav.reasonCodes", icon: Tags, permissions: ["inventory.adjust"] },
     ],
   },
   {
@@ -185,6 +186,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: "/finance/payments", labelKey: "nav.payments", icon: Banknote, permissions: ["report.view.financial"] },
       { href: "/finance/expenses", labelKey: "nav.expenses", icon: ReceiptText, permissions: ["finance.expense.view"] },
       { href: "/finance/day-close", labelKey: "nav.dayClose", icon: ClipboardCheck, permissions: ["cash.session.view", "report.view.financial"] },
+      { href: "/finance/cash-close-policy", labelKey: "nav.cashClosePolicy", icon: ShieldCheck, permissions: ["settings.branch.manage"] },
       { href: "/finance/tax", labelKey: "nav.tax", icon: Percent, permissions: ["finance.tax.view"] },
     ],
   },
