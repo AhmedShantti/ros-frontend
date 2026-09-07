@@ -2909,10 +2909,10 @@ const security: SecurityService = {
  *  - `GET /orders` returns headers without line snapshots, so cost of goods
  *    is unknown from a list. Food cost, gross profit and prime cost are
  *    therefore null here even though a single fetched order does carry it.
- *  - The kitchen clock is no longer null *when it can be read*: the KDS
- *    station queues carry a server-computed `elapsedSeconds` per ticket. It
- *    is still null from a session the station queues refuse, which is most
- *    console sessions — see `operations.kitchenQueue`.
+ *  - The kitchen clock reads the branch overview, not the station queue —
+ *    `GET /kds/stations/{id}/queue` is terminal-bound and a console session
+ *    is refused on every station, every time, so the dashboard never asks
+ *    it that. See `kitchenOverview` below for what it asks instead.
  *  - The window is the most recent orders the cursor reaches, not a
  *    server-side date range, because the endpoint offers no date filter.
  */
@@ -2937,6 +2937,54 @@ function netOf(order: Order): number {
   return order.subtotal.amount - order.discountTotal.amount;
 }
 
+/**
+ * The kitchen clock, read the way a console session is actually allowed to.
+ *
+ * `GET /kds/stations/{id}/queue` is terminal-bound — FR-KDS-020 used to fan
+ * it out over every station in scope, and a manager's browser (Owner
+ * included) is refused on every one of them, every load. That is not a
+ * transient failure to retry: it is the correct, deterministic answer to a
+ * request the dashboard was never in a position to make.
+ *
+ * `GET /reports/branches/{id}/overview` is what the API actually built for
+ * this — "dashboard-only" in its own description — and it is authorized the
+ * same way the daily-trading report is, not terminal-bound. Its `kds` block
+ * is a business-day count rather than a live station snapshot, so "open
+ * tickets" here is the day's ticket count minus however many of them are
+ * already bumped: a ticket fired earlier today and not yet bumped is still
+ * sitting in the kitchen's live queue, so the subtraction lands on the same
+ * number `activeTickets.length` used to.
+ */
+async function kitchenOverview(
+  scope: Scope | undefined,
+): Promise<{ openTickets: number; averageWaitSeconds: number | null } | null> {
+  const branchIds = await branchesInScope(scope);
+  const rows = (
+    await Promise.all(
+      branchIds.map((branchId) => optionalReport(api.reporting.getOperationalOverview(branchId))),
+    )
+  ).filter((row): row is S.ReportingController_getOperationalOverviewResponse => row !== null);
+
+  if (rows.length === 0) return null;
+
+  let openTickets = 0;
+  let weightedSeconds = 0;
+  let weight = 0;
+  for (const row of rows) {
+    const bumped = typeof row.kds.statusCounts.bumped === "number" ? row.kds.statusCounts.bumped : 0;
+    openTickets += Math.max(0, row.kds.ticketCount - bumped);
+    if (row.kds.averagePrepDurationSeconds !== null && row.kds.measuredPrepDurationCount > 0) {
+      weightedSeconds += row.kds.averagePrepDurationSeconds * row.kds.measuredPrepDurationCount;
+      weight += row.kds.measuredPrepDurationCount;
+    }
+  }
+
+  return {
+    openTickets,
+    averageWaitSeconds: weight > 0 ? Math.round(weightedSeconds / weight) : null,
+  };
+}
+
 const dashboard: DashboardService = {
   async get(scope) {
     const [
@@ -2948,7 +2996,7 @@ const dashboard: DashboardService = {
       negative,
       terminalPage,
       tablePage,
-      ticketPage,
+      kitchenSummary,
     ] = await Promise.all([
       orders.list({ scope, offset: 0, limit: ORDER_SCAN_LIMIT }),
       branchesRaw().catch(() => []),
@@ -2958,27 +3006,10 @@ const dashboard: DashboardService = {
       inventory.negativeStock({ scope }).catch(() => []),
       operations.terminals({ scope, limit: 200 }).catch(() => emptyPage<Terminal>()),
       operations.tables({ scope, limit: 500 }).catch(() => emptyPage<RestaurantTable>()),
-      // The kitchen clock, which had no endpoint until the KDS routes landed.
-      // `null`, not an empty page, when it cannot be read at all: a console
-      // session is not a station-bound KDS terminal and is normally refused,
-      // and "0 in the queue" is a worse answer than "—" to a full kitchen.
-      operations.kitchenQueue({ scope, limit: 200 }).then(
-        (page) => page,
-        () => null,
-      ),
+      // `null`, not zero, when it cannot be read at all: "0 in the queue" is
+      // a worse answer than "—" to a full kitchen. See `kitchenOverview`.
+      kitchenOverview(scope).catch(() => null),
     ]);
-
-    /**
-     * FR-KDS-020 — what is actually on the station displays right now.
-     *
-     * Both figures were `null` here for as long as there was no KDS surface
-     * to read. They are derived from the queues rather than served whole, so
-     * they stop where the queues do: a station this caller may not read
-     * (a bound KDS terminal 403s the others) is not in the count.
-     */
-    const activeTickets =
-      ticketPage?.rows.filter((ticket) => ticket.state !== "bumped") ?? null;
-    const waitSeconds = activeTickets?.map((ticket) => ticket.elapsedSeconds) ?? [];
 
     const orderRows = orderPage.rows;
     const tenantId = getTenantId() ?? "";
@@ -3214,11 +3245,8 @@ const dashboard: DashboardService = {
           (row) => row.state !== "available" && row.state !== "needs_cleaning",
         ).length,
         tablesTotal: tables.length,
-        kitchenQueueDepth: activeTickets?.length ?? null,
-        averageWaitSeconds:
-          waitSeconds.length === 0
-            ? null
-            : Math.round(waitSeconds.reduce((sum, value) => sum + value, 0) / waitSeconds.length),
+        kitchenQueueDepth: kitchenSummary?.openTickets ?? null,
+        averageWaitSeconds: kitchenSummary?.averageWaitSeconds ?? null,
         // `degraded` is neither: it is reachable but unhealthy, and counting
         // it as offline would raise an outage that is not one.
         activeTerminals: terminals.filter((row) => row.status === "online").length,

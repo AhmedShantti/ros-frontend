@@ -450,11 +450,13 @@ function TargetLine({
 /**
  * The now, with the holes left visible.
  *
- * Four of these figures have no endpoint behind them on this backend — the
- * kitchen queue, the average wait, staff on shift and delayed tickets all
- * need a KDS or a workforce feed the API does not serve. They read as a dash,
- * never as a zero: an empty queue and an unwatched one look identical at a
- * glance, and only one of them is good news.
+ * The kitchen queue and the average wait come from `services.dashboard`'s
+ * branch-overview read (`kitchenOverview` in `http.ts`) rather than the
+ * terminal-bound station queue, so they are null only when that read itself
+ * comes back empty — see the comment there. Staff on shift and delayed
+ * tickets have no endpoint behind them on this backend at all; both still
+ * read as a dash, never as a zero: an empty queue and an unwatched one look
+ * identical at a glance, and only one of them is good news.
  */
 function LiveOperations({ snapshot }: { snapshot: LiveOperationsSnapshot }) {
   const { t, fmt } = useI18n();
