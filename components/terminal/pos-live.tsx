@@ -64,6 +64,8 @@ import {
   getPosEmployee,
   setPosEmployee,
   getDeviceTenantId,
+  isSignedIn,
+  onSessionChange,
   type PosEmployee,
 } from "@/lib/api/session";
 import { signInWithPin } from "@/lib/api/auth";
@@ -119,6 +121,27 @@ export function LivePos() {
     setSessionId(getCashSessionId());
     setCashier(getPosEmployee());
     setMounted(true);
+  }, []);
+
+  /**
+   * PROD-POS-SESSION-RECOVERY-P0 — `cashier`/`cashSessionId` were only ever
+   * read from storage once, above, on mount. A dead refresh token (an
+   * expired PIN session nobody renewed) makes `client.ts`'s
+   * `refreshSession()` call `clearSession()`, which correctly wipes the
+   * terminal token AND `posEmployee`/`cashSessionId` from storage together
+   * — but this already-mounted tree never re-read that, so it kept
+   * rendering the stale cashier name and the Open Drawer screen, both now
+   * backed by nothing, while every request 401'd underneath them. Mirrors
+   * `lib/console/providers.tsx`'s own `onSessionChange` listener for the
+   * console surface: react to storage disappearing, not just read it once.
+   */
+  useEffect(() => {
+    return onSessionChange(() => {
+      if (!isSignedIn()) {
+        setCashier(null);
+        setSessionId(null);
+      }
+    });
   }, []);
 
   /** Write through, so the drawer survives the next reload too. */
@@ -436,7 +459,11 @@ function OpenDrawer({
           // re-scope it back to the console user. Nothing was opened, so
           // the pending record would only replay a request that cannot
           // succeed until someone signs on again.
-          if (/employee/i.test(failure.message) || failure.code === "UNAUTHENTICATED") {
+          if (
+            /employee/i.test(failure.message) ||
+            failure.code === "UNAUTHENTICATED" ||
+            failure.code === "SESSION_EXPIRED"
+          ) {
             setPendingCashOpen(null);
             onNeedsSignOn();
           }
@@ -469,7 +496,9 @@ function OpenDrawer({
             // `drawers.error` is checked first, always.
             <Callout tone="bad">
               {drawers.error instanceof ServiceError &&
-              (drawers.error.code === "UNAUTHENTICATED" || drawers.error.code === "FORBIDDEN")
+              (drawers.error.code === "UNAUTHENTICATED" ||
+                drawers.error.code === "FORBIDDEN" ||
+                drawers.error.code === "SESSION_EXPIRED")
                 ? t("shift.drawerAuthError")
                 : drawers.error.message || t("common.actionFailed")}
             </Callout>
