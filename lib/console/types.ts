@@ -1796,9 +1796,12 @@ export interface BranchRankingRow {
  * The now, as far as the server can describe it.
  *
  * Orders, tables and terminals are read straight off the API. The kitchen
- * figures and the staff count are null because there is no KDS or workforce
- * endpoint to read them from — and a queue depth of zero would be read as a
- * clear pass, which is the opposite of "nobody is watching".
+ * figures come from a console-safe branch overview rather than the
+ * terminal-bound station queue, and are null when that read is unavailable;
+ * the staff count is null because there is no workforce endpoint to read it
+ * from. A queue depth of zero would be read as a clear pass, which is the
+ * opposite of "nobody is watching" — so an unread figure stays a dash, not
+ * a zero.
  */
 export interface LiveOperationsSnapshot {
   openOrders: number;

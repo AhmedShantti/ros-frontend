@@ -7,10 +7,12 @@
  * two derived numbers worth acting on: which station is the bottleneck
  * (FR-KDS-043) and what ticket time is running at (FR-KDS-042).
  *
- * The rows come from `useKitchenFeed`, so this screen reads the backend's
- * station queues when one is configured and the terminals on this device
- * when one is not — and `LiveNotice` names which. It used to read the device
- * either way, because there were no KDS endpoints to read instead.
+ * The rows come from `useKitchenFeed`, which reads the terminals on this
+ * device against the demo build. Against a live backend there is no console
+ * read of this at all: `GET /kds/stations/{id}/queue` is terminal-bound, so
+ * this screen shows `UnsupportedPanel` instead of a queue it can never
+ * actually fetch — see `useKitchenFeed` for why that is a route this
+ * console session can never pass, not a request worth retrying.
  */
 
 import { useMemo } from "react";
@@ -19,6 +21,7 @@ import { useI18n, useSession } from "@/lib/console/providers";
 import { elapsedSince, useNow } from "@/lib/console/live/store";
 import { useKitchenFeed } from "@/lib/console/feeds";
 import { useStations } from "@/lib/console/hooks";
+import { ServiceError } from "@/lib/console/services";
 import { urgencyFor } from "@/lib/console/live/engine";
 import { formatDuration, formatElapsed } from "@/lib/console/format";
 import { ORDER_TYPE, TICKET_STATE, TICKET_URGENCY } from "@/lib/console/labels";
@@ -26,7 +29,7 @@ import { CellStack, DataTable, type Column } from "@/components/console/data-tab
 import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/page";
 import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
 import { MetricTile } from "@/components/console/charts";
-import { ErrorPanel, LoadingPanel } from "@/components/console/states";
+import { ErrorPanel, LoadingPanel, UnsupportedPanel } from "@/components/console/states";
 import { Badge, Card, CardHeader, Meter } from "@/components/console/ui";
 
 export default function KitchenPage() {
@@ -36,6 +39,10 @@ export default function KitchenPage() {
 
   const feed = useKitchenFeed(scope);
   const stations = useStations(scope);
+
+  /** See `useKitchenFeed` — there is no fan-out to retry here, only a route
+   * this console session can never pass. */
+  const unavailable = feed.error instanceof ServiceError && feed.error.code === "TERMINAL_ONLY";
 
   const active = useMemo(
     () => feed.rows.filter((ticket) => ticket.state !== "bumped"),
@@ -163,57 +170,63 @@ export default function KitchenPage() {
       <PageBody>
         <LiveNotice source={feed.live ? "backend" : "device"} />
 
-        <TileGrid columns={3}>
-          <MetricTile label={t("kds.queue")} value={String(active.length)} spec="FR-KDS-020" />
-          <MetricTile
-            label={t("kds.avgTicket")}
-            value={averageTicket === null ? "—" : formatDuration(Math.round(averageTicket), fmt)}
-            spec="FR-KDS-042"
-          />
-          <MetricTile
-            label={t("kds.bottleneck")}
-            value={bottleneck ? tx(bottleneck.station.name) : "—"}
-            spec="FR-KDS-043"
-          />
-        </TileGrid>
-
-        {stations.length > 0 ? (
-          <Card>
-            <CardHeader title={t("term.allStations")} spec="FR-KDS-045" />
-            <ul className="space-y-2.5">
-              {load.map((row) => (
-                <li key={row.station.id}>
-                  <div className="mb-1 flex items-center justify-between gap-3 text-xs">
-                    <span className="text-fg font-medium">{tx(row.station.name)}</span>
-                    <span className="text-fg-muted tabular-nums">
-                      {row.items} · {row.station.capacityPerHour}/h
-                    </span>
-                  </div>
-                  <Meter
-                    value={row.pressure}
-                    tone={row.pressure > 80 ? "bad" : row.pressure > 45 ? "warn" : "good"}
-                  />
-                </li>
-              ))}
-            </ul>
-          </Card>
-        ) : null}
-
-        {feed.error ? (
-          <ErrorPanel error={feed.error} onRetry={feed.reload} />
-        ) : !feed.ready ? (
-          <LoadingPanel />
-        ) : active.length === 0 ? (
-          <LiveEmpty title={t("kds.noTickets")} />
+        {unavailable ? (
+          <UnsupportedPanel detail="GET /kds/stations/{stationId}/queue requires a terminal-bound KDS session; a console session is refused on every station. Open a KDS terminal (above) to see the live queue." />
         ) : (
-          <Section title={t("kds.queue")}>
-            <DataTable
-              columns={columns}
-              rows={active}
-              rowKey={(ticket) => ticket.id}
-              caption={t("kds.queue")}
-            />
-          </Section>
+          <>
+            <TileGrid columns={3}>
+              <MetricTile label={t("kds.queue")} value={String(active.length)} spec="FR-KDS-020" />
+              <MetricTile
+                label={t("kds.avgTicket")}
+                value={averageTicket === null ? "—" : formatDuration(Math.round(averageTicket), fmt)}
+                spec="FR-KDS-042"
+              />
+              <MetricTile
+                label={t("kds.bottleneck")}
+                value={bottleneck ? tx(bottleneck.station.name) : "—"}
+                spec="FR-KDS-043"
+              />
+            </TileGrid>
+
+            {stations.length > 0 ? (
+              <Card>
+                <CardHeader title={t("term.allStations")} spec="FR-KDS-045" />
+                <ul className="space-y-2.5">
+                  {load.map((row) => (
+                    <li key={row.station.id}>
+                      <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+                        <span className="text-fg font-medium">{tx(row.station.name)}</span>
+                        <span className="text-fg-muted tabular-nums">
+                          {row.items} · {row.station.capacityPerHour}/h
+                        </span>
+                      </div>
+                      <Meter
+                        value={row.pressure}
+                        tone={row.pressure > 80 ? "bad" : row.pressure > 45 ? "warn" : "good"}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            ) : null}
+
+            {feed.error ? (
+              <ErrorPanel error={feed.error} onRetry={feed.reload} />
+            ) : !feed.ready ? (
+              <LoadingPanel />
+            ) : active.length === 0 ? (
+              <LiveEmpty title={t("kds.noTickets")} />
+            ) : (
+              <Section title={t("kds.queue")}>
+                <DataTable
+                  columns={columns}
+                  rows={active}
+                  rowKey={(ticket) => ticket.id}
+                  caption={t("kds.queue")}
+                />
+              </Section>
+            )}
+          </>
         )}
       </PageBody>
     </>
