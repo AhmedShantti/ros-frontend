@@ -1020,7 +1020,8 @@ export interface CashClosePolicy {
   countMode: "blind" | "open";
   tolerance: Money;
   varianceApprovalExpirySeconds: number;
-  createdBy: Id;
+  /** Who published this version. `null` on a read — the resolved-policy view does not echo it back, only the write response that created it does. */
+  createdBy: Id | null;
   createdAt: IsoDateTime;
 }
 
@@ -1096,6 +1097,15 @@ export interface TreasuryService {
       comment?: string;
     },
   ): Promise<{ status: "closing" | "closed"; outcome: "closed" | "rejected" }>;
+
+  /**
+   * GOLDEN-PATH-FINAL-INTEGRATION — the currently-effective policy for a
+   * branch, or `null` if none has ever been published. The one read that
+   * lets an Owner/authorized-manager admin page tell "nothing configured
+   * yet" apart from "configured, here it is" before deciding whether to
+   * publish a version.
+   */
+  getCashClosePolicy(branchId: Id): Promise<CashClosePolicy | null>;
 
   /**
    * R-1(a)/R-4(a)/R-5 — publish a new immutable policy version for a branch.

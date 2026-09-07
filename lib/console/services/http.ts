@@ -2381,6 +2381,21 @@ const treasury: import("./types").TreasuryService = {
     return { status: row.status, outcome: row.outcome };
   },
 
+  async getCashClosePolicy(branchId) {
+    const { policy } = await api.treasury.getPolicy(branchId);
+    if (!policy) return null;
+    return {
+      id: policy.id,
+      branchId: policy.branchId,
+      effectiveFrom: policy.effectiveFrom,
+      countMode: policy.countMode,
+      tolerance: map.minorMoney(policy.varianceToleranceMinorUnits, policy.currency),
+      varianceApprovalExpirySeconds: policy.varianceApprovalExpirySeconds,
+      createdBy: null,
+      createdAt: policy.createdAt,
+    };
+  },
+
   async setCashClosePolicy(branchId, input) {
     const row = await api.treasury.createPolicy(branchId, {
       varianceToleranceMinorUnits: input.varianceToleranceMinorUnits,

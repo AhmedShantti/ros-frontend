@@ -164,6 +164,10 @@ export const terminals = {
 // ---------------------------------------------------------------------------
 
 export const treasury = {
+  /** `GET /branches/{branchId}/cash-close-policy` — The currently-effective cash-close policy for a branch, wrapped as `{ policy: ... | null }` — GOLDEN-PATH-BACKEND-CLOSURE (2026-09-07). `policy` is `null` when none has ever been configured; a bare top-level `null` body is deliberately avoided (Express sends an empty body for a handler returning `null`, which is indistinguishable on the wire from "no response content" — a wrapper object keeps `null` an unambiguous, inspectable JSON value). Not FR-PLT-027's settings inspector (see class docblock) — a single resolved value, not a level-by-level override trace. — `policy` is null if the branch has none configured yet. */
+  getPolicy: (branchId: string) =>
+    http.get<S.CashClosePolicyController_getPolicyResponse>("/branches/{branchId}/cash-close-policy", { params: { branchId } }),
+
   /** `POST /branches/{branchId}/cash-close-policy` — Create a new immutable cash-close policy version for a branch — R-1(a), R-4(a), R-5. `Idempotency-Key` is MANDATORY (FR-API-020): a retry over a flaky link must not produce a second version. — The newly created cash-close policy version. */
   createPolicy: (branchId: string, body: S.CreateCashClosePolicyDto) =>
     http.post<S.CashClosePolicyController_createPolicyResponse>("/branches/{branchId}/cash-close-policy", { params: { branchId }, body, idempotent: true }),

@@ -66,11 +66,10 @@ import {
   getDeviceTenantId,
   type PosEmployee,
 } from "@/lib/api/session";
-import { api } from "@/lib/api/endpoints";
 import { signInWithPin } from "@/lib/api/auth";
 import { deviceId } from "@/lib/api/ids";
 import { AsyncPanel } from "@/components/console/states";
-import { CashClosePolicyCard, DrawerSheet } from "@/components/terminal/pos-drawer";
+import { DrawerSheet } from "@/components/terminal/pos-drawer";
 import {
   Badge,
   Button,
@@ -129,24 +128,6 @@ export function LivePos() {
   };
 
   const terminalId = mounted ? getTerminalId() : null;
-
-  /*
-   * The terminal this device is bound to, as the server describes it.
-   *
-   * Two things on this screen need it. `drawerId` must be a UUID the server
-   * will accept, and a till has exactly one drawer, so the terminal's own id
-   * is it — a cashier typing "DRAWER-1" was never going to pass validation.
-   * And the cash-close policy is published per branch, which on a POS is
-   * whichever branch the terminal belongs to, not a console-side selection
-   * the cashier may never have made.
-   */
-  const bound = useAsync(async () => {
-    if (!terminalId) return null;
-    const registered = await api.terminals.list().catch(() => []);
-    return registered.find((row) => row.id === terminalId) ?? null;
-  }, [terminalId]);
-
-  const branchId = scope.branchId ?? bound.data?.branchId ?? null;
 
   if (!mounted) {
     return (
@@ -208,9 +189,16 @@ export function LivePos() {
      * layout is `h-dvh overflow-hidden` — a POS must never scroll the page
      * out from under a cashier mid-service. So the pane scrolls, not the
      * document. Without `min-h-0` the flex child refuses to shrink below its
-     * content and the overflow never engages, which is what put the policy
-     * card's Publish button off the bottom of the screen with no way to
-     * reach it.
+     * content and the overflow never engages.
+     *
+     * No cash-close policy card here (GOLDEN-PATH-FINAL-INTEGRATION): the
+     * endpoint it published through is a dashboard/back-office route that
+     * `JwtAuthGuard` refuses for every PIN-issued session by construction
+     * (FR-SEC-021, `typ: 'pos'`) — a cashier signed onto this till could
+     * never actually publish through it, only see a form that 403s. The
+     * real surface is the Owner/authorized-manager admin page at
+     * Finance -> Cash-close policy, gated on `settings.branch.manage` and
+     * unreachable from a PIN session.
      */
     return (
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -226,7 +214,6 @@ export function LivePos() {
             }}
             onOpened={setCashSessionId}
           />
-          <CashClosePolicyCard branchId={branchId} onMessage={setMessage} />
           <Toast message={message} />
         </div>
       </div>
