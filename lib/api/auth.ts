@@ -152,6 +152,17 @@ export async function setTerminalStatus(
  * A cashier signing on at a bound terminal, rather than a console user. The
  * POS identifies staff by employee code and PIN — never by email — and the
  * terminal and tenant are known from the device, not typed (FR-SEC-020).
+ *
+ * `POST /auth/pin` is step 1 only — it authenticates the employee and
+ * scopes the token to the tenant named in the request, but its response
+ * carries no `terminal` object (unlike `POST /auth/terminal`'s own "a
+ * terminal-scoped access token"), so the token it returns is not yet
+ * terminal-bound. `GET /cash-sessions/drawers` resolves its branch from
+ * "the CALLER'S OWN terminal" and needs exactly that binding, so this
+ * always runs step 3 (`bindTerminal`, the same step `/register-device`'s
+ * console flow already takes) immediately after — never relying on the
+ * client's own refresh-replay to pick up the bind later, since that only
+ * fires reactively on a 401 and only after the access token goes stale.
  */
 export async function signInWithPin(input: {
   tenantId: string;
@@ -160,9 +171,14 @@ export async function signInWithPin(input: {
   pin: string;
 }): Promise<void> {
   const session = await api.auth.loginWithPin(input);
-  setTokens(session);
+  // Silent: this token is not yet terminal-bound, and a listener reacting
+  // to it here (rather than to the fully-bound token `bindTerminal` is
+  // about to write) would read a session that cannot yet do what any
+  // terminal-scoped call needs — the same reasoning `setTokens`'s own
+  // `silent` option documents for a refresh's multi-step replay.
+  setTokens(session, { silent: true });
   setTenantId(input.tenantId);
-  setTerminalId(input.terminalId);
+  await bindTerminal(input.terminalId);
   // The till shows who is on it, and knows to ask when nobody is.
   setPosEmployee({
     code: input.employeeCode,
