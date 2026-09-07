@@ -23,6 +23,7 @@ import {
   setPosEmployee,
   setTenantId,
   setTerminalId,
+  setTerminalName,
   setTokens,
 } from "./session";
 import type * as S from "./schema";
@@ -78,11 +79,19 @@ export async function selectTenant(
   return tenantId;
 }
 
-/** Step 3 — required by the endpoints that record who rang something up. */
+/**
+ * Step 3 — required by the endpoints that record who rang something up.
+ *
+ * The response already carries the full terminal record — name included —
+ * so it is saved here once. No screen needs to re-derive it later from
+ * `GET /auth/terminals`, the tenant-wide admin listing a bound session's
+ * own token is not entitled to call.
+ */
 export async function bindTerminal(terminalId: string): Promise<void> {
   const bound = await api.terminals.bind({ terminalId });
   setTokens(bound);
   setTerminalId(terminalId);
+  setTerminalName(bound.terminal.name);
 }
 
 export type TerminalRow = S.TerminalController_listResponse[number];

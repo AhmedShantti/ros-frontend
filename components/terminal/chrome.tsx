@@ -27,8 +27,7 @@ import { useI18n, useSession } from "@/lib/console/providers";
 import { services } from "@/lib/console/services";
 import { useAsync } from "@/lib/console/hooks";
 import { DATA_MODE } from "@/lib/api/config";
-import { api } from "@/lib/api/endpoints";
-import { getTerminalId } from "@/lib/api/session";
+import { getTerminalName } from "@/lib/api/session";
 import { formatMoney, formatNumber, formatTime, tx as pick } from "@/lib/console/format";
 import { useLive } from "@/lib/console/live/store";
 import {
@@ -199,39 +198,39 @@ export function TerminalBar() {
 /**
  * Which branch and terminal this device is actually bound to.
  *
- * Read from the server rather than from a fixture, and not a control: the
- * binding is changed by registering the device, which is a different screen
- * and a different authority. While it is loading, or if the terminal has
- * been revoked out from under the till, the slot stays empty rather than
- * naming a branch that might not be this one.
+ * The branch name is read from the server; the terminal name is not —
+ * `POST /auth/terminal` (the bind step every sign-in already takes) returns
+ * the full terminal record, so `bindTerminal` saves its name once, locally,
+ * at bind time. The only other way to resolve a name from a bare id is
+ * `GET /auth/terminals`, the tenant-wide admin listing: a bound session's
+ * own token is not entitled to call it (it 401s even freshly bound), and
+ * every 401 is a trigger for this client's own refresh — see `bindTerminal`
+ * and `signInWithPin` for why that made even a *successful* sign-in look
+ * broken. While the branch read is loading, or if the terminal has been
+ * revoked out from under the till, the slot stays empty rather than naming
+ * a branch that might not be this one.
  */
 function BoundIdentity() {
   const { tx } = useI18n();
   const { scope } = useSession();
-  const terminalId = getTerminalId();
+  const terminalName = getTerminalName();
 
   const bound = useAsync(async () => {
-    // `GET /auth/terminal` answers with the bound id and nothing else, so
-    // the name comes from the registered list.
-    const [registered, branch] = await Promise.all([
-      terminalId ? api.terminals.list().catch(() => []) : [],
-      scope.branchId
-        ? services.organisation.branches.get(scope.branchId).catch(() => null)
-        : null,
-    ]);
-    const terminal = registered.find((row) => row.id === terminalId) ?? null;
-    return { terminalName: terminal?.name ?? null, branchName: branch?.name ?? null };
-  }, [terminalId, scope.branchId]);
+    const branch = scope.branchId
+      ? await services.organisation.branches.get(scope.branchId).catch(() => null)
+      : null;
+    return { branchName: branch?.name ?? null };
+  }, [scope.branchId]);
 
-  if (!bound.data?.branchName && !bound.data?.terminalName) return null;
+  if (!bound.data?.branchName && !terminalName) return null;
 
   return (
     <span className={TRIGGER}>
-      <span className="max-w-40 truncate">{tx(bound.data.branchName ?? undefined)}</span>
-      {bound.data.terminalName ? (
+      <span className="max-w-40 truncate">{tx(bound.data?.branchName ?? undefined)}</span>
+      {terminalName ? (
         <>
           <span className="text-fg-subtle">·</span>
-          <span className="text-fg-muted">{bound.data.terminalName}</span>
+          <span className="text-fg-muted">{terminalName}</span>
         </>
       ) : null}
     </span>
