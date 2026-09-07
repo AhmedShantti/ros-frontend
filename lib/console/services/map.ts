@@ -1136,7 +1136,13 @@ export interface OrderContext {
 
 export function toOrder(row: WireOrder, context: OrderContext): Order {
   const currency = currencyOf(row.currency);
-  const lines = row.lines.map((line) => toOrderLine(line, currency));
+  // gap: `GET /orders` list rows carry headers only — line snapshots are
+  // populated on a single-order fetch (`GET /orders/{businessDay}/{id}`),
+  // not here. `orders.list()` casts a list row into this same wire type, so
+  // `lines` is `undefined` on it at runtime despite the generated type
+  // calling it required; an absent line list is exactly the `[]` this
+  // endpoint means, not a value to index into.
+  const lines = (row.lines ?? []).map((line) => toOrderLine(line, currency));
 
   const cogsTotal = lines.reduce(
     (total, line) => total + line.unitCostSnapshot.amount * line.quantity,
