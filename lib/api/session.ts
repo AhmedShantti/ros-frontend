@@ -77,6 +77,20 @@ function identityKeys() {
 
 const KEY_TERMINAL = "ros.api.terminalId";
 /**
+ * PROD-POS-TERMINAL-LISTING-P0 — the display name of the device's own bound
+ * terminal, exactly as `POST /auth/terminal` returned it at bind time.
+ *
+ * `GET /auth/terminal` (the read-only "am I bound" check) answers with the
+ * id and nothing else; the only place a name has ever come from is
+ * `GET /auth/terminals` — every terminal registered to the whole tenant,
+ * a dashboard/admin listing a PIN-issued session is not entitled to call
+ * (it 401s even freshly bound). `POST /auth/terminal`'s own response
+ * already carries the full terminal record, name included, so `bindTerminal`
+ * saves it here once instead of a screen re-deriving it from a listing call
+ * its token can never legally make.
+ */
+const KEY_TERMINAL_NAME = "ros.api.terminalName";
+/**
  * DEMO-SESSION-ISOLATION-HOTFIX — which tenant THIS DEVICE operates under,
  * as a DEVICE-level fact, independent of either surface's own active
  * identity. The Cashier PIN sign-on form has no tenant picker (FR-SEC-020 —
@@ -257,6 +271,15 @@ export function getTerminalId(): string | null {
 export function setTerminalId(terminalId: string | null): void {
   write(KEY_TERMINAL, terminalId);
   announce();
+}
+
+/** The bound terminal's display name — see `KEY_TERMINAL_NAME`. */
+export function getTerminalName(): string | null {
+  return read(KEY_TERMINAL_NAME);
+}
+
+export function setTerminalName(name: string | null): void {
+  write(KEY_TERMINAL_NAME, name);
 }
 
 /**
