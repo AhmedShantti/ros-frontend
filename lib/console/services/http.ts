@@ -2242,15 +2242,7 @@ async function hydrateOrder(row: Parameters<typeof map.toOrder>[0]): Promise<Ord
 
 async function receipt(businessDay: IsoDate, orderId: Id) {
   const row = await api.sales.receipt(businessDay, orderId);
-  const currency = map.currencyOf(row.order.currency);
-  return {
-    payments: row.payments.map((payment) => ({
-      id: payment.id,
-      tender: payment.tender,
-      amount: map.money(payment.amount, currency),
-      processedAt: payment.processedAt,
-    })),
-  };
+  return map.toReceipt(row);
 }
 
 const sales: SalesService = { orders, mutations: orderMutations, receipt };

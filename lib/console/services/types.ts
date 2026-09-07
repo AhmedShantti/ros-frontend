@@ -880,6 +880,51 @@ export interface OrderPaymentSummary {
   tender: "cash" | "manual_external_card";
   amount: Money;
   processedAt: IsoDateTime;
+  cardLast4: string | null;
+  changeGiven: Money | null;
+  tenderedAmount: Money | null;
+}
+
+export interface ReceiptLineModifier {
+  modifierId: Id;
+  name: Localised;
+  priceDelta: Money;
+  quantity: number;
+}
+
+/** One captured line as the receipt reports it — a frozen sale-time snapshot, never re-resolved from Catalogue. */
+export interface ReceiptLine {
+  menuItemId: Id;
+  name: Localised;
+  quantity: number;
+  unitPrice: Money;
+  modifiers: ReceiptLineModifier[];
+  modifierTotal: Money;
+  lineDiscount: Money;
+  lineSubtotal: Money;
+  taxAmount: Money;
+  lineTotal: Money;
+}
+
+/** FR-FIN-020 — the itemized, non-fiscal receipt of a completed order (POS-FIN-1). */
+export interface Receipt {
+  orderNumber: string;
+  orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
+  currency: Currency;
+  completedAt: IsoDateTime;
+  lines: ReceiptLine[];
+  payments: OrderPaymentSummary[];
+  totals: {
+    subtotal: Money;
+    discountTotal: Money;
+    taxTotal: Money;
+    serviceChargeTotal: Money;
+    tipTotal: Money;
+    cashRoundingAdjustment: Money;
+    grandTotal: Money;
+    paidTotal: Money;
+  };
+  taxPresentation: "INCLUSIVE" | "EXCLUSIVE" | "NOT_APPLICABLE" | "UNDETERMINED";
 }
 
 export interface SalesService {
@@ -887,14 +932,15 @@ export interface SalesService {
   /** The write half of the order lifecycle. */
   mutations: OrderMutationService;
   /**
-   * FR-FIN-020 — the non-fiscal receipt of a completed order.
+   * FR-FIN-020 — the non-fiscal receipt of a completed order (also available,
+   * per POS-FIN-1, once it has gone partially_refunded or refunded).
    *
    * There is no `GET /payments` and `Order.payments` is deliberately left
    * empty (see `map.toOrder`) because no endpoint fills it — the receipt is
    * the only place a completed order's payment ids are readable, so it is
-   * what a refund's payment picker reads from.
+   * also what a refund's payment picker reads from.
    */
-  receipt(businessDay: IsoDate, orderId: Id): Promise<{ payments: OrderPaymentSummary[] }>;
+  receipt(businessDay: IsoDate, orderId: Id): Promise<Receipt>;
 }
 
 /** FR-POS-091 — the three ways cash moves without a sale. */
