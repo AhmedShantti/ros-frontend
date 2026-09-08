@@ -105,6 +105,22 @@ const KEY_TERMINAL_NAME = "ros.api.terminalName";
  * someone logged out of it.
  */
 const KEY_DEVICE_TENANT = "ros.api.deviceTenantId";
+/**
+ * DEMO-POS-P0-5 — which branch THIS DEVICE's bound terminal belongs to, a
+ * DEVICE-level fact mirroring `KEY_DEVICE_TENANT` above. `POST /auth/terminal`
+ * (`bindTerminal`) already receives the full terminal record — `branchId`
+ * included — so it is saved here once, the same way the terminal's name
+ * already is. Every terminal-scoped read that needs "this till's own branch"
+ * (the menu, the tables, the branch chip) reads it from here instead of the
+ * console's brand/branch scope switcher: that switcher's storage keys
+ * (`ros.console.brand`/`.branch`) are shared with `(console)` and persist
+ * across a manager's own console session, so a Cashier who signs on to a
+ * till right after that manager registered it would otherwise inherit
+ * whatever branch the manager's dashboard happened to be filtered to — never
+ * cleared by a sign-out, for the same reason `KEY_DEVICE_TENANT` is not: the
+ * physical till does not change branches just because someone signed out.
+ */
+const KEY_TERMINAL_BRANCH = "ros.api.terminalBranchId";
 const KEY_CASH_SESSION = "ros.api.cashSessionId";
 const KEY_CASH_OPENING = "ros.api.cashSessionOpening";
 const KEY_POS_EMPLOYEE = "ros.api.posEmployee";
@@ -280,6 +296,15 @@ export function getTerminalName(): string | null {
 
 export function setTerminalName(name: string | null): void {
   write(KEY_TERMINAL_NAME, name);
+}
+
+/** The bound terminal's own branch — see `KEY_TERMINAL_BRANCH`. */
+export function getTerminalBranchId(): string | null {
+  return read(KEY_TERMINAL_BRANCH);
+}
+
+export function setTerminalBranchId(branchId: string | null): void {
+  write(KEY_TERMINAL_BRANCH, branchId);
 }
 
 /**

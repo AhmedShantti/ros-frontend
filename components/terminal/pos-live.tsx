@@ -1178,7 +1178,16 @@ function VoidLineDrawer({
     "wasted",
   );
 
-  const reasons = useAsync(() => services.inventory.reasonCodes(), []);
+  // DEMO-POS-P0-5 — reason codes are for a void, never for rendering the
+  // menu: fetched only once this sheet actually has a line to void, not
+  // unconditionally on every mount. This component stays mounted (with
+  // `lineId` toggling null/non-null) for as long as an order is open, so an
+  // ungated fetch here fired `GET /inventory/reason-codes` on every order,
+  // not on demand.
+  const reasons = useAsync(
+    async () => (lineId ? services.inventory.reasonCodes() : []),
+    [lineId],
+  );
 
   const line = order.lines.find((l) => l.id === lineId) ?? null;
   if (!lineId || !line) return null;
@@ -1512,7 +1521,12 @@ function CompDrawer({
   const action = useAction();
   const [reasonCodeId, setReasonCodeId] = useState("");
 
-  const reasons = useAsync(() => services.inventory.reasonCodes(), []);
+  // DEMO-POS-P0-5 — see the identical note in `VoidLineDrawer`: gated on
+  // `lineId`, not fetched unconditionally on every mount.
+  const reasons = useAsync(
+    async () => (lineId ? services.inventory.reasonCodes() : []),
+    [lineId],
+  );
 
   const line = lineId ? (order.lines.find((l) => l.id === lineId) ?? null) : null;
   if (!lineId || !line) return null;

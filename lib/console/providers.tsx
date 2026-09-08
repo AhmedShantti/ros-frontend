@@ -51,7 +51,13 @@ import { tx } from "./format";
 import type { Scope } from "./services";
 import { DATA_MODE } from "@/lib/api/config";
 import { signOut as apiSignOut } from "@/lib/api/auth";
-import { isSignedIn, onSessionChange, setActiveSurface } from "@/lib/api/session";
+import {
+  getDeviceTenantId,
+  getTerminalBranchId,
+  isSignedIn,
+  onSessionChange,
+  setActiveSurface,
+} from "@/lib/api/session";
 import { useLiveOrgContext, type LiveOrgContext } from "./live-session";
 
 // ---------------------------------------------------------------------------
@@ -264,7 +270,13 @@ interface SessionValue {
 
 const SessionContext = createContext<SessionValue | null>(null);
 
-function SessionProvider({ children }: { children: ReactNode }) {
+function SessionProvider({
+  children,
+  surface,
+}: {
+  children: ReactNode;
+  surface: "console" | "terminal";
+}) {
   const [roleKey, setRoleKey] = useState<RoleKey>("owner");
   const [authenticated, setAuthenticated] = useState(false);
   const [brandId, setBrandIdState] = useState<string | null>(null);
@@ -329,10 +341,26 @@ function SessionProvider({ children }: { children: ReactNode }) {
     [authenticated, roleKey, mfaSatisfied],
   );
 
-  // The real tenant, brands, branches and permission codes behind the token.
-  // In demo mode this stays inert and everything below falls back to the
-  // fixtures, exactly as before.
-  const org = useLiveOrgContext(authenticated);
+  /**
+   * DEMO-POS-P0-5 — the real tenant, brands, branches and permission codes
+   * behind the token. In demo mode this stays inert and everything below
+   * falls back to the fixtures, exactly as before.
+   *
+   * Gated on `surface === "console"`, not merely `authenticated`: `org/access`,
+   * `auth/tenants`, `auth/tenant` and `auth/permissions` are Console/back-office
+   * discovery endpoints with no `@AllowPosSession()` — a PIN-issued `typ: 'pos'`
+   * bearer is refused outright, by design (see `lib/api/auth.ts`'s
+   * `bindTerminal`). `authenticated` alone is not a safe proxy for "on the
+   * console": it reads `KEY_AUTH`, a storage key this provider shares with
+   * `(console)`/`(auth)` — the SAME browser that registered this terminal (a
+   * console-only, password-authenticated step) already wrote it `true`, so a
+   * terminal mounting this same provider inherited that flag and replayed the
+   * full console bootstrap against a POS token, 403ing on every leg of it. A
+   * terminal never needs this: it already has its own device-level tenant,
+   * branch and terminal facts (`getDeviceTenantId`/`getTerminalBranchId`/
+   * `getTerminalId`), used directly in `scope` below.
+   */
+  const org = useLiveOrgContext(authenticated && surface === "console");
 
   const definition = ROLE_DEFINITIONS[roleKey];
 
@@ -524,6 +552,19 @@ function SessionProvider({ children }: { children: ReactNode }) {
       (live ? (org.tenant ?? lastRealTenantRef.current) : null) ??
       tenants.find((t) => t.id === ACTIVE_TENANT_ID)!;
 
+    /**
+     * DEMO-POS-P0-5 — a terminal's own scope never comes from the Console's
+     * org bootstrap (gated off above) or its brand/branch switcher (whose
+     * storage keys this provider shares with `(console)`): it comes from the
+     * device facts this till already carries — `getDeviceTenantId()` (the PIN
+     * sign-on form's own tenant source) and `getTerminalBranchId()` (cached
+     * from `POST /auth/terminal`'s response at bind time). Falls back to the
+     * console-derived value only for demo mode, or before either device fact
+     * has ever been resolved.
+     */
+    const terminalTenantId = live && surface === "terminal" ? getDeviceTenantId() : null;
+    const terminalBranchId = live && surface === "terminal" ? getTerminalBranchId() : null;
+
     return {
       session,
       // Before hydration we assume signed-in, so the shell renders on the
@@ -534,9 +575,9 @@ function SessionProvider({ children }: { children: ReactNode }) {
       brand: brands.find((b) => b.id === effectiveBrandId) ?? null,
       branch: branches.find((b) => b.id === effectiveBranchId) ?? null,
       scope: {
-        tenantId: tenant.id,
+        tenantId: terminalTenantId ?? tenant.id,
         brandId: effectiveBrandId,
-        branchId: effectiveBranchId,
+        branchId: terminalBranchId ?? effectiveBranchId,
       },
       availableBrands,
       availableBranches,
@@ -557,6 +598,7 @@ function SessionProvider({ children }: { children: ReactNode }) {
     authenticated,
     roleKey,
     live,
+    surface,
     org,
     granted,
     brands,
@@ -611,7 +653,7 @@ export function ConsoleProvider({
   setActiveSurface(surface);
   return (
     <PreferencesProvider>
-      <SessionProvider>{children}</SessionProvider>
+      <SessionProvider surface={surface}>{children}</SessionProvider>
     </PreferencesProvider>
   );
 }
