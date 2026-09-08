@@ -43,6 +43,11 @@ export function toMajorUnits(money: Money): number {
   return money.amount / 10 ** CURRENCY_EXPONENT[money.currency];
 }
 
+/** How many decimal places a shelf-price input may carry for this currency. */
+export function currencyExponent(currency: Currency): number {
+  return CURRENCY_EXPONENT[currency];
+}
+
 export function formatMoney(money: Money, opts: FormatOptions, compact = false): string {
   const exponent = CURRENCY_EXPONENT[money.currency];
   const value = money.amount / 10 ** exponent;

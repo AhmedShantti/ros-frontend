@@ -944,7 +944,7 @@ const categories: CollectionService<MenuCategory> = {
 };
 
 /** Prices live on a price list; the console shows one price per variant. */
-async function variantPrices(): Promise<Map<Id, ReturnType<typeof map.money>>> {
+async function variantPrices(): Promise<Map<Id, ReturnType<typeof map.minorMoney>>> {
   const lists = await api.catalogue.listPriceLists().catch(() => []);
   const active = lists.filter((list) => list.status === "active");
   const chosen = active.length > 0 ? active : lists.slice(0, 1);
@@ -955,11 +955,13 @@ async function variantPrices(): Promise<Map<Id, ReturnType<typeof map.money>>> {
       .map((list) => api.catalogue.listPriceEntries(list.id).catch(() => [])),
   );
 
-  const out = new Map<Id, ReturnType<typeof map.money>>();
+  const out = new Map<Id, ReturnType<typeof map.minorMoney>>();
   for (const list of entries) {
     for (const entry of list) {
-      // Later (higher-priority) lists win.
-      out.set(entry.menuItemVariantId, map.money(entry.price, entry.currency));
+      // Later (higher-priority) lists win. `entry.price` is the same
+      // minor-unit integer string as `toPriceEntry` reads — `map.money`
+      // parses a *decimal* string and would misprice by 100x here too.
+      out.set(entry.menuItemVariantId, map.minorMoney(entry.price, entry.currency));
     }
   }
   return out;
@@ -1397,7 +1399,10 @@ const catalogue: CatalogueService = {
   async setPrice(priceListId, variantId, price) {
     const row = await api.catalogue.setPriceEntry(priceListId, {
       menuItemVariantId: variantId,
-      price: map.toDecimal(price),
+      // `SetPriceEntryDto.price` is a minor-unit integer string
+      // (`^-?\d{1,18}$`) — `toDecimal` would send a shelf decimal like
+      // "250.00" and the API rejects it: "price must be an integer string".
+      price: map.toMinorUnitString(price),
       currency: price.currency,
     });
     // A changed price invalidates the per-variant price cache the item list
