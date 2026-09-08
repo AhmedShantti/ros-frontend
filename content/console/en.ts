@@ -1296,6 +1296,7 @@ export const consoleEn = {
   "pos.allCategories": "All",
   "pos.favourites": "Quick keys",
   "pos.noItems": "Nothing matches that search.",
+  "pos.noMenuConfigured": "No menu is configured for this branch, or nothing on it is sellable right now.",
   "pos.eightySix": "86",
   "pos.eightySixed": "86'd",
   "pos.eightySixReason": "Why is it off?",

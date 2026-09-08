@@ -48,8 +48,14 @@ import {
   Undo2,
 } from "lucide-react";
 
-import type { MenuItem, Order } from "@/lib/console/types";
+import type { Order } from "@/lib/console/types";
 import { services, ServiceError, type Scope } from "@/lib/console/services";
+import { api } from "@/lib/api/endpoints";
+import {
+  toPosMenu,
+  type PosMenuItem,
+  type PosMenuModifierGroup,
+} from "@/lib/console/services/pos-menu";
 import { useAsync, type AsyncState } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
@@ -677,7 +683,19 @@ function NewOrderPane({
 
 // ---------------------------------------------------------------------------
 
-/** The sellable catalogue: items, their variants, and the prices in force. */
+/**
+ * The sellable catalogue for this order — DEMO-POS-MENU-FRONTEND-INTEGRATION-P0.
+ *
+ * The ONLY POS-safe menu read is `GET /catalogue/pos-menu`
+ * (DEMO-POS-MENU-BACKEND-P0): it derives the branch from this terminal's own
+ * session and needs no `branchId`, unlike the tenant-wide catalogue admin
+ * reads (`/catalogue/items`, `/catalogue/availability-rules`, price lists)
+ * those require permissions a Cashier session does not hold and this screen
+ * must never call. `orderType` is the one supported optional filter, so the
+ * order this pane belongs to is re-read whenever the order (or its type)
+ * changes — a dine-in menu can legitimately differ from a takeaway one
+ * (FR-MNU-002).
+ */
 function MenuPane({
   order,
   onOrder,
@@ -687,31 +705,34 @@ function MenuPane({
   onOrder: (order: Order) => void;
   onMessage: (message: string) => void;
 }) {
-  const { t, tx, fmt } = useI18n();
+  const { t, tx } = useI18n();
   const action = useAction();
   const [search, setSearch] = useState("");
+  const [categoryId, setCategoryId] = useState<string>("all");
+  const [chosen, setChosen] = useState<PosMenuItem | null>(null);
 
-  const items = useAsync(() => services.catalogue.items.list({ limit: 500 }), []);
+  const menuState = useAsync(
+    () => api.catalogue.getPosMenu({ orderType: order.orderType }).then(toPosMenu),
+    [order.id, order.orderType],
+  );
 
-  const filtered = useMemo(() => {
-    const rows = items.data?.rows ?? [];
-    const needle = search.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter(
-      (row) =>
-        row.name.en.toLowerCase().includes(needle) ||
-        row.name.ar.includes(search.trim()) ||
-        row.kitchenName.en.toLowerCase().includes(needle),
+  async function addSimple(item: PosMenuItem) {
+    const variant = item.variants[0];
+    if (!variant) return;
+    const defaults = item.modifierGroups.flatMap((group) =>
+      group.modifiers.filter((m) => m.isDefault).map((m) => ({ modifierId: m.id })),
     );
-  }, [items.data, search]);
-
-  async function add(item: MenuItem, variantId: string) {
     await action.run(
       () =>
         services.sales.mutations.addLine(
           order.businessDay,
           order.id,
-          { menuItemId: item.id, variantId, quantity: "1" },
+          {
+            menuItemId: item.id,
+            variantId: variant.id,
+            quantity: "1",
+            modifiers: defaults.length > 0 ? defaults : undefined,
+          },
           { ifMatch: orderVersion(order) },
         ),
       {
@@ -721,6 +742,19 @@ function MenuPane({
         },
       },
     );
+  }
+
+  function onTap(item: PosMenuItem) {
+    if (!item.isAvailable || action.pending) return;
+    // A single variant with no required choice goes straight onto the
+    // order (NFR-USA-001); anything else opens the picker.
+    const needsChoice =
+      item.variants.length > 1 || item.modifierGroups.some((group) => group.isRequired);
+    if (needsChoice) {
+      setChosen(item);
+      return;
+    }
+    void addSimple(item);
   }
 
   return (
@@ -733,99 +767,365 @@ function MenuPane({
 
       {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
 
-      <AsyncPanel state={items} isEmpty={() => filtered.length === 0}>
-        {() => (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {filtered.map((item) => (
-              <ItemTile
-                key={item.id}
-                item={item}
-                busy={action.pending}
-                onAdd={(variantId) => add(item, variantId)}
-              />
-            ))}
-          </div>
-        )}
+      <AsyncPanel
+        state={menuState}
+        isEmpty={(menu) => menu.items.length === 0}
+        empty={<Callout tone="muted">{t("pos.noMenuConfigured")}</Callout>}
+      >
+        {(menu) => {
+          const categories = menu.categories.filter((category) =>
+            menu.items.some((item) => category.itemIds.includes(item.id)),
+          );
+          const needle = search.trim().toLowerCase();
+          const filtered = menu.items
+            .filter(
+              (item) =>
+                categoryId === "all" ||
+                (categories.find((c) => c.id === categoryId)?.itemIds.includes(item.id) ?? false),
+            )
+            .filter(
+              (item) =>
+                !needle ||
+                item.name.en.toLowerCase().includes(needle) ||
+                item.name.ar.includes(search.trim()),
+            );
+
+          return (
+            <div className="space-y-3">
+              {menu.warning ? <Callout tone="warn">{menu.warning}</Callout> : null}
+
+              {categories.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  <CategoryChip
+                    active={categoryId === "all"}
+                    colour="var(--c-accent)"
+                    onClick={() => setCategoryId("all")}
+                  >
+                    {t("pos.allCategories")}
+                  </CategoryChip>
+                  {categories.map((category) => (
+                    <CategoryChip
+                      key={category.id}
+                      active={categoryId === category.id}
+                      colour={category.colour ?? "var(--c-accent)"}
+                      onClick={() => setCategoryId(category.id)}
+                    >
+                      {tx(category.name)}
+                    </CategoryChip>
+                  ))}
+                </div>
+              ) : null}
+
+              {filtered.length === 0 ? (
+                <p className="text-fg-subtle p-6 text-center text-sm">{t("pos.noItems")}</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {filtered.map((item) => (
+                    <PosItemTile
+                      key={item.id}
+                      item={item}
+                      disabled={action.pending}
+                      onTap={() => onTap(item)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        }}
       </AsyncPanel>
+
+      {chosen ? (
+        <ItemSheet
+          item={chosen}
+          order={order}
+          onClose={() => setChosen(null)}
+          onAdded={(next) => {
+            setChosen(null);
+            onOrder(next);
+            onMessage(t("pos.lineAdded"));
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
-/**
- * One sellable item.
- *
- * A line references a *variant*, not an item, so an item whose variants have
- * not loaded cannot be rung up — and says so rather than sending a request
- * that is guaranteed to 400.
- */
-function ItemTile({
-  item,
-  busy,
-  onAdd,
+function CategoryChip({
+  active,
+  colour,
+  onClick,
+  children,
 }: {
-  item: MenuItem;
-  busy: boolean;
-  onAdd: (variantId: string) => void;
+  active: boolean;
+  colour: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cx(
+        "shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors",
+        active ? "text-white" : "border-line bg-raised text-fg-muted hover:text-fg",
+      )}
+      style={active ? { background: colour, borderColor: colour } : undefined}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** One sellable item, priced and resolved for this branch by `pos-menu`. */
+function PosItemTile({
+  item,
+  disabled,
+  onTap,
+}: {
+  item: PosMenuItem;
+  disabled: boolean;
+  onTap: () => void;
 }) {
   const { t, tx, fmt } = useI18n();
-  const [picking, setPicking] = useState(false);
-
-  const detail = useAsync(
-    async () => (picking ? services.catalogue.items.get(item.id) : null),
-    [picking, item.id],
-  );
-
-  const variants = detail.data?.variants ?? [];
+  const variant = item.variants[0] ?? null;
 
   return (
-    <>
-      <button
-        type="button"
-        disabled={busy || !item.available}
-        onClick={() => setPicking(true)}
-        className="border-line bg-raised hover:border-accent focus-visible:border-accent flex min-h-20 flex-col justify-between rounded-lg border p-2.5 text-start transition-colors disabled:opacity-50"
-      >
-        <span className="text-fg line-clamp-2 text-xs font-medium">{tx(item.name)}</span>
-        {!item.available ? (
-          <Badge tone="bad">{t("menu.unavailable")}</Badge>
+    <button
+      type="button"
+      disabled={disabled || !item.isAvailable}
+      onClick={onTap}
+      className="border-line bg-raised hover:border-accent focus-visible:border-accent flex min-h-20 flex-col justify-between rounded-lg border p-2.5 text-start transition-colors disabled:opacity-50"
+    >
+      <span className="text-fg line-clamp-2 text-xs font-medium">{tx(item.name)}</span>
+      <span className="mt-1 flex items-center justify-between gap-1.5">
+        {!item.isAvailable ? (
+          <Badge tone="bad">{t("pos.eightySixed")}</Badge>
         ) : (
-          <span className="text-fg-subtle mt-1 text-xs">{item.imageEmoji}</span>
+          <span className="text-fg-subtle text-xs tabular-nums">
+            {variant?.price ? formatMoney(variant.price, fmt, true) : "—"}
+          </span>
         )}
-      </button>
+        {item.variants.length > 1 ? (
+          <span className="text-fg-subtle text-[0.65rem]">
+            {item.variants.length} {t("pos.variant").toLowerCase()}
+          </span>
+        ) : null}
+      </span>
+    </button>
+  );
+}
 
-      {picking ? (
-        <Drawer open onClose={() => setPicking(false)} title={tx(item.name)}>
-          <AsyncPanel
-            state={detail}
-            isEmpty={() => variants.length === 0}
-            empty={<Callout tone="warn">{t("pos.noSellableVariant")}</Callout>}
+/**
+ * Variant + modifier picker (FR-POS-013/020/021) — opened only for an item
+ * with more than one variant or a required modifier group; everything else
+ * goes straight onto the order from the tile itself.
+ *
+ * The price shown here is `pos-menu`'s own resolved price plus the selected
+ * deltas — a preview only. Sales prices the line for real when the add
+ * actually lands, so nothing here is duplicated pricing logic, just a
+ * client-side echo of the same numbers the server already sent.
+ */
+function ItemSheet({
+  item,
+  order,
+  onClose,
+  onAdded,
+}: {
+  item: PosMenuItem;
+  order: Order;
+  onClose: () => void;
+  onAdded: (order: Order) => void;
+}) {
+  const { t, tx, fmt } = useI18n();
+  const action = useAction();
+
+  const [variantId, setVariantId] = useState(
+    item.variants.find((v) => v.isAvailable)?.id ?? item.variants[0]?.id ?? "",
+  );
+  const [quantity, setQuantity] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(
+    () =>
+      new Set(
+        item.modifierGroups.flatMap((group) =>
+          group.modifiers.filter((m) => m.isDefault).map((m) => m.id),
+        ),
+      ),
+  );
+
+  const variant = item.variants.find((v) => v.id === variantId) ?? null;
+
+  // FR-POS-020 — only a REQUIRED group gates the add, and needs at least
+  // one selection even when it declares no explicit minimum.
+  const missing = item.modifierGroups.filter((group) => {
+    if (!group.isRequired) return false;
+    const count = group.modifiers.filter((m) => selected.has(m.id)).length;
+    return count < Math.max(1, group.minSelections);
+  });
+
+  const extra = item.modifierGroups
+    .flatMap((group) => group.modifiers)
+    .filter((m) => selected.has(m.id))
+    .reduce((sum, m) => sum + m.priceDelta.amount, 0);
+
+  function toggle(group: PosMenuModifierGroup, modifierId: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(modifierId)) {
+        next.delete(modifierId);
+        return next;
+      }
+      if (group.maxSelections === 1) {
+        for (const m of group.modifiers) next.delete(m.id);
+      } else {
+        const count = group.modifiers.filter((m) => next.has(m.id)).length;
+        if (count >= group.maxSelections) return current;
+      }
+      next.add(modifierId);
+      return next;
+    });
+  }
+
+  async function submit() {
+    if (!variant || !variant.isAvailable || missing.length > 0) return;
+    await action.run(
+      () =>
+        services.sales.mutations.addLine(
+          order.businessDay,
+          order.id,
+          {
+            menuItemId: item.id,
+            variantId: variant.id,
+            quantity: String(quantity),
+            modifiers: selected.size > 0 ? [...selected].map((modifierId) => ({ modifierId })) : undefined,
+          },
+          { ifMatch: orderVersion(order) },
+        ),
+      { onSuccess: onAdded },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={tx(item.name)}
+      footer={
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            loading={action.pending}
+            disabled={!variant || !variant.isAvailable || missing.length > 0}
+            onClick={submit}
           >
-            {() => (
-              <ul className="divide-line divide-y">
-                {variants.map((variant) => (
-                  <li key={variant.id}>
-                    <button
-                      type="button"
-                      disabled={!variant.available}
-                      onClick={() => {
-                        setPicking(false);
-                        onAdd(variant.id);
-                      }}
-                      className="hover:bg-sunken flex w-full items-center justify-between gap-3 px-1 py-3 text-start transition-colors disabled:opacity-50"
-                    >
-                      <span className="text-fg text-sm">{tx(variant.name)}</span>
-                      <span className="text-fg font-mono text-sm tabular-nums">
-                        {formatMoney(variant.basePrice, fmt)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+            {t("pos.addToOrder")} ·{" "}
+            {formatMoney(
+              { amount: ((variant?.price?.amount ?? 0) + extra) * quantity, currency: order.currency },
+              fmt,
             )}
-          </AsyncPanel>
-        </Drawer>
-      ) : null}
-    </>
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        {missing.length > 0 ? (
+          <Callout tone="warn" title={t("pos.required")}>
+            {missing.map((g) => tx(g.name)).join(" · ")}
+          </Callout>
+        ) : null}
+
+        {item.variants.length > 1 ? (
+          <Field label={t("pos.variant")}>
+            <div className="flex flex-wrap gap-1.5">
+              {item.variants.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  disabled={!v.isAvailable}
+                  onClick={() => setVariantId(v.id)}
+                  className={cx(
+                    "rounded-lg border px-3 py-2 text-sm transition-colors disabled:opacity-40",
+                    v.id === variantId
+                      ? "border-accent bg-accent-soft text-accent font-medium"
+                      : "border-line bg-raised text-fg-muted hover:text-fg",
+                  )}
+                >
+                  {tx(v.name)}
+                  {!v.isAvailable ? (
+                    <Badge tone="bad" className="ms-2">
+                      {t("pos.eightySixed")}
+                    </Badge>
+                  ) : (
+                    <span className="text-fg-subtle ms-2 text-xs tabular-nums">
+                      {v.price ? formatMoney(v.price, fmt, true) : "—"}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </Field>
+        ) : null}
+
+        {item.modifierGroups.map((group) => (
+          <div key={group.id}>
+            <div className="mb-1.5 flex items-center gap-2">
+              <h3 className="text-fg text-xs font-semibold">{tx(group.name)}</h3>
+              {group.isRequired ? <Badge tone="accent">{t("pos.required")}</Badge> : null}
+              <span className="text-fg-subtle text-xs">
+                {group.maxSelections === 1
+                  ? ""
+                  : t("pos.chooseUpTo").replace("{n}", String(group.maxSelections))}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {group.modifiers.map((m) => {
+                const on = selected.has(m.id);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => toggle(group, m.id)}
+                    className={cx(
+                      "rounded-lg border px-3 py-2 text-sm transition-colors",
+                      on
+                        ? "border-accent bg-accent-soft text-accent font-medium"
+                        : "border-line bg-raised text-fg-muted hover:text-fg",
+                      m.kind === "removal" && on && "border-bad/40 bg-bad-soft text-bad",
+                    )}
+                  >
+                    <span aria-hidden className="me-1 font-mono text-xs">
+                      {m.kind === "removal" ? "−" : m.kind === "addition" ? "+" : "⇄"}
+                    </span>
+                    {tx(m.name)}
+                    {m.priceDelta.amount !== 0 ? (
+                      <span className="text-fg-subtle ms-1.5 text-xs tabular-nums">
+                        {m.priceDelta.amount > 0 ? "+" : ""}
+                        {formatMoney(m.priceDelta, fmt, true)}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        <Field label={t("pos.quantity")}>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => setQuantity((q) => Math.max(1, q - 1))}>−</Button>
+            <span className="text-fg w-10 text-center text-lg font-semibold tabular-nums">
+              {quantity}
+            </span>
+            <Button onClick={() => setQuantity((q) => Math.min(99, q + 1))}>+</Button>
+          </div>
+        </Field>
+      </div>
+    </Drawer>
   );
 }
 
