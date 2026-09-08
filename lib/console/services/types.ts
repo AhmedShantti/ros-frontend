@@ -1012,6 +1012,26 @@ export interface DenominationCountInput {
   quantity: number;
 }
 
+/**
+ * DEMO-MANAGER-CASH-SESSIONS-FRONTEND-P0 — a stranded (or in-progress-close)
+ * session, discovered by branch rather than by whoever's own PIN identity
+ * opened it. Everything an Owner/Shift Supervisor needs to identify one and
+ * hand it to the existing close_other workflow (close-context / close /
+ * close/finalize) — not a grant of authority itself, which the server
+ * re-checks from scratch at the terminal.
+ */
+export interface OpenCashSession {
+  sessionId: Id;
+  branchId: Id;
+  drawerId: Id;
+  drawerName: string;
+  employeeId: Id;
+  employeeName: string;
+  status: "open" | "closing";
+  openedAt: IsoDateTime;
+  openingFloat: Money;
+}
+
 /** R-1(a)/R-4(a)/R-5 — the branch rule that decides what "over tolerance" means. */
 export interface CashClosePolicy {
   id: Id;
@@ -1147,6 +1167,16 @@ export interface TreasuryService {
    * branchId to pass.
    */
   listSessionDrawers(): Promise<Drawer[]>;
+
+  /**
+   * DEMO-MANAGER-CASH-SESSIONS-FRONTEND-P0 — every OPEN or CLOSING cash
+   * session at a branch, oldest first, for an Owner/Shift Supervisor
+   * discovering a drawer another employee left open. Requires
+   * `cash.session.close_other`, enforced server-side (FR-SEC-045) — this is
+   * a discovery read only; it grants no authority of its own, and closing
+   * what it finds still goes through the terminal PIN workflow above.
+   */
+  listOpenSessions(branchId: Id): Promise<OpenCashSession[]>;
 }
 
 /** Everything the console can talk to. */

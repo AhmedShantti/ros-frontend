@@ -182,6 +182,7 @@ export const API_COVERAGE = {
     "treasury.listDrawers",
     "treasury.createDrawer",
     "treasury.listSessionDrawers",
+    "treasury.listOpenSessions",
     "kitchen.queue",
     "kitchen.acknowledgeViewed",
     "kitchen.startLine",
@@ -2451,6 +2452,21 @@ const treasury: import("./types").TreasuryService = {
   async listSessionDrawers() {
     const rows = await api.treasury.listSessionDrawers();
     return rows.map(map.toDrawer);
+  },
+
+  async listOpenSessions(branchId) {
+    const rows = await api.treasury.listOpenSessions(branchId);
+    return rows.map((row) => ({
+      sessionId: row.sessionId,
+      branchId: row.branchId,
+      drawerId: row.drawerId,
+      drawerName: row.drawerName,
+      employeeId: row.employeeId,
+      employeeName: row.employeeName,
+      status: row.status,
+      openedAt: row.openedAt,
+      openingFloat: map.minorMoney(row.openingFloat, row.currency),
+    }));
   },
 };
 

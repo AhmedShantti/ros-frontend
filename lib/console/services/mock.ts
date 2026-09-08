@@ -650,6 +650,9 @@ const treasury: TreasuryService = {
   async listSessionDrawers() {
     noBackend("Listing this terminal's drawers");
   },
+  async listOpenSessions() {
+    noBackend("Listing a branch's open cash sessions");
+  },
 };
 
 const openOrdersCollection: CollectionService<Order> = makeCollection<Order>({
