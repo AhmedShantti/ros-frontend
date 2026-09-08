@@ -2257,6 +2257,16 @@ const sales: SalesService = { orders, mutations: orderMutations, receipt };
 // ---------------------------------------------------------------------------
 
 const treasury: import("./types").TreasuryService = {
+  async getCurrentSession() {
+    const { cashSession } = await api.treasury.getCurrentSession();
+    if (!cashSession) return null;
+    return {
+      cashSessionId: cashSession.id,
+      shiftId: cashSession.shiftId,
+      drawerId: cashSession.drawerId,
+    };
+  },
+
   async openCashSession(input) {
     const response = await api.treasury.openCashSession({
       // Both ids are the device's (FR-OFF-015), and independent duplicate

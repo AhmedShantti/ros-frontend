@@ -1028,6 +1028,16 @@ export interface CashClosePolicy {
 /** FR-POS-090/091/094, FR-FIN-001/002/006 — the cash drawer, end to end. */
 export interface TreasuryService {
   /**
+   * PROD-CASH-SESSION-RECOVERY-P0 — the authenticated PIN employee's own
+   * already-open cash session, if the server still has one, so POS bootstrap
+   * can resume it after a reload, a deploy, or a fresh PIN sign-on on a
+   * device that lost its local state, instead of asking to open a second
+   * drawer over one that never closed. `null` means genuinely no open
+   * session — server truth, not a guess from local storage.
+   */
+  getCurrentSession(): Promise<{ cashSessionId: Id; shiftId: Id; drawerId: Id } | null>;
+
+  /**
    * Opens a cashier shift and its cash session in one transaction.
    *
    * Idempotent by construction: the device mints both ULIDs and the request

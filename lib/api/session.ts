@@ -335,9 +335,16 @@ export function setKdsStationId(stationId: string | null): void {
  * Stored for the same reason the token is: a POS that reloads mid service
  * must come back to the drawer it left open. Holding this in React state
  * alone stranded it — after a refresh the screen offered to open a drawer
- * that was already open, and because the backend serves no cash-session
- * index (there is no `GET /cash-sessions`), the id was simply unrecoverable
- * and the shift could never be counted or closed.
+ * that was already open.
+ *
+ * PROD-CASH-SESSION-RECOVERY-P0 — this value is only ever a starting guess
+ * now. `GET /cash-sessions/current` is the server's own index of the
+ * employee's open session, and `components/terminal/pos-live.tsx` checks
+ * this id against it as soon as a PIN sign-on is known, overwriting it (or
+ * clearing it) with whatever the server answers. Storage alone can never be
+ * trusted over that: a deploy or a cleared browser loses it outright, and a
+ * stale value here — from a session someone else already closed — must not
+ * be replayed as if it were still open.
  */
 export function getCashSessionId(): string | null {
   return read(KEY_CASH_SESSION);

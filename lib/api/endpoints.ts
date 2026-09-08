@@ -192,6 +192,10 @@ export const treasury = {
   openCashSession: (body: S.OpenCashSessionDto) =>
     http.post<S.TreasuryController_openCashSessionResponse>("/cash-sessions", { body, idempotent: true }),
 
+  /** `GET /cash-sessions/current` — Resume-on-reload lookup for the POS bootstrap — the employee's currently open cash session, if any, so the client never has to guess whether `POST /cash-sessions` would open a second drawer on top of one that survived a deploy, hard reload, or local-state loss. Branch is derived from the caller's own terminal and employee from the authenticated PIN session, the same trust boundary `POST /cash-sessions` and `GET /cash-sessions/drawers` already use. Gated on `cash.session.open`. — The authenticated PIN employee's already-open cash session for this terminal's branch, or null if none is open. */
+  getCurrentSession: () =>
+    http.get<S.TreasuryController_getCurrentSessionResponse>("/cash-sessions/current"),
+
   /** `GET /cash-sessions/drawers` — DEMO-OPS-HOTFIX-3 — the real drawers a Cashier may open a shift over, for the POS Open-Shift drawer selector. Resolves the branch from the CALLER'S OWN terminal (`DrawersService.listForTerminal`), never a caller-supplied branchId — a cashier cannot browse another branch's drawers by asking for one. Gated on `cash.session.open`, the SAME permission `POST /cash-sessions` already requires, deliberately NOT `settings.branch.manage` — this is a read of what a Cashier may already act on, not a drawer-administration grant (that lives on the separate `DrawersController`). — The caller's own terminal-bound branch's drawers. */
   listSessionDrawers: () =>
     http.get<S.TreasuryController_listSessionDrawersResponse>("/cash-sessions/drawers"),

@@ -617,6 +617,9 @@ const sales: SalesService = {
  * and names the environment variable that makes it work.
  */
 const treasury: TreasuryService = {
+  async getCurrentSession() {
+    noBackend("Reading the current cash session");
+  },
   async openCashSession() {
     noBackend("Opening a cash session");
   },
