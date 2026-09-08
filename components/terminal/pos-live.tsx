@@ -55,10 +55,12 @@ import {
   toPosMenu,
   type PosMenuItem,
   type PosMenuModifierGroup,
+  type PosMenuVariant,
 } from "@/lib/console/services/pos-menu";
 import { useAsync, type AsyncState } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
+import type { ConsoleKey } from "@/locales";
 import { formatDateTime, formatMoney } from "@/lib/console/format";
 import { ORDER_LINE_STATE, ORDER_TYPE, TENDER_TYPE, labelOf } from "@/lib/console/labels";
 import {
@@ -717,7 +719,13 @@ function MenuPane({
   );
 
   async function addSimple(item: PosMenuItem) {
-    const variant = item.variants[0];
+    // Only reachable once `onTap` has already confirmed `isSellable(item)`,
+    // which requires at least one entry here — this is a defensive
+    // safety net, not the real gate (DEMO-CATALOGUE-POS-ADD-P0: a click
+    // that reaches this function with nothing to add must never do
+    // nothing silently, so it stays a no-op only because the tile that
+    // would have called it is disabled, never because this swallowed it).
+    const variant = sellableVariants(item)[0];
     if (!variant) return;
     const defaults = item.modifierGroups.flatMap((group) =>
       group.modifiers.filter((m) => m.isDefault).map((m) => ({ modifierId: m.id })),
@@ -745,7 +753,7 @@ function MenuPane({
   }
 
   function onTap(item: PosMenuItem) {
-    if (!item.isAvailable || action.pending) return;
+    if (!isSellable(item) || action.pending) return;
     // A single variant with no required choice goes straight onto the
     // order (NFR-USA-001); anything else opens the picker.
     const needsChoice =
@@ -851,6 +859,33 @@ function MenuPane({
   );
 }
 
+/**
+ * DEMO-CATALOGUE-POS-ADD-P0 — an item can appear in `pos-menu` and still have
+ * nothing a tap could actually add: no variant at all (created but never
+ * given one), or every variant either 86'd or missing a resolved price
+ * (`price: null` — no PriceListEntry covers it). `isAvailable` alone does
+ * not catch either case, which is exactly how a click used to reach
+ * `addSimple` with no variant to send and silently do nothing. A tile must
+ * read as disabled with a reason instead of swallowing the tap.
+ */
+function sellableVariants(item: PosMenuItem): PosMenuVariant[] {
+  return item.variants.filter((v) => v.isAvailable && v.price !== null);
+}
+
+function isSellable(item: PosMenuItem): boolean {
+  return item.isAvailable && sellableVariants(item).length > 0;
+}
+
+/** Why a tile is disabled, or null when it is not. */
+function unsellableReason(
+  item: PosMenuItem,
+  t: (key: ConsoleKey) => string,
+): string | null {
+  if (!item.isAvailable) return t("pos.eightySixed");
+  if (sellableVariants(item).length === 0) return t("pos.notConfigured");
+  return null;
+}
+
 function CategoryChip({
   active,
   colour,
@@ -888,19 +923,20 @@ function PosItemTile({
   onTap: () => void;
 }) {
   const { t, tx, fmt } = useI18n();
-  const variant = item.variants[0] ?? null;
+  const variant = sellableVariants(item)[0] ?? item.variants[0] ?? null;
+  const reason = unsellableReason(item, t);
 
   return (
     <button
       type="button"
-      disabled={disabled || !item.isAvailable}
+      disabled={disabled || reason !== null}
       onClick={onTap}
       className="border-line bg-raised hover:border-accent focus-visible:border-accent flex min-h-20 flex-col justify-between rounded-lg border p-2.5 text-start transition-colors disabled:opacity-50"
     >
       <span className="text-fg line-clamp-2 text-xs font-medium">{tx(item.name)}</span>
       <span className="mt-1 flex items-center justify-between gap-1.5">
-        {!item.isAvailable ? (
-          <Badge tone="bad">{t("pos.eightySixed")}</Badge>
+        {reason !== null ? (
+          <Badge tone={!item.isAvailable ? "bad" : "warn"}>{reason}</Badge>
         ) : (
           <span className="text-fg-subtle text-xs tabular-nums">
             {variant?.price ? formatMoney(variant.price, fmt, true) : "—"}
@@ -941,7 +977,10 @@ function ItemSheet({
   const action = useAction();
 
   const [variantId, setVariantId] = useState(
-    item.variants.find((v) => v.isAvailable)?.id ?? item.variants[0]?.id ?? "",
+    sellableVariants(item)[0]?.id ??
+      item.variants.find((v) => v.isAvailable)?.id ??
+      item.variants[0]?.id ??
+      "",
   );
   const [quantity, setQuantity] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(
@@ -954,6 +993,11 @@ function ItemSheet({
   );
 
   const variant = item.variants.find((v) => v.id === variantId) ?? null;
+  // DEMO-CATALOGUE-POS-ADD-P0 — a variant with no resolved price is not
+  // addable: Sales would 4xx it, and a picker that lets that submit and
+  // fail is a worse "not silent" than simply not offering it. The badge
+  // beside the variant button (below) says why.
+  const unpriced = variant !== null && variant.price === null;
 
   // FR-POS-020 — only a REQUIRED group gates the add, and needs at least
   // one selection even when it declares no explicit minimum.
@@ -987,7 +1031,7 @@ function ItemSheet({
   }
 
   async function submit() {
-    if (!variant || !variant.isAvailable || missing.length > 0) return;
+    if (!variant || !variant.isAvailable || unpriced || missing.length > 0) return;
     await action.run(
       () =>
         services.sales.mutations.addLine(
@@ -1015,7 +1059,7 @@ function ItemSheet({
           <Button
             variant="primary"
             loading={action.pending}
-            disabled={!variant || !variant.isAvailable || missing.length > 0}
+            disabled={!variant || !variant.isAvailable || unpriced || missing.length > 0}
             onClick={submit}
           >
             {t("pos.addToOrder")} ·{" "}
@@ -1032,6 +1076,8 @@ function ItemSheet({
     >
       <div className="space-y-4">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        {unpriced ? <Callout tone="warn">{t("pos.noPriceConfigured")}</Callout> : null}
 
         {missing.length > 0 ? (
           <Callout tone="warn" title={t("pos.required")}>
@@ -1060,9 +1106,13 @@ function ItemSheet({
                     <Badge tone="bad" className="ms-2">
                       {t("pos.eightySixed")}
                     </Badge>
+                  ) : v.price === null ? (
+                    <Badge tone="warn" className="ms-2">
+                      {t("pos.notConfigured")}
+                    </Badge>
                   ) : (
                     <span className="text-fg-subtle ms-2 text-xs tabular-nums">
-                      {v.price ? formatMoney(v.price, fmt, true) : "—"}
+                      {formatMoney(v.price, fmt, true)}
                     </span>
                   )}
                 </button>
