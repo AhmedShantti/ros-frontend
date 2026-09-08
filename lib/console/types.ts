@@ -378,7 +378,13 @@ export interface MenuItem {
   kitchenName: Localised;
   receiptName: Localised;
   description: Localised;
-  taxClass: TaxClassCode;
+  /**
+   * FR-MNU-004 — Sales refuses to sell an item with no tax class.
+   * `null` means genuinely unset, not "standard": the wire field is opaque
+   * (`CreateMenuItemDto.taxClassId`: "recorded only, never resolved" — C-04),
+   * so this is never coerced into a `TaxClassCode` guess.
+   */
+  taxClassId: Id | null;
   stationType: StationType;
   prepTimeSeconds: number;
   variants: MenuItemVariant[];

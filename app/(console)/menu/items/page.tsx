@@ -22,7 +22,7 @@ import { services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
-import { formatDuration, formatMoney, formatNumber } from "@/lib/console/format";
+import { formatDuration, formatMoney, formatNumber, formatPercent } from "@/lib/console/format";
 import { STATION_TYPE, TAX_CLASS, labelOf } from "@/lib/console/labels";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
@@ -327,6 +327,78 @@ function VariantPrice({ item }: { item: MenuItem }) {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * FR-MNU-004 / DEMO-TAX-CLASS-CONTRACT-P0 — `MenuItem.taxClassId` is an
+ * opaque id the backend "records only" (CreateMenuItemDto: "Fiscal is out
+ * of scope, so this is never resolved" — C-04); no endpoint enumerates valid
+ * ids. The one real source of tax-class *options* this console models is the
+ * active country pack, so that is what this reads — never a hardcoded
+ * "Standard" or a fabricated list. Where no pack is reachable (the platform
+ * catalogue has no live endpoint yet — see `unsupported.ts`), this says so
+ * instead of inventing a fallback.
+ */
+function useTaxClasses() {
+  const packs = useAsync(() => services.platform.countryPacks.list({ limit: 25 }), []);
+  const activePack = useMemo(() => {
+    const rows = packs.data?.rows ?? [];
+    return rows.find((row) => row.status === "active") ?? rows[0] ?? null;
+  }, [packs.data]);
+  return { loading: packs.loading, taxClasses: activePack?.taxClasses ?? [] };
+}
+
+/** Resolves a persisted `taxClassId` against the active pack, honestly. */
+function useTaxClassLabel(taxClassId: string | null) {
+  const { t, tx } = useI18n();
+  const { loading, taxClasses } = useTaxClasses();
+  if (!taxClassId) return { text: t("menu.taxClassNotConfigured"), tone: "bad" as const };
+  if (loading) return { text: taxClassId, tone: "muted" as const };
+  const definition = taxClasses.find((tc) => tc.code === taxClassId);
+  return definition
+    ? { text: tx(definition.label), tone: "good" as const }
+    : { text: taxClassId, tone: "muted" as const };
+}
+
+function TaxClassField({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled?: boolean;
+  onChange: (taxClassId: string) => void;
+}) {
+  const { t, tx, fmt } = useI18n();
+  const { loading, taxClasses } = useTaxClasses();
+
+  if (!loading && taxClasses.length === 0) {
+    return (
+      <Field label={t("menu.taxClass")}>
+        <Callout tone="muted">{t("menu.taxClassUnavailable")}</Callout>
+      </Field>
+    );
+  }
+
+  return (
+    <Field label={t("menu.taxClass")} hint={t("menu.taxClassHint")}>
+      <Select
+        value={value}
+        disabled={disabled || loading}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">{t("menu.taxClassPlaceholder")}</option>
+        {taxClasses.map((taxClass) => (
+          <option key={taxClass.code} value={taxClass.code}>
+            {tx(taxClass.label)}
+            {taxClass.rate !== null ? ` — ${formatPercent(taxClass.rate, fmt, 0)}` : ""}
+          </option>
+        ))}
+      </Select>
+    </Field>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
 function ItemDrawer({
   item,
   canToggle,
@@ -358,11 +430,13 @@ function ItemDrawer({
     async () => (item ? services.catalogue.items.get(item.id) : null),
     [item?.id],
   );
+  // Called unconditionally — the item-drawer early return below is not
+  // reached until after every hook has run this render.
+  const taxLabel = useTaxClassLabel((detail.data ?? item)?.taxClassId ?? null);
 
   if (!item) return null;
 
   const current = detail.data ?? item;
-  const tax = labelOf(TAX_CLASS, current.taxClass);
   const station = labelOf(STATION_TYPE, current.stationType);
 
   async function place(categoryId: string) {
@@ -371,6 +445,19 @@ function ItemDrawer({
       onSuccess: () => {
         detail.reload();
         onChanged(t("menu.itemPlaced"));
+      },
+    });
+  }
+
+  async function saveTaxClass(taxClassId: string) {
+    // The DTO field is a plain (non-nullable) string — there is no way to
+    // clear it back to "not configured" through this endpoint, only to set
+    // a real one, so a blank selection is simply ignored.
+    if (!item || !taxClassId) return;
+    await action.run(() => services.catalogue.items.update(item.id, { taxClassId }), {
+      onSuccess: () => {
+        detail.reload();
+        onChanged(t("menu.taxClassSaved"));
       },
     });
   }
@@ -424,7 +511,7 @@ function ItemDrawer({
             <Badge tone={station.tone}>{tx(station.label)}</Badge>
           </DescRow>
           <DescRow label={t("menu.taxClass")}>
-            <Badge tone={tax.tone}>{tx(tax.label)}</Badge>
+            <Badge tone={taxLabel.tone}>{taxLabel.text}</Badge>
           </DescRow>
           <DescRow label={t("menu.prepTime")} mono>
             {formatDuration(current.prepTimeSeconds, fmt)}
@@ -454,6 +541,14 @@ function ItemDrawer({
               ))}
             </Select>
           </Field>
+        ) : null}
+
+        {canManage ? (
+          <TaxClassField
+            value={current.taxClassId ?? ""}
+            disabled={action.pending}
+            onChange={saveTaxClass}
+          />
         ) : null}
 
         <section>
@@ -767,6 +862,7 @@ function NewItemDrawer({
   const [name, setName] = useState("");
   const [kitchenName, setKitchenName] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [taxClassId, setTaxClassId] = useState("");
 
   if (!open) return null;
 
@@ -779,6 +875,10 @@ function NewItemDrawer({
           kitchenName: kitchenName.trim()
             ? { en: kitchenName.trim(), ar: kitchenName.trim() }
             : undefined,
+          // Left unsent (not defaulted) when nothing was picked — FR-MNU-004
+          // means "not configured" honestly blocks a sale until an owner
+          // sets a real one, not a fabricated "standard".
+          taxClassId: taxClassId || undefined,
         });
         // C-02 — an item is only reachable on a menu once it is placed in a
         // category, so the two calls belong to one user action.
@@ -835,6 +935,12 @@ function NewItemDrawer({
             ))}
           </Select>
         </Field>
+
+        <TaxClassField
+          value={taxClassId}
+          disabled={action.pending}
+          onChange={setTaxClassId}
+        />
       </div>
     </Drawer>
   );

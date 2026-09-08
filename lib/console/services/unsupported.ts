@@ -38,6 +38,14 @@ import type { Combo, Page, StockAdjustment, User } from "../types";
  * `what` names the console feature and `detail` names the gap, because the
  * useful question on that screen is "will this ever work?", and the honest
  * answer is "not until the server grows the route".
+ *
+ * This is a synchronous `throw` — callers that are already inside an
+ * `async` function (every guard clause in http.ts) get the rejected promise
+ * they expect for free. A bare `() => notImplemented(...)` does not: it
+ * throws *before* returning anything, so `useAsync`'s `producer().catch(...)`
+ * never runs and the throw crashes the render tree instead of surfacing as
+ * `ErrorPanel`. Every member below is `async () => notImplemented(...)` for
+ * exactly that reason — do not drop the `async`.
  */
 export function notImplemented(what: string): never {
   throw new ServiceError(
@@ -51,18 +59,18 @@ export function notImplemented(what: string): never {
 /** A collection whose every operation is absent. */
 function absentCollection<T>(what: string): CollectionService<T> {
   return {
-    list: () => notImplemented(what),
-    get: () => notImplemented(what),
-    create: () => notImplemented(what),
-    update: () => notImplemented(what),
-    remove: () => notImplemented(what),
+    list: async () => notImplemented(what),
+    get: async () => notImplemented(what),
+    create: async () => notImplemented(what),
+    update: async () => notImplemented(what),
+    remove: async () => notImplemented(what),
   };
 }
 
 function absentReadonly<T>(what: string): ReadonlyCollectionService<T> {
   return {
-    list: () => notImplemented(what),
-    get: () => notImplemented(what),
+    list: async () => notImplemented(what),
+    get: async () => notImplemented(what),
   };
 }
 
@@ -76,7 +84,7 @@ function absentReadonly<T>(what: string): ReadonlyCollectionService<T> {
  * shape a caller sees when even that is unavailable.
  */
 export const unsupportedDashboard: DashboardService = {
-  get: () => notImplemented("The dashboard aggregate"),
+  get: async () => notImplemented("The dashboard aggregate"),
 };
 
 export const unsupportedPurchasing: PurchasingService = {
@@ -85,19 +93,19 @@ export const unsupportedPurchasing: PurchasingService = {
   orders: absentCollection("Purchase orders"),
   receipts: absentCollection("Goods receipts"),
   invoices: absentCollection("Supplier invoices"),
-  approveOrder: () => notImplemented("Approving a purchase order"),
+  approveOrder: async () => notImplemented("Approving a purchase order"),
 };
 
 export const unsupportedCosting: CostingService = {
-  foodCostByBranch: () => notImplemented("Food cost by branch"),
-  foodCostByCategory: () => notImplemented("Food cost by category"),
-  foodCostByBrand: () => notImplemented("Food cost by brand"),
-  variance: () => notImplemented("Theoretical-versus-actual variance"),
-  wasteAnalysis: () => notImplemented("Waste analysis"),
-  wasteTotals: () => notImplemented("Waste totals"),
-  contributionMargin: () => notImplemented("Contribution margin"),
-  channelProfitability: () => notImplemented("Channel profitability"),
-  branchProfitability: () => notImplemented("Branch profitability"),
+  foodCostByBranch: async () => notImplemented("Food cost by branch"),
+  foodCostByCategory: async () => notImplemented("Food cost by category"),
+  foodCostByBrand: async () => notImplemented("Food cost by brand"),
+  variance: async () => notImplemented("Theoretical-versus-actual variance"),
+  wasteAnalysis: async () => notImplemented("Waste analysis"),
+  wasteTotals: async () => notImplemented("Waste totals"),
+  contributionMargin: async () => notImplemented("Contribution margin"),
+  channelProfitability: async () => notImplemented("Channel profitability"),
+  branchProfitability: async () => notImplemented("Branch profitability"),
 };
 
 export const unsupportedWorkforce: WorkforceService = {
@@ -106,10 +114,10 @@ export const unsupportedWorkforce: WorkforceService = {
   attendance: absentCollection("Attendance"),
   overtime: absentCollection("Overtime"),
   performance: absentReadonly("Employee performance"),
-  setEmployeePin: () => notImplemented("Employee PIN"),
-  roleAssignments: () => notImplemented("Employee role assignments"),
-  assignEmployeeRole: () => notImplemented("Employee role assignments"),
-  removeEmployeeRoleAssignment: () => notImplemented("Employee role assignments"),
+  setEmployeePin: async () => notImplemented("Employee PIN"),
+  roleAssignments: async () => notImplemented("Employee role assignments"),
+  assignEmployeeRole: async () => notImplemented("Employee role assignments"),
+  removeEmployeeRoleAssignment: async () => notImplemented("Employee role assignments"),
 };
 
 /**
@@ -129,23 +137,23 @@ export const unsupportedFinance: FinanceService = {
   cashSessions: absentReadonly("A cash-session index"),
   expenses: absentCollection("Expenses"),
   dayCloses: absentReadonly("Day-close records"),
-  paymentSummary: () => notImplemented("The tender summary"),
-  taxSummary: () => notImplemented("The tax summary"),
-  closeDay: () => notImplemented("Closing a business day"),
+  paymentSummary: async () => notImplemented("The tender summary"),
+  taxSummary: async () => notImplemented("The tax summary"),
+  closeDay: async () => notImplemented("Closing a business day"),
 };
 
 export const unsupportedGovernance: GovernanceService = {
   approvals: absentReadonly("Approval requests"),
   audit: absentReadonly("The audit trail"),
   anomalies: absentReadonly("Anomaly flags"),
-  sodConflicts: () => notImplemented("Segregation-of-duties analysis"),
-  decide: () => notImplemented("Deciding an approval"),
+  sodConflicts: async () => notImplemented("Segregation-of-duties analysis"),
+  decide: async () => notImplemented("Deciding an approval"),
 };
 
 export const unsupportedPlatform: PlatformService = {
   countryPacks: absentReadonly("Country packs"),
   integrations: absentCollection("Integrations"),
-  reports: () => notImplemented("The report catalogue"),
+  reports: async () => notImplemented("The report catalogue"),
 };
 
 // ---------------------------------------------------------------------------
@@ -162,9 +170,9 @@ export const unsupportedCombos: CollectionService<Combo> =
  * stays in `http.ts`.
  */
 export const unsupportedAdjustmentReads = {
-  list: (): Promise<Page<StockAdjustment>> =>
+  list: async (): Promise<Page<StockAdjustment>> =>
     notImplemented("An adjustment document index"),
-  get: (): Promise<StockAdjustment | null> =>
+  get: async (): Promise<StockAdjustment | null> =>
     notImplemented("An adjustment document"),
 };
 

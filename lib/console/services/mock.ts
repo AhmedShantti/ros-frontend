@@ -731,7 +731,7 @@ const itemsCollection: CollectionService<MenuItem> = makeCollection<MenuItem>({
   filters: {
     categoryId: (m) => m.categoryId,
     available: (m) => m.available,
-    taxClass: (m) => m.taxClass,
+    taxClass: (m) => m.taxClassId,
     stationType: (m) => m.stationType,
   },
   sorters: {
@@ -748,7 +748,7 @@ const itemsCollection: CollectionService<MenuItem> = makeCollection<MenuItem>({
     kitchenName: (input.kitchenName as Localised) ?? { en: "NEW", ar: "جديد" },
     receiptName: (input.receiptName as Localised) ?? { en: "New item", ar: "صنف جديد" },
     description: (input.description as Localised) ?? { en: "", ar: "" },
-    taxClass: input.taxClass ?? "standard",
+    taxClassId: input.taxClassId ?? null,
     stationType: input.stationType ?? "hot_line",
     prepTimeSeconds: input.prepTimeSeconds ?? 300,
     variants: input.variants ?? [

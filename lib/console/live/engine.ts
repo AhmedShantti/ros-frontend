@@ -28,7 +28,6 @@ import type {
   Recipe,
   Station,
   StationType,
-  TaxClassCode,
   TicketUrgency,
   UnitCode,
 } from "../types";
@@ -211,8 +210,16 @@ function windowMatches(list: PriceList, minuteOfDay: number): boolean {
 // Tax — country pack driven
 // ---------------------------------------------------------------------------
 
-/** `null` means exempt: no tax line at all, which is not the same as zero. */
-export function taxRateFor(pack: CountryPack, taxClass: TaxClassCode): number | null {
+/**
+ * `null` means exempt: no tax line at all, which is not the same as zero.
+ *
+ * Also what an item with no tax class — or one the loaded pack does not
+ * define — resolves to. `MenuItem.taxClassId` is an opaque, backend-recorded
+ * string (never a `TaxClassCode`; see `MenuItem` in types.ts), so a class
+ * this pack does not recognise is treated the same as none: no invented
+ * rate, ever.
+ */
+export function taxRateFor(pack: CountryPack, taxClass: string | null): number | null {
   const definition = pack.taxClasses.find((c) => c.code === taxClass);
   if (!definition) return null;
   return definition.rate;
@@ -312,7 +319,7 @@ export interface LineDraft {
  */
 export function computeLine(
   line: OrderLine,
-  taxClass: TaxClassCode,
+  taxClass: string | null,
   pack: CountryPack,
 ): OrderLine {
   const currency = line.unitPrice.currency;

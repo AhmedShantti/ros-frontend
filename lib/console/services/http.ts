@@ -1025,6 +1025,9 @@ const items: CollectionService<MenuItem> = {
       isWeighed: input.isWeighed,
       sortOrder: input.sortOrder,
       colour: input.colour,
+      // Never send an empty/null id — the DTO field is a plain (non-nullable)
+      // string, and omitting it is how "not configured yet" is represented.
+      taxClassId: input.taxClassId ?? undefined,
     });
     invalidateCatalogue();
     return map.toMenuItem(row, { tenantId: getTenantId() ?? "" });
@@ -1042,6 +1045,7 @@ const items: CollectionService<MenuItem> = {
       allergens: patch.allergens,
       sortOrder: patch.sortOrder,
       colour: patch.colour,
+      taxClassId: patch.taxClassId ?? undefined,
     });
 
     if (patch.available !== undefined) {

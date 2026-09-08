@@ -623,8 +623,6 @@ export function toCategory(row: WireCategory, tenantId: Id, itemCount = 0): Menu
 type WireMenuItem = S.CatalogueController_listItemsResponse[number];
 type WireVariant = S.CatalogueController_listVariantsResponse[number];
 
-const TAX_CLASSES: TaxClassCode[] = ["standard", "reduced", "zero", "exempt"];
-
 export function toVariant(row: WireVariant, price: Money | null): MenuItemVariant {
   return {
     id: row.id,
@@ -648,7 +646,6 @@ export interface MenuItemContext {
 
 export function toMenuItem(row: WireMenuItem, context: MenuItemContext): MenuItem {
   const name = localised(row.names);
-  const taxClass = TAX_CLASSES.find((code) => code === row.taxClassId) ?? "standard";
 
   return {
     id: row.id,
@@ -658,7 +655,9 @@ export function toMenuItem(row: WireMenuItem, context: MenuItemContext): MenuIte
     kitchenName: localised(row.kitchenNames, name),
     receiptName: localised(row.aggregatorNames, name),
     description: localised(row.description),
-    taxClass,
+    // Opaque and "recorded only" per CreateMenuItemDto (C-04) — a MenuItem
+    // with none is genuinely unsellable (FR-MNU-004), never "standard".
+    taxClassId: row.taxClassId,
     // gap: routing lives in station-routing-rules, per branch, not on the item.
     stationType: "pass",
     prepTimeSeconds: context.prepTimeSeconds ?? 0,

@@ -347,7 +347,7 @@ function retotal(state: LiveState, order: Order): Order {
     ...order,
     lines: order.lines.map((line) => {
       const item = menuItemById.get(line.menuItemId);
-      return computeLine(line, item?.taxClass ?? "standard", pack);
+      return computeLine(line, item?.taxClassId ?? null, pack);
     }),
   };
   const orderDiscount = withLines.discounts.reduce((sum, d) => sum + d.amount.amount, 0);

@@ -757,7 +757,7 @@ export const menuItems: MenuItem[] = MENU_SEEDS.map((seed, i) => {
       en: `${seed.en} — prepared to the ${brandByCode.get(seed.brand)?.name.en ?? ""} standard.`,
       ar: `${seed.ar} — محضّر وفق معيار ${brandByCode.get(seed.brand)?.name.ar ?? ""}.`,
     },
-    taxClass: seed.tax ?? "standard",
+    taxClassId: seed.tax ?? "standard",
     stationType: seed.station,
     prepTimeSeconds: seed.prep,
     variants,

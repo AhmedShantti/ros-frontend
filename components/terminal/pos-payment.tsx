@@ -13,7 +13,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { Banknote, CreditCard, Printer, Smartphone, Ticket, Undo2 } from "lucide-react";
-import type { CountryPack, Order, TaxClassCode, TenderType } from "@/lib/console/types";
+import type { CountryPack, Order, TenderType } from "@/lib/console/types";
 import { branchById } from "@/lib/console/mock/org";
 import { menuItemById } from "@/lib/console/mock/catalogue";
 import { countryPacks } from "@/lib/console/mock/platform";
@@ -555,13 +555,17 @@ function TaxBreakdown({
   const suffix = inclusive ? ` (${t("pos.taxIncluded")})` : "";
 
   const groups = useMemo(() => {
-    const byClass = new Map<TaxClassCode, { taxable: number; tax: number }>();
+    // Keyed by the opaque `taxClassId`, not the closed `TaxClassCode` union —
+    // it is a backend-recorded string (see `MenuItem` in types.ts), and an
+    // item with none groups under "unclassified" rather than a fabricated
+    // "standard" bucket.
+    const byClass = new Map<string, { taxable: number; tax: number }>();
 
     for (const line of order.lines) {
       if (line.state === "voided") continue;
       // The class lives on the menu item, not on the line — the line carries
       // the tax it was charged, and the item says which class charged it.
-      const code = menuItemById.get(line.menuItemId)?.taxClass ?? "standard";
+      const code = menuItemById.get(line.menuItemId)?.taxClassId ?? "unclassified";
       const entry = byClass.get(code) ?? { taxable: 0, tax: 0 };
       entry.taxable += line.lineTotal.amount;
       entry.tax += line.taxAmount.amount;
