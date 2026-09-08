@@ -43,7 +43,7 @@ import {
 
 export default function MenusPage() {
   return (
-    <Gate permissions={["menu.view"]}>
+    <Gate permissions={["menu.item.read"]}>
       <MenusScreen />
     </Gate>
   );
