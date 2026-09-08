@@ -28,6 +28,7 @@ import {
   getTenantId,
   setPosEmployee,
   setTenantId,
+  setTerminalBranchId,
   setTerminalId,
   setTerminalName,
   setTokens,
@@ -92,16 +93,18 @@ export async function selectTenant(
  * terminal-bound token in one request, and this route refuses a PIN-issued
  * bearer outright (no `@AllowPosSession()`) — see `signInWithPin`.
  *
- * The response already carries the full terminal record — name included —
- * so it is saved here once. No screen needs to re-derive it later from
- * `GET /auth/terminals`, the tenant-wide admin listing a bound session's
- * own token is not entitled to call.
+ * The response already carries the full terminal record — name and branch
+ * included — so both are saved here once. No screen needs to re-derive them
+ * later from `GET /auth/terminals`, the tenant-wide admin listing a bound
+ * session's own token is not entitled to call, or from the Console's own
+ * `/org/access` discovery, which a PIN session is refused outright.
  */
 export async function bindTerminal(terminalId: string): Promise<void> {
   const bound = await api.terminals.bind({ terminalId });
   setTokens(bound);
   setTerminalId(terminalId);
   setTerminalName(bound.terminal.name);
+  setTerminalBranchId(bound.terminal.branchId);
 }
 
 export type TerminalRow = S.TerminalController_listResponse[number];

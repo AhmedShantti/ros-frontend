@@ -1293,6 +1293,7 @@ export const consoleAr: ConsoleCopy = {
   "pos.allCategories": "الكل",
   "pos.favourites": "مفاتيح سريعة",
   "pos.noItems": "لا يوجد ما يطابق البحث.",
+  "pos.noMenuConfigured": "لا توجد قائمة مُهيأة لهذا الفرع، أو لا يوجد فيها ما هو قابل للبيع حاليًا.",
   "pos.eightySix": "إيقاف",
   "pos.eightySixed": "موقوف",
   "pos.eightySixReason": "لماذا أُوقف الصنف؟",

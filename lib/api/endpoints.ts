@@ -355,6 +355,10 @@ export const catalogue = {
   addModifier: (groupId: string, body: S.CreateModifierDto) =>
     http.post<S.CatalogueController_addModifierResponse>("/catalogue/modifier-groups/{groupId}/modifiers", { params: { groupId }, body }),
 
+  /** `GET /catalogue/pos-menu` — The caller's own branch sellable menu — items, variants, resolved prices, availability and modifier groups. — The sellable menu at the POS session's own branch. */
+  getPosMenu: (options: { orderType?: string } = {}) =>
+    http.get<S.CatalogueController_getPosMenuResponse>("/catalogue/pos-menu", { query: { orderType: options.orderType } }),
+
   /** `GET /catalogue/price-lists` — All price lists for this tenant, priority descending. */
   listPriceLists: () =>
     http.get<S.CatalogueController_listPriceListsResponse>("/catalogue/price-lists"),
