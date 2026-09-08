@@ -128,35 +128,69 @@ export function quantityValue(qty: Quantity): number {
   return Number(qty.value);
 }
 
-export function formatDate(iso: string, opts: FormatOptions): string {
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * `new Date(iso)` on `null`/`""`/garbage produces an Invalid Date, and
+ * `Intl.DateTimeFormat#format` throws `RangeError: Invalid time value` on
+ * one rather than rendering something — so every formatter here parses
+ * through this guard instead of calling `new Date` directly. A nullable or
+ * malformed date is a display gap ("—"), never a crashed route.
+ */
+function parseDisplayDate(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function formatDate(iso: string | null | undefined, opts: FormatOptions): string {
+  const date = parseDisplayDate(iso);
+  if (!date) return "—";
+  // A date-only string (no time/zone component) means "this calendar day",
+  // not a UTC instant — formatting it in the viewer's local zone can roll it
+  // to the day before, so pin those to UTC instead of the ambient zone.
+  const timeZone = DATE_ONLY_RE.test(iso as string) ? "UTC" : undefined;
   return new Intl.DateTimeFormat(intlLocale(opts), {
     year: "numeric",
     month: "short",
     day: "numeric",
-  }).format(new Date(iso));
+    timeZone,
+  }).format(date);
 }
 
-export function formatDateTime(iso: string, opts: FormatOptions): string {
+export function formatDateTime(iso: string | null | undefined, opts: FormatOptions): string {
+  const date = parseDisplayDate(iso);
+  if (!date) return "—";
+  const timeZone = DATE_ONLY_RE.test(iso as string) ? "UTC" : undefined;
   return new Intl.DateTimeFormat(intlLocale(opts), {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).format(new Date(iso));
+    timeZone,
+  }).format(date);
 }
 
-export function formatTime(iso: string, opts: FormatOptions): string {
+export function formatTime(iso: string | null | undefined, opts: FormatOptions): string {
+  const date = parseDisplayDate(iso);
+  if (!date) return "—";
   return new Intl.DateTimeFormat(intlLocale(opts), {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).format(new Date(iso));
+  }).format(date);
 }
 
 /** "3m ago" / "منذ ٣ د" — for live operations and audit feeds. */
-export function formatRelative(iso: string, opts: FormatOptions, now = Date.now()): string {
-  const diffSeconds = Math.round((new Date(iso).getTime() - now) / 1000);
+export function formatRelative(
+  iso: string | null | undefined,
+  opts: FormatOptions,
+  now = Date.now(),
+): string {
+  const date = parseDisplayDate(iso);
+  if (!date) return "—";
+  const diffSeconds = Math.round((date.getTime() - now) / 1000);
   const rtf = new Intl.RelativeTimeFormat(intlLocale(opts), { numeric: "auto" });
   const abs = Math.abs(diffSeconds);
   if (abs < 60) return rtf.format(Math.round(diffSeconds), "second");

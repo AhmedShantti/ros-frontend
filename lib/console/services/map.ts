@@ -730,7 +730,7 @@ export function toPriceList(
     scopeId: row.scopeId,
     orderTypes,
     priority: row.priority,
-    validFrom: (row.validFrom ?? "").slice(0, 10),
+    validFrom: row.validFrom ? row.validFrom.slice(0, 10) : null,
     validTo: row.validTo ? row.validTo.slice(0, 10) : null,
     recurrence: row.recurrenceRule ? JSON.stringify(row.recurrenceRule) : null,
     entryCount: entries.length,

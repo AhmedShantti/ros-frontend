@@ -108,7 +108,7 @@ function PricingScreen() {
         secondary: true,
         render: (row) => (
           <span className="whitespace-nowrap" dir="ltr">
-            {formatDate(row.validFrom, fmt)} →{" "}
+            {row.validFrom ? formatDate(row.validFrom, fmt) : "—"} →{" "}
             {row.validTo ? formatDate(row.validTo, fmt) : "∞"}
           </span>
         ),
@@ -345,7 +345,7 @@ function PriceListDrawer({
           </DescRow>
           <DescRow label={t("menu.validity")} mono>
             <span dir="ltr">
-              {formatDate(list.validFrom, fmt)} →{" "}
+              {list.validFrom ? formatDate(list.validFrom, fmt) : "—"} →{" "}
               {list.validTo ? formatDate(list.validTo, fmt) : "∞"}
             </span>
           </DescRow>

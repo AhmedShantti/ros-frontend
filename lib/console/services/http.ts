@@ -1151,7 +1151,7 @@ const priceLists: CollectionService<PriceList> = {
       scopeType: input.scope ?? "tenant",
       scopeId: input.scopeId ?? undefined,
       priority: input.priority,
-      validFrom: input.validFrom,
+      validFrom: input.validFrom ?? undefined,
       validTo: input.validTo ?? undefined,
       orderType: input.orderTypes?.[0],
     });
