@@ -44,7 +44,7 @@ import {
 
 export default function MenuModifiersPage() {
   return (
-    <Gate permissions={["menu.view"]}>
+    <Gate permissions={["menu.item.read"]}>
       <ModifiersScreen />
     </Gate>
   );

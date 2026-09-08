@@ -43,7 +43,7 @@ import {
 
 export default function MenuPricingPage() {
   return (
-    <Gate permissions={["menu.view"]}>
+    <Gate permissions={["menu.price.read"]}>
       <PricingScreen />
     </Gate>
   );

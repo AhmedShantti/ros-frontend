@@ -30,7 +30,7 @@ import { Badge, Button, DescList, DescRow, Drawer, Toast } from "@/components/co
 
 export default function MenuCombosPage() {
   return (
-    <Gate permissions={["menu.view"]}>
+    <Gate permissions={["menu.item.read"]}>
       <CombosScreen />
     </Gate>
   );
