@@ -78,7 +78,7 @@ import {
 } from "@/lib/api/session";
 import { signInWithPin } from "@/lib/api/auth";
 import { deviceId } from "@/lib/api/ids";
-import { AsyncPanel } from "@/components/console/states";
+import { AsyncPanel, ErrorPanel } from "@/components/console/states";
 import { DrawerSheet } from "@/components/terminal/pos-drawer";
 import {
   Badge,
@@ -123,9 +123,11 @@ export function LivePos() {
    */
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
-    // The drawer the till had open before this reload. Without this the
-    // screen offers to open a second one, and the first becomes
-    // unreachable: the backend serves no cash-session index to find it in.
+    // The drawer the till had open before this reload, read as a starting
+    // guess. `currentSession` below (PROD-CASH-SESSION-RECOVERY-P0) checks
+    // it against the server as soon as `cashier` is known and overwrites it
+    // — this is never the last word, just what renders before that answer
+    // is back.
     setSessionId(getCashSessionId());
     setCashier(getPosEmployee());
     setMounted(true);
@@ -157,6 +159,29 @@ export function LivePos() {
     persistCashSessionId(next);
     setSessionId(next);
   };
+
+  /**
+   * PROD-CASH-SESSION-RECOVERY-P0 — `GET /cash-sessions/current` is the
+   * server's own answer to "does this employee already have a drawer open",
+   * asked once a PIN sign-on is known (mount-restored or fresh). It is what
+   * turns a deploy, a hard reload, or local-state loss into a resumed shift
+   * instead of a stranded cashier hitting 409 on a second `POST
+   * /cash-sessions` — the local `cashSessionId` above is only ever a
+   * starting guess until this answers. Held off until a `cashier` exists so
+   * a fresh, never-signed-on till does not fire it pointlessly.
+   */
+  const currentSession = useAsync(
+    () => (mounted && cashier ? services.treasury.getCurrentSession() : Promise.resolve(null)),
+    [mounted, cashier?.code],
+  );
+
+  useEffect(() => {
+    if (!mounted || !cashier || currentSession.loading || currentSession.error) return;
+    // Server truth wins outright — replace whatever storage remembered,
+    // including clearing a stale id the server no longer knows about.
+    setCashSessionId(currentSession.data ? currentSession.data.cashSessionId : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, cashier, currentSession.loading, currentSession.error, currentSession.data]);
 
   const terminalId = mounted ? getTerminalId() : null;
 
@@ -210,6 +235,28 @@ export function LivePos() {
           />
           <Toast message={message} />
         </div>
+      </div>
+    );
+  }
+
+  if (currentSession.loading && currentSession.data === null) {
+    return (
+      <div className="text-fg-muted flex flex-1 items-center justify-center gap-2 p-8 text-sm">
+        <Spinner /> {t("shift.checkingSession")}
+      </div>
+    );
+  }
+
+  if (currentSession.error) {
+    // A 401 already ran its own recovery in `client.ts` — a session that is
+    // genuinely gone clears `cashier` via the `onSessionChange` listener
+    // above, which sends this render back to `CashierSignOn` before it ever
+    // reaches here. What lands here is a real, recoverable failure (403,
+    // 5xx, offline) — FR-CASH-RECOVERY item F: never silently treated as
+    // "no session open", always a retryable error.
+    return (
+      <div className="mx-auto min-h-0 w-full max-w-md flex-1 overflow-y-auto p-4">
+        <ErrorPanel error={currentSession.error} onRetry={currentSession.reload} />
       </div>
     );
   }

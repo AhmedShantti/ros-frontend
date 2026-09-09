@@ -7469,6 +7469,120 @@
         ]
       }
     },
+    "/cash-sessions/current": {
+      "get": {
+        "operationId": "TreasuryController_getCurrentSession",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cashSession": {
+                      "properties": {
+                        "branchId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "closedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "currency": {
+                          "description": "ISO 4217 currency code.",
+                          "example": "AED",
+                          "type": "string"
+                        },
+                        "drawerId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "employeeId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "openedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "openingFloat": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "shiftId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "open",
+                            "closing",
+                            "closed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The authenticated PIN employee's already-open cash session for this terminal's branch, or null if none is open."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Resume-on-reload lookup for the POS bootstrap — the employee's currently\nopen cash session, if any, so the client never has to guess whether\n`POST /cash-sessions` would open a second drawer on top of one that\nsurvived a deploy, hard reload, or local-state loss. Branch is derived\nfrom the caller's own terminal and employee from the authenticated PIN\nsession, the same trust boundary `POST /cash-sessions` and\n`GET /cash-sessions/drawers` already use. Gated on `cash.session.open`.",
+        "tags": [
+          "treasury"
+        ]
+      }
+    },
     "/cash-sessions/drawers": {
       "get": {
         "operationId": "TreasuryController_listSessionDrawers",

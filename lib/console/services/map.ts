@@ -225,6 +225,18 @@ export function toDecimal(value: Money | number, exponent = 2): string {
   return `${negative ? "-" : ""}${whole}.${fraction}`;
 }
 
+/**
+ * Back the other way for request bodies that want a *minor-unit* integer
+ * string (`SetPriceEntryDto.price` and its kind — `^-?\d{1,18}$`, never a
+ * decimal point, never a JSON number). `Money.amount` is already an integer
+ * count of minor units, so this is a plain stringify, not a scale — reach
+ * for `toDecimal` instead when the wire field is actually a shelf decimal.
+ */
+export function toMinorUnitString(value: Money | number): string {
+  const amount = typeof value === "number" ? value : value.amount;
+  return String(Math.round(amount));
+}
+
 // ---------------------------------------------------------------------------
 // Quantity
 // ---------------------------------------------------------------------------
@@ -711,7 +723,10 @@ export function toPriceEntry(
     menuItemId,
     variantId: row.menuItemVariantId,
     itemName,
-    price: money(row.price, row.currency),
+    // `price` is a minor-unit integer string ("1250" = 12.50), same
+    // contract as `/catalogue/pos-menu` — `money()` reads a *decimal*
+    // string and would read this 100x too large.
+    price: minorMoney(row.price, row.currency),
     previousPrice: null, // gap: no price history on the API.
   };
 }
@@ -730,7 +745,7 @@ export function toPriceList(
     scopeId: row.scopeId,
     orderTypes,
     priority: row.priority,
-    validFrom: (row.validFrom ?? "").slice(0, 10),
+    validFrom: row.validFrom ? row.validFrom.slice(0, 10) : null,
     validTo: row.validTo ? row.validTo.slice(0, 10) : null,
     recurrence: row.recurrenceRule ? JSON.stringify(row.recurrenceRule) : null,
     entryCount: entries.length,
