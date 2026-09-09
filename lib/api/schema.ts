@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 145 paths, 106 request DTOs.
+ * `api/openapi.json`. 146 paths, 106 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -1261,6 +1261,22 @@ export type TerminalController_setStatusResponse = {
 
 export type TerminalController_setStatusBody = SetTerminalStatusDto;
 
+/** `GET /branches/{branchId}/cash-close-policy` — The currently-effective cash-close policy for a branch, wrapped as `{ policy: ... | null }` — GOLDEN-PATH-BACKEND-CLOSURE (2026-09-07). `policy` is `null` when none has ever been configured; a bare top-level `null` body is deliberately avoided (Express sends an empty body for a handler returning `null`, which is indistinguishable on the wire from "no response content" — a wrapper object keeps `null` an unambiguous, inspectable JSON value). Not FR-PLT-027's settings inspector (see class docblock) — a single resolved value, not a level-by-level override trace. — `policy` is null if the branch has none configured yet. */
+export type CashClosePolicyController_getPolicyResponse = {
+  policy: {
+    branchId: string;
+    countMode: "blind" | "open";
+    createdAt: string;
+    /** ISO 4217 currency code — the branch's own base currency. */
+    currency: string;
+    effectiveFrom: string;
+    id: string;
+    varianceApprovalExpirySeconds: number;
+    /** Non-negative minor-unit tolerance as a decimal string. */
+    varianceToleranceMinorUnits: string;
+  } | null;
+};
+
 /** `POST /branches/{branchId}/cash-close-policy` — Create a new immutable cash-close policy version for a branch — R-1(a), R-4(a), R-5. `Idempotency-Key` is MANDATORY (FR-API-020): a retry over a flaky link must not produce a second version. — The newly created cash-close policy version. */
 export type CashClosePolicyController_createPolicyResponse = {
   branchId: string;
@@ -2162,6 +2178,89 @@ export type CatalogueController_addModifierResponse = {
 };
 
 export type CatalogueController_addModifierBody = CreateModifierDto;
+
+/** `GET /catalogue/pos-menu` — The caller's own branch sellable menu — items, variants, resolved prices, availability and modifier groups. — The sellable menu at the POS session's own branch. */
+export type CatalogueController_getPosMenuResponse = {
+  /** FR-MNU-003 — true when two or more active menus share the same priority for this branch. */
+  ambiguousMenuPriority: boolean;
+  branchId: string;
+  categories: ({
+    colour: string | null;
+    id: string;
+    itemIds: string[];
+    menuId: string;
+    /** Localised text, e.g. {"ar": "...", "en": "..."}. */
+    name: Record<string, unknown>;
+    parentCategoryId: string | null;
+    sortOrder: number;
+  })[];
+  items: ({
+    allergens: string[];
+    barcodePlu: string | null;
+    colour: string | null;
+    /** Localised text, e.g. {"ar": "...", "en": "..."}. */
+    description: Record<string, unknown> | null;
+    dietaryTags: string[];
+    id: string;
+    /** FR-MNU-030/031 — false when this item is manually 86'd. */
+    isAvailable: boolean;
+    isOpenPrice: boolean;
+    isWeighed: boolean;
+    modifierGroups: ({
+      allowRepeat: boolean;
+      freeQuantityThreshold: number;
+      id: string;
+      isRequired: boolean;
+      maxSelections: number;
+      minSelections: number;
+      modifiers: ({
+        id: string;
+        isDefault: boolean;
+        kind: "addition" | "removal" | "substitution" | null | null;
+        /** Localised text, e.g. {"ar": "...", "en": "..."}. */
+        name: Record<string, unknown>;
+        /** May be negative. */
+        priceDelta: string;
+        sortOrder: number;
+      })[];
+      /** Localised text, e.g. {"ar": "...", "en": "..."}. */
+      name: Record<string, unknown>;
+    })[];
+    /** Localised text, e.g. {"ar": "...", "en": "..."}. */
+    names: Record<string, unknown>;
+    sortOrder: number;
+    variants: ({
+      barcode: string | null;
+      id: string;
+      /** FR-MNU-030/031 — false when this variant is manually 86'd. */
+      isAvailable: boolean;
+      /** Localised text, e.g. {"ar": "...", "en": "..."}. */
+      name: Record<string, unknown>;
+      /** The FR-POS-040 resolved price at this branch/order type, or null when none applies. */
+      price: {
+        amountMinorUnits: string;
+        currency: string;
+      } | null;
+      /** True when two price lists tie for this variant (SRS §7.3 #10) — price is null and this is why. */
+      priceAmbiguous: boolean;
+      sortOrder: number;
+    })[];
+  })[];
+  menus: ({
+    /** Opaque time-window configuration (FR-MNU-002); this phase does not evaluate it. */
+    activeWindow: Record<string, unknown> | null;
+    createdAt: string;
+    id: string;
+    isActive: boolean;
+    /** Localised text, e.g. {"ar": "...", "en": "..."}. */
+    name: Record<string, unknown>;
+    orderTypes: string[];
+    priority: number;
+  })[];
+  orderType: string | null;
+  /** Present only when ambiguousMenuPriority is true. */
+  warning: string;
+};
 
 /** `GET /catalogue/price-lists` — All price lists for this tenant, priority descending. */
 export type CatalogueController_listPriceListsResponse = ({
@@ -5898,6 +5997,7 @@ export const ROUTES = {
   TerminalController_register: { method: "POST", path: "/auth/terminals" },
   TerminalController_addFingerprint: { method: "POST", path: "/auth/terminals/{terminalId}/fingerprints" },
   TerminalController_setStatus: { method: "POST", path: "/auth/terminals/{terminalId}/status" },
+  CashClosePolicyController_getPolicy: { method: "GET", path: "/branches/{branchId}/cash-close-policy" },
   CashClosePolicyController_createPolicy: { method: "POST", path: "/branches/{branchId}/cash-close-policy" },
   DayCloseController_get: { method: "GET", path: "/branches/{branchId}/day-closes/{businessDay}" },
   DayCloseController_post: { method: "POST", path: "/branches/{branchId}/day-closes/{businessDay}" },
@@ -5943,6 +6043,7 @@ export const ROUTES = {
   CatalogueController_updateModifierGroup: { method: "PATCH", path: "/catalogue/modifier-groups/{groupId}" },
   CatalogueController_listModifiers: { method: "GET", path: "/catalogue/modifier-groups/{groupId}/modifiers" },
   CatalogueController_addModifier: { method: "POST", path: "/catalogue/modifier-groups/{groupId}/modifiers" },
+  CatalogueController_getPosMenu: { method: "GET", path: "/catalogue/pos-menu" },
   CatalogueController_listPriceLists: { method: "GET", path: "/catalogue/price-lists" },
   CatalogueController_createPriceList: { method: "POST", path: "/catalogue/price-lists" },
   CatalogueController_getPriceList: { method: "GET", path: "/catalogue/price-lists/{priceListId}" },

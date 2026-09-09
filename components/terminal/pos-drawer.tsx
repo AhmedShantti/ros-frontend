@@ -43,8 +43,6 @@ import {
   Badge,
   Button,
   Callout,
-  Card,
-  CardHeader,
   DescList,
   DescRow,
   Drawer,
@@ -552,115 +550,5 @@ function FinalizeCloseForm({
       </div>
 
     </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
-/**
- * R-1(a)/R-4(a)/R-5 — the branch rule a close is judged against.
- *
- * It sits on the open-drawer screen because that is where its absence first
- * bites: with no policy there is no tolerance, and `close-context` says so by
- * omitting the field entirely. Each save publishes a new immutable version —
- * there is no edit, and the database refuses an instant in the past.
- */
-export function CashClosePolicyCard({
-  branchId,
-  onMessage,
-}: {
-  branchId: string | null;
-  onMessage: (message: string) => void;
-}) {
-  const { t } = useI18n();
-  const action = useAction();
-  const [tolerance, setTolerance] = useState("0");
-  const [expiry, setExpiry] = useState("900");
-  const [countMode, setCountMode] = useState<"blind" | "open">("blind");
-  const [effectiveFrom, setEffectiveFrom] = useState("");
-
-  const toleranceMinor = Math.round(Number(tolerance) * 100);
-  const expirySeconds = Number(expiry);
-  const valid =
-    branchId !== null &&
-    tolerance.trim() !== "" &&
-    Number.isFinite(toleranceMinor) &&
-    toleranceMinor >= 0 &&
-    Number.isInteger(expirySeconds) &&
-    expirySeconds >= 1;
-
-  async function publish() {
-    if (!valid || !branchId) return;
-    await action.run(
-      () =>
-        services.treasury.setCashClosePolicy(branchId, {
-          varianceToleranceMinorUnits: String(toleranceMinor),
-          varianceApprovalExpirySeconds: expirySeconds,
-          countMode,
-          // A `datetime-local` value carries no zone; the ISO string it
-          // becomes is what the DB's "not in the past" check reads.
-          effectiveFrom: effectiveFrom ? new Date(effectiveFrom).toISOString() : undefined,
-        }),
-      { onSuccess: () => onMessage(t("shift.policyPublished")) },
-    );
-  }
-
-  return (
-    <Card>
-      <CardHeader title={t("shift.policyTitle")} hint={t("shift.policyNote")} spec="FR-POS-094" />
-
-      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
-      {!branchId ? <Callout tone="warn">{t("shift.selectBranch")}</Callout> : null}
-
-      <div className="mt-4 space-y-4">
-        <Field label={t("shift.policyTolerance")} hint={t("shift.policyToleranceHint")} required>
-          <Input
-            inputMode="decimal"
-            dir="ltr"
-            value={tolerance}
-            onChange={(event) => setTolerance(event.target.value)}
-          />
-        </Field>
-
-        <Field label={t("shift.countMode")}>
-          <SegmentedControl
-            value={countMode}
-            onChange={setCountMode}
-            options={[
-              { value: "blind", label: t("shift.countModeBlind") },
-              { value: "open", label: t("shift.countModeOpen") },
-            ]}
-          />
-        </Field>
-
-        <Field label={t("shift.policyExpiry")} required>
-          <Input
-            inputMode="numeric"
-            dir="ltr"
-            value={expiry}
-            onChange={(event) => setExpiry(event.target.value)}
-          />
-        </Field>
-
-        <Field label={t("shift.policyEffectiveFrom")} hint={t("shift.policyEffectiveFromHint")}>
-          <Input
-            type="datetime-local"
-            dir="ltr"
-            value={effectiveFrom}
-            onChange={(event) => setEffectiveFrom(event.target.value)}
-          />
-        </Field>
-
-        <Button
-          variant="secondary"
-          className="w-full"
-          loading={action.pending}
-          disabled={!valid}
-          onClick={publish}
-        >
-          {t("shift.publishPolicy")}
-        </Button>
-      </div>
-    </Card>
   );
 }

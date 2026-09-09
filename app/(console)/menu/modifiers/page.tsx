@@ -44,7 +44,7 @@ import {
 
 export default function MenuModifiersPage() {
   return (
-    <Gate permissions={["menu.view"]}>
+    <Gate permissions={["menu.item.read"]}>
       <ModifiersScreen />
     </Gate>
   );
@@ -223,7 +223,7 @@ function GroupDrawer({
   onChanged: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
-  const canManage = usePermission("menu.manage");
+  const canManage = usePermission("menu.item.manage");
   const [adding, setAdding] = useState(false);
   if (!group) return null;
 

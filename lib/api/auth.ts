@@ -7,10 +7,16 @@
  *
  *   1. POST /auth/login     → access + refresh token, no tenant claim
  *   2. POST /auth/tenant    → the access token is rotated to carry a tenant
- *   3. POST /auth/terminal  → optional; POS/KDS screens need a bound device
+ *   3. POST /auth/terminal  → a CONSOLE (password-signed-in) user binding a
+ *                             device, e.g. from `/register-device`.
  *
  * `signIn()` does 1 and 2, picking the tenant automatically when the account
  * belongs to exactly one — which is the ordinary case, and one screen fewer.
+ *
+ * Step 3 is a console-only path, not a third step every session takes:
+ * `signInWithPin` below mints a token that is ALREADY terminal-bound in one
+ * request, and step 3's own route refuses a PIN-issued token outright — see
+ * that function's comment.
  */
 
 import { api } from "./endpoints";
@@ -25,7 +31,9 @@ import {
   peekTerminalAccessToken,
   setPosEmployee,
   setTenantId,
+  setTerminalBranchId,
   setTerminalId,
+  setTerminalName,
   setTokens,
 } from "./session";
 import type * as S from "./schema";
@@ -112,11 +120,25 @@ export async function selectTenant(
   return tenantId;
 }
 
-/** Step 3 — required by the endpoints that record who rang something up. */
+/**
+ * Step 3 — a CONSOLE (password) session's own path to a terminal-scoped
+ * token, e.g. `/register-device` binding this device for the first time. A
+ * PIN session never calls this: `POST /auth/pin` already mints a
+ * terminal-bound token in one request, and this route refuses a PIN-issued
+ * bearer outright (no `@AllowPosSession()`) — see `signInWithPin`.
+ *
+ * The response already carries the full terminal record — name and branch
+ * included — so both are saved here once. No screen needs to re-derive them
+ * later from `GET /auth/terminals`, the tenant-wide admin listing a bound
+ * session's own token is not entitled to call, or from the Console's own
+ * `/org/access` discovery, which a PIN session is refused outright.
+ */
 export async function bindTerminal(terminalId: string): Promise<void> {
   const bound = await api.terminals.bind({ terminalId });
   setTokens(bound);
   setTerminalId(terminalId);
+  setTerminalName(bound.terminal.name);
+  setTerminalBranchId(bound.terminal.branchId);
 }
 
 export type TerminalRow = S.TerminalController_listResponse[number];
@@ -186,6 +208,23 @@ export async function setTerminalStatus(
  * A cashier signing on at a bound terminal, rather than a console user. The
  * POS identifies staff by employee code and PIN — never by email — and the
  * terminal and tenant are known from the device, not typed (FR-SEC-020).
+ *
+ * `POST /auth/pin` is already the terminal-scoped issue, not step 1 of a
+ * two-step one: `PinLoginDto.terminalId` is minted straight into the access
+ * token as `trm`, alongside `tid`/`mid`/`emp`, so a fresh PIN token already
+ * carries everything `GET /cash-sessions/drawers` needs. `bindTerminal`
+ * (`POST /auth/terminal`, "Step 3" above) is the CONSOLE's own path to a
+ * terminal-scoped session — for a user who signed in with a password and has
+ * no terminal claim yet — and it is not merely unnecessary for a PIN
+ * session, it is refused: that route carries no `@AllowPosSession()`, so
+ * `JwtAuthGuard` 403s a `typ: 'pos'` bearer on it outright ("PIN (POS)
+ * sessions cannot access dashboard or back-office endpoints"). A prior
+ * version of this function called it anyway, on the mistaken assumption
+ * that PIN login alone was not terminal-bound — do not reintroduce that
+ * call. See `test/drawers-provisioning.e2e-spec.ts` (backend repo) for the
+ * proof both ways: a bare PIN token already gets 200 from the drawers read,
+ * and a rebind attempt after PIN login gets 403 from `POST /auth/terminal`
+ * itself.
  */
 export async function signInWithPin(input: {
   tenantId: string;
