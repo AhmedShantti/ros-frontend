@@ -16,6 +16,7 @@ import {
   ChefHat,
   ChevronDown,
   LayoutGrid,
+  LogOut,
   RefreshCw,
   RotateCcw,
   ScanLine,
@@ -28,7 +29,15 @@ import { services } from "@/lib/console/services";
 import { useAsync } from "@/lib/console/hooks";
 import { DATA_MODE } from "@/lib/api/config";
 import { api } from "@/lib/api/endpoints";
-import { getTerminalId } from "@/lib/api/session";
+import {
+  getOpenCashSession,
+  getPosEmployee,
+  getTerminalId,
+  isSignedIn,
+  onSessionChange,
+  type PosEmployee,
+} from "@/lib/api/session";
+import { signOffTerminal } from "@/lib/api/auth";
 import { formatMoney, formatNumber, formatTime, tx as pick } from "@/lib/console/format";
 import { useLive } from "@/lib/console/live/store";
 import {
@@ -39,6 +48,7 @@ import {
 import {
   Badge,
   Button,
+  Callout,
   Menu,
   MenuItem,
   MenuLabel,
@@ -147,6 +157,7 @@ export function TerminalBar() {
 
       <div className="flex-1" />
 
+      {live ? <SignedOnCashier /> : null}
       <ConnectivityBadge />
       <Link
         href="/dashboard"
@@ -193,6 +204,92 @@ export function TerminalBar() {
         <p className="text-fg-subtle mt-2 text-xs leading-relaxed">{t("term.resetNote")}</p>
       </Modal>
     </header>
+  );
+}
+
+/**
+ * Who is on this till, and the way to stop being them.
+ *
+ * POS-CUSTODY — the terminal had no sign-off at all. `clearSession()` could
+ * end a PIN session but nothing in the app ever called it on the terminal
+ * surface, so the only way to stop being the signed-on cashier was to clear
+ * the browser's site data. That is what turned "the previous employee's
+ * token" into a permanent fixture of the device.
+ *
+ * The confirmation is not ceremony. Signing off with a drawer open is
+ * allowed — a break, a handover, the end of a queue — but the money stays
+ * open in that employee's name until it is counted, and that is worth saying
+ * out loud before the button takes effect rather than discovering it at the
+ * close.
+ */
+function SignedOnCashier() {
+  const { t } = useI18n();
+  const [cashier, setCashier] = useState<PosEmployee | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    const sync = () => {
+      // The token decides whether anyone is signed on; the record only names
+      // them. See the same gate in `LivePos`.
+      setCashier(isSignedIn() ? getPosEmployee() : null);
+      setDrawerOpen(getOpenCashSession() !== null);
+    };
+    sync();
+    return onSessionChange(sync);
+  }, []);
+
+  if (!cashier) return null;
+
+  async function signOff() {
+    setPending(true);
+    try {
+      await signOffTerminal();
+    } finally {
+      // `signOffTerminal` clears the identity whatever the network did, so
+      // the sheet closes either way rather than trapping someone at a till
+      // they have already been signed out of.
+      setPending(false);
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className={TRIGGER}
+        title={t("shift.signOff")}
+      >
+        <span className="max-w-32 truncate">{cashier.name}</span>
+        <LogOut size={13} className="text-fg-subtle" />
+      </button>
+
+      <Modal
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        title={t("shift.signOff")}
+        footer={
+          <>
+            <Button onClick={() => setConfirming(false)}>{t("common.cancel")}</Button>
+            <Button variant="danger" loading={pending} onClick={signOff}>
+              {t("shift.signOff")}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-fg text-sm">
+          {t("shift.signOffConfirm").replace("{name}", cashier.name)}
+        </p>
+        {drawerOpen ? (
+          <Callout tone="warn" className="mt-3">
+            {t("shift.signOffDrawerOpen")}
+          </Callout>
+        ) : null}
+      </Modal>
+    </>
   );
 }
 

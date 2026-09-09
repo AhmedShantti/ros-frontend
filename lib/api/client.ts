@@ -43,6 +43,15 @@ export interface RequestOptions {
   ifMatch?: string | number;
   /** Skips the bearer header and the refresh dance — used by /auth/login itself. */
   anonymous?: boolean;
+  /**
+   * An explicit token, instead of whichever one the active surface holds.
+   *
+   * Used to act on a session that is NOT the current one — revoking the
+   * terminal's leftover PIN session from the console sign-in, say. Pair it
+   * with `anonymous: true`: the point is to send exactly this credential and
+   * nothing else, with no refresh dance that would rotate the wrong slot.
+   */
+  bearer?: string | null;
   signal?: AbortSignal;
 }
 
@@ -189,8 +198,6 @@ async function refreshSession(): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 interface SendOptions extends RequestOptions {
-  /** Explicit token, for the calls made during a refresh. */
-  bearer?: string | null;
   /**
    * The `idempotency-key` for this attempt, minted once per logical call.
    *

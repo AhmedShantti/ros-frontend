@@ -33,9 +33,29 @@
  * authenticated identity — `/register-device` (a console-authenticated
  * screen) sets it once, and the SAME value must be visible to `/pos`/`/kds`
  * afterwards for a PIN sign-on to even know which terminal it is signing
- * into. `cashSessionId`/`cashSessionOpening`/`posEmployee` stay shared too —
- * they are already exclusively read and written by terminal code (never by
- * console code), so no cross-surface collision was ever possible for them.
+ * into.
+ *
+ * POS-CUSTODY — everything else on this device is scoped to WHO IS ON THE
+ * TILL, and the split is the whole point of this module:
+ *
+ *   DEVICE-scoped, survives any sign-out: terminalId, kdsStationId,
+ *   deviceTenantId, deviceFingerprint. A till does not stop being that till
+ *   because someone went home.
+ *
+ *   USER-scoped, must never outlive the person who created it: both token
+ *   slots, `posEmployee`, and any half-finished drawer open. Left behind,
+ *   these are not stale display state — they are a working credential. A
+ *   cashier arriving at a till still holding the previous employee's token
+ *   was authenticated, authorised and billed as that employee, because the
+ *   server reads the token and the token was never replaced.
+ *
+ *   CUSTODY-scoped, the one genuine middle case: the open cash session. It
+ *   belongs to the employee who took the drawer (so it may not be inherited)
+ *   but it also refers to real money in a real box (so it may not simply be
+ *   deleted when they sign out). It is therefore stored WITH the employee
+ *   code that opened it — `OpenCashSession` below — and the till adopts it
+ *   only for that employee. Anyone else is shown whose drawer it is rather
+ *   than silently handed it.
  */
 
 type AuthSurface = "console" | "terminal";
@@ -162,27 +182,66 @@ export function setTokens(tokens: {
   announce();
 }
 
-/**
- * Clears the CURRENT surface's own identity only — a console sign-out must
- * never touch a terminal's PIN session (or the device's own terminal/KDS
- * binding) and vice versa. Terminal-only display/custody state
- * (`cashSessionId`/`cashSessionOpening`/`posEmployee`) is cleared alongside
- * a terminal sign-out specifically: a cash session belongs to the employee
- * who opened it, not to the till, so leaving the id behind would hand the
- * next cashier someone else's drawer to count and close.
- */
-export function clearSession(): void {
-  const keys = identityKeys();
+function clearIdentity(surface: AuthSurface): void {
+  const keys = surface === "console" ? CONSOLE_KEYS : TERMINAL_KEYS;
   write(keys.access, null);
   write(keys.refresh, null);
   write(keys.expires, null);
   write(keys.tenant, null);
-  if (activeSurface === "terminal") {
-    write(KEY_CASH_SESSION, null);
-    write(KEY_CASH_OPENING, null);
+  if (surface === "terminal") {
     write(KEY_POS_EMPLOYEE, null);
+    // A half-finished open is NOT cleared here. It carries the employee code
+    // that started it (`PendingCashOpen`) and is replayed only for them, so
+    // it defends itself the same way the open session does — and it has to
+    // survive, because it is the only thing that stops a cashier who signed
+    // off during a timed-out open from opening a SECOND drawer when they
+    // come back and press the button again.
   }
+}
+
+/**
+ * Clears the CURRENT surface's own identity.
+ *
+ * POS-CUSTODY — this deliberately does NOT clear the open cash session. It
+ * used to, on the reasoning that a drawer belongs to the employee who opened
+ * it and must not be handed to the next one. That reasoning is right and the
+ * remedy was wrong: forgetting the id does not close the drawer, it only
+ * makes real money unreachable, and there is no `GET /cash-sessions` index to
+ * find it again with. The record now carries the employee code that opened it
+ * (`OpenCashSession`), so it defends itself — signing out no longer needs to
+ * destroy it.
+ */
+export function clearSession(): void {
+  clearIdentity(activeSurface);
   announce();
+}
+
+/**
+ * Ends the terminal's PIN session from ANYWHERE, whichever surface is active.
+ *
+ * POS-CUSTODY — the leak this closes: `clearSession()` only ever touched the
+ * surface it was called on, and the only caller is a CONSOLE sign-out. So
+ * `ros.terminal.*` was never cleared by anything, by any route, ever. A
+ * cashier signing in with their own email wrote `ros.api.*` and left the
+ * previous employee's terminal token exactly where `/pos` reads it — and
+ * `refreshSession()` kept renewing it from the previous employee's refresh
+ * token, so it never even lapsed on its own.
+ */
+export function clearTerminalIdentity(): void {
+  clearIdentity("terminal");
+  announce();
+}
+
+/**
+ * The terminal slot's access token, regardless of which surface is active.
+ *
+ * Only for revoking it: a console sign-in ends whatever PIN session this
+ * device was left holding, and revoking it server-side needs the credential
+ * itself. Everything else must go through `getAccessToken()`, which answers
+ * for the surface it is asked on.
+ */
+export function peekTerminalAccessToken(): string | null {
+  return read(TERMINAL_KEYS.access);
 }
 
 export function getAccessToken(): string | null {
@@ -259,7 +318,7 @@ export function setKdsStationId(stationId: string | null): void {
 // ---------------------------------------------------------------------------
 
 /**
- * The cash session this till currently has open.
+ * The cash session this till currently has open, AND whose it is.
  *
  * Stored for the same reason the token is: a POS that reloads mid service
  * must come back to the drawer it left open. Holding this in React state
@@ -267,13 +326,59 @@ export function setKdsStationId(stationId: string | null): void {
  * that was already open, and because the backend serves no cash-session
  * index (there is no `GET /cash-sessions`), the id was simply unrecoverable
  * and the shift could never be counted or closed.
+ *
+ * POS-CUSTODY — it used to be the bare id and nothing else, which is what
+ * made it inheritable. A drawer is taken into ONE employee's custody: every
+ * sale, pay-in, pay-out and the closing count all land on whoever opened it.
+ * An unowned id is therefore a record the till cannot reason about, and the
+ * till did the worst possible thing with it — adopted it wholesale, so the
+ * next person to stand at the terminal transacted against someone else's
+ * drawer and appeared on someone else's close report.
+ *
+ * So the employee code travels with the id. `employeeCode` is the employee
+ * who opened it; `terminalId` is where. Neither is an authorisation — the
+ * server decides that from the token, as always — they are what lets the
+ * till tell "this is your drawer, carry on" apart from "this drawer is
+ * someone else's, here is whose".
  */
-export function getCashSessionId(): string | null {
-  return read(KEY_CASH_SESSION);
+export interface OpenCashSession {
+  cashSessionId: string;
+  /**
+   * The employee code that took custody. Empty only for a record written by
+   * a build from before custody was tracked — treated as "owner unknown",
+   * which is to say: shown to whoever is standing there, never adopted.
+   */
+  employeeCode: string;
+  /** The terminal it was opened at, so a re-bound device does not inherit it. */
+  terminalId: string;
 }
 
-export function setCashSessionId(cashSessionId: string | null): void {
-  write(KEY_CASH_SESSION, cashSessionId);
+export function getOpenCashSession(): OpenCashSession | null {
+  const raw = read(KEY_CASH_SESSION);
+  if (!raw) return null;
+
+  // A bare id is the pre-custody shape. Keep it — there is real money behind
+  // it and no endpoint to rediscover it with — but keep it as what it is: a
+  // session whose owner this device cannot vouch for.
+  if (!raw.startsWith("{")) {
+    return { cashSessionId: raw, employeeCode: "", terminalId: read(KEY_TERMINAL) ?? "" };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<OpenCashSession>;
+    if (!parsed.cashSessionId) return null;
+    return {
+      cashSessionId: parsed.cashSessionId,
+      employeeCode: parsed.employeeCode ?? "",
+      terminalId: parsed.terminalId ?? "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function setOpenCashSession(session: OpenCashSession | null): void {
+  write(KEY_CASH_SESSION, session === null ? null : JSON.stringify(session));
   announce();
 }
 
@@ -294,6 +399,13 @@ export interface PendingCashOpen {
   shiftId: string;
   drawerId: string;
   openingFloat: string;
+  /**
+   * POS-CUSTODY — who pressed the button. A replay is only a replay for the
+   * same employee; for anyone else those ids would open a drawer in the
+   * wrong name, with the wrong float. Empty from a pre-custody build, which
+   * matches nobody and so is never replayed.
+   */
+  employeeCode: string;
 }
 
 export function getPendingCashOpen(): PendingCashOpen | null {
@@ -307,6 +419,7 @@ export function getPendingCashOpen(): PendingCashOpen | null {
       shiftId: parsed.shiftId,
       drawerId: parsed.drawerId,
       openingFloat: parsed.openingFloat ?? "0",
+      employeeCode: parsed.employeeCode ?? "",
     };
   } catch {
     // A shape from an older build. Forget it rather than replay a guess.
