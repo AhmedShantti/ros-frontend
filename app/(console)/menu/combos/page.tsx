@@ -25,6 +25,7 @@ import { COMBO_STRATEGY, labelOf } from "@/lib/console/labels";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
+import { ComboDrawer as ComboFormDrawer } from "@/components/console/admin-forms";
 import { Gate } from "@/components/console/states";
 import { Badge, Button, DescList, DescRow, Drawer, Toast } from "@/components/console/ui";
 
@@ -41,6 +42,8 @@ function CombosScreen() {
   const { scope } = useSession();
   const [selected, setSelected] = useState<Combo | null>(null);
   const [message, setMessage] = useTransientMessage();
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<Combo | null>(null);
 
   const collection = useCollection<Combo>(
     (query) => services.catalogue.combos.list(query),
@@ -113,7 +116,7 @@ function CombosScreen() {
           <Button
             variant="primary"
             icon={<Plus size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
+            onClick={() => setCreating(true)}
           >
             {t("common.new")}
           </Button>
@@ -161,6 +164,21 @@ function CombosScreen() {
       </PageBody>
 
       <ComboDrawer combo={selected} onClose={() => setSelected(null)} />
+      <ComboFormDrawer
+        combo={editing}
+        open={creating || Boolean(editing)}
+        onClose={() => {
+          setCreating(false);
+          setEditing(null);
+        }}
+        onSaved={(note) => {
+          setCreating(false);
+          setEditing(null);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
+
       <Toast message={message} />
     </>
   );

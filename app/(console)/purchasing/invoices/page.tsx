@@ -31,6 +31,7 @@ import { CellStack, CollectionTable, type Column } from "@/components/console/da
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
+import { InvoiceDrawer as InvoiceFormDrawer } from "@/components/console/purchasing-forms";
 import {
   Badge,
   Button,
@@ -54,6 +55,8 @@ function InvoicesScreen() {
   const { scope } = useSession();
   const [selected, setSelected] = useState<SupplierInvoice | null>(null);
   const [message, setMessage] = useTransientMessage();
+  const [creating, setCreating] = useState(false);
+
 
   const collection = useCollection<SupplierInvoice>(
     (query) => services.purchasing.invoices.list(query),
@@ -159,7 +162,7 @@ function InvoicesScreen() {
           <Button
             variant="primary"
             icon={<Plus size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
+            onClick={() => setCreating(true)}
           >
             {t("common.new")}
           </Button>
@@ -236,6 +239,16 @@ function InvoicesScreen() {
       </PageBody>
 
       <InvoiceDrawer invoice={selected} onClose={() => setSelected(null)} />
+      <InvoiceFormDrawer
+        open={creating}
+        onClose={() => setCreating(false)}
+        onSaved={(note) => {
+          setCreating(false);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
+
       <Toast message={message} />
     </>
   );

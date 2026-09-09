@@ -34,6 +34,7 @@ import {
   formatNumber,
   formatPercent,
   formatQuantity,
+  unitLabel,
 } from "@/lib/console/format";
 import { RECIPE_STATUS, RECIPE_TYPE, labelOf } from "@/lib/console/labels";
 import { CellStack, CollectionTable, DataTable, type Column } from "@/components/console/data-table";
@@ -49,11 +50,16 @@ import {
   DescList,
   DescRow,
   Drawer,
+  Field,
+  Input,
   Meter,
+  Tabs,
   Toast,
   cx,
 } from "@/components/console/ui";
 import { RecordDrawer } from "@/components/console/record-drawer";
+import { RecipeEditor } from "@/components/console/recipe-editor";
+import { useConfirm } from "@/components/console/confirm";
 
 export default function MenuRecipesPage() {
   return (
@@ -76,6 +82,7 @@ function RecipesScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const canPublish = usePermission("recipe.publish");
+  const canEdit = usePermission("recipe.edit");
 
   const [selected, setSelected] = useState<Recipe | null>(null);
   const [creating, setCreating] = useState(false);
@@ -284,6 +291,7 @@ function RecipesScreen() {
       <RecipeDrawer
         recipe={selected}
         canPublish={canPublish}
+        canEdit={canEdit}
         onClose={() => setSelected(null)}
         onChanged={(note) => {
           setMessage(note);
@@ -336,16 +344,20 @@ function RecipesScreen() {
 function RecipeDrawer({
   recipe,
   canPublish,
+  canEdit,
   onClose,
   onChanged,
 }: {
   recipe: Recipe | null;
   canPublish: boolean;
+  canEdit: boolean;
   onClose: () => void;
   onChanged: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
+  const confirm = useConfirm();
   const action = useAction();
+  const [tab, setTab] = useState<"components" | "versions" | "scale">("components");
 
   /** SRS §26.3 — version history, newest first, each with its lines. */
   const versions = useAsync(
@@ -353,10 +365,23 @@ function RecipeDrawer({
     [recipe?.id],
   );
 
-  const draft = versions.data?.find((row) => row.status === "draft");
+  const draft = versions.data?.find((row) => row.status === "draft") ?? null;
+  const published = versions.data?.find((row) => row.status === "published") ?? null;
 
   async function publish() {
     if (!recipe || !draft) return;
+    const ok = await confirm({
+      title: t("recipes.publishTitle"),
+      body: published
+        ? t("recipes.publishBody")
+            .replace("{next}", `v${draft.version}`)
+            .replace("{current}", `v${published.version}`)
+        : t("recipes.publishFirstBody").replace("{next}", `v${draft.version}`),
+      confirmLabel: t("recipes.publish"),
+      tone: "warn",
+    });
+    if (!ok) return;
+
     await action.run(() => services.production.publishVersion(recipe.id, draft.version), {
       onSuccess: () => {
         versions.reload();
@@ -365,60 +390,41 @@ function RecipeDrawer({
     });
   }
 
-  const columns = useMemo<Column<RecipeLine>[]>(
-    () => [
+  /**
+   * FR-MNU-045 — a change to a published recipe opens a new draft rather
+   * than editing the incumbent, because completed orders keep a reference to
+   * the version they were sold under.
+   */
+  async function startDraft() {
+    if (!recipe) return;
+    await action.run(
+      () =>
+        services.production.createVersion(recipe.id, {
+          yieldQuantity: recipe.yieldQuantity.value,
+          yieldUnitId: recipe.yieldQuantity.unit,
+          yieldPercentage: String(recipe.yieldPercentage),
+          prepTimeSeconds: recipe.prepTimeSeconds,
+          instructions: recipe.instructions,
+          lines: recipe.lines.map((line, index) => ({
+            sequence: index + 1,
+            componentType: line.componentType,
+            ...(line.componentType === "stock_item"
+              ? { stockItemId: line.componentId }
+              : { subRecipeId: line.componentId }),
+            quantity: line.quantity.value,
+            unitId: line.quantity.unit,
+            wastagePercentage: String(line.wastagePercentage ?? 0),
+            isOptional: line.isOptional,
+          })),
+        }),
       {
-        key: "component",
-        header: t("recipes.component"),
-        render: (row) => (
-          <CellStack
-            primary={tx(row.componentName)}
-            secondary={
-              row.componentType === "sub_recipe"
-                ? t("recipes.subRecipe")
-                : t("recipes.stockItem")
-            }
-          />
-        ),
+        onSuccess: () => {
+          versions.reload();
+          onChanged(t("recipes.draftCreated"));
+        },
       },
-      {
-        key: "quantity",
-        header: t("common.quantity"),
-        numeric: true,
-        render: (row) => formatQuantity(row.quantity, fmt),
-      },
-      {
-        key: "wastage",
-        header: t("recipes.wastage"),
-        numeric: true,
-        secondary: true,
-        render: (row) =>
-          row.wastagePercentage === 0 ? (
-            <span className="text-fg-subtle">—</span>
-          ) : (
-            formatPercent(row.wastagePercentage, fmt, 0)
-          ),
-      },
-      {
-        key: "unitCost",
-        header: t("common.perUnit"),
-        numeric: true,
-        secondary: true,
-        render: (row) => formatMoney(row.unitCost, fmt),
-      },
-      {
-        key: "lineCost",
-        header: t("recipes.lineCost"),
-        numeric: true,
-        render: (row) => (
-          <span className={cx(row.isOptional && "text-fg-subtle")}>
-            {formatMoney(row.lineCost, fmt)}
-          </span>
-        ),
-      },
-    ],
-    [t, tx, fmt],
-  );
+    );
+  }
 
   if (!recipe) return null;
 
@@ -437,11 +443,18 @@ function RecipeDrawer({
         </span>
       }
       footer={
-        canPublish && draft ? (
-          <Button variant="primary" loading={action.pending} onClick={publish}>
-            {t("recipes.publish")}
-          </Button>
-        ) : null
+        <div className="flex flex-wrap gap-2">
+          {canPublish && draft ? (
+            <Button variant="primary" loading={action.pending} onClick={() => void publish()}>
+              {t("recipes.publish")} v{draft.version}
+            </Button>
+          ) : null}
+          {canEdit && !draft ? (
+            <Button loading={action.pending} onClick={() => void startDraft()}>
+              {t("recipes.newDraft")}
+            </Button>
+          ) : null}
+        </div>
       }
     >
       <div className="space-y-5">
@@ -462,12 +475,6 @@ function RecipeDrawer({
               {tx(status.label)}
             </Badge>
           </DescRow>
-          <DescRow label={t("recipes.yield")} mono>
-            {formatQuantity(recipe.yieldQuantity, fmt)}
-          </DescRow>
-          <DescRow label={t("recipes.yieldPercent")} mono>
-            {formatPercent(recipe.yieldPercentage, fmt, 0)}
-          </DescRow>
           <DescRow label={t("recipes.cost")} mono>
             {formatMoney(recipe.computedCost, fmt)}
           </DescRow>
@@ -477,9 +484,7 @@ function RecipeDrawer({
           <DescRow label={t("recipes.sellingPrice")} mono>
             {recipe.sellingPrice ? formatMoney(recipe.sellingPrice, fmt) : "—"}
           </DescRow>
-          <DescRow label={t("common.updated")}>
-            {formatDate(recipe.effectiveFrom, fmt)}
-          </DescRow>
+          <DescRow label={t("common.updated")}>{formatDate(recipe.effectiveFrom, fmt)}</DescRow>
         </DescList>
 
         {margin !== null ? (
@@ -490,77 +495,165 @@ function RecipeDrawer({
                 {formatPercent(margin, fmt, 1)}
               </span>
             </div>
-            <Meter
-              value={margin}
-              tone={margin < 50 ? "bad" : margin < 65 ? "warn" : "good"}
-            />
+            <Meter value={margin} tone={margin < 50 ? "bad" : margin < 65 ? "warn" : "good"} />
           </section>
         ) : null}
 
-        <section>
-          <h3 className="text-fg mb-2 text-sm font-semibold">{t("recipes.components")}</h3>
-          {recipe.lines.length > 0 ? (
-            <DataTable
-              columns={columns}
-              rows={recipe.lines}
-              rowKey={(row) => row.id}
-              caption={t("recipes.components")}
-              dense
-            />
-          ) : (
-            <Callout tone="warn">{t("recipes.noComponents")}</Callout>
-          )}
-          <p className="text-fg-subtle mt-2 text-xs leading-relaxed">
-            {t("recipes.formulaNote")}
-          </p>
-        </section>
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "components" as const, label: t("recipes.components") },
+            {
+              value: "versions" as const,
+              label: t("recipes.versions"),
+              count: versions.data?.length,
+            },
+            { value: "scale" as const, label: t("recipes.scaleTab") },
+          ]}
+        />
 
-        {tx(recipe.instructions) ? (
+        {tab === "components" ? (
+          <AsyncPanel state={versions}>
+            {() => (
+              <RecipeEditor
+                recipe={recipe}
+                version={draft}
+                canEdit={canEdit && Boolean(draft)}
+                onSaved={(message) => {
+                  versions.reload();
+                  onChanged(message);
+                }}
+              />
+            )}
+          </AsyncPanel>
+        ) : null}
+
+        {tab === "versions" ? (
+          <section>
+            <p className="text-fg-subtle mb-2 text-xs leading-relaxed">
+              {t("recipes.versionsNote")}
+            </p>
+            <AsyncPanel
+              state={versions}
+              isEmpty={(rows) => rows.length === 0}
+              empty={<Callout tone="muted">{t("recipes.noVersions")}</Callout>}
+            >
+              {(rows) => (
+                <ul className="border-line divide-line divide-y rounded-lg border">
+                  {rows.map((version) => (
+                    <li key={version.id} className="flex items-center gap-2 px-3 py-2 text-xs">
+                      <span className="text-fg font-mono" dir="ltr">
+                        v{version.version}
+                      </span>
+                      <span className="text-fg-subtle min-w-0 flex-1 truncate">
+                        {version.lines.length > 0
+                          ? `${formatNumber(version.lines.length, fmt)} ${t("recipes.components").toLowerCase()}`
+                          : "—"}
+                      </span>
+                      <Badge
+                        tone={
+                          version.status === "published"
+                            ? "good"
+                            : version.status === "draft"
+                              ? "warn"
+                              : "muted"
+                        }
+                      >
+                        {version.status}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </AsyncPanel>
+          </section>
+        ) : null}
+
+        {tab === "scale" ? <RecipeScaling recipe={recipe} /> : null}
+
+        {tx(recipe.instructions) && tab === "versions" ? (
           <section>
             <h3 className="text-fg mb-2 text-sm font-semibold">{t("recipes.instructions")}</h3>
             <p className="text-fg-muted text-sm leading-relaxed">{tx(recipe.instructions)}</p>
           </section>
         ) : null}
-
-        {/* SRS §26.3 — one published version at a time, the rest superseded. */}
-        <section>
-          <h3 className="text-fg mb-2 text-sm font-semibold">{t("recipes.versions")}</h3>
-          <AsyncPanel
-            state={versions}
-            isEmpty={(rows) => rows.length === 0}
-            empty={<Callout tone="muted">{t("recipes.noVersions")}</Callout>}
-          >
-            {(rows) => (
-              <ul className="border-line divide-line divide-y rounded-lg border">
-                {rows.map((version) => (
-                  <li key={version.id} className="flex items-center gap-2 px-3 py-2 text-xs">
-                    <span className="text-fg font-mono" dir="ltr">
-                      v{version.version}
-                    </span>
-                    <span className="text-fg-subtle min-w-0 flex-1 truncate">
-                      {version.lines.length > 0
-                        ? `${formatNumber(version.lines.length, fmt)} ${t("recipes.components").toLowerCase()}`
-                        : "—"}
-                    </span>
-                    <Badge
-                      tone={
-                        version.status === "published"
-                          ? "good"
-                          : version.status === "draft"
-                            ? "warn"
-                            : "muted"
-                      }
-                    >
-                      {version.status}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </AsyncPanel>
-        </section>
       </div>
     </Drawer>
+  );
+}
+
+/**
+ * FR-MNU-048 — the same recipe at a different output quantity.
+ *
+ * Batch production works backwards from "we need 40 portions", and doing that
+ * arithmetic by hand across fourteen ingredients is where prep goes wrong.
+ * Nothing here is saved: it is a calculator over the published recipe.
+ */
+function RecipeScaling({ recipe }: { recipe: Recipe }) {
+  const { t, tx, fmt, locale } = useI18n();
+  const [target, setTarget] = useState(recipe.yieldQuantity.value || "1");
+
+  const base = Number(recipe.yieldQuantity.value || 0);
+  const wanted = Number(target || 0);
+  const factor = base > 0 && Number.isFinite(wanted) ? wanted / base : 1;
+
+  return (
+    <section className="space-y-4">
+      <Callout tone="muted">{t("recipes.scaleHint")}</Callout>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label={t("recipes.scaleTo")}>
+          <div className="flex gap-1.5">
+            <Input
+              dir="ltr"
+              inputMode="decimal"
+              value={target}
+              onChange={(event) => setTarget(event.target.value)}
+              className="text-end font-mono tabular-nums"
+              aria-label={t("recipes.scaleTo")}
+            />
+            <span className="border-line bg-sunken text-fg-muted flex items-center rounded-lg border px-3 text-sm">
+              {unitLabel(recipe.yieldQuantity.unit, locale)}
+            </span>
+          </div>
+        </Field>
+        <Field label={t("recipes.scaleFactor")}>
+          <p className="text-fg py-2 font-mono text-lg tabular-nums">
+            ×{formatNumber(factor, fmt, 2)}
+          </p>
+        </Field>
+      </div>
+
+      {recipe.lines.length === 0 ? (
+        <Callout tone="warn">{t("recipes.noComponents")}</Callout>
+      ) : (
+        <ul className="border-line divide-line divide-y rounded-lg border">
+          {recipe.lines.map((line) => (
+            <li key={line.id} className="flex items-center gap-3 px-3 py-2">
+              <span className="text-fg min-w-0 flex-1 truncate text-sm">
+                {tx(line.componentName)}
+              </span>
+              <span className="text-fg-subtle shrink-0 font-mono text-xs tabular-nums">
+                {formatQuantity(line.quantity, fmt)}
+              </span>
+              <span className="text-fg-subtle shrink-0" aria-hidden>
+                →
+              </span>
+              <span className="text-fg shrink-0 font-mono text-sm font-semibold tabular-nums">
+                {formatQuantity(
+                  {
+                    value: (Number(line.quantity.value || 0) * factor).toFixed(2),
+                    unit: line.quantity.unit,
+                  },
+                  fmt,
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

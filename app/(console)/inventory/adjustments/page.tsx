@@ -17,8 +17,8 @@
 import { useMemo, useState } from "react";
 import type { StockAdjustment } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useAsync, useCollection } from "@/lib/console/hooks";
-import { useI18n, useSession } from "@/lib/console/providers";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatDateTime, formatMoney, formatNumber, formatQuantity } from "@/lib/console/format";
 import { APPROVAL_STATE, labelOf } from "@/lib/console/labels";
 import {
@@ -30,7 +30,10 @@ import {
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
-import { Badge, Callout, DescList, DescRow, Drawer } from "@/components/console/ui";
+import { Badge, Button, Callout, DescList, DescRow, Drawer, Toast } from "@/components/console/ui";
+import { ExportButton } from "@/components/console/export-button";
+import { InventoryEntryDrawer } from "@/components/console/inventory-entry";
+import { EmptyState } from "@/components/console/fields";
 
 export default function AdjustmentsPage() {
   return (
@@ -44,6 +47,9 @@ function AdjustmentsScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [selected, setSelected] = useState<StockAdjustment | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [message, setMessage] = useTransientMessage();
+  const canAdjust = usePermission("inventory.adjust");
 
   // Locations and reason codes from the service, so both filters offer
   // values that exist on the backend rather than fixture ones.
@@ -148,6 +154,30 @@ function AdjustmentsScreen() {
         title={t("inv.adjustmentsTitle")}
         subtitle={t("inv.adjustmentsSubtitle")}
         spec="FR-INV-036"
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportButton
+              filename="stock-adjustments"
+              title={t("inv.adjustmentsTitle")}
+              rows={collection.rows}
+              onExported={setMessage}
+              columns={[
+                { key: "createdAt", header: t("common.date"), value: (row) => row.createdAt },
+                { key: "item", header: t("inv.item"), value: (row) => tx(row.itemName) },
+                { key: "location", header: t("common.location"), value: (row) => tx(row.locationName) },
+                { key: "qty", header: t("common.quantity"), value: (row) => `${row.quantity.value} ${row.quantity.unit}` },
+                { key: "reason", header: t("entry.reason"), value: (row) => tx(row.reasonName) },
+                { key: "value", header: t("entry.value"), value: (row) => row.value.amount / 100 },
+                { key: "approval", header: t("apr.title"), value: (row) => row.approval },
+              ]}
+            />
+            {canAdjust ? (
+              <Button variant="primary" onClick={() => setCreating(true)}>
+                {t("inv.newAdjustment")}
+              </Button>
+            ) : null}
+          </div>
+        }
       />
 
       <PageBody>
@@ -207,7 +237,32 @@ function AdjustmentsScreen() {
           activeRowKey={selected?.id ?? null}
           dense
         />
+        {!collection.loading && collection.rows.length === 0 && !collection.filtered ? (
+          <EmptyState
+            title={t("inv.noAdjustmentsTitle")}
+            body={t("inv.noAdjustmentsBody")}
+            action={
+              canAdjust ? (
+                <Button variant="primary" onClick={() => setCreating(true)}>
+                  {t("inv.newAdjustment")}
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : null}
       </PageBody>
+
+      <InventoryEntryDrawer
+        kind="adjustment"
+        open={creating}
+        onClose={() => setCreating(false)}
+        onSaved={(note) => {
+          setMessage(note);
+          collection.reload();
+        }}
+      />
+
+      <Toast message={message} />
 
       <AdjustmentDrawer adjustment={selected} onClose={() => setSelected(null)} />
     </>

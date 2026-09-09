@@ -319,3 +319,108 @@ export function useTransientMessage(durationMs = 2600) {
 
   return [message, setMessage] as const;
 }
+
+// ---------------------------------------------------------------------------
+// Dialog focus management — NFR-USA-009
+// ---------------------------------------------------------------------------
+
+const FOCUSABLE = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled]):not([type='hidden'])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function focusableWithin(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (el) => el.offsetParent !== null || el === document.activeElement,
+  );
+}
+
+/**
+ * Everything a modal surface owes a keyboard user.
+ *
+ * `useDismissable` already closes on Escape and on an outside click, but a
+ * dialog that never moves focus into itself leaves screen-reader and
+ * keyboard users reading the page *behind* the overlay — the content is
+ * visually covered and still perfectly reachable with Tab. So this:
+ *
+ *   - remembers what was focused before the dialog opened,
+ *   - moves focus to the first sensible control inside it,
+ *   - keeps Tab and Shift+Tab cycling within it,
+ *   - and puts focus back where it came from on close.
+ *
+ * Restoration is the half that is usually missed. Without it, closing a
+ * drawer opened from row 40 of a table drops focus to the document body and
+ * the next Tab starts again from the skip link.
+ */
+export function useDialogFocus(open: boolean): React.RefObject<HTMLDivElement | null> {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const restoreTo = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    restoreTo.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    // A frame, so the dialog's children have mounted before we look for them.
+    const frame = window.requestAnimationFrame(() => {
+      const root = ref.current;
+      if (!root) return;
+      const explicit = root.querySelector<HTMLElement>("[data-autofocus]");
+      const target = explicit ?? focusableWithin(root)[0] ?? root;
+      target.focus({ preventScroll: true });
+    });
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const root = ref.current;
+      if (!root) return;
+      const items = focusableWithin(root);
+      if (items.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      const active = document.activeElement;
+
+      if (event.shiftKey && (active === first || !root.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKey, true);
+      // The element may have been unmounted with the row that opened it.
+      if (restoreTo.current && document.contains(restoreTo.current)) {
+        restoreTo.current.focus({ preventScroll: true });
+      }
+    };
+  }, [open]);
+
+  return ref;
+}
+
+/** Merge the dismiss ref and the focus ref onto one node. */
+export function useDialogRefs(open: boolean, onClose: () => void) {
+  const dismissRef = useDismissable(open, onClose);
+  const focusRef = useDialogFocus(open);
+
+  return useCallback(
+    (node: HTMLDivElement | null) => {
+      dismissRef.current = node;
+      focusRef.current = node;
+    },
+    [dismissRef, focusRef],
+  );
+}

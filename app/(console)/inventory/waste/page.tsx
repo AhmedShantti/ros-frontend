@@ -8,9 +8,10 @@
  * together is how a kitchen ends up investigating its own meal policy.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Currency, WasteRecord } from "@/lib/console/types";
-import { useI18n, useSession } from "@/lib/console/providers";
+import { useI18n, usePermission, useSession } from "@/lib/console/providers";
+import { useTransientMessage } from "@/lib/console/hooks";
 import { useWasteFeed } from "@/lib/console/feeds";
 import { wasteRecords } from "@/lib/console/mock/inventory";
 import { getDefaultCurrency } from "@/lib/console/services";
@@ -21,7 +22,10 @@ import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/pa
 import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
 import { ErrorPanel } from "@/components/console/states";
 import { MetricTile } from "@/components/console/charts";
-import { Badge } from "@/components/console/ui";
+import { Badge, Button, Toast } from "@/components/console/ui";
+import { ExportButton } from "@/components/console/export-button";
+import { InventoryEntryDrawer } from "@/components/console/inventory-entry";
+import { EmptyState } from "@/components/console/fields";
 
 /** Total value plus a ranked-item breakdown — reused for item/category/branch/reason. */
 function summarise(records: WasteRecord[], keyOf: (r: WasteRecord) => string, nameOf: (r: WasteRecord) => string) {
@@ -39,6 +43,9 @@ export default function WastePage() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const feed = useWasteFeed(scope);
+  const canRecord = usePermission("inventory.waste.record");
+  const [recording, setRecording] = useState(false);
+  const [message, setMessage] = useTransientMessage();
 
   const rows = feed.rows;
   // With no rows to read a currency off, the tenant's own is the answer —
@@ -140,7 +147,31 @@ export default function WastePage() {
         title={t("inv.wasteTitle")}
         subtitle={t("inv.wasteSubtitle")}
         spec="§11.7"
-        actions={<TerminalLinks />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportButton
+              filename="waste"
+              title={t("inv.wasteTitle")}
+              rows={rows}
+              onExported={setMessage}
+              columns={[
+                { key: "recordedAt", header: t("common.time"), value: (row) => row.recordedAt },
+                { key: "item", header: t("common.name"), value: (row) => tx(row.itemName) },
+                { key: "qty", header: t("common.quantity"), value: (row) => `${row.quantity.value} ${row.quantity.unit}` },
+                { key: "reason", header: t("shift.reason"), value: (row) => tx(row.reasonName) },
+                { key: "trueWaste", header: t("inv.trueWaste"), value: (row) => (row.isTrueWaste ? "yes" : "no") },
+                { key: "value", header: t("entry.value"), value: (row) => row.value.amount / 100 },
+                { key: "by", header: t("inv.performedBy"), value: (row) => tx(row.recordedByName) },
+              ]}
+            />
+            <TerminalLinks />
+            {canRecord ? (
+              <Button variant="primary" onClick={() => setRecording(true)}>
+                {t("entry.recordWaste")}
+              </Button>
+            ) : null}
+          </div>
+        }
       />
 
       <PageBody>
@@ -199,7 +230,33 @@ export default function WastePage() {
             />
           </div>
         </Section>
+
+        {rows.length === 0 ? (
+          <EmptyState
+            title={t("inv.noWasteTitle")}
+            body={t("inv.noWasteBody")}
+            action={
+              canRecord ? (
+                <Button variant="primary" onClick={() => setRecording(true)}>
+                  {t("entry.recordWaste")}
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : null}
       </PageBody>
+
+      <InventoryEntryDrawer
+        kind="waste"
+        open={recording}
+        onClose={() => setRecording(false)}
+        onSaved={(note) => {
+          setMessage(note);
+          feed.reload?.();
+        }}
+      />
+
+      <Toast message={message} />
     </>
   );
 }

@@ -22,7 +22,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -51,14 +50,10 @@ import { tx } from "./format";
 import type { Scope } from "./services";
 import { DATA_MODE } from "@/lib/api/config";
 import { signOut as apiSignOut } from "@/lib/api/auth";
-import {
-  getDeviceTenantId,
-  getTerminalBranchId,
-  isSignedIn,
-  onSessionChange,
-  setActiveSurface,
-} from "@/lib/api/session";
+import { clearTerminalIdentity, setActiveSurface } from "@/lib/api/session";
 import { useLiveOrgContext, type LiveOrgContext } from "./live-session";
+import { ConfirmProvider } from "@/components/console/confirm";
+import { setActiveTenantId } from "./services/tenant-context";
 
 // ---------------------------------------------------------------------------
 // Storage keys
@@ -270,13 +265,7 @@ interface SessionValue {
 
 const SessionContext = createContext<SessionValue | null>(null);
 
-function SessionProvider({
-  children,
-  surface,
-}: {
-  children: ReactNode;
-  surface: "console" | "terminal";
-}) {
+function SessionProvider({ children }: { children: ReactNode }) {
   const [roleKey, setRoleKey] = useState<RoleKey>("owner");
   const [authenticated, setAuthenticated] = useState(false);
   const [brandId, setBrandIdState] = useState<string | null>(null);
@@ -313,54 +302,15 @@ function SessionProvider({
 
   const live = DATA_MODE === "http";
 
-  /**
-   * PROD-AUTH-EXPIRY-P0 — `authenticated` (this surface's OWN "am I signed
-   * in" flag) was only ever set by `signIn()`/`signOut()` above; it never
-   * learned that `lib/api/client.ts`'s `refreshSession()` had genuinely
-   * given up and called `clearSession()` (an expired refresh token, a
-   * revoked session). That left `authenticated` stuck `true` with no real
-   * token behind it: `ConsoleShell`'s sign-in redirect never fired, and the
-   * screen was left showing whatever the LAST real fetch had returned,
-   * frozen, forever — not mock data (the hard rule this task closes), but
-   * not a real live session either. `isSignedIn()` is already surface-aware
-   * (this provider's own `surface` prop set it), so this only ever reacts
-   * to THIS surface's own token disappearing — never the other one's.
-   */
-  useEffect(() => {
-    if (!live) return;
-    return onSessionChange(() => {
-      if (!isSignedIn() && authenticated) {
-        setAuthenticated(false);
-        write(KEY_AUTH, "false");
-      }
-    });
-  }, [live, authenticated]);
-
   const session = useMemo(
     () => (authenticated ? buildSession(roleKey, mfaSatisfied) : null),
     [authenticated, roleKey, mfaSatisfied],
   );
 
-  /**
-   * DEMO-POS-P0-5 — the real tenant, brands, branches and permission codes
-   * behind the token. In demo mode this stays inert and everything below
-   * falls back to the fixtures, exactly as before.
-   *
-   * Gated on `surface === "console"`, not merely `authenticated`: `org/access`,
-   * `auth/tenants`, `auth/tenant` and `auth/permissions` are Console/back-office
-   * discovery endpoints with no `@AllowPosSession()` — a PIN-issued `typ: 'pos'`
-   * bearer is refused outright, by design (see `lib/api/auth.ts`'s
-   * `bindTerminal`). `authenticated` alone is not a safe proxy for "on the
-   * console": it reads `KEY_AUTH`, a storage key this provider shares with
-   * `(console)`/`(auth)` — the SAME browser that registered this terminal (a
-   * console-only, password-authenticated step) already wrote it `true`, so a
-   * terminal mounting this same provider inherited that flag and replayed the
-   * full console bootstrap against a POS token, 403ing on every leg of it. A
-   * terminal never needs this: it already has its own device-level tenant,
-   * branch and terminal facts (`getDeviceTenantId`/`getTerminalBranchId`/
-   * `getTerminalId`), used directly in `scope` below.
-   */
-  const org = useLiveOrgContext(authenticated && surface === "console");
+  // The real tenant, brands, branches and permission codes behind the token.
+  // In demo mode this stays inert and everything below falls back to the
+  // fixtures, exactly as before.
+  const org = useLiveOrgContext(authenticated);
 
   const definition = ROLE_DEFINITIONS[roleKey];
 
@@ -490,6 +440,17 @@ function SessionProvider({
     setBranchIdState(null);
     write(KEY_BRAND, "all");
     write(KEY_BRANCH, "all");
+    /*
+     * POS-CUSTODY — the role went too.
+     *
+     * `AccountMenu` renders its name, email and badge from
+     * `buildSession(roleKey)`, and `roleKey` was restored from this key on
+     * the next boot. So a signed-out console came back showing the previous
+     * user's identity until `GET /auth/permissions` answered and re-guessed
+     * — the next person's first sight of the app was somebody else's name.
+     */
+    setRoleKey("owner");
+    write(KEY_ROLE, "owner");
 
     if (DATA_MODE === "http") {
       // Revokes the refresh token server-side and clears the stored pair.
@@ -497,6 +458,10 @@ function SessionProvider({
       // be revoked twice, and the UI must not wait on the network to sign
       // someone out.
       void apiSignOut();
+    } else {
+      // Demo mode never reaches `apiSignOut`, but a browser that has been
+      // used against a backend can still be holding a till session.
+      clearTerminalIdentity();
     }
   }, []);
 
@@ -523,47 +488,20 @@ function SessionProvider({
     return shared ? codes : null;
   }, [live, org.ready, org.permissions]);
 
-  /**
-   * PROD-AUTH-EXPIRY-P0 — the LAST real tenant this live session actually
-   * resolved. `org.tenant` legitimately goes briefly `null` while
-   * `useLiveOrgContext` re-fetches (a token refresh re-triggers it — see
-   * `client.ts`'s `refreshSession()`) — that used to fall through to
-   * `tenants.find(ACTIVE_TENANT_ID)`, the DEMO FIXTURE tenant, which is
-   * exactly a real Owner's dashboard silently showing sample data around
-   * the ~900s access-token expiry the HARD RULE this task closes is about.
-   * Once a live session has shown a real tenant even once, it is shown
-   * again (not blanked, not replaced by fixture data) for every subsequent
-   * re-fetch until a NEW one actually resolves or the user signs out.
-   */
-  const lastRealTenantRef = useRef<Tenant | null>(null);
-  if (live && org.tenant) lastRealTenantRef.current = org.tenant;
-  if (!authenticated) lastRealTenantRef.current = null;
-
   const value = useMemo<SessionValue>(() => {
     const rolePermissions = session?.permissions ?? new Set<PermissionKey>();
     const has = (permission: PermissionKey) =>
       granted ? granted.has(permission) : rolePermissions.has(permission);
 
-    // Mock/fixture data is reachable ONLY in demo mode (`!live`) or on this
-    // live session's OWN very first bootstrap, before any real tenant has
-    // ever resolved even once — never as recovery from an established
-    // session's expired/failed refresh (see `lastRealTenantRef` above).
-    const tenant =
-      (live ? (org.tenant ?? lastRealTenantRef.current) : null) ??
-      tenants.find((t) => t.id === ACTIVE_TENANT_ID)!;
+    const tenant = (live ? org.tenant : null) ?? tenants.find((t) => t.id === ACTIVE_TENANT_ID)!;
 
-    /**
-     * DEMO-POS-P0-5 — a terminal's own scope never comes from the Console's
-     * org bootstrap (gated off above) or its brand/branch switcher (whose
-     * storage keys this provider shares with `(console)`): it comes from the
-     * device facts this till already carries — `getDeviceTenantId()` (the PIN
-     * sign-on form's own tenant source) and `getTerminalBranchId()` (cached
-     * from `POST /auth/terminal`'s response at bind time). Falls back to the
-     * console-derived value only for demo mode, or before either device fact
-     * has ever been resolved.
+    /*
+     * Local-backed services (customers, promotions, rosters, settings
+     * overrides) namespace their storage per tenant, and they resolve the
+     * tenant lazily because the registry is built long before anybody signs
+     * in. This is the point at which it becomes known.
      */
-    const terminalTenantId = live && surface === "terminal" ? getDeviceTenantId() : null;
-    const terminalBranchId = live && surface === "terminal" ? getTerminalBranchId() : null;
+    setActiveTenantId(tenant.id);
 
     return {
       session,
@@ -575,9 +513,9 @@ function SessionProvider({
       brand: brands.find((b) => b.id === effectiveBrandId) ?? null,
       branch: branches.find((b) => b.id === effectiveBranchId) ?? null,
       scope: {
-        tenantId: terminalTenantId ?? tenant.id,
+        tenantId: tenant.id,
         brandId: effectiveBrandId,
-        branchId: terminalBranchId ?? effectiveBranchId,
+        branchId: effectiveBranchId,
       },
       availableBrands,
       availableBranches,
@@ -598,7 +536,6 @@ function SessionProvider({
     authenticated,
     roleKey,
     live,
-    surface,
     org,
     granted,
     brands,
@@ -653,7 +590,9 @@ export function ConsoleProvider({
   setActiveSurface(surface);
   return (
     <PreferencesProvider>
-      <SessionProvider surface={surface}>{children}</SessionProvider>
+      <SessionProvider>
+        <ConfirmProvider>{children}</ConfirmProvider>
+      </SessionProvider>
     </PreferencesProvider>
   );
 }

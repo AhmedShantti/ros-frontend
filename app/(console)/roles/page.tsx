@@ -12,8 +12,8 @@
  * understood what they were granting" as a requirement rather than a hope.
  */
 
-import { useMemo, useState } from "react";
-import { AlertTriangle, Copy, ShieldCheck } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Copy, ShieldCheck, Trash2 } from "lucide-react";
 import type { Role } from "@/lib/console/types";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
@@ -26,6 +26,7 @@ import {
   ROLE_DEFINITIONS,
   SOD_PAIRS,
   permissionsForRole,
+  type PermissionKey,
   permissionsInGroup,
   roleRequiresMfa,
   surfacesForRole,
@@ -36,6 +37,8 @@ import { users } from "@/lib/console/mock/governance";
 import { CellStack, CollectionTable, DataTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, Section } from "@/components/console/page";
 import { AsyncPanel, Gate } from "@/components/console/states";
+import { PermissionEditor, sodFindings } from "@/components/console/permission-editor";
+import { useConfirm } from "@/components/console/confirm";
 import {
   Badge,
   Button,
@@ -67,6 +70,7 @@ function RolesScreen() {
   const [selected, setSelected] = useState<Role | null>(null);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();
+  const canManage = usePermission("security.role.manage");
 
   /**
    * Roles come from `GET /auth/roles`, not from the fixtures.
@@ -206,7 +210,15 @@ function RolesScreen() {
         <SodMatrix />
       </PageBody>
 
-      <RoleDrawer role={selected} onClose={() => setSelected(null)} />
+      <RoleDrawer
+        role={selected}
+        canManage={canManage}
+        onClose={() => setSelected(null)}
+        onChanged={(note) => {
+          setMessage(note);
+          collection.reload();
+        }}
+      />
 
       <NewRoleDrawer
         open={creating}
@@ -271,17 +283,93 @@ function SodMatrix() {
 // Permission editor
 // ---------------------------------------------------------------------------
 
-function RoleDrawer({ role, onClose }: { role: Role | null; onClose: () => void }) {
+function RoleDrawer({
+  role,
+  canManage,
+  onClose,
+  onChanged,
+}: {
+  role: Role | null;
+  canManage: boolean;
+  onClose: () => void;
+  onChanged: (message: string) => void;
+}) {
   const { t, tx } = useI18n();
+  const action = useAction();
+  const confirm = useConfirm();
 
-  const granted = useMemo(
-    () => (role ? permissionsForRole(role.key as RoleKey) : new Set<string>()),
+  const baseline = useMemo(
+    () => (role ? permissionsForRole(role.key as RoleKey) : new Set<PermissionKey>()),
     [role],
   );
+
+  const [granted, setGranted] = useState<Set<string>>(() => new Set(baseline));
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    setGranted(new Set(baseline));
+    setDirty(false);
+  }, [baseline, role?.id]);
 
   if (!role) return null;
 
   const definition = ROLE_DEFINITIONS[role.key as RoleKey];
+  /**
+   * FR-SEC-010 — the shipped roles may be cloned and modified but never
+   * edited in place. A tenant who edits "Cashier" and then hires one has
+   * changed what every past assignment meant.
+   */
+  const editable = canManage && !role.system;
+
+  const added = [...granted].filter((key) => !baseline.has(key as PermissionKey));
+  const removed = [...baseline].filter((key) => !granted.has(key));
+  const blockingConflicts = sodFindings(granted).filter((finding) => finding.blocking);
+
+  async function save() {
+    if (!role || blockingConflicts.length > 0) return;
+    await action.run(
+      () => services.security.roles.update(role.id, { permissionKeys: [...granted] } as never),
+      {
+        onSuccess: () => {
+          setDirty(false);
+          onChanged(t("role.saved"));
+        },
+      },
+    );
+  }
+
+  async function clone() {
+    if (!role) return;
+    await action.run(
+      () =>
+        services.security.roles.create({
+          key: `${role.key}_copy`,
+          name: { en: `${role.name.en} (copy)`, ar: `${role.name.ar} (نسخة)` },
+          description: role.description,
+          system: false,
+          permissionKeys: [...granted],
+        } as never),
+      { onSuccess: () => onChanged(t("role.cloned")) },
+    );
+  }
+
+  async function remove() {
+    if (!role) return;
+    const ok = await confirm({
+      title: t("role.deleteTitle"),
+      body: t("role.deleteBody").replace("{name}", tx(role.name)),
+      confirmLabel: t("common.delete"),
+      tone: "danger",
+      typeToConfirm: role.name.en || role.name.ar,
+    });
+    if (!ok) return;
+    await action.run(() => services.security.roles.remove(role.id), {
+      onSuccess: () => {
+        onChanged(t("role.deleted"));
+        onClose();
+      },
+    });
+  }
 
   return (
     <Drawer
@@ -289,8 +377,40 @@ function RoleDrawer({ role, onClose }: { role: Role | null; onClose: () => void 
       onClose={onClose}
       title={tx(role.name)}
       subtitle={tx(role.description)}
+      footer={
+        <div className="flex flex-wrap gap-2">
+          {editable ? (
+            <Button
+              variant="primary"
+              loading={action.pending}
+              disabled={!dirty || blockingConflicts.length > 0}
+              onClick={save}
+            >
+              {t("common.save")}
+            </Button>
+          ) : null}
+          {canManage ? (
+            <Button icon={<Copy size={13} />} loading={action.pending} onClick={clone}>
+              {t("role.clone")}
+            </Button>
+          ) : null}
+          {editable ? (
+            <Button variant="danger" icon={<Trash2 size={13} />} onClick={() => void remove()}>
+              {t("common.delete")}
+            </Button>
+          ) : null}
+        </div>
+      }
     >
       <div className="space-y-5">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        {role.system ? (
+          <Callout tone="muted" title={t("role.systemRoleTitle")}>
+            {t("role.systemRoleBody")}
+          </Callout>
+        ) : null}
+
         <DescList>
           <DescRow label={t("common.type")}>
             {role.system ? t("role.system") : t("role.custom")}
@@ -317,59 +437,46 @@ function RoleDrawer({ role, onClose }: { role: Role | null; onClose: () => void 
           </DescRow>
         </DescList>
 
+        {/*
+          The diff, before the save. "Adds 4, removes 1" is what a reviewer
+          can actually check; a list of 180 ticked boxes is not.
+        */}
+        {dirty ? (
+          <Callout tone="accent" title={t("role.pendingChanges")}>
+            {added.length > 0 ? (
+              <p>
+                {t("role.adds").replace("{n}", String(added.length))}:{" "}
+                <span className="font-mono text-[0.68rem]" dir="ltr">
+                  {added.slice(0, 6).join(", ")}
+                  {added.length > 6 ? "…" : ""}
+                </span>
+              </p>
+            ) : null}
+            {removed.length > 0 ? (
+              <p className="mt-1">
+                {t("role.removes").replace("{n}", String(removed.length))}:{" "}
+                <span className="font-mono text-[0.68rem]" dir="ltr">
+                  {removed.slice(0, 6).join(", ")}
+                  {removed.length > 6 ? "…" : ""}
+                </span>
+              </p>
+            ) : null}
+          </Callout>
+        ) : null}
+
         <section>
           <h3 className="text-fg mb-3 text-sm font-semibold">{t("role.editor")}</h3>
-          <div className="space-y-4">
-            {PERMISSION_GROUPS.map((group) => (
-              <PermissionGroupBlock key={group} group={group} granted={granted} />
-            ))}
-          </div>
+          <PermissionEditor
+            granted={granted}
+            readOnly={!editable}
+            onChange={(next) => {
+              setGranted(next);
+              setDirty(true);
+            }}
+          />
         </section>
       </div>
     </Drawer>
-  );
-}
-
-function PermissionGroupBlock({
-  group,
-  granted,
-}: {
-  group: PermissionGroup;
-  granted: Set<string>;
-}) {
-  const { t, tx } = useI18n();
-  const permissions = permissionsInGroup(group);
-  const held = permissions.filter((p) => granted.has(p.key));
-
-  if (held.length === 0) return null;
-
-  return (
-    <div className="border-line rounded-lg border">
-      <div className="border-line bg-sunken flex items-center justify-between gap-3 border-b px-3 py-2">
-        <p className="text-fg text-xs font-semibold capitalize">{group}</p>
-        <p className="text-fg-subtle font-mono text-[0.68rem] tabular-nums">
-          {held.length} / {permissions.length} {t("role.permissionsIn")}
-        </p>
-      </div>
-
-      <ul className="divide-line divide-y">
-        {held.map((permission) => (
-          <li key={permission.key} className="px-3 py-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <code className="text-fg font-mono text-[0.7rem]" dir="ltr">
-                {permission.key}
-              </code>
-              {permission.sensitive ? (
-                <Badge tone="warn">{t("role.sensitive")}</Badge>
-              ) : null}
-            </div>
-            <p className="text-fg-muted mt-0.5 text-xs leading-relaxed">
-              {tx(permission.description)}
-            </p>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
 

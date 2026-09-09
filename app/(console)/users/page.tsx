@@ -33,6 +33,7 @@ import { roleById } from "@/lib/console/mock/governance";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader } from "@/components/console/page";
 import { Gate } from "@/components/console/states";
+import { UserDrawer as UserFormDrawer } from "@/components/console/admin-forms";
 import {
   Badge,
   Button,
@@ -61,6 +62,7 @@ function UsersScreen() {
   const { scope } = useSession();
   const [selected, setSelected] = useState<User | null>(null);
   const [message, setMessage] = useTransientMessage();
+  const [creating, setCreating] = useState(false);
 
   const collection = useCollection<User>(
     (query) => services.security.users.list(query),
@@ -134,7 +136,7 @@ function UsersScreen() {
           <Button
             variant="primary"
             icon={<UserCog size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
+            onClick={() => setCreating(true)}
           >
             {t("common.invite")}
           </Button>
@@ -178,6 +180,17 @@ function UsersScreen() {
       </PageBody>
 
       <UserDrawer user={selected} onClose={() => setSelected(null)} />
+      <UserFormDrawer
+        user={null}
+        open={creating}
+        onClose={() => setCreating(false)}
+        onSaved={(note) => {
+          setCreating(false);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
+
       <Toast message={message} />
     </>
   );
