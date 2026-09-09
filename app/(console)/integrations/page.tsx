@@ -30,6 +30,7 @@ import { CONNECTOR_STATUS, INTEGRATION_CATEGORY, labelOf } from "@/lib/console/l
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
+import { IntegrationDrawer as IntegrationFormDrawer } from "@/components/console/admin-forms";
 import { Gate } from "@/components/console/states";
 import {
   Badge,
@@ -55,6 +56,7 @@ function IntegrationsScreen() {
   const { scope } = useSession();
   const [selected, setSelected] = useState<Integration | null>(null);
   const [message, setMessage] = useTransientMessage();
+  const [configuring, setConfiguring] = useState<Integration | null>(null);
 
   const collection = useCollection<Integration>(
     (query) => services.platform.integrations.list(query),
@@ -233,8 +235,23 @@ function IntegrationsScreen() {
       <IntegrationDrawer
         integration={selected}
         onClose={() => setSelected(null)}
-        onAction={() => setMessage(t("common.notInBuild"))}
+        onAction={() => {
+          const target = selected;
+          setSelected(null);
+          setConfiguring(target);
+        }}
       />
+      <IntegrationFormDrawer
+        integration={configuring}
+        open={Boolean(configuring)}
+        onClose={() => setConfiguring(null)}
+        onSaved={(note) => {
+          setConfiguring(null);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
+
       <Toast message={message} />
     </>
   );

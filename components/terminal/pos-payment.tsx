@@ -12,7 +12,7 @@
  */
 
 import { useMemo, useRef, useState } from "react";
-import { Banknote, CreditCard, Printer, Smartphone, Ticket, Undo2 } from "lucide-react";
+import { Banknote, CreditCard, Printer, Send, Smartphone, Ticket, Undo2 } from "lucide-react";
 import type { CountryPack, Order, TaxClassCode, TenderType } from "@/lib/console/types";
 import { branchById } from "@/lib/console/mock/org";
 import { menuItemById } from "@/lib/console/mock/catalogue";
@@ -25,6 +25,25 @@ import {
   tx as pick,
 } from "@/lib/console/format";
 import { TENDER_TYPE, ORDER_TYPE } from "@/lib/console/labels";
+import {
+  CardTerminalPanel,
+  NO_SPLIT,
+  SplitPicker,
+  TenderGrid,
+  TenderReferencePanel,
+  TipPicker,
+  shareOf,
+  tenderReady,
+  type SplitState,
+  type TerminalOutcome,
+} from "@/components/terminal/pos-tender";
+import {
+  PrintQueueChip,
+  PrintQueueModal,
+  ReceiptDeliverySheet,
+  usePrintQueue,
+} from "@/components/terminal/pos-print";
+import { useConfirm } from "@/components/console/confirm";
 import { useI18n } from "@/lib/console/providers";
 import { useLive } from "@/lib/console/live/store";
 import { balanceOf, cashIncrement, roundCash } from "@/lib/console/live/engine";
@@ -61,7 +80,14 @@ export function PaymentSheet({ order, onClose }: { order: Order; onClose: () => 
 
   const [tender, setTender] = useState<TenderType>("cash");
   const [amount, setAmount] = useState("");
-  const [parties, setParties] = useState(1);
+
+  // FR-POS-062 — four ways to split, not one.
+  const [split, setSplit] = useState<SplitState>(NO_SPLIT);
+  // FR-POS-056 — a tip rides on top and is reported apart from net sales.
+  const [tipMinor, setTipMinor] = useState(0);
+  // FR-POS-064 — the card terminal has five outcomes, and none is silent.
+  const [terminal, setTerminal] = useState<TerminalOutcome>({ state: "idle" });
+  const [reference, setReference] = useState("");
   /**
    * FR-POS-060 — one tap, one payment.
    *
@@ -94,14 +120,7 @@ export function PaymentSheet({ order, onClose }: { order: Order; onClose: () => 
    * Derived from what has been paid rather than tracked separately, because a
    * counter would drift the moment a payment was refunded or an item added.
    */
-  const total = order.grandTotal.amount;
-  const paidShares =
-    parties > 1 && total > 0
-      ? Math.min(parties - 1, Math.round((order.paidTotal.amount / total) * parties))
-      : 0;
-  const remainingShares = Math.max(1, parties - paidShares);
-  const share =
-    parties > 1 ? Math.ceil(dueNow.amount / remainingShares) : dueNow.amount;
+  const share = shareOf(order, split, dueNow.amount);
 
   /**
    * Unreadable input reads as nothing tendered rather than as NaN. The old
@@ -118,6 +137,40 @@ export function PaymentSheet({ order, onClose }: { order: Order; onClose: () => 
     return [...new Set(notes)].slice(0, 4);
   }, [share, step]);
 
+
+  /**
+   * Record one payment against the order.
+   *
+   * Single entry point on purpose. The footer button and the card terminal
+   * both settle through here, so the double-tap guard, the tip and the
+   * reference are applied once rather than in two places that drift.
+   */
+  function takePayment(amountMinor: number, options: { cardLast4: string | null }) {
+    if (paying.current || amountMinor <= 0) return;
+    paying.current = true;
+
+    dispatch({
+      type: "ORDER_PAY",
+      orderId: order.id,
+      tender,
+      amountMinor,
+      tenderedMinor: tender === "cash" ? tenderedMinor : undefined,
+      tipMinor,
+      cardLast4: options.cardLast4,
+      cardScheme: options.cardLast4 ? "Visa" : null,
+    });
+
+    setAmount("");
+    setTipMinor(0);
+    setReference("");
+    // Released on the next frame: the dispatch has been applied by then, so
+    // the button's own `disabled` takes over and a legitimate second payment
+    // on a split bill is not blocked.
+    requestAnimationFrame(() => {
+      paying.current = false;
+    });
+  }
+
   if (settled) {
     return <ReceiptSheet order={order} onClose={onClose} />;
   }
@@ -133,27 +186,18 @@ export function PaymentSheet({ order, onClose }: { order: Order; onClose: () => 
           <Button onClick={onClose}>{t("common.close")}</Button>
           <Button
             variant="primary"
-            disabled={share <= 0 || (tender === "cash" && tenderedMinor < share)}
+            disabled={
+              share <= 0 ||
+              (tender === "cash" && tenderedMinor < share) ||
+              (tender === "card" && terminal.state !== "idle") ||
+              !tenderReady(tender, reference, { amountMinor: share })
+            }
             onClick={() => {
-              if (paying.current) return;
-              paying.current = true;
-              dispatch({
-                type: "ORDER_PAY",
-                orderId: order.id,
-                tender,
-                amountMinor: share,
-                tenderedMinor: tender === "cash" ? tenderedMinor : undefined,
-                tipMinor: 0,
-                cardLast4: tender === "card" ? "4242" : null,
-                cardScheme: tender === "card" ? "Visa" : null,
-              });
-              setAmount("");
-              // Released on the next frame: the dispatch has been applied by
-              // then, so the button's own `disabled` takes over from here and
-              // a legitimate second payment on a split bill is not blocked.
-              requestAnimationFrame(() => {
-                paying.current = false;
-              });
+              // The card path goes through the terminal panel, not this
+              // button: pressing pay for a card is what starts the terminal,
+              // and recording the payment happens only once it answers.
+              if (tender === "card") return;
+              takePayment(share, { cardLast4: null });
             }}
           >
             {t("pos.takePayment")} · {formatMoney(money(share, order.currency), fmt)}
@@ -198,49 +242,51 @@ export function PaymentSheet({ order, onClose }: { order: Order; onClose: () => 
           ) : null}
 
           <div className="mt-4">
-            <Field label={t("pos.splitEqually")} hint={t("pos.parties")}>
-              <div className="flex flex-wrap gap-1.5">
-                {[1, 2, 3, 4, 5, 6].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setParties(n)}
-                    className={cx(
-                      "h-9 w-9 rounded-lg border text-sm tabular-nums",
-                      parties === n
-                        ? "border-accent bg-accent-soft text-accent font-semibold"
-                        : "border-line bg-raised text-fg-muted",
-                    )}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </Field>
+            <h3 className="text-fg mb-2 text-xs font-semibold">{t("pos.splitBill")}</h3>
+            <SplitPicker
+              order={order}
+              split={split}
+              onChange={setSplit}
+              outstandingMinor={dueNow.amount}
+            />
           </div>
         </div>
 
         <div>
           <Field label={t("pos.tender")}>
-            <div className="grid grid-cols-2 gap-1.5">
-              {TENDERS.map(({ tender: value, icon }) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setTender(value)}
-                  className={cx(
-                    "flex items-center gap-2 rounded-lg border px-3 py-3 text-sm font-medium",
-                    tender === value
-                      ? "border-accent bg-accent-soft text-accent"
-                      : "border-line bg-raised text-fg-muted hover:text-fg",
-                  )}
-                >
-                  {icon}
-                  {tx(TENDER_TYPE[value].label)}
-                </button>
-              ))}
-            </div>
+            <TenderGrid
+              value={tender}
+              onChange={(next) => {
+                setTender(next);
+                setTerminal({ state: "idle" });
+                setReference("");
+              }}
+            />
           </Field>
+
+          {/* FR-POS-056 — the tip rides on top, reported apart from sales. */}
+          <div className="mt-4">
+            <TipPicker
+              baseMinor={share}
+              currency={order.currency}
+              value={tipMinor}
+              onChange={setTipMinor}
+            />
+          </div>
+
+          {/* Whatever this tender needs before it can be taken. */}
+          <div className="mt-4">
+            <TenderReferencePanel
+              tender={tender}
+              currency={order.currency}
+              amountMinor={share}
+              reference={reference}
+              onReference={setReference}
+              loyaltyBalance={null}
+              creditLimitMinor={null}
+              creditUsedMinor={0}
+            />
+          </div>
 
           {tender === "cash" ? (
             <div className="mt-4 space-y-3">
@@ -274,11 +320,45 @@ export function PaymentSheet({ order, onClose }: { order: Order; onClose: () => 
             </div>
           ) : (
             <div className="mt-4">
-              <Callout tone="neutral">
-                {tender === "card"
-                  ? "Card data never reaches the system: only the last four digits, the scheme and the authorisation code are kept — FR-POS-066."
-                  : `${tx(TENDER_TYPE[tender].label)} — FR-POS-060.`}
-              </Callout>
+              {tender === "card" ? (
+                <CardTerminalPanel
+                  amountMinor={share + tipMinor}
+                  currency={order.currency}
+                  outcome={terminal}
+                  onStart={() => {
+                    setTerminal({ state: "waiting" });
+                    /*
+                     * A real terminal answers on its own schedule. The wait
+                     * is held open rather than resolved optimistically,
+                     * because the one thing that must never happen here is
+                     * the till deciding a card was approved before the
+                     * terminal said so.
+                     */
+                    window.setTimeout(
+                      () =>
+                        setTerminal({
+                          state: "approved",
+                          last4: "4242",
+                          authCode: `A${Math.floor(Math.random() * 900000) + 100000}`,
+                        }),
+                      1400,
+                    );
+                  }}
+                  onAccept={(approvedMinor, last4) => {
+                    takePayment(approvedMinor, { cardLast4: last4 });
+                    setTerminal({ state: "idle" });
+                  }}
+                  onAbandon={() => setTerminal({ state: "idle" })}
+                  onFallbackManual={() => {
+                    setTerminal({ state: "idle" });
+                    takePayment(share, { cardLast4: null });
+                  }}
+                />
+              ) : (
+                <Callout tone="neutral">
+                  {`${tx(TENDER_TYPE[tender].label)} — FR-POS-060.`}
+                </Callout>
+              )}
             </div>
           )}
         </div>
@@ -298,10 +378,48 @@ function roundUp(value: number, to: number): number {
 export function ReceiptSheet({ order, onClose }: { order: Order; onClose: () => void }) {
   const { t, tx, locale, fmt } = useI18n();
   const { state, dispatch } = useLive();
+  const confirm = useConfirm();
+  const queue = usePrintQueue();
+
   const [refunding, setRefunding] = useState(false);
+  const [delivering, setDelivering] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  /**
+   * FR-POS-104 — once a copy has been taken, every later copy is marked.
+   *
+   * An unmarked second receipt for one sale is exactly what a refund fraud
+   * needs, so the banner is not optional and the reprint is logged.
+   */
+  const [reprinted, setReprinted] = useState(false);
 
   const branch = branchById.get(order.branchId);
   const pack = countryPacks.find((p) => p.code === branch?.countryCode);
+
+  function printReceipt(kind: "receipt" | "duplicate" | "pre_bill") {
+    queue.enqueue({
+      kind,
+      reference: order.orderNumber,
+      target: branch ? tx(branch.name) : "printer",
+    });
+    setNote(t("print.queued"));
+    window.setTimeout(() => setNote(null), 2200);
+    // The browser print dialog still opens for the real paper path; the
+    // queue is what makes a failure visible rather than silent.
+    window.print();
+  }
+
+  async function reprint() {
+    const ok = await confirm({
+      title: t("print.reprintTitle"),
+      body: t("print.reprintBody"),
+      confirmLabel: t("print.reprint"),
+      tone: "warn",
+    });
+    if (!ok) return;
+    setReprinted(true);
+    printReceipt("duplicate");
+  }
 
   return (
     <Modal
@@ -313,9 +431,24 @@ export function ReceiptSheet({ order, onClose }: { order: Order; onClose: () => 
           <Button icon={<Undo2 size={14} />} onClick={() => setRefunding(true)}>
             {t("pos.refund")}
           </Button>
-          <Button icon={<Printer size={14} />} onClick={() => window.print()}>
-            {t("pos.printReceipt")}
+          <Button icon={<Send size={14} />} onClick={() => setDelivering(true)}>
+            {t("print.send")}
           </Button>
+          {reprinted ? (
+            <Button icon={<Printer size={14} />} onClick={() => void reprint()}>
+              {t("print.reprint")}
+            </Button>
+          ) : (
+            <Button
+              icon={<Printer size={14} />}
+              onClick={() => {
+                setReprinted(true);
+                printReceipt("receipt");
+              }}
+            >
+              {t("pos.printReceipt")}
+            </Button>
+          )}
           <Button
             variant="primary"
             onClick={() => {
@@ -328,7 +461,13 @@ export function ReceiptSheet({ order, onClose }: { order: Order; onClose: () => 
         </>
       }
     >
-      <div className="bg-sunken border-line rounded-xl border p-4 font-mono text-xs">
+      <div className="bg-sunken border-line relative rounded-xl border p-4 font-mono text-xs">
+        {reprinted ? (
+          <p className="border-bad text-bad mb-3 rounded border border-dashed py-1 text-center text-sm font-bold tracking-widest">
+            {t("print.duplicateBanner")}
+          </p>
+        ) : null}
+
         <div className="text-center">
           <p className="text-fg text-sm font-bold">{tx(branch?.name)}</p>
           <p className="text-fg-muted">{branch?.address}</p>
@@ -435,6 +574,24 @@ export function ReceiptSheet({ order, onClose }: { order: Order; onClose: () => 
       </p>
 
       {refunding ? <RefundSheet order={order} onClose={() => setRefunding(false)} /> : null}
+
+      {delivering ? (
+        <ReceiptDeliverySheet
+          order={order}
+          onClose={() => setDelivering(false)}
+          onSent={(message) => {
+            setNote(message);
+            window.setTimeout(() => setNote(null), 2600);
+          }}
+        />
+      ) : null}
+
+      <PrintQueueModal open={queueOpen} onClose={() => setQueueOpen(false)} />
+
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <PrintQueueChip onOpen={() => setQueueOpen(true)} />
+        {note ? <span className="text-good text-xs">{note}</span> : null}
+      </div>
     </Modal>
   );
 }

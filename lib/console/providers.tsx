@@ -59,6 +59,8 @@ import {
   setActiveSurface,
 } from "@/lib/api/session";
 import { useLiveOrgContext, type LiveOrgContext } from "./live-session";
+import { ConfirmProvider } from "@/components/console/confirm";
+import { setActiveTenantId } from "./services/tenant-context";
 
 // ---------------------------------------------------------------------------
 // Storage keys
@@ -490,6 +492,17 @@ function SessionProvider({
     setBranchIdState(null);
     write(KEY_BRAND, "all");
     write(KEY_BRANCH, "all");
+    /*
+     * POS-CUSTODY — the role went too.
+     *
+     * `AccountMenu` renders its name, email and badge from
+     * `buildSession(roleKey)`, and `roleKey` was restored from this key on
+     * the next boot. So a signed-out console came back showing the previous
+     * user's identity until `GET /auth/permissions` answered and re-guessed
+     * — the next person's first sight of the app was somebody else's name.
+     */
+    setRoleKey("owner");
+    write(KEY_ROLE, "owner");
 
     if (DATA_MODE === "http") {
       // Revokes the refresh token server-side and clears the stored pair.
@@ -497,6 +510,10 @@ function SessionProvider({
       // be revoked twice, and the UI must not wait on the network to sign
       // someone out.
       void apiSignOut();
+    } else {
+      // Demo mode never reaches `apiSignOut`, but a browser that has been
+      // used against a backend can still be holding a till session.
+      clearTerminalIdentity();
     }
   }, []);
 
@@ -564,6 +581,14 @@ function SessionProvider({
      */
     const terminalTenantId = live && surface === "terminal" ? getDeviceTenantId() : null;
     const terminalBranchId = live && surface === "terminal" ? getTerminalBranchId() : null;
+
+    /*
+     * Local-backed services (customers, promotions, rosters, settings
+     * overrides) namespace their storage per tenant, and they resolve the
+     * tenant lazily because the registry is built long before anybody signs
+     * in. This is the point at which it becomes known.
+     */
+    setActiveTenantId(tenant.id);
 
     return {
       session,

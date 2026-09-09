@@ -27,6 +27,7 @@ import { expenses as allExpenses } from "@/lib/console/mock/finance";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
+import { ExpenseDrawer as ExpenseFormDrawer } from "@/components/console/admin-forms";
 import { Gate } from "@/components/console/states";
 import {
   Badge,
@@ -53,6 +54,7 @@ function ExpensesScreen() {
   const canManage = usePermission("finance.expense.manage");
   const [selected, setSelected] = useState<Expense | null>(null);
   const [message, setMessage] = useTransientMessage();
+  const [creating, setCreating] = useState(false);
 
   const collection = useCollection<Expense>(
     (query) => services.finance.expenses.list(query),
@@ -175,7 +177,7 @@ function ExpensesScreen() {
             <Button
               variant="primary"
               icon={<Plus size={14} />}
-              onClick={() => setMessage(t("common.notInBuild"))}
+              onClick={() => setCreating(true)}
             >
               {t("common.new")}
             </Button>
@@ -244,6 +246,16 @@ function ExpensesScreen() {
       </PageBody>
 
       <ExpenseDrawer expense={selected} onClose={() => setSelected(null)} />
+      <ExpenseFormDrawer
+        open={creating}
+        onClose={() => setCreating(false)}
+        onSaved={(note) => {
+          setCreating(false);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
+
       <Toast message={message} />
     </>
   );

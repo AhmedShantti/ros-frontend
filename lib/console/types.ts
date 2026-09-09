@@ -770,6 +770,204 @@ export interface StockAdjustment {
 }
 
 // ---------------------------------------------------------------------------
+// Customers and loyalty — SRS ch.18
+// ---------------------------------------------------------------------------
+
+/** FR-CRM-008 — consent is per channel and per purpose, with provenance. */
+export interface ConsentFlag {
+  channel: "sms" | "email" | "whatsapp" | "push";
+  purpose: "marketing" | "transactional" | "loyalty";
+  granted: boolean;
+  recordedAt: IsoDateTime;
+  /** Where the consent came from — the till, a web form, an import. */
+  source: string;
+}
+
+export interface CustomerAddress {
+  id: Id;
+  label: string;
+  line: string;
+  city: string;
+  notes: string | null;
+  isDefault: boolean;
+}
+
+export type CustomerSegment =
+  | "champion"
+  | "loyal"
+  | "at_risk"
+  | "hibernating"
+  | "new"
+  | "unclassified";
+
+export interface Customer {
+  id: Id;
+  tenantId: Id;
+  /** FR-CRM-002 — E.164, unique within a tenant, and the primary identifier. */
+  phone: string;
+  name: Localised;
+  email: string | null;
+  dateOfBirth: IsoDate | null;
+  preferredLanguage: Locale;
+  tags: string[];
+  addresses: CustomerAddress[];
+  consent: ConsentFlag[];
+  /** FR-CRM-007 — blocked customers cannot buy on account or take delivery. */
+  blocked: boolean;
+  blockedReason: string | null;
+  createdAt: IsoDateTime;
+  /** FR-CRM-009 — an erased customer keeps its financial history, anonymised. */
+  anonymisedAt: IsoDateTime | null;
+
+  // -- Derived, FR-CRM-005 ---------------------------------------------------
+  totalSpend: Money;
+  orderCount: number;
+  averageOrderValue: Money;
+  firstOrderAt: IsoDateTime | null;
+  lastOrderAt: IsoDateTime | null;
+  favouriteItem: Localised | null;
+  preferredBranchId: Id | null;
+  preferredOrderType: OrderType | null;
+  preferredDayPart: string | null;
+
+  // -- Loyalty ---------------------------------------------------------------
+  loyaltyPoints: number;
+  loyaltyTier: string | null;
+  stampCount: number;
+  segment: CustomerSegment;
+}
+
+/** FR-CRM-020 — balances are an append-only ledger, never a mutable field. */
+export interface LoyaltyEntry {
+  id: Id;
+  customerId: Id;
+  kind: "earn" | "redeem" | "expire" | "adjust" | "reverse";
+  points: number;
+  balanceAfter: number;
+  orderId: Id | null;
+  reason: string;
+  occurredAt: IsoDateTime;
+  /** True when this arrived from a terminal that was offline at the time. */
+  offlineCapture: boolean;
+}
+
+export interface LoyaltyTier {
+  id: Id;
+  name: Localised;
+  thresholdPoints: number;
+  benefits: Localised;
+  colour: string;
+}
+
+/** FR-CRM-015 … FR-CRM-019 — how the programme earns and pays out. */
+export interface LoyaltyProgramme {
+  enabled: boolean;
+  model: "points" | "stamps";
+  /** Points earned per whole major unit of net spend. */
+  earnRatePerUnit: number;
+  /** Minor units of discount one point is worth on redemption. */
+  redeemValueMinor: number;
+  expiryMonths: number | null;
+  excludeDiscountedLines: boolean;
+  excludeTax: boolean;
+  /** FR-CRM-021 — how much may be redeemed while a terminal is offline. */
+  offlineRedemptionCapMinor: number;
+  tiers: LoyaltyTier[];
+  /** Stamp model only. */
+  stampsRequired: number;
+  stampItemIds: Id[];
+}
+
+// ---------------------------------------------------------------------------
+// Promotions — SRS §18.4
+// ---------------------------------------------------------------------------
+
+export type PromotionEffectType =
+  | "percent_off_order"
+  | "percent_off_items"
+  | "amount_off_order"
+  | "free_item"
+  | "buy_x_get_y"
+  | "cheapest_free"
+  | "bundle_price"
+  | "free_delivery"
+  | "points_multiplier";
+
+export interface PromotionConditions {
+  startsAt: string | null;
+  endsAt: string | null;
+  daysOfWeek: number[];
+  branchIds: Id[];
+  orderTypes: OrderType[];
+  channels: OrderChannel[];
+  minimumOrderMinor: number | null;
+  itemIds: Id[];
+  categoryIds: Id[];
+  stockItemIds: Id[];
+  minimumQuantity: number | null;
+  customerTags: string[];
+  customerTiers: string[];
+  firstOrderOnly: boolean;
+  nthOrder: number | null;
+  requiresCoupon: boolean;
+}
+
+export interface PromotionEffect {
+  type: PromotionEffectType;
+  /** Percentage, amount in minor units, or a multiplier, per `type`. */
+  value: number;
+  /** `free_item` / `buy_x_get_y` — what is given. */
+  targetItemId: Id | null;
+  buyQuantity: number | null;
+  getQuantity: number | null;
+}
+
+export interface PromotionUsage {
+  totalRedemptions: number | null;
+  perCustomer: number | null;
+  perDay: number | null;
+}
+
+export interface Promotion {
+  id: Id;
+  tenantId: Id;
+  name: Localised;
+  description: Localised;
+  /** A markdown is a promotion the expiry worklist raised, kept distinguishable. */
+  kind: "promotion" | "markdown";
+  conditions: PromotionConditions;
+  effect: PromotionEffect;
+  usage: PromotionUsage;
+  /** FR-CRM-030 — default is non-stackable, best value wins. */
+  stackable: boolean;
+  priority: number;
+  active: boolean;
+  startsOn: IsoDate | null;
+  endsOn: IsoDate | null;
+  createdAt: IsoDateTime;
+
+  // -- Performance, FR-CRM-029 ----------------------------------------------
+  redemptions: number;
+  discountCost: Money;
+  attributedRevenue: Money;
+}
+
+/** FR-CRM-028 — single- and multi-use codes, individually tracked. */
+export interface Coupon {
+  id: Id;
+  tenantId: Id;
+  promotionId: Id;
+  code: string;
+  singleUse: boolean;
+  redeemedCount: number;
+  maxRedemptions: number | null;
+  customerId: Id | null;
+  expiresOn: IsoDate | null;
+  active: boolean;
+  createdAt: IsoDateTime;
+}
+
+// ---------------------------------------------------------------------------
 // Purchasing — SRS ch.12
 // ---------------------------------------------------------------------------
 

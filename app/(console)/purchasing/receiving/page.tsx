@@ -45,6 +45,7 @@ import {
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
+import { ReceivingDrawer as ReceivingFormDrawer } from "@/components/console/purchasing-forms";
 import {
   Badge,
   Button,
@@ -68,6 +69,8 @@ function ReceivingScreen() {
   const { scope } = useSession();
   const [selected, setSelected] = useState<GoodsReceipt | null>(null);
   const [message, setMessage] = useTransientMessage();
+  const [creating, setCreating] = useState(false);
+
 
   const collection = useCollection<GoodsReceipt>(
     (query) => services.purchasing.receipts.list(query),
@@ -169,7 +172,7 @@ function ReceivingScreen() {
           <Button
             variant="primary"
             icon={<Plus size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
+            onClick={() => setCreating(true)}
           >
             {t("common.new")}
           </Button>
@@ -237,6 +240,16 @@ function ReceivingScreen() {
       </PageBody>
 
       <ReceiptDrawer receipt={selected} onClose={() => setSelected(null)} />
+      <ReceivingFormDrawer
+        open={creating}
+        onClose={() => setCreating(false)}
+        onSaved={(note) => {
+          setCreating(false);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
+
       <Toast message={message} />
     </>
   );

@@ -92,6 +92,7 @@ import type {
   ServiceRegistry,
 } from "./types";
 import { ServiceError } from "./types";
+import { crmService } from "./crm";
 import { emptyPage, project } from "./paging";
 import {
   notImplemented,
@@ -3573,6 +3574,14 @@ const governance: GovernanceService = {
 // ---------------------------------------------------------------------------
 
 export const httpServices: ServiceRegistry = {
+  /*
+   * Customers, loyalty and promotions have no endpoints in the document, so
+   * this domain runs on the browser-local store in `./crm` under both data
+   * modes. The interface is the same one a server implementation will
+   * satisfy, so connecting it later is a change here and nowhere else.
+   */
+  crm: crmService,
+
   // Live — every one of the document's 142 operations is reached from here.
   production,
   treasury,

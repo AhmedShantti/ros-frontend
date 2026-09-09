@@ -22,12 +22,13 @@ import { Plus } from "lucide-react";
 import type { Supplier } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useCollection, useTransientMessage } from "@/lib/console/hooks";
-import { useI18n, useSession } from "@/lib/console/providers";
+import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatMoney, formatNumber, formatPercent } from "@/lib/console/format";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
+import { SupplierDrawer as SupplierFormDrawer } from "@/components/console/purchasing-forms";
 import {
   Badge,
   Button,
@@ -63,7 +64,11 @@ function SuppliersScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [selected, setSelected] = useState<Supplier | null>(null);
+  const canManage = usePermission("supplier.manage");
   const [message, setMessage] = useTransientMessage();
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
+  const [editing, setEditing] = useState<Supplier | null>(null);
+
 
   const collection = useCollection<Supplier>(
     (query) => services.purchasing.suppliers.list(query),
@@ -185,7 +190,7 @@ function SuppliersScreen() {
           <Button
             variant="primary"
             icon={<Plus size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
+            onClick={() => setCreatingSupplier(true)}
           >
             {t("common.new")}
           </Button>
@@ -235,7 +240,30 @@ function SuppliersScreen() {
         />
       </PageBody>
 
-      <SupplierDrawer supplier={selected} onClose={() => setSelected(null)} />
+      <SupplierDrawer
+        supplier={selected}
+        canManage={canManage}
+        onEdit={(supplier) => {
+          setSelected(null);
+          setEditing(supplier);
+        }}
+        onClose={() => setSelected(null)}
+      />
+      <SupplierFormDrawer
+        supplier={editing}
+        open={creatingSupplier || Boolean(editing)}
+        onClose={() => {
+          setCreatingSupplier(false);
+          setEditing(null);
+        }}
+        onSaved={(note) => {
+          setCreatingSupplier(false);
+          setEditing(null);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
+
       <Toast message={message} />
     </>
   );
@@ -245,9 +273,13 @@ function SuppliersScreen() {
 
 function SupplierDrawer({
   supplier,
+  canManage,
+  onEdit,
   onClose,
 }: {
   supplier: Supplier | null;
+  canManage: boolean;
+  onEdit: (supplier: Supplier) => void;
   onClose: () => void;
 }) {
   const { t, tx, fmt } = useI18n();
@@ -264,6 +296,13 @@ function SupplierDrawer({
         <span className="font-mono text-xs" dir="ltr">
           {supplier.code}
         </span>
+      }
+      footer={
+        canManage ? (
+          <Button variant="primary" onClick={() => onEdit(supplier)}>
+            {t("common.edit")}
+          </Button>
+        ) : null
       }
     >
       <div className="space-y-5">

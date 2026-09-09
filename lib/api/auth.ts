@@ -20,12 +20,15 @@
  */
 
 import { api } from "./endpoints";
+import { http } from "./client";
 import { ServiceError } from "../console/services/types";
 import { setDefaultCurrency } from "../console/services/map";
 import { appVersion, deviceFingerprint, deviceOs } from "./device";
 import {
   clearSession,
+  clearTerminalIdentity,
   getTenantId,
+  peekTerminalAccessToken,
   setPosEmployee,
   setTenantId,
   setTerminalBranchId,
@@ -48,11 +51,42 @@ export interface SignInResult {
 }
 
 /**
+ * POS-CUSTODY — ends whatever PIN session this device was left holding.
+ *
+ * Called on the way IN to a sign-in as well as on the way out, because a
+ * till is not always left tidily: a tab closed mid-shift, a browser crash, a
+ * cashier who simply walked away. Whatever the reason, a different person
+ * authenticating is the end of the previous one's session, and the token
+ * they left behind must not still be sitting where `/pos` reads it.
+ *
+ * Revoking it server-side is best-effort and explicitly credentialled: the
+ * token being revoked is NOT the active surface's, so it is passed as an
+ * explicit bearer rather than by switching the active surface out from under
+ * whatever else is in flight. A failure here is not a reason to block a
+ * sign-in — the local copy is gone either way, which is what closes the leak
+ * on this device.
+ */
+async function endTerminalSession(): Promise<void> {
+  const token = peekTerminalAccessToken();
+  clearTerminalIdentity();
+  if (!token) return;
+  try {
+    await http.post("/auth/logout", { anonymous: true, bearer: token });
+  } catch {
+    // Already expired, already revoked, or offline. Nothing to recover.
+  }
+}
+
+/**
  * Steps 1 and 2. When the account has several tenants, the token is left
  * unscoped and `tenantId` comes back null for the caller to resolve with
  * `selectTenant()`.
  */
 export async function signIn(email: string, password: string): Promise<SignInResult> {
+  // Before the new credential exists, not after: a failed sign-in must still
+  // leave the previous employee's till session ended.
+  await endTerminalSession();
+
   const session = await api.auth.login({ email, password });
   setTokens(session);
 
@@ -198,6 +232,11 @@ export async function signInWithPin(input: {
   employeeCode: string;
   pin: string;
 }): Promise<void> {
+  // The employee on this till is being replaced, so nothing of the previous
+  // one may survive into the new session — including a half-finished drawer
+  // open, which would otherwise be replayed under the new employee's name.
+  clearTerminalIdentity();
+
   const session = await api.auth.loginWithPin(input);
   setTokens(session);
   setTenantId(input.tenantId);
@@ -216,6 +255,33 @@ export async function signOut(): Promise<void> {
     // A revoked or expired token cannot be revoked again; clearing is enough.
   } finally {
     clearSession();
+  }
+  // A console sign-out ends the till too. The two used to be independent,
+  // which is precisely how a signed-out Owner stayed signed on at the POS.
+  await endTerminalSession();
+}
+
+/**
+ * FR-SEC-020 — the cashier signing OFF the till.
+ *
+ * The counterpart the terminal never had: `clearSession()` existed but no
+ * screen called it, so a PIN session ended only when someone cleared site
+ * data. Runs on the terminal surface, where `api.auth.logout()` already
+ * carries the right token.
+ *
+ * Deliberately does not touch the open cash session. Signing off with a
+ * drawer open is a normal thing to do — a break, a handover, the end of a
+ * queue — and the money stays open and findable until it is counted. The
+ * record knows whose it is, so the next person to sign on is shown it rather
+ * than given it.
+ */
+export async function signOffTerminal(): Promise<void> {
+  try {
+    await api.auth.logout();
+  } catch {
+    // Same as above: an unrevokable token is still one we are done with.
+  } finally {
+    clearTerminalIdentity();
   }
 }
 

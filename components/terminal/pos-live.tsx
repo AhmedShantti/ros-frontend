@@ -64,13 +64,15 @@ import type { ConsoleKey } from "@/locales";
 import { formatDateTime, formatMoney } from "@/lib/console/format";
 import { ORDER_LINE_STATE, ORDER_TYPE, TENDER_TYPE, labelOf } from "@/lib/console/labels";
 import {
-  getCashSessionId,
+  clearTerminalIdentity,
+  getOpenCashSession,
   getPendingCashOpen,
   getTerminalId,
-  setCashSessionId as persistCashSessionId,
+  isSignedIn,
+  onSessionChange,
+  setOpenCashSession,
   setPendingCashOpen,
   getPosEmployee,
-  setPosEmployee,
   getDeviceTenantId,
   isSignedIn,
   onSessionChange,
@@ -105,11 +107,27 @@ const UNSUPPORTED_KEYS = [
   "pos.unsupportedKds",
 ] as const;
 
+/**
+ * Whether two employee codes name the same person.
+ *
+ * Compared loosely on purpose. The code is typed by hand on a touchscreen at
+ * the start of every shift, and `EMP01`, `emp01` and a trailing space from a
+ * fat-fingered keyboard are the same employee to everyone except a strict
+ * equality check. Getting this wrong locks a cashier out of their OWN open
+ * drawer and sends them to a screen saying it belongs to somebody else,
+ * which is the worst possible failure of a custody check: it is both wrong
+ * and unarguable. The server still decides who the token is.
+ */
+function sameEmployee(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 export function LivePos() {
   const { t } = useI18n();
   const { scope } = useSession();
 
-  const [cashSessionId, setSessionId] = useState<string | null>(null);
+  /** The drawer record this till is holding, whoever it belongs to. */
+  const [held, setHeld] = useState<OpenCashSession | null>(null);
   const [cashier, setCashier] = useState<PosEmployee | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -123,12 +141,34 @@ export function LivePos() {
    */
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
-    // The drawer the till had open before this reload. Without this the
-    // screen offers to open a second one, and the first becomes
-    // unreachable: the backend serves no cash-session index to find it in.
-    setSessionId(getCashSessionId());
-    setCashier(getPosEmployee());
+    const sync = () => {
+      // The drawer the till had open before this reload. Without this the
+      // screen offers to open a second one, and the first becomes
+      // unreachable: the backend serves no cash-session index to find it in.
+      setHeld(getOpenCashSession());
+
+      /*
+       * POS-CUSTODY — the TOKEN is what decides whether anyone is signed on,
+       * and `posEmployee` only names them.
+       *
+       * This gate used to be `getPosEmployee()` alone, and that is the whole
+       * bug: `posEmployee` is a display record that nothing ever cleared, so
+       * a till that still remembered the last cashier's NAME skipped the
+       * sign-on screen entirely — and then ran every request on whatever
+       * token was still in the terminal slot, which was that same previous
+       * cashier's. Nobody was asked to authenticate, so nobody could be. Ask
+       * the credential, not the caption.
+       */
+      setCashier(isSignedIn() ? getPosEmployee() : null);
+    };
+
+    sync();
     setMounted(true);
+    // Signing on, signing off and opening a drawer all announce, so this
+    // screen follows the till's real state rather than a copy of it taken
+    // once at mount — including when the sign-off button in the bar above
+    // is what changed it.
+    return onSessionChange(sync);
   }, []);
 
   /**
@@ -153,9 +193,19 @@ export function LivePos() {
   }, []);
 
   /** Write through, so the drawer survives the next reload too. */
-  const setCashSessionId = (next: string | null) => {
-    persistCashSessionId(next);
-    setSessionId(next);
+  const takeCashSession = (next: string | null) => {
+    if (next === null || !cashier || !terminalId) {
+      setOpenCashSession(null);
+      setHeld(null);
+      return;
+    }
+    const record: OpenCashSession = {
+      cashSessionId: next,
+      employeeCode: cashier.code,
+      terminalId,
+    };
+    setOpenCashSession(record);
+    setHeld(record);
   };
 
   const terminalId = mounted ? getTerminalId() : null;
@@ -203,9 +253,37 @@ export function LivePos() {
         <div className="mx-auto w-full max-w-md p-4">
           <CashierSignOn
             terminalId={terminalId}
-            onSignedOn={(next) => {
-              setCashier(next);
-              setMessage(t("shift.signedOn"));
+            // `onSessionChange` above already re-reads who is on the till,
+            // so there is nothing to hand back but the confirmation.
+            onSignedOn={() => setMessage(t("shift.signedOn"))}
+          />
+          <Toast message={message} />
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * POS-CUSTODY — a drawer is open here, and it is not this cashier's.
+   *
+   * The old code had no such state: it read the bare id and used it, so this
+   * cashier would have been put straight into someone else's shift. Neither
+   * silent option is right. Adopting it books their sales against the other
+   * employee's close report; deleting it strands real money in a real box
+   * with no `GET /cash-sessions` to find it again. So the till says whose it
+   * is and offers the two things a person can actually do about it.
+   */
+  if (held && !mine) {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-md p-4">
+          <ForeignDrawer
+            held={held}
+            cashier={cashier}
+            onForget={() => {
+              setOpenCashSession(null);
+              setHeld(null);
+              setMessage(t("shift.foreignForgotten"));
             }}
           />
           <Toast message={message} />
@@ -237,13 +315,15 @@ export function LivePos() {
           <OpenDrawer
             cashier={cashier}
             onNeedsSignOn={() => {
-              // The token stopped identifying an employee — a refresh can
-              // re-scope it back to the console user. Ask again rather than
-              // leaving a dead button behind a stale name.
-              setPosEmployee(null);
-              setCashier(null);
+              // The token stopped identifying an employee — a refresh replays
+              // the tenant and terminal scope but never the PIN, so it comes
+              // back as a plain user token. Clear the whole terminal identity
+              // rather than just the name: a token that cannot take custody
+              // of a drawer is not a till session, and leaving it in place is
+              // what let the next person inherit one.
+              clearTerminalIdentity();
             }}
-            onOpened={setCashSessionId}
+            onOpened={takeCashSession}
           />
           <Toast message={message} />
         </div>
@@ -289,7 +369,7 @@ export function LivePos() {
           // The session is gone; so is anything that referenced it, and so
           // is the stored id — a closed drawer must not come back on reload.
           setDrawer(false);
-          setCashSessionId(null);
+          takeCashSession(null);
           setOrder(null);
         }}
       />
@@ -315,7 +395,7 @@ function CashierSignOn({
   onSignedOn,
 }: {
   terminalId: string;
-  onSignedOn: (employee: PosEmployee) => void;
+  onSignedOn: () => void;
 }) {
   const { t } = useI18n();
   const action = useAction();
@@ -329,15 +409,12 @@ function CashierSignOn({
     if (!valid || !tenantId) return;
     const code = employeeCode.trim();
     await action.run(
-      async () => {
-        await signInWithPin({ tenantId, terminalId, employeeCode: code, pin });
-        return getPosEmployee() ?? { code, name: code };
-      },
+      () => signInWithPin({ tenantId, terminalId, employeeCode: code, pin }),
       {
-        onSuccess: (employee) => {
+        onSuccess: () => {
           // Never leave a PIN sitting in a field on a shared till.
           setPin("");
-          onSignedOn(employee);
+          onSignedOn();
         },
       },
     );
@@ -383,6 +460,81 @@ function CashierSignOn({
         >
           {t("shift.signOn")}
         </Button>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * POS-CUSTODY — the drawer open at this till belongs to somebody else.
+ *
+ * Reached when the stored session's employee code is not the one signed on
+ * (or is missing entirely, from a record written before custody was tracked).
+ * The two ways out are both deliberate, and neither is "carry on":
+ *
+ *  - Sign off, so the employee who owns it can sign on and close it. This is
+ *    the normal path and the one the copy leads with — the drawer is theirs,
+ *    the count is theirs, the variance goes against their name.
+ *  - Forget it here, for the case where it is genuinely stale: closed from
+ *    another device, or from a shift that ended days ago. Named honestly,
+ *    because it does not close anything — it only stops this till pointing
+ *    at it.
+ */
+function ForeignDrawer({
+  held,
+  cashier,
+  onForget,
+}: {
+  held: OpenCashSession;
+  cashier: PosEmployee;
+  onForget: () => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction();
+
+  return (
+    <Card>
+      <CardHeader title={t("shift.foreignTitle")} spec="FR-FIN-002" />
+
+      <Callout tone="warn">
+        {held.employeeCode
+          ? t("shift.foreignNote").replace("{code}", held.employeeCode)
+          : t("shift.foreignUnknownNote")}
+      </Callout>
+
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+      <div className="mt-4">
+        <DescList>
+          <DescRow label={t("shift.foreignOwner")}>
+            {held.employeeCode || t("shift.foreignOwnerUnknown")}
+          </DescRow>
+          <DescRow label={t("shift.foreignSignedOn")}>{cashier.name}</DescRow>
+          <DescRow label={t("shift.foreignSession")} mono>
+            <span dir="ltr">{held.cashSessionId}</span>
+          </DescRow>
+        </DescList>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        <Button
+          variant="primary"
+          className="w-full"
+          loading={action.pending}
+          onClick={() => {
+            // `signOffTerminal` announces, so the screen behind this one
+            // re-reads and lands on the sign-on card by itself.
+            void action.run(() => signOffTerminal());
+          }}
+        >
+          {t("shift.signOff")}
+        </Button>
+        <Button className="w-full" onClick={onForget}>
+          {t("shift.foreignForget")}
+        </Button>
+        <p className="text-fg-subtle text-xs leading-relaxed">
+          {t("shift.foreignForgetNote")}
+        </p>
       </div>
     </Card>
   );
@@ -447,12 +599,25 @@ function OpenDrawer({
      * an open of a genuinely different drawer or float.
      */
     const previous = getPendingCashOpen();
-    const ids =
-      previous && previous.drawerId === drawer && previous.openingFloat === openingFloat
-        ? { cashSessionId: previous.cashSessionId, shiftId: previous.shiftId }
-        : { cashSessionId: deviceId(), shiftId: deviceId() };
+    const resumable =
+      previous !== null &&
+      previous.drawerId === drawer &&
+      previous.openingFloat === openingFloat &&
+      // POS-CUSTODY — and it was THIS cashier who started it. Someone else's
+      // unanswered attempt is not ours to finish: replaying their ids would
+      // claim their half-open drawer, at their float, under our token.
+      sameEmployee(previous.employeeCode, cashier.code);
 
-    setPendingCashOpen({ ...ids, drawerId: drawer, openingFloat });
+    const ids = resumable
+      ? { cashSessionId: previous.cashSessionId, shiftId: previous.shiftId }
+      : { cashSessionId: deviceId(), shiftId: deviceId() };
+
+    setPendingCashOpen({
+      ...ids,
+      drawerId: drawer,
+      openingFloat,
+      employeeCode: cashier.code,
+    });
 
     await action.run(
       () => services.treasury.openCashSession({ drawerId: drawer, openingFloat, ids }),

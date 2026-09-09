@@ -58,6 +58,7 @@ import type {
   WorkforceService,
 } from "./types";
 import { ServiceError } from "./types";
+import { crmService } from "./crm";
 
 import { branchById, branches, brands, centralKitchens, stations, stockLocations, tables, tenants, terminals, warehouses } from "../mock/org";
 import { combos, menuCategories, menuItems, modifierGroups, priceLists, recipes } from "../mock/catalogue";
@@ -1162,13 +1163,59 @@ const locationBranch = (locationId: Id): Id | null =>
   branchById.has(locationId) ? locationId : null;
 
 /** Demo reason codes — FR-INV-013. The fixtures reference these by id. */
+/**
+ * FR-INV-057 — the default reason taxonomy, in full.
+ *
+ * `category` is doing real work here rather than labelling: `policy` is what
+ * separates a staff meal from a burnt steak (FR-INV-059), and reporting the
+ * two together is how a kitchen ends up investigating its own meal policy.
+ */
 const demoReasonCodes: ReasonCode[] = [
-  { id: "rsn_spoilage", code: "SPOIL", category: "waste", label: { en: "Spoilage", ar: "تلف" } },
-  { id: "rsn_breakage", code: "BREAK", category: "waste", label: { en: "Breakage", ar: "كسر" } },
-  { id: "rsn_staff_meal", code: "STAFF", category: "waste", label: { en: "Staff meal", ar: "وجبة موظفين" } },
+  // Storage
+  { id: "rsn_expired", code: "EXPIRED", category: "storage", label: { en: "Expired", ar: "منتهي الصلاحية" } },
+  { id: "rsn_spoiled", code: "SPOILED", category: "storage", label: { en: "Spoiled", ar: "تالف" } },
+  { id: "rsn_breakage", code: "BREAK", category: "storage", label: { en: "Breakage", ar: "كسر" } },
+  // Supplier
+  { id: "rsn_delivery_damage", code: "DELIVERY", category: "supplier", label: { en: "Damaged in delivery", ar: "تلف أثناء التوصيل" } },
+  // Kitchen
+  { id: "rsn_prep_error", code: "PREP", category: "kitchen", label: { en: "Preparation error", ar: "خطأ في التحضير" } },
+  { id: "rsn_overproduction", code: "OVERPROD", category: "kitchen", label: { en: "Overproduction", ar: "إنتاج زائد" } },
+  { id: "rsn_portion", code: "PORTION", category: "kitchen", label: { en: "Incorrect portion", ar: "حصة غير صحيحة" } },
+  { id: "rsn_burnt", code: "BURNT", category: "kitchen", label: { en: "Burnt or overcooked", ar: "محترق أو زائد الطهي" } },
+  // Service
+  { id: "rsn_customer_return", code: "RETURN", category: "service", label: { en: "Customer return", ar: "إرجاع من العميل" } },
+  { id: "rsn_order_error", code: "ORDERERR", category: "service", label: { en: "Order error", ar: "خطأ في الطلب" } },
+  // Policy — not true waste (FR-INV-059)
+  { id: "rsn_staff_meal", code: "STAFF", category: "policy", label: { en: "Staff meal", ar: "وجبة موظفين" } },
+  { id: "rsn_sampling", code: "SAMPLE", category: "policy", label: { en: "Sampling or tasting", ar: "تذوق أو عيّنة" } },
+  { id: "rsn_marketing", code: "MARKETING", category: "policy", label: { en: "Marketing sample", ar: "عيّنة تسويقية" } },
+  // Facility and control
+  { id: "rsn_equipment", code: "EQUIP", category: "facility", label: { en: "Equipment failure", ar: "عطل في المعدات" } },
+  { id: "rsn_unexplained", code: "UNEXPLAINED", category: "control", label: { en: "Theft or unexplained", ar: "سرقة أو غير مبرَّر" } },
+  // Adjustment-only reasons
   { id: "rsn_count", code: "COUNT", category: "adjustment", label: { en: "Count adjustment", ar: "تسوية جرد" } },
+  { id: "rsn_receipt_missing", code: "NORECEIPT", category: "adjustment", label: { en: "Missing goods receipt", ar: "إيصال استلام مفقود" } },
+  { id: "rsn_correction", code: "CORRECTION", category: "adjustment", label: { en: "Data-entry correction", ar: "تصحيح إدخال" } },
   { id: "rsn_transfer", code: "XFER", category: "discrepancy", label: { en: "Transfer discrepancy", ar: "فرق تحويل" } },
 ];
+
+/** Reason categories that are consumption rather than loss — FR-INV-059. */
+const CONTROLLED_CATEGORIES = new Set(["policy"]);
+
+/** Above this the record needs a manager — FR-INV-058, FR-INV-035. */
+const MOCK_APPROVAL_THRESHOLD = 50_000;
+
+function reasonByCode(code: string | undefined): ReasonCode | undefined {
+  return demoReasonCodes.find((row) => row.code === code);
+}
+
+function stockItemById(id: Id | undefined) {
+  return stockItems.find((row) => row.id === id);
+}
+
+function locationNameOf(id: Id | undefined): Localised | undefined {
+  return stockLocations.find((row) => row.id === id)?.name;
+}
 
 /** Per-item, per-location reorder configuration — FR-INV-065. */
 const demoReorderConfig = new Map<string, { reorderPoint: string; reorderQuantity: string }>();
@@ -1289,21 +1336,38 @@ const inventory: InventoryService = {
     search: (t) => [t.reference, t.fromLocationName, t.toLocationName],
     filters: { status: (t) => t.status, fromLocationId: (t) => t.fromLocationId, toLocationId: (t) => t.toLocationId },
     sorters: { dispatchedAt: (t) => t.dispatchedAt ?? "", totalValue: (t) => t.totalValue.amount },
-    factory: (input, id) => ({
-      id,
-      tenantId: tenants[0]!.id,
-      reference: `TRF-${Math.floor(Math.random() * 9000) + 1000}`,
-      fromLocationId: input.fromLocationId ?? branches[0]!.id,
-      fromLocationName: (input.fromLocationName as Localised) ?? branches[0]!.name,
-      toLocationId: input.toLocationId ?? branches[1]!.id,
-      toLocationName: (input.toLocationName as Localised) ?? branches[1]!.name,
-      status: "draft",
-      dispatchedAt: null,
-      receivedAt: null,
-      requestedBy: employees[0]!.name,
-      lines: input.lines ?? [],
-      totalValue: { amount: 0, currency: "EGP" },
-    }),
+    factory: (input, id) => {
+      // FR-INV-031 — a transfer created here is *dispatched*, not drafted:
+      // every call site that reaches this is somebody sending stock now, and
+      // a row that sits in `draft` never shows up as in-transit, which is the
+      // whole reason the receiving branch can see it coming.
+      const lines = input.lines ?? [];
+      const totalValue = lines.reduce(
+        (sum, line) => sum + Number(line.dispatched.value || 0) * line.unitCost.amount,
+        0,
+      );
+      return {
+        id,
+        tenantId: tenants[0]!.id,
+        reference: `TRF-${Math.floor(Math.random() * 9000) + 1000}`,
+        fromLocationId: input.fromLocationId ?? branches[0]!.id,
+        fromLocationName:
+          (input.fromLocationName as Localised) ??
+          locationNameOf(input.fromLocationId) ??
+          branches[0]!.name,
+        toLocationId: input.toLocationId ?? branches[1]!.id,
+        toLocationName:
+          (input.toLocationName as Localised) ??
+          locationNameOf(input.toLocationId) ??
+          branches[1]!.name,
+        status: input.status ?? "dispatched",
+        dispatchedAt: input.dispatchedAt ?? new Date().toISOString(),
+        receivedAt: null,
+        requestedBy: employees[0]!.name,
+        lines,
+        totalValue: { amount: totalValue, currency: "EGP" },
+      };
+    },
   }),
   waste: makeCollection({
     rows: wasteRecords,
@@ -1318,26 +1382,42 @@ const inventory: InventoryService = {
       locationId: (w) => w.locationId,
     },
     sorters: { recordedAt: (w) => w.recordedAt, value: (w) => w.value.amount },
-    factory: (input, id) => ({
-      id,
-      tenantId: tenants[0]!.id,
-      locationId: input.locationId ?? branches[0]!.id,
-      locationName: (input.locationName as Localised) ?? branches[0]!.name,
-      itemId: input.itemId ?? stockItems[0]!.id,
-      itemName: (input.itemName as Localised) ?? stockItems[0]!.name,
-      quantity: input.quantity ?? { value: "0.000", unit: "g" },
-      reasonCode: input.reasonCode ?? "spoiled",
-      reasonName: (input.reasonName as Localised) ?? { en: "Spoiled", ar: "تالف" },
-      category: input.category ?? "storage",
-      isTrueWaste: input.isTrueWaste ?? true,
-      value: input.value ?? { amount: 0, currency: "EGP" },
-      recordedAt: new Date().toISOString(),
-      recordedBy: employees[0]!.id,
-      recordedByName: employees[0]!.name,
-      stationId: null,
-      approval: "not_required",
-      notes: input.notes ?? null,
-    }),
+    // The caller passes ids; the row carries names, because the table has to
+    // render without a second lookup. Resolving here rather than making every
+    // call site pass both is what stops a created record showing the name of
+    // whichever item happened to be first in the fixture.
+    factory: (input, id) => {
+      const item = stockItemById(input.itemId);
+      const reason = reasonByCode(input.reasonCode);
+      const value = input.value ?? { amount: 0, currency: "EGP" as const };
+      return {
+        id,
+        tenantId: tenants[0]!.id,
+        locationId: input.locationId ?? branches[0]!.id,
+        locationName:
+          (input.locationName as Localised) ??
+          locationNameOf(input.locationId) ??
+          branches[0]!.name,
+        itemId: input.itemId ?? stockItems[0]!.id,
+        itemName: (input.itemName as Localised) ?? item?.name ?? stockItems[0]!.name,
+        quantity: input.quantity ?? { value: "0.000", unit: "g" },
+        reasonCode: input.reasonCode ?? "SPOILED",
+        reasonName:
+          (input.reasonName as Localised) ?? reason?.label ?? { en: "Spoiled", ar: "تالف" },
+        category: input.category ?? "storage",
+        isTrueWaste:
+          input.isTrueWaste ?? !CONTROLLED_CATEGORIES.has(reason?.category ?? "storage"),
+        value,
+        recordedAt: new Date().toISOString(),
+        recordedBy: employees[0]!.id,
+        recordedByName: employees[0]!.name,
+        stationId: null,
+        // FR-INV-058 — above the threshold this waits for a manager.
+        approval:
+          Math.abs(value.amount) > MOCK_APPROVAL_THRESHOLD ? "pending" : "not_required",
+        notes: input.notes ?? null,
+      };
+    },
   }),
   adjustments: makeCollection({
     rows: stockAdjustments,
@@ -1346,22 +1426,33 @@ const inventory: InventoryService = {
     branchOf: (a) => locationBranch(a.locationId),
     filters: { reasonCode: (a) => a.reasonCode, approval: (a) => a.approval, locationId: (a) => a.locationId },
     sorters: { createdAt: (a) => a.createdAt, value: (a) => a.value.amount },
-    factory: (input, id) => ({
-      id,
-      tenantId: tenants[0]!.id,
-      locationId: input.locationId ?? branches[0]!.id,
-      locationName: (input.locationName as Localised) ?? branches[0]!.name,
-      itemId: input.itemId ?? stockItems[0]!.id,
-      itemName: (input.itemName as Localised) ?? stockItems[0]!.name,
-      quantity: input.quantity ?? { value: "0.000", unit: "g" },
-      reasonCode: input.reasonCode ?? "correction",
-      reasonName: (input.reasonName as Localised) ?? { en: "Correction", ar: "تصحيح" },
-      value: input.value ?? { amount: 0, currency: "EGP" },
-      createdAt: new Date().toISOString(),
-      createdBy: employees[0]!.name,
-      approval: "not_required",
-      notes: input.notes ?? null,
-    }),
+    factory: (input, id) => {
+      const item = stockItemById(input.itemId);
+      const reason = reasonByCode(input.reasonCode);
+      const value = input.value ?? { amount: 0, currency: "EGP" as const };
+      return {
+        id,
+        tenantId: tenants[0]!.id,
+        locationId: input.locationId ?? branches[0]!.id,
+        locationName:
+          (input.locationName as Localised) ??
+          locationNameOf(input.locationId) ??
+          branches[0]!.name,
+        itemId: input.itemId ?? stockItems[0]!.id,
+        itemName: (input.itemName as Localised) ?? item?.name ?? stockItems[0]!.name,
+        quantity: input.quantity ?? { value: "0.000", unit: "g" },
+        reasonCode: input.reasonCode ?? "CORRECTION",
+        reasonName:
+          (input.reasonName as Localised) ?? reason?.label ?? { en: "Correction", ar: "تصحيح" },
+        value,
+        createdAt: new Date().toISOString(),
+        createdBy: employees[0]!.name,
+        // FR-INV-035 — above the value threshold this is an approval, not a post.
+        approval:
+          Math.abs(value.amount) > MOCK_APPROVAL_THRESHOLD ? "pending" : "not_required",
+        notes: input.notes ?? null,
+      };
+    },
   }),
 
   // -- Counting --------------------------------------------------------------
@@ -1494,6 +1585,20 @@ const inventory: InventoryService = {
 // Purchasing
 // ---------------------------------------------------------------------------
 
+/**
+ * FR-PRC-018 — which approval band a purchase order value falls into.
+ *
+ * Tier 0 is auto-approved on purpose rather than by omission: putting a
+ * manager in the loop for a crate of lemons trains everyone to approve
+ * without reading, which is worse than not asking.
+ */
+function tierForValue(totalMinor: number): 0 | 1 | 2 | 3 {
+  if (totalMinor < 500_00) return 0;
+  if (totalMinor < 5_000_00) return 1;
+  if (totalMinor < 25_000_00) return 2;
+  return 3;
+}
+
 const purchaseOrdersCollection: CollectionService<PurchaseOrder> = makeCollection<PurchaseOrder>({
   rows: purchaseOrders,
   idOf: (p) => p.id,
@@ -1517,17 +1622,25 @@ const purchaseOrdersCollection: CollectionService<PurchaseOrder> = makeCollectio
     supplierName: (input.supplierName as Localised) ?? suppliers[0]!.tradingName,
     deliveryLocationId: input.deliveryLocationId ?? branches[0]!.id,
     deliveryLocationName: (input.deliveryLocationName as Localised) ?? branches[0]!.name,
-    status: "draft",
-    approvalTier: 0,
+    status: input.status ?? "draft",
+    /*
+     * FR-PRC-018 — the tier is derived from the value, never chosen.
+     *
+     * That is the whole control: a requester cannot route their own order to
+     * a friendlier approver by picking a band, and splitting one large order
+     * into two small ones stays visible because both still carry the
+     * supplier and the date.
+     */
+    approvalTier: input.approvalTier ?? tierForValue(input.total?.amount ?? 0),
     createdBy: employees[0]!.name,
     createdAt: new Date().toISOString(),
-    expectedDelivery: new Date().toISOString().slice(0, 10),
+    expectedDelivery: input.expectedDelivery ?? new Date().toISOString().slice(0, 10),
     approvedBy: null,
     approvedAt: null,
     lines: input.lines ?? [],
-    subtotal: { amount: 0, currency: "EGP" },
-    taxTotal: { amount: 0, currency: "EGP" },
-    total: { amount: 0, currency: "EGP" },
+    subtotal: input.subtotal ?? { amount: 0, currency: "EGP" },
+    taxTotal: input.taxTotal ?? { amount: 0, currency: "EGP" },
+    total: input.total ?? { amount: 0, currency: "EGP" },
   }),
 });
 
@@ -1558,7 +1671,7 @@ const purchasing: PurchasingService = {
       leadTimeDays: input.leadTimeDays ?? 2,
       minimumOrderValue: input.minimumOrderValue ?? { amount: 0, currency: "EGP" },
       deliveryDays: input.deliveryDays ?? [],
-      active: true,
+      active: input.active ?? true,
       scorecard: input.scorecard ?? {
         onTimeDeliveryRate: 0,
         fillRate: 0,
@@ -1567,7 +1680,7 @@ const purchasing: PurchasingService = {
         invoiceAccuracy: 0,
         averageLeadTimeDays: 0,
       },
-      outstandingBalance: { amount: 0, currency: "EGP" },
+      outstandingBalance: input.outstandingBalance ?? { amount: 0, currency: "EGP" },
     }),
   }),
   requisitions: makeCollection({
@@ -1587,12 +1700,20 @@ const purchasing: PurchasingService = {
       reference: `REQ-${Math.floor(Math.random() * 9000) + 1000}`,
       branchId: input.branchId ?? branches[0]!.id,
       branchName: (input.branchName as Localised) ?? branches[0]!.name,
-      status: "draft",
+      status: input.status ?? "draft",
       requestedBy: employees[0]!.name,
       requestedAt: new Date().toISOString(),
-      neededBy: new Date().toISOString().slice(0, 10),
+      neededBy: input.neededBy ?? new Date().toISOString().slice(0, 10),
       lines: input.lines ?? [],
-      estimatedTotal: { amount: 0, currency: "EGP" },
+      estimatedTotal:
+        input.estimatedTotal ??
+        {
+          amount: (input.lines ?? []).reduce(
+            (sum, line) => sum + line.estimatedCost.amount,
+            0,
+          ),
+          currency: "EGP",
+        },
       notes: input.notes ?? null,
     }),
   }),
@@ -1614,13 +1735,22 @@ const purchasing: PurchasingService = {
       supplierName: (input.supplierName as Localised) ?? suppliers[0]!.tradingName,
       locationId: input.locationId ?? branches[0]!.id,
       locationName: (input.locationName as Localised) ?? branches[0]!.name,
-      status: "draft",
-      receivedAt: new Date().toISOString(),
+      status: input.status ?? "posted",
+      receivedAt: input.receivedAt ?? new Date().toISOString(),
       receivedBy: employees[0]!.name,
-      temperatureC: null,
-      temperatureOk: true,
+      temperatureC: input.temperatureC ?? null,
+      temperatureOk: input.temperatureOk ?? true,
       lines: input.lines ?? [],
-      total: { amount: 0, currency: "EGP" },
+      total:
+        input.total ??
+        {
+          amount: (input.lines ?? []).reduce(
+            (sum, line) =>
+              sum + Math.round(Number(line.received.value || 0) * line.unitPrice.amount),
+            0,
+          ),
+          currency: "EGP",
+        },
     }),
   }),
   invoices: makeCollection({
@@ -1641,18 +1771,18 @@ const purchasing: PurchasingService = {
       supplierInvoiceNumber: input.supplierInvoiceNumber ?? "",
       supplierId: input.supplierId ?? suppliers[0]!.id,
       supplierName: (input.supplierName as Localised) ?? suppliers[0]!.tradingName,
-      goodsReceiptId: null,
-      goodsReceiptRef: null,
-      purchaseOrderRef: null,
-      status: "recorded",
-      matchResult: "unmatched",
-      matchNotes: null,
-      invoiceDate: new Date().toISOString().slice(0, 10),
-      dueDate: new Date().toISOString().slice(0, 10),
-      subtotal: { amount: 0, currency: "EGP" },
-      taxTotal: { amount: 0, currency: "EGP" },
-      total: { amount: 0, currency: "EGP" },
-      ageingBucket: "current",
+      goodsReceiptId: input.goodsReceiptId ?? null,
+      goodsReceiptRef: input.goodsReceiptRef ?? null,
+      purchaseOrderRef: input.purchaseOrderRef ?? null,
+      status: input.status ?? "recorded",
+      matchResult: input.matchResult ?? "unmatched",
+      matchNotes: input.matchNotes ?? null,
+      invoiceDate: input.invoiceDate ?? new Date().toISOString().slice(0, 10),
+      dueDate: input.dueDate ?? new Date().toISOString().slice(0, 10),
+      subtotal: input.subtotal ?? { amount: 0, currency: "EGP" },
+      taxTotal: input.taxTotal ?? { amount: 0, currency: "EGP" },
+      total: input.total ?? { amount: 0, currency: "EGP" },
+      ageingBucket: input.ageingBucket ?? "current",
     }),
   }),
   async approveOrder(id) {
@@ -2388,6 +2518,7 @@ const demoModifierEffects = new Map<Id, ModifierRecipeEffect[]>();
 
 export const mockServices: ServiceRegistry = {
   dashboard: dashboardService,
+  crm: crmService,
   sales,
   production,
   treasury,

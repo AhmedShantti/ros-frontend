@@ -17,7 +17,7 @@
  * action this screen exists to prompt.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import type { Batch } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
@@ -36,11 +36,14 @@ import { CellStack, CollectionTable, type Column } from "@/components/console/da
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { AsyncPanel } from "@/components/console/states";
 import { MetricTile } from "@/components/console/charts";
+import { PercentInput } from "@/components/console/fields";
 import { Gate } from "@/components/console/states";
 import {
   Badge,
   Button,
   Callout,
+  DescList,
+  DescRow,
   Drawer,
   Field,
   Input,
@@ -79,8 +82,12 @@ function ExpiryScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const canRecordWaste = usePermission("inventory.waste.record");
+  const canTransfer = usePermission("inventory.transfer.create");
+  const canMarkdown = usePermission("menu.price.change");
   const [message, setMessage] = useTransientMessage();
   const [writingOff, setWritingOff] = useState<Batch | null>(null);
+  const [transferring, setTransferring] = useState<Batch | null>(null);
+  const [markingDown, setMarkingDown] = useState<Batch | null>(null);
 
   // Locations from the service, so the filter offers ids that exist.
   const locationList = useAsync(() => services.organisation.locations(), []);
@@ -183,24 +190,61 @@ function ExpiryScreen() {
         key: "action",
         header: t("common.actions"),
         align: "end",
-        render: (row) =>
-          canRecordWaste && row.daysToExpiry <= 0 ? (
-            <Button
-              size="sm"
-              variant="danger"
-              onClick={(event) => {
-                event.stopPropagation();
-                setWritingOff(row);
-              }}
-            >
-              {t("inv.writeOff")}
-            </Button>
-          ) : (
-            <span className="text-fg-subtle">—</span>
-          ),
+        /*
+         * FR-INV-025 — one-tap actions, and all three of them.
+         *
+         * The point of this screen is acting *before* the loss, so the
+         * actions are live at every horizon rather than appearing only once
+         * the batch has already expired. A write-off button that unlocks on
+         * the day the stock becomes worthless is a record of failure, not a
+         * worklist.
+         */
+        render: (row) => (
+          <div className="flex justify-end gap-1">
+            {canTransfer ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setTransferring(row);
+                }}
+              >
+                {t("inv.transferAction")}
+              </Button>
+            ) : null}
+            {canMarkdown ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setMarkingDown(row);
+                }}
+              >
+                {t("inv.markdownAction")}
+              </Button>
+            ) : null}
+            {canRecordWaste ? (
+              <Button
+                size="sm"
+                variant={row.daysToExpiry <= 0 ? "danger" : "ghost"}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setWritingOff(row);
+                }}
+              >
+                {t("inv.writeOff")}
+              </Button>
+            ) : null}
+            {!canTransfer && !canMarkdown && !canRecordWaste ? (
+              <span className="text-fg-subtle">—</span>
+            ) : null}
+          </div>
+        ),
       },
     ],
-    [t, tx, fmt, canRecordWaste],
+    [t, tx, fmt, canRecordWaste, canTransfer, canMarkdown],
   );
 
   const urgent = buckets.count.expired + buckets.count.today;
@@ -299,6 +343,26 @@ function ExpiryScreen() {
         onWritten={() => {
           setWritingOff(null);
           setMessage(t("inv.writeOffDone"));
+          collection.reload();
+        }}
+      />
+
+      <ExpiryTransferDrawer
+        batch={transferring}
+        onClose={() => setTransferring(null)}
+        onDone={() => {
+          setTransferring(null);
+          setMessage(t("inv.transferQueued"));
+          collection.reload();
+        }}
+      />
+
+      <MarkdownDrawer
+        batch={markingDown}
+        onClose={() => setMarkingDown(null)}
+        onDone={() => {
+          setMarkingDown(null);
+          setMessage(t("inv.markdownCreated"));
           collection.reload();
         }}
       />
@@ -405,6 +469,237 @@ function WriteOffDrawer({
 
         <Field label={t("shift.comment")}>
           <Textarea rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </Field>
+      </div>
+    </Drawer>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+
+/**
+ * FR-INV-025 / FR-BRN-017 — move it somewhere it will actually be used.
+ *
+ * The most common reason a batch expires is that it is in the wrong place:
+ * one branch is long on cream and another ran out on Tuesday. Dispatching
+ * from here is what turns the expiry watchlist from a record of losses into
+ * a way of avoiding them.
+ */
+function ExpiryTransferDrawer({
+  batch,
+  onClose,
+  onDone,
+}: {
+  batch: Batch | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { t, tx, fmt } = useI18n();
+  const action = useAction();
+  const [quantity, setQuantity] = useState("");
+  const [toLocationId, setToLocationId] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const locations = useAsync(() => services.organisation.locations().catch(() => []), []);
+
+  useEffect(() => {
+    setQuantity(batch?.quantity.value ?? "");
+    setToLocationId("");
+    setNotes("");
+  }, [batch?.id]);
+
+  if (!batch) return null;
+
+  const parsed = numberFromInput(quantity);
+  const max = Number(batch.quantity.value);
+  const valid =
+    parsed !== null && parsed > 0 && parsed <= max && Boolean(toLocationId);
+
+  async function submit() {
+    if (!batch || !valid) return;
+    await action.run(
+      () =>
+        services.inventory.transfers.create({
+          fromLocationId: batch.locationId,
+          toLocationId,
+          lines: [
+            {
+              id: `${batch.id}_line`,
+              itemId: batch.itemId,
+              itemName: batch.itemName,
+              dispatched: { value: quantity.trim(), unit: batch.quantity.unit },
+              received: null,
+              discrepancy: 0,
+              unitCost: batch.unitCost,
+            },
+          ],
+        }),
+      { onSuccess: onDone },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={`${t("inv.transferAction")} · ${tx(batch.itemName)}`}
+      subtitle="FR-INV-025"
+      footer={
+        <div className="flex gap-2">
+          <Button variant="primary" loading={action.pending} disabled={!valid} onClick={submit}>
+            {t("inv.dispatch")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Callout tone="muted">{t("inv.transferExpiryNote")}</Callout>
+
+        <DescList>
+          <DescRow label={t("inv.batch")} mono>
+            {batch.batchNumber}
+          </DescRow>
+          <DescRow label={t("inv.expires")}>{formatDate(batch.expiryDate, fmt)}</DescRow>
+          <DescRow label={t("inv.onHand")} mono>
+            {formatQuantity(batch.quantity, fmt)}
+          </DescRow>
+        </DescList>
+
+        <Field label={t("common.quantity")} required>
+          <Input
+            inputMode="decimal"
+            dir="ltr"
+            value={quantity}
+            onChange={(event) => setQuantity(event.target.value)}
+            aria-label={t("common.quantity")}
+            className="text-end font-mono tabular-nums"
+          />
+        </Field>
+
+        <Field label={t("inv.destination")} required>
+          <Select value={toLocationId} onChange={(event) => setToLocationId(event.target.value)}>
+            <option value="">{t("entry.chooseLocation")}</option>
+            {(locations.data ?? [])
+              .filter((location) => location.id !== batch.locationId)
+              .map((location) => (
+                <option key={location.id} value={location.id}>
+                  {tx(location.name)}
+                </option>
+              ))}
+          </Select>
+        </Field>
+
+        <Field label={t("shift.comment")}>
+          <Textarea rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </Field>
+      </div>
+    </Drawer>
+  );
+}
+
+/**
+ * FR-INV-025 — sell it cheaper rather than throw it away.
+ *
+ * A markdown is a time-boxed promotion scoped to the item, which is why it
+ * carries a window: an open-ended discount on yoghurt outlives the yoghurt
+ * and quietly becomes the price.
+ */
+function MarkdownDrawer({
+  batch,
+  onClose,
+  onDone,
+}: {
+  batch: Batch | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { t, tx, fmt } = useI18n();
+  const action = useAction();
+  const [percent, setPercent] = useState("25");
+  const [until, setUntil] = useState("");
+
+  useEffect(() => {
+    setPercent("25");
+    setUntil(batch?.expiryDate?.slice(0, 10) ?? "");
+  }, [batch?.id]);
+
+  if (!batch) return null;
+
+  const numeric = Number(percent);
+  const valid =
+    Number.isFinite(numeric) && numeric > 0 && numeric < 100 && Boolean(until);
+
+  async function submit() {
+    if (!batch || !valid) return;
+    await action.run(
+      () =>
+        services.crm.promotions.create({
+          name: {
+            en: `Markdown — ${batch.itemName.en}`,
+            ar: `تخفيض — ${batch.itemName.ar}`,
+          },
+          kind: "markdown",
+          effect: { type: "percent_off_items", value: numeric },
+          conditions: { stockItemIds: [batch.itemId] },
+          startsOn: new Date().toISOString().slice(0, 10),
+          endsOn: until,
+          active: true,
+        } as never),
+      { onSuccess: onDone },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={`${t("inv.markdownAction")} · ${tx(batch.itemName)}`}
+      subtitle="FR-INV-025"
+      footer={
+        <div className="flex gap-2">
+          <Button variant="primary" loading={action.pending} disabled={!valid} onClick={submit}>
+            {t("inv.createMarkdown")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Callout tone="muted">{t("inv.markdownNote")}</Callout>
+
+        <DescList>
+          <DescRow label={t("inv.expires")}>{formatDate(batch.expiryDate, fmt)}</DescRow>
+          <DescRow label={t("inv.valueAtRisk")} mono>
+            {formatMoney(batch.value, fmt)}
+          </DescRow>
+        </DescList>
+
+        <Field label={t("inv.markdownPercent")} required>
+          <PercentInput
+            value={percent}
+            onChange={setPercent}
+            max={99}
+            aria-label={t("inv.markdownPercent")}
+          />
+        </Field>
+
+        <Field label={t("inv.markdownUntil")} hint={t("inv.markdownUntilHint")} required>
+          <Input
+            type="date"
+            dir="ltr"
+            value={until}
+            onChange={(event) => setUntil(event.target.value)}
+          />
         </Field>
       </div>
     </Drawer>

@@ -30,6 +30,8 @@ import { CellStack, CollectionTable, type Column } from "@/components/console/da
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
+import { ScheduleBuilder } from "@/components/console/workforce-forms";
+import { ExportButton } from "@/components/console/export-button";
 import { Badge, Button, Callout, Toast } from "@/components/console/ui";
 
 export default function SchedulesPage() {
@@ -46,6 +48,7 @@ function SchedulesScreen() {
   const branches = useBranches(scope);
   const canManage = usePermission("hr.schedule.manage");
   const [message, setMessage] = useTransientMessage();
+  const [building, setBuilding] = useState(false);
 
   const collection = useCollection<ScheduledShift>(
     (query) => services.workforce.shifts.list(query),
@@ -145,7 +148,7 @@ function SchedulesScreen() {
             <Button
               variant="primary"
               icon={<Plus size={14} />}
-              onClick={() => setMessage(t("common.notInBuild"))}
+              onClick={() => setBuilding(true)}
             >
               {t("common.new")}
             </Button>
@@ -211,6 +214,16 @@ function SchedulesScreen() {
           dense
         />
       </PageBody>
+
+      <ScheduleBuilder
+        open={building}
+        onClose={() => setBuilding(false)}
+        onSaved={(note) => {
+          setBuilding(false);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
 
       <Toast message={message} />
     </>

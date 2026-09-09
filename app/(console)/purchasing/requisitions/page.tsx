@@ -26,6 +26,7 @@ import { CellStack, CollectionTable, DataTable, type Column } from "@/components
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
+import { RequisitionDrawer as RequisitionFormDrawer } from "@/components/console/purchasing-forms";
 import {
   Badge,
   Button,
@@ -50,6 +51,8 @@ function RequisitionsScreen() {
   const branches = useBranches(scope);
   const [selected, setSelected] = useState<Requisition | null>(null);
   const [message, setMessage] = useTransientMessage();
+  const [creating, setCreating] = useState(false);
+
 
   const collection = useCollection<Requisition>(
     (query) => services.purchasing.requisitions.list(query),
@@ -139,7 +142,7 @@ function RequisitionsScreen() {
           <Button
             variant="primary"
             icon={<Plus size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
+            onClick={() => setCreating(true)}
           >
             {t("common.new")}
           </Button>
@@ -193,6 +196,16 @@ function RequisitionsScreen() {
       </PageBody>
 
       <RequisitionDrawer requisition={selected} onClose={() => setSelected(null)} />
+      <RequisitionFormDrawer
+        open={creating}
+        onClose={() => setCreating(false)}
+        onSaved={(note) => {
+          setCreating(false);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
+
       <Toast message={message} />
     </>
   );

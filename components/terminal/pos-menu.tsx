@@ -9,9 +9,9 @@
  * that genuinely need a choice open the options sheet.
  */
 
-import { useMemo, useState } from "react";
-import { Ban, Search, X } from "lucide-react";
-import type { Id, MenuItem, ModifierGroup } from "@/lib/console/types";
+import { useCallback, useMemo, useState } from "react";
+import { Ban, Search, Star, X } from "lucide-react";
+import type { Id, MenuItem, MenuItemVariant, ModifierGroup } from "@/lib/console/types";
 import { menuCategories } from "@/lib/console/mock/catalogue";
 import { formatMoney, formatNumber } from "@/lib/console/format";
 import { useI18n } from "@/lib/console/providers";
@@ -23,6 +23,17 @@ import {
 } from "@/lib/console/live/engine";
 import { isOverridden, menuItemsForBranch, remainingSellable } from "@/lib/console/live/reducer";
 import { activeEmployees } from "@/lib/console/mock/workforce";
+import {
+  FavouritesStrip,
+  LookupBar,
+  MiscItemSheet,
+  OpenPriceSheet,
+  PluPad,
+  WeighedSheet,
+  findByBarcode,
+  useBarcodeScanner,
+  useFavourites,
+} from "@/components/terminal/pos-lookup";
 import {
   Badge,
   Button,
@@ -50,7 +61,21 @@ export function PosMenu({ orderId, course, onAdded }: Props) {
   const [chosen, setChosen] = useState<MenuItem | null>(null);
   const [eightySix, setEightySix] = useState<MenuItem | null>(null);
 
+  // FR-POS-011/014/015/016 — the paths to an item that are not a tile tap.
+  const [pluOpen, setPluOpen] = useState(false);
+  const [miscOpen, setMiscOpen] = useState(false);
+  const [openPriceFor, setOpenPriceFor] = useState<MenuItem | null>(null);
+  const [weighing, setWeighing] = useState<{ item: MenuItem; variant: MenuItemVariant } | null>(
+    null,
+  );
+  const [scanState, setScanState] = useState<{ code: string; found: boolean } | null>(null);
+  const favourites = useFavourites();
+
+
   const items = useMemo(() => menuItemsForBranch(state.branchId), [state.branchId]);
+
+  /** Every price on this pane is denominated in the branch's own currency. */
+  const currency = items[0]?.variants[0]?.basePrice.currency ?? "EGP";
 
   const categories = useMemo(() => {
     const present = new Set(items.map((i) => i.categoryId));
@@ -66,6 +91,19 @@ export function PosMenu({ orderId, course, onAdded }: Props) {
 
   function add(item: MenuItem) {
     if (!orderId) return;
+
+    // FR-POS-015 — the price is decided at the counter, within bounds.
+    if (item.isOpenPrice) {
+      setOpenPriceFor(item);
+      return;
+    }
+
+    // FR-POS-014 — sold by weight, so the quantity is not a stepper.
+    if (item.isWeighed) {
+      setWeighing({ item, variant: item.variants[0]! });
+      return;
+    }
+
     const groups = modifierGroupsForItem(item);
     const needsChoice = groups.some((g) => g.required) || item.variants.length > 1;
     if (needsChoice) {
@@ -85,6 +123,60 @@ export function PosMenu({ orderId, course, onAdded }: Props) {
     });
     onAdded?.();
   }
+
+
+  /**
+   * Put a line on the order with an explicit quantity.
+   *
+   * The tile path always adds one; a weighed item adds 0.42 of something and
+   * an open-price item adds however many the guest is buying, so both need a
+   * way in that does not go through the stepper.
+   */
+  const addWithQuantity = useCallback(
+    (item: MenuItem, variantId: Id, quantity: number, notes: string | null = null) => {
+      if (!orderId) return;
+      const groups = modifierGroupsForItem(item);
+      dispatch({
+        type: "LINE_ADD",
+        orderId,
+        menuItemId: item.id,
+        variantId,
+        quantity,
+        modifierIds: groups.flatMap((g) =>
+          g.modifiers.filter((m) => m.isDefault).map((m) => m.id),
+        ),
+        course,
+        seatNumber: null,
+        notes,
+      });
+      onAdded?.();
+    },
+    [orderId, dispatch, course, onAdded],
+  );
+
+  /**
+   * FR-POS-011 — a scan resolves straight to a line.
+   *
+   * A miss is reported rather than swallowed: an unknown barcode usually
+   * means the item was never given one, and silence sends the cashier
+   * hunting through the menu for something that will not be there either.
+   */
+  const onScan = useCallback(
+    (code: string) => {
+      const hit = findByBarcode(items, code);
+      setScanState({ code, found: Boolean(hit) });
+      window.setTimeout(() => setScanState(null), 2500);
+      if (!hit || !orderId) return;
+      if (hit.item.isWeighed) {
+        setWeighing(hit);
+        return;
+      }
+      addWithQuantity(hit.item, hit.variant.id, 1);
+    },
+    [items, orderId, addWithQuantity],
+  );
+
+  useBarcodeScanner(onScan, Boolean(orderId));
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -113,8 +205,14 @@ export function PosMenu({ orderId, course, onAdded }: Props) {
             </button>
           ) : null}
         </div>
-        <span className="text-fg-subtle hidden text-xs lg:block">{t("pos.searchNote")}</span>
+        <LookupBar
+          scanState={scanState}
+          onPlu={() => setPluOpen(true)}
+          onMisc={() => setMiscOpen(true)}
+        />
       </div>
+
+      <FavouritesStrip items={items} favouriteIds={favourites.ids} onPick={add} />
 
       <div className="border-line flex shrink-0 gap-1.5 overflow-x-auto border-b px-3 py-2">
         <CategoryChip
@@ -193,6 +291,40 @@ export function PosMenu({ orderId, course, onAdded }: Props) {
                       </span>
                     ) : null}
                   </span>
+
+                  {/*
+                    Pinning is a long-press on a touch till and a click here.
+                    It sits inside the tile rather than in a menu because the
+                    strip is only useful if building it costs nothing.
+                  */}
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-label={
+                      favourites.has(item.id)
+                        ? t("pos.removeFavourite")
+                        : t("pos.addFavourite")
+                    }
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      favourites.toggle(item.id);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        favourites.toggle(item.id);
+                      }
+                    }}
+                    className={cx(
+                      "absolute top-1.5 end-1.5 rounded p-0.5",
+                      favourites.has(item.id)
+                        ? "text-warn"
+                        : "text-fg-subtle/0 group-hover:text-fg-subtle",
+                    )}
+                  >
+                    <Star size={12} aria-hidden />
+                  </span>
                 </button>
               );
             })}
@@ -215,6 +347,70 @@ export function PosMenu({ orderId, course, onAdded }: Props) {
           item={eightySix}
           orderId={orderId}
           onClose={() => setEightySix(null)}
+        />
+      ) : null}
+
+      {pluOpen ? (
+        <PluPad
+          items={items}
+          onClose={() => setPluOpen(false)}
+          onPick={(item, variant) => {
+            if (item.isWeighed) setWeighing({ item, variant });
+            else addWithQuantity(item, variant.id, 1);
+          }}
+        />
+      ) : null}
+
+      {miscOpen ? (
+        <MiscItemSheet
+          currency={currency}
+          categories={categories.map((category) => ({
+            id: category.id,
+            name: tx(category.name),
+          }))}
+          onClose={() => setMiscOpen(false)}
+          onConfirm={({ description, priceMinor, quantity }) => {
+            // A misc line has no menu item behind it, so it borrows the
+            // first item's identity for the ticket and carries its real
+            // description and price in the note and the override.
+            const anchorItem = items[0];
+            if (!anchorItem || !orderId) return;
+            addWithQuantity(
+              anchorItem,
+              anchorItem.variants[0]!.id,
+              quantity,
+              `${description} · ${priceMinor / 100}`,
+            );
+          }}
+        />
+      ) : null}
+
+      {openPriceFor ? (
+        <OpenPriceSheet
+          item={openPriceFor}
+          currency={currency}
+          maxMinor={500_00}
+          onClose={() => setOpenPriceFor(null)}
+          onConfirm={(priceMinor, quantity) => {
+            addWithQuantity(
+              openPriceFor,
+              openPriceFor.variants[0]!.id,
+              quantity,
+              `${t("pos.openPrice")}: ${priceMinor / 100}`,
+            );
+          }}
+        />
+      ) : null}
+
+      {weighing ? (
+        <WeighedSheet
+          item={weighing.item}
+          variant={weighing.variant}
+          currency={currency}
+          onClose={() => setWeighing(null)}
+          onConfirm={(quantity) =>
+            addWithQuantity(weighing.item, weighing.variant.id, quantity)
+          }
         />
       ) : null}
     </div>
