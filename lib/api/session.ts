@@ -97,6 +97,20 @@ function identityKeys() {
 
 const KEY_TERMINAL = "ros.api.terminalId";
 /**
+ * PROD-POS-TERMINAL-LISTING-P0 — the display name of the device's own bound
+ * terminal, exactly as `POST /auth/terminal` returned it at bind time.
+ *
+ * `GET /auth/terminal` (the read-only "am I bound" check) answers with the
+ * id and nothing else; the only place a name has ever come from is
+ * `GET /auth/terminals` — every terminal registered to the whole tenant,
+ * a dashboard/admin listing a PIN-issued session is not entitled to call
+ * (it 401s even freshly bound). `POST /auth/terminal`'s own response
+ * already carries the full terminal record, name included, so `bindTerminal`
+ * saves it here once instead of a screen re-deriving it from a listing call
+ * its token can never legally make.
+ */
+const KEY_TERMINAL_NAME = "ros.api.terminalName";
+/**
  * DEMO-SESSION-ISOLATION-HOTFIX — which tenant THIS DEVICE operates under,
  * as a DEVICE-level fact, independent of either surface's own active
  * identity. The Cashier PIN sign-on form has no tenant picker (FR-SEC-020 —
@@ -111,6 +125,22 @@ const KEY_TERMINAL = "ros.api.terminalId";
  * someone logged out of it.
  */
 const KEY_DEVICE_TENANT = "ros.api.deviceTenantId";
+/**
+ * DEMO-POS-P0-5 — which branch THIS DEVICE's bound terminal belongs to, a
+ * DEVICE-level fact mirroring `KEY_DEVICE_TENANT` above. `POST /auth/terminal`
+ * (`bindTerminal`) already receives the full terminal record — `branchId`
+ * included — so it is saved here once, the same way the terminal's name
+ * already is. Every terminal-scoped read that needs "this till's own branch"
+ * (the menu, the tables, the branch chip) reads it from here instead of the
+ * console's brand/branch scope switcher: that switcher's storage keys
+ * (`ros.console.brand`/`.branch`) are shared with `(console)` and persist
+ * across a manager's own console session, so a Cashier who signs on to a
+ * till right after that manager registered it would otherwise inherit
+ * whatever branch the manager's dashboard happened to be filtered to — never
+ * cleared by a sign-out, for the same reason `KEY_DEVICE_TENANT` is not: the
+ * physical till does not change branches just because someone signed out.
+ */
+const KEY_TERMINAL_BRANCH = "ros.api.terminalBranchId";
 const KEY_CASH_SESSION = "ros.api.cashSessionId";
 const KEY_CASH_OPENING = "ros.api.cashSessionOpening";
 const KEY_POS_EMPLOYEE = "ros.api.posEmployee";
@@ -168,17 +198,40 @@ export function getTokens(): TokenSet | null {
   return { accessToken, refreshToken, expiresAt: Number(read(keys.expires) ?? 0) };
 }
 
-export function setTokens(tokens: {
-  accessToken: string;
-  refreshToken?: string;
-  expiresIn?: number;
-}): void {
+/**
+ * PROD-AUTH-EXPIRY-P0 — `silent` skips the `announce()` at the end. A token
+ * refresh is a MULTI-STEP replay (base token, then tenant re-select, then
+ * terminal re-bind — see `client.ts`'s `refreshSession()`), each of which
+ * calls this. Announcing after every intermediate step let
+ * `useLiveOrgContext`'s own `onSessionChange` listener re-trigger its FULL
+ * org bootstrap mid-replay, using whatever PARTIALLY-scoped token happened
+ * to exist at that instant (e.g. the bare, tenant-less base token, before
+ * the tenant re-select step had even started) — that premature fetch then
+ * genuinely failed, and the failure path is what a real session's data
+ * disappearing around the access-token expiry actually was. Only the LAST
+ * write of a replay should announce; every caller outside a replay
+ * (sign-in, PIN sign-on, tenant selection, terminal bind — all genuinely
+ * one-shot) is unaffected, since they never pass `silent`.
+ */
+export function setTokens(
+  tokens: {
+    accessToken: string;
+    refreshToken?: string;
+    expiresIn?: number;
+  },
+  options?: { silent?: boolean },
+): void {
   const keys = identityKeys();
   write(keys.access, tokens.accessToken);
   if (tokens.refreshToken) write(keys.refresh, tokens.refreshToken);
   // A minute of headroom, so a token does not expire in flight.
   const lifetime = (tokens.expiresIn ?? 900) * 1000;
   write(keys.expires, String(Date.now() + lifetime - 60_000));
+  if (!options?.silent) announce();
+}
+
+/** Exposed so a multi-step caller (a token refresh replay) can announce ONCE, after its last silent write, rather than after every intermediate one. */
+export function announceSessionChange(): void {
   announce();
 }
 
@@ -293,6 +346,24 @@ export function getTerminalId(): string | null {
 export function setTerminalId(terminalId: string | null): void {
   write(KEY_TERMINAL, terminalId);
   announce();
+}
+
+/** The bound terminal's display name — see `KEY_TERMINAL_NAME`. */
+export function getTerminalName(): string | null {
+  return read(KEY_TERMINAL_NAME);
+}
+
+export function setTerminalName(name: string | null): void {
+  write(KEY_TERMINAL_NAME, name);
+}
+
+/** The bound terminal's own branch — see `KEY_TERMINAL_BRANCH`. */
+export function getTerminalBranchId(): string | null {
+  return read(KEY_TERMINAL_BRANCH);
+}
+
+export function setTerminalBranchId(branchId: string | null): void {
+  write(KEY_TERMINAL_BRANCH, branchId);
 }
 
 /**

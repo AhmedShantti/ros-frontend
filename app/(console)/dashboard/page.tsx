@@ -450,11 +450,13 @@ function TargetLine({
 /**
  * The now, with the holes left visible.
  *
- * Four of these figures have no endpoint behind them on this backend — the
- * kitchen queue, the average wait, staff on shift and delayed tickets all
- * need a KDS or a workforce feed the API does not serve. They read as a dash,
- * never as a zero: an empty queue and an unwatched one look identical at a
- * glance, and only one of them is good news.
+ * The kitchen queue and the average wait come from `services.dashboard`'s
+ * branch-overview read (`kitchenOverview` in `http.ts`) rather than the
+ * terminal-bound station queue, so they are null only when that read itself
+ * comes back empty — see the comment there. Staff on shift and delayed
+ * tickets have no endpoint behind them on this backend at all; both still
+ * read as a dash, never as a zero: an empty queue and an unwatched one look
+ * identical at a glance, and only one of them is good news.
  */
 function LiveOperations({ snapshot }: { snapshot: LiveOperationsSnapshot }) {
   const { t, fmt } = useI18n();
@@ -744,18 +746,22 @@ const DASHBOARD_ORDER_TYPES: OrderType[] = ["dine_in", "takeaway", "pickup", "dr
  * what lets Branch, Cashier, Order type and Payment method actually change
  * the numbers rather than only relabelling a chart nothing recomputed.
  *
- * Which is exactly why it cannot run against a live deployment. Three of its
- * four filters have no source on the backend:
+ * Which is exactly why it cannot run against a live deployment. Two of its
+ * four filters still have no source on the backend:
  *
  *  - `GET /orders` answers with headers and no line snapshots, so nothing
  *    here can be attributed to a menu item or a category;
- *  - there is no employee index, so the cashier filter has nothing to list;
  *  - there is no cash-session index, so the shift tiles have nothing to
  *    count — the drawer can be opened and closed, never read back.
  *
- * Rebuilding it on what does exist would leave four controls that quietly
- * do nothing, which is a worse lie than saying the section is unavailable.
- * So in live mode it says that, and the fixtures stay for the demo build.
+ * (`GET /workforce/employees` now exists and could resolve the Cashier
+ * filter on its own, but rebuilding only that one control while Category and
+ * the shift tiles stay dead would still be a section that half-works for
+ * reasons a reader has no way to see. So it waits for the other two.)
+ *
+ * Rebuilding it on what does exist would leave controls that quietly do
+ * nothing, which is a worse lie than saying the section is unavailable. So
+ * in live mode it says that, and the fixtures stay for the demo build.
  */
 function OrderActivitySection() {
   const { t } = useI18n();
@@ -766,7 +772,7 @@ function OrderActivitySection() {
         <Section title={t("dash.activityTitle")} hint={t("dash.activityHint")}>
           <UnsupportedPanel
             compact
-            detail="GET /orders returns headers without line snapshots, and no employee or cash-session index exists."
+            detail="GET /orders returns headers without line snapshots, and no cash-session index exists."
           />
         </Section>
       </PageBody>

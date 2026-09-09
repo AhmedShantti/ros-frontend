@@ -25,7 +25,7 @@ import { useMemo } from "react";
 
 import { DATA_MODE } from "@/lib/api/config";
 import { services } from "./services";
-import type { ServiceError } from "./services";
+import { ServiceError } from "./services";
 import type { Scope } from "./services/types";
 import { useAsync } from "./hooks";
 import { useLive } from "./live/store";
@@ -187,25 +187,30 @@ export function useAuditFeed(scope?: Scope): Feed<AuditEntry> {
 /**
  * SRS ch.9 — the tickets on the station displays.
  *
- * This one used to be excluded from this file by name: there were no KDS
- * endpoints at all, so the kitchen screens read the device even against a
- * backend, and the banner said so. `GET /kds/stations/{id}/queue` exists
- * now, and `operations.kitchenQueue` fans it out over the stations in scope.
+ * `GET /kds/stations/{id}/queue` exists, but it is terminal-bound: a KDS
+ * terminal is bound to one station, and *every* other caller — including
+ * this console screen, regardless of scope or role — is refused on every
+ * station, every time. That is not a fan-out worth attempting; it is a
+ * deterministic contract mismatch, so this fails without ever sending the
+ * request rather than polling an endpoint no console session can pass.
  *
- * A KDS terminal is bound to one station and every other station answers
- * 403, so a live fan-out returns what this caller may see rather than
- * failing whole — which is the honest result, not a filtered one.
+ * The `TERMINAL_ONLY` code lets `KitchenPage` show that specifically,
+ * rather than the generic retry-invites-more-of-the-same error panel.
  */
 export function useKitchenFeed(scope?: Scope): Feed<KitchenTicket> {
   const live = DATA_MODE === "http";
   const { state, ready } = useLive();
   const key = scopeKey(scope);
 
-  const remote = useAsync<KitchenTicket[]>(
-    async () =>
-      live ? (await services.operations.kitchenQueue({ scope, limit: FEED_LIMIT })).rows : [],
-    [live, key],
-  );
+  const remote = useAsync<KitchenTicket[]>(async () => {
+    if (!live) return [];
+    throw new ServiceError(
+      "TERMINAL_ONLY",
+      "The live kitchen queue can only be read from a KDS terminal.",
+      403,
+      "GET /kds/stations/{stationId}/queue requires a terminal-bound session; every console caller is refused on every station.",
+    );
+  }, [live, key]);
 
   const local = useMemo(
     () =>
