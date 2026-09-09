@@ -28,7 +28,7 @@ import {
 } from "react";
 import { Check, ChevronDown, Info, X } from "lucide-react";
 import type { Tone } from "@/lib/console/labels";
-import { useDismissable } from "@/lib/console/hooks";
+import { useDialogRefs, useDismissable } from "@/lib/console/hooks";
 import { useI18n } from "@/lib/console/providers";
 
 export function cx(...parts: Array<string | false | null | undefined>): string {
@@ -594,7 +594,7 @@ export function Modal({
   wide?: boolean;
 }) {
   const { t } = useI18n();
-  const ref = useDismissable(open, onClose);
+  const ref = useDialogRefs(open, onClose);
   const headingId = useId();
 
   useEffect(() => {
@@ -654,7 +654,7 @@ export function Drawer({
   footer?: ReactNode;
 }) {
   const { t } = useI18n();
-  const ref = useDismissable(open, onClose);
+  const ref = useDialogRefs(open, onClose);
   const headingId = useId();
 
   useEffect(() => {

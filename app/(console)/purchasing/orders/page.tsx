@@ -34,6 +34,7 @@ import { CellStack, CollectionTable, DataTable, type Column } from "@/components
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
+import { PurchaseOrderDrawer as PurchaseOrderFormDrawer } from "@/components/console/purchasing-forms";
 import {
   Badge,
   Button,
@@ -62,6 +63,8 @@ function PurchaseOrdersScreen() {
   const { scope } = useSession();
   const [selected, setSelected] = useState<PurchaseOrder | null>(null);
   const [message, setMessage] = useTransientMessage();
+  const [creating, setCreating] = useState(false);
+
 
   const collection = useCollection<PurchaseOrder>(
     (query) => services.purchasing.orders.list(query),
@@ -172,7 +175,7 @@ function PurchaseOrdersScreen() {
           <Button
             variant="primary"
             icon={<Plus size={14} />}
-            onClick={() => setMessage(t("common.notInBuild"))}
+            onClick={() => setCreating(true)}
           >
             {t("common.new")}
           </Button>
@@ -235,6 +238,17 @@ function PurchaseOrdersScreen() {
       </PageBody>
 
       <OrderDrawer order={selected} onClose={() => setSelected(null)} onApprove={approve} />
+      <PurchaseOrderFormDrawer
+        order={null}
+        open={creating}
+        onClose={() => setCreating(false)}
+        onSaved={(note) => {
+          setCreating(false);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
+
       <Toast message={message} />
     </>
   );

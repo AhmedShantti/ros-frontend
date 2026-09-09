@@ -28,6 +28,10 @@ import { CellStack, CollectionTable, type Column } from "@/components/console/da
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
+import {
+  AttendanceCorrectionDrawer,
+  PayrollExportDrawer,
+} from "@/components/console/workforce-forms";
 import { Badge, Button, Callout, Toast } from "@/components/console/ui";
 
 export default function AttendancePage() {
@@ -44,6 +48,9 @@ function AttendanceScreen() {
   const branches = useBranches(scope);
   const canExport = usePermission("hr.payroll.export");
   const [message, setMessage] = useTransientMessage();
+  const [correcting, setCorrecting] = useState<AttendanceRecord | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const canCorrect = usePermission("hr.attendance.correct");
 
   const collection = useCollection<AttendanceRecord>(
     (query) => services.workforce.attendance.list(query),
@@ -153,8 +160,33 @@ function AttendanceScreen() {
         secondary: true,
         render: (row) => formatMoney(row.cost, fmt),
       },
+      {
+        key: "correct",
+        header: t("common.actions"),
+        align: "end",
+        /*
+         * FR-HRM-025 — a correction belongs on the row it corrects. Putting
+         * it in a header menu means picking the record twice, and the second
+         * pick is where the wrong shift gets edited.
+         */
+        render: (row) =>
+          canCorrect ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={(event) => {
+                event.stopPropagation();
+                setCorrecting(row);
+              }}
+            >
+              {t("wf.correct")}
+            </Button>
+          ) : (
+            <span className="text-fg-subtle">—</span>
+          ),
+      },
     ],
-    [t, tx, fmt],
+    [t, tx, fmt, canCorrect],
   );
 
   return (
@@ -165,7 +197,7 @@ function AttendanceScreen() {
         spec="FR-HRM-020"
         actions={
           canExport ? (
-            <Button variant="secondary" onClick={() => setMessage(t("common.notInBuild"))}>
+            <Button variant="secondary" onClick={() => setExporting(true)}>
               {t("wf.exportPayroll")}
             </Button>
           ) : null
@@ -230,6 +262,22 @@ function AttendanceScreen() {
 
         <Callout tone="muted">{t("wf.payrollNote")}</Callout>
       </PageBody>
+
+      <PayrollExportDrawer
+        open={exporting}
+        onClose={() => setExporting(false)}
+        onExported={setMessage}
+      />
+
+      <AttendanceCorrectionDrawer
+        record={correcting}
+        onClose={() => setCorrecting(null)}
+        onSaved={(note) => {
+          setCorrecting(null);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
 
       <Toast message={message} />
     </>

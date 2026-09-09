@@ -28,6 +28,7 @@ import { CellStack, CollectionTable, type Column } from "@/components/console/da
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
+import { OvertimeDecisionDrawer, PayrollExportDrawer } from "@/components/console/workforce-forms";
 import { Badge, Button, Callout, Toast } from "@/components/console/ui";
 
 export default function OvertimePage() {
@@ -43,6 +44,8 @@ function OvertimeScreen() {
   const { scope } = useSession();
   const canApprove = usePermission("hr.overtime.approve");
   const [message, setMessage] = useTransientMessage();
+  const [deciding, setDeciding] = useState<OvertimeRecord | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const collection = useCollection<OvertimeRecord>(
     (query) => services.workforce.overtime.list(query),
@@ -135,8 +138,14 @@ function OvertimeScreen() {
               align: "end" as const,
               render: (row: OvertimeRecord) =>
                 row.approval === "pending" ? (
-                  <Button size="sm" onClick={() => setMessage(t("common.notInBuild"))}>
-                    {t("common.approve")}
+                  <Button
+                    size="sm"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setDeciding(row);
+                    }}
+                  >
+                    {t("wf.decide")}
                   </Button>
                 ) : (
                   <span className="text-fg-subtle">—</span>
@@ -202,6 +211,22 @@ function OvertimeScreen() {
 
         <Callout tone="muted">{t("wf.multiplierNote")}</Callout>
       </PageBody>
+
+      <OvertimeDecisionDrawer
+        record={deciding}
+        onClose={() => setDeciding(null)}
+        onDecided={(note) => {
+          setDeciding(null);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
+
+      <PayrollExportDrawer
+        open={exporting}
+        onClose={() => setExporting(false)}
+        onExported={setMessage}
+      />
 
       <Toast message={message} />
     </>

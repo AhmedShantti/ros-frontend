@@ -50,10 +50,21 @@ export default function ReportsPage() {
 
 // ---------------------------------------------------------------------------
 
-/** Reports with a real screen behind them, rather than the toast every
- *  other card falls back to. Keyed by `ReportDefinition.id`. */
+/**
+ * Reports with a bespoke screen of their own. Everything else runs through
+ * the generic runner at `/reports/{id}`, which owns the parameters, the
+ * table, the drill-down and the export — so a new catalogue entry is a
+ * builder, not a page.
+ */
 const REPORT_ROUTES: Record<string, string> = {
   "cash-reconciliation": "/reports/cashier",
+  "theoretical-actual": "/costing/variance",
+  "food-cost": "/costing/food-cost",
+  "waste-analysis-detail": "/costing/waste",
+  "tax-summary": "/finance/tax",
+  "z-report": "/finance/day-close",
+  "audit-log": "/audit",
+  "anomaly-flags": "/governance/anomalies",
 };
 
 function ReportsBody({ reports }: { reports: ReportDefinition[] }) {
@@ -106,11 +117,7 @@ function ReportsBody({ reports }: { reports: ReportDefinition[] }) {
                 <ReportCard
                   key={report.id}
                   report={report}
-                  onRun={() => {
-                    const route = REPORT_ROUTES[report.id];
-                    if (route) router.push(route);
-                    else setMessage(t("rep.ranTitle"));
-                  }}
+                  onRun={() => router.push(REPORT_ROUTES[report.id] ?? `/reports/${report.id}`)}
                 />
               ))}
             </ul>

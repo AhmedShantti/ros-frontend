@@ -1086,6 +1086,14 @@ export interface TreasuryService {
 /** Everything the console can talk to. */
 export interface ServiceRegistry {
   dashboard: DashboardService;
+  /**
+   * Customers, loyalty and promotions — SRS ch.18.
+   *
+   * Declared here like every other domain so screens depend on the interface
+   * rather than on which implementation is wired in. See
+   * `lib/console/services/crm.ts`.
+   */
+  crm: import("./crm").CrmService;
   sales: SalesService;
   production: ProductionService;
   treasury: TreasuryService;

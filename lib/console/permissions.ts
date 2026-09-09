@@ -23,6 +23,7 @@ export const PERMISSION_GROUPS = [
   "cash",
   "inventory",
   "catalogue",
+  "customers",
   "procurement",
   "costing",
   "workforce",
@@ -267,6 +268,28 @@ export const PERMISSION_CATALOGUE = [
     "Cross-tenant administration from the platform console.", "إدارة عابرة للمستأجرين من وحدة تحكم المنصة.", true),
   def("platform.countrypack.manage", "platform", "Manage country packs", "إدارة حزم الدول",
     "Publish and version country packs.", "نشر حزم الدول وإصدار نسخها.", true),
+
+  // -- Customers and loyalty — SRS ch.18 -----------------------------------
+  def("crm.customer.view", "customers", "View customers", "عرض العملاء",
+    "See the customer list, a customer's detail and their order history.", "الاطلاع على قائمة العملاء وتفاصيلهم وسجل طلباتهم."),
+  def("crm.customer.manage", "customers", "Manage customers", "إدارة العملاء",
+    "Create and edit customer records, addresses and tags.", "إنشاء سجلات العملاء وعناوينهم ووسومهم وتعديلها."),
+  def("crm.customer.block", "customers", "Block customers", "حظر العملاء",
+    "Prevent on-account sales or delivery to a customer.", "منع البيع بالآجل أو التوصيل لعميل معيّن.", true),
+  def("crm.customer.erase", "customers", "Erase customer data", "محو بيانات العميل",
+    "Anonymise a customer on request. The financial record is retained as the law requires.", "إخفاء هوية العميل عند الطلب مع الاحتفاظ بالسجل المالي كما يقتضي القانون.", true),
+  def("crm.customer.export", "customers", "Export customer data", "تصدير بيانات العملاء",
+    "Export a customer's data, or a marketing segment subject to consent.", "تصدير بيانات عميل أو شريحة تسويقية وفق الموافقات المسجَّلة.", true),
+  def("crm.loyalty.view", "customers", "View loyalty", "عرض الولاء",
+    "See loyalty balances, tiers and the points ledger.", "الاطلاع على أرصدة الولاء والمستويات وسجل النقاط."),
+  def("crm.loyalty.manage", "customers", "Manage loyalty programme", "إدارة برنامج الولاء",
+    "Configure earn and redemption rates, tiers and expiry.", "ضبط معدلات الكسب والاستبدال والمستويات وانتهاء الصلاحية.", true),
+  def("crm.loyalty.adjust", "customers", "Adjust points", "تعديل النقاط",
+    "Add or remove points from a customer's balance by hand.", "إضافة نقاط إلى رصيد عميل أو خصمها يدويًا.", true),
+  def("crm.promotion.view", "customers", "View promotions", "عرض العروض",
+    "See promotions, coupons and their performance.", "الاطلاع على العروض والكوبونات وأدائها."),
+  def("crm.promotion.manage", "customers", "Manage promotions", "إدارة العروض",
+    "Create and edit promotions, and generate coupon codes.", "إنشاء العروض وتعديلها وتوليد أكواد الكوبونات.", true),
 ] as const satisfies readonly PermissionDefinition[];
 
 export type PermissionKey = (typeof PERMISSION_CATALOGUE)[number]["key"];
