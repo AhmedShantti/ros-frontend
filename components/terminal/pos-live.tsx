@@ -65,15 +65,15 @@ import { formatDateTime, formatMoney } from "@/lib/console/format";
 import { ORDER_LINE_STATE, ORDER_TYPE, TENDER_TYPE, labelOf } from "@/lib/console/labels";
 import {
   clearTerminalIdentity,
+  getDeviceTenantId,
   getOpenCashSession,
   getPendingCashOpen,
+  getPosEmployee,
   getTerminalId,
   isSignedIn,
   onSessionChange,
   setOpenCashSession,
   setPendingCashOpen,
-  getPosEmployee,
-  getDeviceTenantId,
   type OpenCashSession,
   type PosEmployee,
 } from "@/lib/api/session";
