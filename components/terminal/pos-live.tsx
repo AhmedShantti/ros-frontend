@@ -67,7 +67,7 @@ import {
   clearTerminalIdentity,
   getOpenCashSession,
   getPendingCashOpen,
-  getDeviceBranchId,
+  getActiveBranchId,
   isSignedIn,
   onSessionChange,
   setOpenCashSession,
@@ -183,11 +183,11 @@ export function LivePos() {
     });
   }, []);
 
-  const deviceBranchId = mounted ? getDeviceBranchId() : null;
+  const activeBranchId = mounted ? getActiveBranchId() : null;
 
   /** Write through, so the drawer survives the next reload too. */
   const takeCashSession = (next: string | null) => {
-    if (next === null || !cashier || !deviceBranchId) {
+    if (next === null || !cashier || !activeBranchId) {
       setOpenCashSession(null);
       setHeld(null);
       return;
@@ -196,7 +196,7 @@ export function LivePos() {
     const record: OpenCashSession = {
       cashSessionId: next,
       employeeCode: cashier.code,
-      branchId: deviceBranchId,
+      branchId: activeBranchId,
     };
 
     setOpenCashSession(record);
@@ -213,7 +213,7 @@ export function LivePos() {
    * also why a foreign `held` record must never be reconciled away just
    * because the SIGNED-ON cashier's own server session comes back empty.
    */
-  const mine = isMine(held, cashier, deviceBranchId);
+  const mine = isMine(held, cashier, activeBranchId);
   const blockedByForeignDrawer = held !== null && !mine;
 
   /*
@@ -278,7 +278,7 @@ export function LivePos() {
     );
   }
 
-  if (!deviceBranchId) {
+  if (!activeBranchId) {
     return (
       <div className="mx-auto min-h-0 w-full max-w-md flex-1 overflow-y-auto p-4">
         <Card>
@@ -288,10 +288,10 @@ export function LivePos() {
             variant="primary"
             className="mt-4 w-full"
             onClick={() => {
-              window.location.href = "/register-device";
+              window.location.href = "/select-branch";
             }}
           >
-            {t("auth.deviceTitle")}
+            {t("branch.selectCta")}
           </Button>
         </Card>
       </div>
@@ -301,7 +301,7 @@ export function LivePos() {
   /*
    * A drawer is taken into someone's custody, so the token must say whose.
    *
-   * Signing in to the console and setting this device's branch is not
+   * Signing in to the console and selecting an operating branch is not
    * enough: that token identifies a *user*, and the server answers "Opening
    * a cash session requires a session that identifies the employee taking
    * custody of the drawer." Only `POST /auth/pin` mints a token carrying an
@@ -312,7 +312,7 @@ export function LivePos() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-md p-4">
           <CashierSignOn
-            branchId={deviceBranchId}
+            branchId={activeBranchId}
             // `onSessionChange` above already re-reads who is on the till,
             // so there is nothing to hand back but the confirmation.
             onSignedOn={() => setMessage(t("shift.signedOn"))}
@@ -880,7 +880,7 @@ function NewOrderPane({
         <CardHeader title={t("pos.newOrder")} spec="FR-POS-001" />
 
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
-        {!branchId ? <Callout tone="muted">{t("pos.branchFromDevice")}</Callout> : null}
+        {!branchId ? <Callout tone="muted">{t("pos.branchFromSelection")}</Callout> : null}
 
         <div className="mt-4 space-y-4">
           <Field label={t("orders.type")}>

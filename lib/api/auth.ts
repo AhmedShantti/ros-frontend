@@ -11,13 +11,14 @@
  * `signIn()` does both, picking the tenant automatically when the account
  * belongs to exactly one — which is the ordinary case, and one screen fewer.
  *
- * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — there used to be a step 3,
- * `POST /auth/terminal`, a CONSOLE (password-signed-in) user binding a
- * device to a registered ROS Terminal from `/register-device`. POS and KDS
- * are branch/employee application sessions now, not Terminal/device ones:
- * `/register-device` has a console user pick a branch instead (see that
- * file), and `signInWithPin` below takes that branchId directly. Nothing in
- * this file calls `/auth/terminal` or `/auth/terminals` any more.
+ * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 / FRONTEND-REMOVE-DEVICE-UX-P1 —
+ * there used to be a step 3, `POST /auth/terminal`, a CONSOLE
+ * (password-signed-in) user binding a device to a registered ROS Terminal.
+ * POS and KDS are branch/employee application sessions now, with no device
+ * to set up or register at all: `/select-branch` has a console user pick an
+ * operating branch instead (see that file), and `signInWithPin` below takes
+ * that branchId directly. Nothing in this file calls `/auth/terminal` or
+ * `/auth/terminals` any more.
  */
 
 import { api } from "./endpoints";
@@ -137,8 +138,8 @@ export async function setTerminalStatus(
  * A POS cashier or KDS employee signing on at this device with a PIN, rather
  * than a console user signing in with a password. The POS/KDS surface
  * identifies staff by employee code and PIN — never by email — and the
- * tenant/branch are known from the device (`getDeviceTenantId`/
- * `getDeviceBranchId`, set once at `/register-device`), not typed
+ * tenant/branch are already known (`getDeviceTenantId`/`getActiveBranchId`,
+ * the operating branch selected once at `/select-branch`), not typed
  * (FR-SEC-020).
  *
  * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — `PinLoginDto` no longer takes a

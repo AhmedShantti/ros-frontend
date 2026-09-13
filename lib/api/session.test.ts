@@ -2,14 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearSession,
   clearTerminalIdentity,
-  getDeviceBranchId,
+  getActiveBranchId,
   getOpenCashSession,
   getPendingCashOpen,
   getPosEmployee,
   isSignedIn,
+  migrateLegacyPosKdsDeviceState,
   onSessionChange,
   setActiveSurface,
-  setDeviceBranchId,
+  setActiveBranchId,
   setOpenCashSession,
   setPendingCashOpen,
   setPosEmployee,
@@ -99,9 +100,9 @@ describe("OpenCashSession storage", () => {
   });
 });
 
-describe("device branch vs. cashier identity — FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0", () => {
-  it("clearTerminalIdentity ends the PIN session without forgetting the device's branch", () => {
-    setDeviceBranchId("branch-1");
+describe("active operating branch vs. cashier identity — FRONTEND-REMOVE-DEVICE-UX-P1", () => {
+  it("clearTerminalIdentity ends the PIN session without forgetting the active branch", () => {
+    setActiveBranchId("branch-1");
     setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
     setPosEmployee({ code: "EMP01", name: "Amina" });
 
@@ -111,7 +112,7 @@ describe("device branch vs. cashier identity — FRONTEND-POS-KDS-TERMINAL-DECOU
     expect(getPosEmployee()).toBeNull();
     // The physical device does not stop running that branch's POS/KDS
     // because a cashier signed off.
-    expect(getDeviceBranchId()).toBe("branch-1");
+    expect(getActiveBranchId()).toBe("branch-1");
   });
 
   it("a half-finished pending open survives a sign-off, so a timed-out open cannot be doubled", () => {
@@ -175,5 +176,50 @@ describe("clearSession (console surface sign-out)", () => {
     setActiveSurface("terminal");
     expect(isSignedIn()).toBe(true); // terminal surface, untouched
     expect(getPosEmployee()).toEqual({ code: "EMP01", name: "Amina", sessionType: "pos" });
+  });
+});
+
+describe("migrateLegacyPosKdsDeviceState — FRONTEND-REMOVE-DEVICE-UX-P1", () => {
+  it("carries a value from the immediately preceding deviceBranchId key forward, then removes it", () => {
+    window.localStorage.setItem("ros.api.deviceBranchId", "branch-1");
+
+    migrateLegacyPosKdsDeviceState();
+
+    expect(getActiveBranchId()).toBe("branch-1");
+    expect(window.localStorage.getItem("ros.api.deviceBranchId")).toBeNull();
+  });
+
+  it("falls back to the oldest terminalBranchId key when deviceBranchId was never set", () => {
+    // A browser jumping straight from the original Terminal-bind build to
+    // this one, skipping the interim `deviceBranchId` release entirely.
+    window.localStorage.setItem("ros.api.terminalBranchId", "branch-9");
+
+    migrateLegacyPosKdsDeviceState();
+
+    expect(getActiveBranchId()).toBe("branch-9");
+    expect(window.localStorage.getItem("ros.api.terminalBranchId")).toBeNull();
+  });
+
+  it("never overwrites a branch already selected under the current key", () => {
+    setActiveBranchId("branch-current");
+    window.localStorage.setItem("ros.api.deviceBranchId", "branch-stale");
+
+    migrateLegacyPosKdsDeviceState();
+
+    expect(getActiveBranchId()).toBe("branch-current");
+  });
+
+  it("removes legacy Terminal identity keys with no successor, and is a no-op on a fresh browser", () => {
+    window.localStorage.setItem("ros.api.terminalId", "legacy-term-1");
+    window.localStorage.setItem("ros.api.terminalName", "Old Front Till");
+
+    expect(() => migrateLegacyPosKdsDeviceState()).not.toThrow();
+    expect(window.localStorage.getItem("ros.api.terminalId")).toBeNull();
+    expect(window.localStorage.getItem("ros.api.terminalName")).toBeNull();
+    expect(getActiveBranchId()).toBeNull();
+
+    // Calling it again on an already-clean browser must not throw or change anything.
+    expect(() => migrateLegacyPosKdsDeviceState()).not.toThrow();
+    expect(getActiveBranchId()).toBeNull();
   });
 });

@@ -45,7 +45,7 @@ import { formatElapsed } from "@/lib/console/format";
 import { ORDER_TYPE, TICKET_URGENCY } from "@/lib/console/labels";
 import { urgencyFor } from "@/lib/console/live/engine";
 import {
-  getDeviceBranchId,
+  getActiveBranchId,
   getDeviceTenantId,
   getKdsStationId,
   getPosEmployee,
@@ -120,7 +120,7 @@ export function LiveKds() {
    * The stored station is in `localStorage`, which the server render cannot
    * see. Reading it during render would make the first client paint disagree
    * with the server's, so nothing is decided until after mount. Same for the
-   * device's branch and whoever is PIN-signed-on to this KDS.
+   * active operating branch and whoever is PIN-signed-on to this KDS.
    */
   const [mounted, setMounted] = useState(false);
   const [stationId, setStation] = useState<Id | null>(null);
@@ -150,7 +150,7 @@ export function LiveKds() {
     });
   }, []);
 
-  const deviceBranchId = mounted ? getDeviceBranchId() : null;
+  const activeBranchId = mounted ? getActiveBranchId() : null;
 
   const chooseStation = useCallback((next: Id | null) => {
     setKdsStationId(next);
@@ -279,7 +279,7 @@ export function LiveKds() {
     );
   }
 
-  if (!deviceBranchId) {
+  if (!activeBranchId) {
     return (
       <div className="mx-auto min-h-0 w-full max-w-md flex-1 overflow-y-auto p-4">
         <Card>
@@ -289,10 +289,10 @@ export function LiveKds() {
             variant="primary"
             className="mt-4 w-full"
             onClick={() => {
-              window.location.href = "/register-device";
+              window.location.href = "/select-branch";
             }}
           >
-            {t("auth.deviceTitle")}
+            {t("branch.selectCta")}
           </Button>
         </Card>
       </div>
@@ -309,7 +309,7 @@ export function LiveKds() {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-md p-4">
-          <KdsSignOn branchId={deviceBranchId} onSignedOn={() => setEmployee(getKdsEmployee())} />
+          <KdsSignOn branchId={activeBranchId} onSignedOn={() => setEmployee(getKdsEmployee())} />
         </div>
       </div>
     );

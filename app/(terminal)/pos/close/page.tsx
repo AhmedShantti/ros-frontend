@@ -32,7 +32,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useI18n } from "@/lib/console/providers";
 import { useAction } from "@/lib/console/actions";
 import {
-  getDeviceBranchId,
+  getActiveBranchId,
   getDeviceTenantId,
   getPosEmployee,
   setPosEmployee,
@@ -87,9 +87,9 @@ function CloseSessionScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
-  // Both this device's branch and any previously-signed-on identity live in
-  // `localStorage`, invisible to the server render — nothing is decided
-  // until after mount, same as `LivePos`.
+  // Both the active operating branch and any previously-signed-on identity
+  // live in `localStorage`, invisible to the server render — nothing is
+  // decided until after mount, same as `LivePos`.
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -110,9 +110,9 @@ function CloseSessionScreen() {
     );
   }
 
-  const deviceBranchId = getDeviceBranchId();
+  const activeBranchId = getActiveBranchId();
 
-  if (!deviceBranchId) {
+  if (!activeBranchId) {
     return (
       <div className="mx-auto min-h-0 w-full max-w-md flex-1 overflow-y-auto p-4">
         <Card>
@@ -122,10 +122,10 @@ function CloseSessionScreen() {
             variant="primary"
             className="mt-4 w-full"
             onClick={() => {
-              window.location.href = "/register-device";
+              window.location.href = "/select-branch";
             }}
           >
-            {t("auth.deviceTitle")}
+            {t("branch.selectCta")}
           </Button>
         </Card>
       </div>
@@ -182,7 +182,7 @@ function CloseSessionScreen() {
           />
         ) : (
           <ManagerSignOn
-            branchId={deviceBranchId}
+            branchId={activeBranchId}
             onSignedOn={(employee) => {
               setManager(employee);
               setMessage(t("shift.signedOn"));

@@ -293,18 +293,17 @@ function SignedOnCashier() {
 }
 
 /**
- * Which branch this device is running POS/KDS against.
+ * Which branch this application is currently operating.
  *
- * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — this used to also show the bound
- * Terminal's name, cached locally from `POST /auth/terminal`'s bind
- * response. That response, and the whole registered-device identity it
- * named, is gone from this contract: POS and KDS are branch/employee
- * application sessions, not Terminal/device ones, so there is no terminal
- * name (or id) to show here any more — only the branch, read from the
- * server via `scope.branchId` (which resolves to this device's own
- * `getDeviceBranchId()`, set once at `/register-device`). While the branch
- * read is loading, the slot stays empty rather than naming a branch that
- * might not be this one.
+ * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 / FRONTEND-REMOVE-DEVICE-UX-P1 —
+ * this used to also show a bound Terminal's name, cached locally from
+ * `POST /auth/terminal`'s bind response, and later a "device branch". Both
+ * concepts are gone: POS and KDS need no device identity or setup at all, so
+ * there is no terminal name (or id) to show here any more — only the branch,
+ * read from the server via `scope.branchId` (which resolves to
+ * `getActiveBranchId()`, the branch selected once at `/select-branch`).
+ * While the branch read is loading, the slot stays empty rather than naming
+ * a branch that might not be this one.
  */
 function BoundIdentity() {
   const { tx } = useI18n();

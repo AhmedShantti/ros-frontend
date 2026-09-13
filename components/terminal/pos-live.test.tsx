@@ -79,7 +79,7 @@ const TENANT_ID = "tenant-1";
 
 function seedDevice() {
   Session.setActiveSurface("terminal");
-  Session.setDeviceBranchId(BRANCH_ID);
+  Session.setActiveBranchId(BRANCH_ID);
   Session.setTenantId(TENANT_ID);
 }
 
@@ -304,9 +304,9 @@ describe("LivePos — PIN sign-on contract (FRONTEND-POS-KDS-TERMINAL-DECOUPLING
     expect(screen.queryByText("pos.noBranch")).not.toBeInTheDocument();
   });
 
-  it("shows the branch-setup prompt, never a Terminal one, when this device has no branch set up", async () => {
-    // A genuinely fresh device: tenant known (from a console sign-in on this
-    // browser), but no deviceBranchId yet.
+  it("shows the branch-selection prompt, never a Terminal one, when no branch is selected", async () => {
+    // A genuinely fresh browser: tenant known (from a console sign-in on it),
+    // but no active branch selected yet.
     window.localStorage.clear();
     Session.setActiveSurface("terminal");
     Session.setTenantId(TENANT_ID);

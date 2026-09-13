@@ -7,8 +7,8 @@ import type { KitchenTicket } from "@/lib/console/types";
  * here (it had none before: any employee/announce-listener wiring is new,
  * not a regression). Coverage mirrors `pos-live.test.tsx`'s POS contract
  * tests: the PIN request shape, that stale Terminal-era localStorage is
- * inert, that a missing device branch shows a branch prompt rather than a
- * Terminal one, and that station-scoped ticket mutations carry `stationId`.
+ * inert, that no selected branch shows a branch-selection prompt rather than
+ * a Terminal one, and that station-scoped ticket mutations carry `stationId`.
  *
  * Mocked only at the transport boundary: `@/lib/console/services` and
  * `@/lib/api/auth`. The REAL `@/lib/api/session.ts` runs against jsdom's
@@ -80,7 +80,7 @@ const STATION = {
 
 function seedDevice() {
   Session.setActiveSurface("terminal");
-  Session.setDeviceBranchId(BRANCH_ID);
+  Session.setActiveBranchId(BRANCH_ID);
   Session.setTenantId(TENANT_ID);
 }
 
@@ -147,7 +147,7 @@ afterEach(() => {
 });
 
 describe("LiveKds — PIN sign-on contract (FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0)", () => {
-  it("shows the branch-setup prompt, never a Terminal one, when this device has no branch set up", async () => {
+  it("shows the branch-selection prompt, never a Terminal one, when no branch is selected", async () => {
     window.localStorage.clear();
     Session.setActiveSurface("terminal");
     Session.setTenantId(TENANT_ID);

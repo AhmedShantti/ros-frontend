@@ -40,6 +40,17 @@ const proxyTarget = (process.env.API_PROXY_TARGET ?? "").replace(/\/+$/, "");
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
+  /**
+   * FRONTEND-REMOVE-DEVICE-UX-P1 — `/register-device` named a concept POS/KDS
+   * no longer has: there is nothing to register, bind, or set up, only a
+   * branch to select. Kept as a bare redirect for anyone with the old URL
+   * bookmarked; a config-level redirect is genuinely empty of UI and business
+   * logic, unlike a page component that would have to render something.
+   */
+  async redirects() {
+    return [{ source: "/register-device", destination: "/select-branch", permanent: true }];
+  },
+
   ...(devOrigins.length > 0 ? { allowedDevOrigins: devOrigins } : {}),
 
   ...(proxyTarget

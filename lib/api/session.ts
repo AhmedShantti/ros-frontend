@@ -32,22 +32,26 @@
  * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — POS and KDS are branch/employee
  * application sessions, not registered Terminal/device ones: `POST /auth/pin`
  * takes `branchId` and `sessionType` ("pos" | "kds") instead of `terminalId`,
- * and the JWT it mints no longer carries `trm`. `deviceBranchId`/
- * `kdsStationId` stay SINGLE shared, DEVICE-scoped values for the same reason
- * `terminalId` used to: they name OPERATIONAL CONTEXT ("which branch/station
- * is this device"), not an authenticated identity — `/register-device` (a
- * console-authenticated screen) sets the branch once, and the SAME value
- * must be visible to `/pos`/`/kds` afterwards for a PIN sign-on to even know
- * which branch it is signing into. A Kitchen Station is operational context
- * the same way, never a device identity — see `lib/api/session.ts`'s own
- * `KEY_KDS_STATION` below.
+ * and the JWT it mints no longer carries `trm`.
  *
- * POS-CUSTODY — everything else on this device is scoped to WHO IS ON THE
- * TILL, and the split is the whole point of this module:
+ * FRONTEND-REMOVE-DEVICE-UX-P1 — there is no "device" concept in this model
+ * at all, not even a lightweight one: POS/KDS need no setup, registration, or
+ * binding step before use, only an operating BRANCH (and, for KDS, a Kitchen
+ * Station, chosen separately inside KDS itself). `activeBranchId`/
+ * `kdsStationId` are ordinary application state — the currently selected
+ * operating context — not a device identity, and are named accordingly.
+ * `/select-branch` (a console-authenticated screen) sets the branch once,
+ * and the SAME value must be visible to `/pos`/`/kds` afterwards for a PIN
+ * sign-on to even know which branch it is signing into. This state happens
+ * to live in this browser's `localStorage` (so it survives a reload without
+ * asking again), but that is a storage-lifetime detail, not the concept.
  *
- *   DEVICE-scoped, survives any sign-out: deviceBranchId, kdsStationId,
- *   deviceTenantId, deviceFingerprint. A device does not stop running the
- *   same branch's POS/KDS because someone went home.
+ * POS-CUSTODY — everything else here is scoped to WHO IS ON THE TILL, and
+ * the split is the whole point of this module:
+ *
+ *   Survives any sign-out: activeBranchId, kdsStationId, deviceTenantId,
+ *   deviceFingerprint. Signing off does not change which branch/station this
+ *   browser is currently operating.
  *
  *   USER-scoped, must never outlive the person who created it: both token
  *   slots, `posEmployee`, and any half-finished drawer open. Left behind,
@@ -103,25 +107,25 @@ function identityKeys() {
 }
 
 /**
- * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — these three keys named a
- * registered ROS Terminal device: `POST /auth/terminal`'s bind response and
- * `PinLoginDto.terminalId`, both gone from the backend contract. POS and KDS
- * are branch/employee application sessions now, not Terminal/device ones —
- * see `getDeviceBranchId`/`setDeviceBranchId` below for what replaced the
- * branch fact, and `clearLegacyPosKdsTerminalState` for forgetting whatever a
- * browser from before this migration still has sitting under them. Kept only
- * as string literals, deliberately not live constants: nothing in this
- * module may read or write through them again.
+ * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 / FRONTEND-REMOVE-DEVICE-UX-P1 —
+ * these keys named concepts this build no longer has: a registered ROS
+ * Terminal device (`POST /auth/terminal`'s bind response, `PinLoginDto.
+ * terminalId`), and — one migration later — a "device branch" implying the
+ * selected operating branch belonged to the physical device rather than
+ * simply being the application's current selection. See `KEY_ACTIVE_BRANCH`
+ * for the branch key this app actually uses now, and
+ * `migrateLegacyPosKdsDeviceState` for the one-time, value-preserving move
+ * off every one of these. Kept only as string literals, deliberately not
+ * live constants: nothing outside that migration may read or write through
+ * them again.
  *
- *   "ros.api.terminalId"        — the bound terminal's id
- *   "ros.api.terminalName"      — its display name, cached at bind time
- *   "ros.api.terminalBranchId"  — its branch, cached at bind time
+ *   "ros.api.terminalId"        — the bound terminal's id (no successor)
+ *   "ros.api.terminalName"      — its display name, cached at bind time (no successor)
+ *   "ros.api.terminalBranchId"  — its branch, cached at bind time (oldest predecessor of `activeBranchId`)
  */
-const LEGACY_TERMINAL_KEYS = [
-  "ros.api.terminalId",
-  "ros.api.terminalName",
-  "ros.api.terminalBranchId",
-] as const;
+const LEGACY_TERMINAL_KEYS = ["ros.api.terminalId", "ros.api.terminalName"] as const;
+/** The oldest predecessor of `KEY_ACTIVE_BRANCH`, from the Terminal-bind model — see `migrateLegacyPosKdsDeviceState`. */
+const LEGACY_TERMINAL_BRANCH_KEY = "ros.api.terminalBranchId";
 
 /**
  * DEMO-SESSION-ISOLATION-HOTFIX — which tenant THIS DEVICE operates under,
@@ -138,25 +142,31 @@ const LEGACY_TERMINAL_KEYS = [
  */
 const KEY_DEVICE_TENANT = "ros.api.deviceTenantId";
 /**
- * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — which branch THIS DEVICE runs
- * POS/KDS against, a DEVICE-level fact mirroring `KEY_DEVICE_TENANT` above.
- * Replaces the old `terminalBranchId`, which came from a Terminal bind
- * response that no longer exists: `/register-device` now has a console user
- * pick a branch directly (from the same authorized-branches list the
- * console's own switcher offers) instead of binding a till, and saves it
- * here once. Every POS/KDS read that needs "this device's own branch" (the
- * PIN sign-on request, the menu, the tables, the branch chip) reads it from
- * here instead of the console's brand/branch scope switcher: that switcher's
- * storage keys (`ros.console.brand`/`.branch`) are shared with `(console)`
- * and persist across a manager's own console session, so a cashier signing
- * on right after that manager set the device up would otherwise inherit
- * whatever branch the manager's dashboard happened to be filtered to — never
- * cleared by a sign-out, for the same reason `KEY_DEVICE_TENANT` is not: the
- * physical device does not change branches just because someone signed out.
- * A DIFFERENT key from the legacy one on purpose — a value cached under the
- * old Terminal-bind semantics must never be silently reinterpreted as this.
+ * FRONTEND-REMOVE-DEVICE-UX-P1 — the currently selected operating branch for
+ * POS/KDS on this browser. Was `deviceBranchId`/`KEY_DEVICE_BRANCH`: that
+ * name implied the branch belonged to the physical device, a leftover of the
+ * Terminal-bind model this app no longer has. There is no device to own it —
+ * it is simply which branch the application is currently pointed at,
+ * selected once at `/select-branch` (from the same authorized-branches list
+ * the console's own switcher offers) and read from here by every POS/KDS
+ * screen that needs it (the PIN sign-on request, the menu, the tables, the
+ * branch chip) instead of the console's brand/branch scope switcher: that
+ * switcher's storage keys (`ros.console.brand`/`.branch`) are shared with
+ * `(console)` and persist across a manager's own console session, so a
+ * cashier signing on right after that manager finished there would otherwise
+ * inherit whatever branch the manager's dashboard happened to be filtered
+ * to. Never cleared by a sign-out — signing off does not change which branch
+ * this browser is currently operating.
+ *
+ * A DIFFERENT key from the legacy `ros.api.deviceBranchId`/
+ * `ros.api.terminalBranchId` ones on purpose, so a value cached under either
+ * old model is never silently reinterpreted as this — see
+ * `migrateLegacyPosKdsDeviceState` below for the one-time, value-preserving
+ * move off the immediate predecessor key.
  */
-const KEY_DEVICE_BRANCH = "ros.api.deviceBranchId";
+const KEY_ACTIVE_BRANCH = "ros.api.activeBranchId";
+/** The immediately preceding name for `KEY_ACTIVE_BRANCH` — see `migrateLegacyPosKdsDeviceState`. */
+const LEGACY_DEVICE_BRANCH_KEY = "ros.api.deviceBranchId";
 const KEY_CASH_SESSION = "ros.api.cashSessionId";
 const KEY_CASH_OPENING = "ros.api.cashSessionOpening";
 const KEY_POS_EMPLOYEE = "ros.api.posEmployee";
@@ -216,18 +226,17 @@ export function getTokens(): TokenSet | null {
 
 /**
  * PROD-AUTH-EXPIRY-P0 — `silent` skips the `announce()` at the end. A token
- * refresh is a MULTI-STEP replay (base token, then tenant re-select, then
- * terminal re-bind — see `client.ts`'s `refreshSession()`), each of which
- * calls this. Announcing after every intermediate step let
- * `useLiveOrgContext`'s own `onSessionChange` listener re-trigger its FULL
- * org bootstrap mid-replay, using whatever PARTIALLY-scoped token happened
- * to exist at that instant (e.g. the bare, tenant-less base token, before
- * the tenant re-select step had even started) — that premature fetch then
- * genuinely failed, and the failure path is what a real session's data
- * disappearing around the access-token expiry actually was. Only the LAST
- * write of a replay should announce; every caller outside a replay
- * (sign-in, PIN sign-on, tenant selection, terminal bind — all genuinely
- * one-shot) is unaffected, since they never pass `silent`.
+ * refresh is a two-step replay (base token, then tenant re-select — see
+ * `client.ts`'s `refreshSession()`), each of which calls this. Announcing
+ * after the first step let `useLiveOrgContext`'s own `onSessionChange`
+ * listener re-trigger its FULL org bootstrap mid-replay, using whatever
+ * PARTIALLY-scoped token happened to exist at that instant (the bare,
+ * tenant-less base token, before the tenant re-select step had even
+ * started) — that premature fetch then genuinely failed, and the failure
+ * path is what a real session's data disappearing around the access-token
+ * expiry actually was. Only the LAST write of a replay should announce;
+ * every caller outside a replay (sign-in, PIN sign-on, tenant selection —
+ * all genuinely one-shot) is unaffected, since they never pass `silent`.
  */
 export function setTokens(
   tokens: {
@@ -355,28 +364,38 @@ export function getDeviceTenantId(): string | null {
   return read(KEY_DEVICE_TENANT);
 }
 
-/** Which branch this DEVICE runs POS/KDS against — see `KEY_DEVICE_BRANCH`. */
-export function getDeviceBranchId(): string | null {
-  return read(KEY_DEVICE_BRANCH);
+/** The currently selected operating branch for POS/KDS — see `KEY_ACTIVE_BRANCH`. */
+export function getActiveBranchId(): string | null {
+  return read(KEY_ACTIVE_BRANCH);
 }
 
-export function setDeviceBranchId(branchId: string | null): void {
-  write(KEY_DEVICE_BRANCH, branchId);
+export function setActiveBranchId(branchId: string | null): void {
+  write(KEY_ACTIVE_BRANCH, branchId);
   announce();
 }
 
 /**
- * Forgets a pre-decoupling browser's Terminal/device state — see
- * `LEGACY_TERMINAL_KEYS`. Safe to call unconditionally and repeatedly: a key
- * already absent is simply a no-op removal. Called once at POS/KDS bootstrap
- * so a production browser holding old `terminalId`/`terminalName`/
- * `terminalBranchId` values cannot have them read, misinterpreted, or acted
- * on by anything — the whole point being that a returning user lands on the
- * new branch-selection flow instead of a crash or a redirect loop over state
- * this build no longer knows how to use.
+ * Forgets a pre-decoupling browser's Terminal/device state, and carries its
+ * selected branch (if any) forward onto the current key — see
+ * `LEGACY_TERMINAL_KEYS`/`LEGACY_TERMINAL_BRANCH_KEY`. Safe to call
+ * unconditionally and repeatedly: a key already absent is simply a no-op
+ * removal, and an `activeBranchId` already set is never overwritten. Called
+ * once at POS/KDS bootstrap so a production browser holding old
+ * `terminalId`/`terminalName`/`terminalBranchId`/`deviceBranchId` values
+ * cannot have them read, misinterpreted, or acted on by anything — the whole
+ * point being that a returning user keeps the branch they already had
+ * selected, rather than a crash, a redirect loop, or being asked again over
+ * state this build no longer knows how to use.
  */
-export function clearLegacyPosKdsTerminalState(): void {
+export function migrateLegacyPosKdsDeviceState(): void {
   for (const key of LEGACY_TERMINAL_KEYS) write(key, null);
+
+  if (read(KEY_ACTIVE_BRANCH) === null) {
+    const inherited = read(LEGACY_DEVICE_BRANCH_KEY) ?? read(LEGACY_TERMINAL_BRANCH_KEY);
+    if (inherited) write(KEY_ACTIVE_BRANCH, inherited);
+  }
+  write(LEGACY_DEVICE_BRANCH_KEY, null);
+  write(LEGACY_TERMINAL_BRANCH_KEY, null);
 }
 
 /**
@@ -427,10 +446,11 @@ export interface OpenCashSession {
    */
   employeeCode: string;
   /**
-   * The branch it was opened at, so a device repurposed to a different
-   * branch does not inherit it. Was `terminalId` — a re-bound Terminal is not
-   * a scenario this build has anymore, but a device's assigned branch
-   * changing is the same shape of event, and gets the same protection.
+   * The branch operating when it was opened, so switching to a different
+   * operating branch does not inherit it. Was `terminalId` — a re-bound
+   * Terminal is not a scenario this build has anymore, but the operating
+   * branch changing underneath a stored session is the same shape of event,
+   * and gets the same protection.
    */
   branchId: string;
 }
@@ -441,9 +461,9 @@ export function getOpenCashSession(): OpenCashSession | null {
 
   // A bare id is the pre-custody shape. Keep it — there is real money behind
   // it and no endpoint to rediscover it with — but keep it as what it is: a
-  // session whose owner this device cannot vouch for.
+  // session whose owner this browser cannot vouch for.
   if (!raw.startsWith("{")) {
-    return { cashSessionId: raw, employeeCode: "", branchId: read(KEY_DEVICE_BRANCH) ?? "" };
+    return { cashSessionId: raw, employeeCode: "", branchId: read(KEY_ACTIVE_BRANCH) ?? "" };
   }
 
   try {

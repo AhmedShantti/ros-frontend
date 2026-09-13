@@ -23,7 +23,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, KeyRound, LogIn, ShieldCheck } from "lucide-react";
+import { Building2, LogIn, ShieldCheck } from "lucide-react";
 import { ROLE_DEFINITIONS } from "@/lib/console/permissions";
 import { AuthError, DEMO_ACCOUNTS, DEMO_PASSWORD, authenticate } from "@/lib/console/mock/accounts";
 import { roleFromPermissions, setPendingRole, takeReturnTo } from "@/lib/console/auth";
@@ -211,11 +211,11 @@ export default function LoginPage() {
               {t("auth.forgot")}
             </Link>
             <Link
-              href="/register-device"
+              href="/select-branch"
               className="hover:text-fg inline-flex items-center gap-1.5 transition-colors"
             >
-              <KeyRound size={12} aria-hidden />
-              {t("auth.deviceTitle")}
+              <Building2 size={12} aria-hidden />
+              {t("branch.selectTitle")}
             </Link>
           </div>
 
