@@ -5,9 +5,9 @@
  * typed wrapper. What it handles that a bare `fetch` does not:
  *
  *  - The bearer token, and rotating it when it expires. A refresh yields a
- *    *base* token, so the tenant selection (and terminal binding) is replayed
- *    afterwards — otherwise every scoped endpoint would start returning 403
- *    ten minutes into a shift.
+ *    *base* token, so the tenant selection is replayed afterwards —
+ *    otherwise every scoped endpoint would start returning 403 ten minutes
+ *    into a shift.
  *  - Nest's error envelope, turned into the `ServiceError` the UI renders.
  *    A `ValidationPipe` failure arrives as an array of messages; they are
  *    joined rather than dropped, because "name must be shorter than 120
@@ -28,7 +28,6 @@ import {
   getAccessToken,
   getRefreshToken,
   getTenantId,
-  getTerminalId,
   isAccessTokenStale,
   setTokens,
 } from "./session";
@@ -176,23 +175,16 @@ async function refreshSession(): Promise<boolean> {
         }
       }
 
-      const terminalId = getTerminalId();
-      if (terminalId) {
-        try {
-          const bound = await send<TokenResponse>("POST", "/auth/terminal", {
-            body: { terminalId },
-            anonymous: true,
-            bearer: getAccessToken(),
-          });
-          setTokens(bound, { silent: true });
-        } catch {
-          // Terminal revoked or reassigned; POS screens prompt to re-bind.
-        }
-      }
+      // FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — there used to be a third
+      // replay step here, re-binding a Terminal (`POST /auth/terminal`) after
+      // the tenant re-select. POS/KDS tokens no longer carry a terminal claim
+      // to restore: `sessionType`/`branchId` are minted once at PIN sign-on
+      // and a token refresh does not change either, so there is nothing left
+      // to replay. Do not reintroduce a call to `/auth/terminal` here.
 
-      // One announce, now that the FULL replay (base, then tenant, then
-      // terminal) has settled — whatever a listener re-fetches with is the
-      // final, fully-scoped token, never an intermediate one.
+      // One announce, now that the replay (base, then tenant) has settled —
+      // whatever a listener re-fetches with is the final, fully-scoped
+      // token, never an intermediate one.
       announceSessionChange();
       return true;
     })().finally(() => {

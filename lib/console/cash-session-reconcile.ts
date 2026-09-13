@@ -33,7 +33,15 @@
 export interface HeldSession {
   cashSessionId: string;
   employeeCode: string;
-  terminalId: string;
+  /**
+   * The branch this device was running when the session was opened — was
+   * `terminalId`. POS is a branch/employee application session now, not a
+   * registered Terminal/device one; the protection this axis gives (a
+   * device repurposed to a different branch does not inherit a stale
+   * session) is the same shape as the old "a re-bound Terminal does not
+   * inherit it," just keyed on the fact that still exists.
+   */
+  branchId: string;
 }
 
 export interface CashierIdentity {
@@ -57,21 +65,21 @@ export function sameEmployee(a: string, b: string): boolean {
 
 /**
  * Whether the drawer this till is holding, LOCALLY, belongs to the currently
- * signed-on cashier — a pure, offline check over `held`/`cashier`/`terminalId`
+ * signed-on cashier — a pure, offline check over `held`/`cashier`/`branchId`
  * only. Never consults the server: this is what decides whether the server
  * may even be asked (see the module doc above).
  */
 export function isMine(
   held: HeldSession | null,
   cashier: CashierIdentity | null,
-  terminalId: string | null,
+  branchId: string | null,
 ): boolean {
   return (
     held !== null &&
     cashier !== null &&
     held.employeeCode !== "" &&
     sameEmployee(held.employeeCode, cashier.code) &&
-    (held.terminalId === "" || held.terminalId === terminalId)
+    (held.branchId === "" || held.branchId === branchId)
   );
 }
 

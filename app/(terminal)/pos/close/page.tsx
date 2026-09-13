@@ -32,9 +32,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useI18n } from "@/lib/console/providers";
 import { useAction } from "@/lib/console/actions";
 import {
+  getDeviceBranchId,
   getDeviceTenantId,
   getPosEmployee,
-  getTerminalId,
   setPosEmployee,
   type PosEmployee,
 } from "@/lib/api/session";
@@ -87,7 +87,7 @@ function CloseSessionScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
-  // Both the terminal binding and any previously-signed-on identity live in
+  // Both this device's branch and any previously-signed-on identity live in
   // `localStorage`, invisible to the server render — nothing is decided
   // until after mount, same as `LivePos`.
   useEffect(() => {
@@ -110,14 +110,14 @@ function CloseSessionScreen() {
     );
   }
 
-  const terminalId = getTerminalId();
+  const deviceBranchId = getDeviceBranchId();
 
-  if (!terminalId) {
+  if (!deviceBranchId) {
     return (
       <div className="mx-auto min-h-0 w-full max-w-md flex-1 overflow-y-auto p-4">
         <Card>
-          <CardHeader title={t("pos.noTerminal")} spec="FR-SEC-030" />
-          <Callout tone="warn">{t("pos.noTerminalNote")}</Callout>
+          <CardHeader title={t("pos.noBranch")} spec="FR-SEC-030" />
+          <Callout tone="warn">{t("pos.noBranchNote")}</Callout>
           <Button
             variant="primary"
             className="mt-4 w-full"
@@ -182,7 +182,7 @@ function CloseSessionScreen() {
           />
         ) : (
           <ManagerSignOn
-            terminalId={terminalId}
+            branchId={deviceBranchId}
             onSignedOn={(employee) => {
               setManager(employee);
               setMessage(t("shift.signedOn"));
@@ -205,10 +205,10 @@ function CloseSessionScreen() {
  * *manager's* own code and PIN, not whichever cashier last used this till.
  */
 function ManagerSignOn({
-  terminalId,
+  branchId,
   onSignedOn,
 }: {
-  terminalId: string;
+  branchId: string;
   onSignedOn: (employee: PosEmployee) => void;
 }) {
   const { t } = useI18n();
@@ -224,7 +224,7 @@ function ManagerSignOn({
     const code = employeeCode.trim();
     await action.run(
       async () => {
-        await signInWithPin({ tenantId, terminalId, employeeCode: code, pin });
+        await signInWithPin({ tenantId, branchId, employeeCode: code, pin, sessionType: "pos" });
         return getPosEmployee() ?? { code, name: code };
       },
       {

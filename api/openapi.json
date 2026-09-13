@@ -30,7 +30,7 @@
             "description": "The newly opened order.",
             "headers": {
               "ETag": {
-                "description": "Weak validator W/\"<orderId>.<version>\" for this order — send back as If-Match on the next mutation.",
+                "description": "Weak validator W/\"<orderId>.<version>\" for this order \u2014 send back as If-Match on the next mutation.",
                 "schema": {
                   "type": "string",
                   "example": "W/\"3fa85f64-5717-4562-b3fc-2c963f66afa6.4\""
@@ -222,7 +222,7 @@
                     },
                     "countryPackVersion": {
                       "type": "string",
-                      "description": "FR-LOC-021 — the pack version this order was priced under, pinned."
+                      "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned."
                     },
                     "notes": {
                       "type": [
@@ -232,7 +232,7 @@
                     },
                     "version": {
                       "type": "integer",
-                      "description": "Optimistic-concurrency version; also the ETag validator (§24.6.4)."
+                      "description": "Optimistic-concurrency version; also the ETag validator (\u00a724.6.4)."
                     },
                     "createdAt": {
                       "type": "string",
@@ -715,7 +715,7 @@
                           },
                           "countryPackVersion": {
                             "type": "string",
-                            "description": "FR-LOC-021 — the pack version this order was priced under, pinned."
+                            "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned."
                           },
                           "notes": {
                             "type": [
@@ -725,7 +725,7 @@
                           },
                           "version": {
                             "type": "integer",
-                            "description": "Optimistic-concurrency version; also the ETag validator (§24.6.4)."
+                            "description": "Optimistic-concurrency version; also the ETag validator (\u00a724.6.4)."
                           },
                           "createdAt": {
                             "type": "string",
@@ -969,7 +969,7 @@
             }
           },
           "404": {
-            "description": "The named branch is not visible in this tenant — unknown, or another tenant's. Byte-identical for both, so a caller cannot learn that a foreign branch exists.",
+            "description": "The named branch is not visible in this tenant \u2014 unknown, or another tenant's. Byte-identical for both, so a caller cannot learn that a foreign branch exists.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1021,7 +1021,7 @@
             "description": "The order, including its lines.",
             "headers": {
               "ETag": {
-                "description": "Weak validator W/\"<orderId>.<version>\" for this order — send back as If-Match on the next mutation.",
+                "description": "Weak validator W/\"<orderId>.<version>\" for this order \u2014 send back as If-Match on the next mutation.",
                 "schema": {
                   "type": "string",
                   "example": "W/\"3fa85f64-5717-4562-b3fc-2c963f66afa6.4\""
@@ -1213,7 +1213,7 @@
                     },
                     "countryPackVersion": {
                       "type": "string",
-                      "description": "FR-LOC-021 — the pack version this order was priced under, pinned."
+                      "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned."
                     },
                     "notes": {
                       "type": [
@@ -1223,7 +1223,7 @@
                     },
                     "version": {
                       "type": "integer",
-                      "description": "Optimistic-concurrency version; also the ETag validator (§24.6.4)."
+                      "description": "Optimistic-concurrency version; also the ETag validator (\u00a724.6.4)."
                     },
                     "createdAt": {
                       "type": "string",
@@ -1567,7 +1567,7 @@
                           "enum": [
                             "completed"
                           ],
-                          "description": "Always completed — a receipt cannot be produced for any other order state."
+                          "description": "Always completed \u2014 a receipt cannot be produced for any other order state."
                         },
                         "completedAt": {
                           "type": "string",
@@ -1581,7 +1581,7 @@
                         },
                         "countryPackVersion": {
                           "type": "string",
-                          "description": "FR-LOC-021 — the pack version this order was priced under, pinned. Provenance only; never re-resolved."
+                          "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned. Provenance only; never re-resolved."
                         }
                       }
                     },
@@ -1654,7 +1654,7 @@
                           "lineDiscount": {
                             "type": "string",
                             "pattern": "^-?\\d+$",
-                            "description": "Minor-unit money amount as a decimal string. Always \"0\" under the current runtime — discounts are not implemented — reported verbatim, never invented.",
+                            "description": "Minor-unit money amount as a decimal string. Always \"0\" under the current runtime \u2014 discounts are not implemented \u2014 reported verbatim, never invented.",
                             "example": "1250"
                           },
                           "lineSubtotal": {
@@ -1696,13 +1696,13 @@
                         "discountTotal": {
                           "type": "string",
                           "pattern": "^-?\\d+$",
-                          "description": "Always \"0\" under the current runtime — discounts are not implemented — reported verbatim, never invented.",
+                          "description": "Always \"0\" under the current runtime \u2014 discounts are not implemented \u2014 reported verbatim, never invented.",
                           "example": "1250"
                         },
                         "serviceChargeTotal": {
                           "type": "string",
                           "pattern": "^-?\\d+$",
-                          "description": "Always \"0\" under the current runtime — service charge is not implemented.",
+                          "description": "Always \"0\" under the current runtime \u2014 service charge is not implemented.",
                           "example": "1250"
                         },
                         "taxTotal": {
@@ -1726,7 +1726,7 @@
                         "tipTotal": {
                           "type": "string",
                           "pattern": "^-?\\d+$",
-                          "description": "Always \"0\" under the current runtime — tips are not implemented.",
+                          "description": "Always \"0\" under the current runtime \u2014 tips are not implemented.",
                           "example": "1250"
                         },
                         "cashRoundingAdjustment": {
@@ -1745,7 +1745,7 @@
                         "NOT_APPLICABLE",
                         "UNDETERMINED"
                       ],
-                      "description": "FR-FIN-031 — whether the pinned country pack priced this order tax-inclusive or tax-exclusive, derived from the frozen order totals only. NOT_APPLICABLE when taxTotal is zero."
+                      "description": "FR-FIN-031 \u2014 whether the pinned country pack priced this order tax-inclusive or tax-exclusive, derived from the frozen order totals only. NOT_APPLICABLE when taxTotal is zero."
                     },
                     "payments": {
                       "type": "array",
@@ -1858,7 +1858,7 @@
             }
           },
           "422": {
-            "description": "The order has never been completed — no receipt exists for a draft, open, held, parked, partially_paid or cancelled order. (completed, partially_refunded and refunded orders all have one — POS-FIN-1.)",
+            "description": "The order has never been completed \u2014 no receipt exists for a draft, open, held, parked, partially_paid or cancelled order. (completed, partially_refunded and refunded orders all have one \u2014 POS-FIN-1.)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1938,7 +1938,7 @@
             "description": "The newly captured line and the order it now belongs to.",
             "headers": {
               "ETag": {
-                "description": "Weak validator W/\"<orderId>.<version>\" for this order — send back as If-Match on the next mutation.",
+                "description": "Weak validator W/\"<orderId>.<version>\" for this order \u2014 send back as If-Match on the next mutation.",
                 "schema": {
                   "type": "string",
                   "example": "W/\"3fa85f64-5717-4562-b3fc-2c963f66afa6.4\""
@@ -2301,7 +2301,7 @@
                         },
                         "countryPackVersion": {
                           "type": "string",
-                          "description": "FR-LOC-021 — the pack version this order was priced under, pinned."
+                          "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned."
                         },
                         "notes": {
                           "type": [
@@ -2311,7 +2311,7 @@
                         },
                         "version": {
                           "type": "integer",
-                          "description": "Optimistic-concurrency version; also the ETag validator (§24.6.4)."
+                          "description": "Optimistic-concurrency version; also the ETag validator (\u00a724.6.4)."
                         },
                         "createdAt": {
                           "type": "string",
@@ -2611,7 +2611,7 @@
           {
             "name": "idempotency-key",
             "in": "header",
-            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true) — no second Fire, no second FireBatch.",
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true) \u2014 no second Fire, no second FireBatch.",
             "required": true,
             "schema": {
               "type": "string"
@@ -2623,7 +2623,7 @@
             "description": "The order after Fire, including every line (previously-fired and newly-fired alike).",
             "headers": {
               "ETag": {
-                "description": "Weak validator W/\"<orderId>.<version>\" for this order — send back as If-Match on the next mutation.",
+                "description": "Weak validator W/\"<orderId>.<version>\" for this order \u2014 send back as If-Match on the next mutation.",
                 "schema": {
                   "type": "string",
                   "example": "W/\"3fa85f64-5717-4562-b3fc-2c963f66afa6.4\""
@@ -2815,7 +2815,7 @@
                     },
                     "countryPackVersion": {
                       "type": "string",
-                      "description": "FR-LOC-021 — the pack version this order was priced under, pinned."
+                      "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned."
                     },
                     "notes": {
                       "type": [
@@ -2825,7 +2825,7 @@
                     },
                     "version": {
                       "type": "integer",
-                      "description": "Optimistic-concurrency version; also the ETag validator (§24.6.4)."
+                      "description": "Optimistic-concurrency version; also the ETag validator (\u00a724.6.4)."
                     },
                     "createdAt": {
                       "type": "string",
@@ -3080,7 +3080,7 @@
             "bearer": []
           }
         ],
-        "summary": "Fire eligible pending lines to production (explicit MVP Fire — no auto-Fire).",
+        "summary": "Fire eligible pending lines to production (explicit MVP Fire \u2014 no auto-Fire).",
         "tags": [
           "sales"
         ]
@@ -3123,7 +3123,7 @@
           {
             "name": "idempotency-key",
             "in": "header",
-            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true) — no second Payment, no second paid_total increment.",
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true) \u2014 no second Payment, no second paid_total increment.",
             "required": true,
             "schema": {
               "type": "string"
@@ -3145,7 +3145,7 @@
             "description": "The newly captured Payment and the order it now belongs to (paidTotal/roundingAdjustment/state/version updated).",
             "headers": {
               "ETag": {
-                "description": "Weak validator W/\"<orderId>.<version>\" for this order — send back as If-Match on the next mutation.",
+                "description": "Weak validator W/\"<orderId>.<version>\" for this order \u2014 send back as If-Match on the next mutation.",
                 "schema": {
                   "type": "string",
                   "example": "W/\"3fa85f64-5717-4562-b3fc-2c963f66afa6.4\""
@@ -3453,7 +3453,7 @@
                         },
                         "countryPackVersion": {
                           "type": "string",
-                          "description": "FR-LOC-021 — the pack version this order was priced under, pinned."
+                          "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned."
                         },
                         "notes": {
                           "type": [
@@ -3463,7 +3463,7 @@
                         },
                         "version": {
                           "type": "integer",
-                          "description": "Optimistic-concurrency version; also the ETag validator (§24.6.4)."
+                          "description": "Optimistic-concurrency version; also the ETag validator (\u00a724.6.4)."
                         },
                         "createdAt": {
                           "type": "string",
@@ -3791,7 +3791,7 @@
             "description": "The voided line and the order it belongs to.",
             "headers": {
               "ETag": {
-                "description": "Weak validator W/\"<orderId>.<version>\" for this order — send back as If-Match on the next mutation.",
+                "description": "Weak validator W/\"<orderId>.<version>\" for this order \u2014 send back as If-Match on the next mutation.",
                 "schema": {
                   "type": "string",
                   "example": "W/\"3fa85f64-5717-4562-b3fc-2c963f66afa6.4\""
@@ -4154,7 +4154,7 @@
                         },
                         "countryPackVersion": {
                           "type": "string",
-                          "description": "FR-LOC-021 — the pack version this order was priced under, pinned."
+                          "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned."
                         },
                         "notes": {
                           "type": [
@@ -4164,7 +4164,7 @@
                         },
                         "version": {
                           "type": "integer",
-                          "description": "Optimistic-concurrency version; also the ETag validator (§24.6.4)."
+                          "description": "Optimistic-concurrency version; also the ETag validator (\u00a724.6.4)."
                         },
                         "createdAt": {
                           "type": "string",
@@ -4396,7 +4396,7 @@
             }
           },
           "409": {
-            "description": "The If-Match version is stale — someone else changed the order first.",
+            "description": "The If-Match version is stale \u2014 someone else changed the order first.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4495,7 +4495,7 @@
             "description": "The discounted line and the order it belongs to.",
             "headers": {
               "ETag": {
-                "description": "Weak validator W/\"<orderId>.<version>\" for this order — send back as If-Match on the next mutation.",
+                "description": "Weak validator W/\"<orderId>.<version>\" for this order \u2014 send back as If-Match on the next mutation.",
                 "schema": {
                   "type": "string",
                   "example": "W/\"3fa85f64-5717-4562-b3fc-2c963f66afa6.4\""
@@ -4858,7 +4858,7 @@
                         },
                         "countryPackVersion": {
                           "type": "string",
-                          "description": "FR-LOC-021 — the pack version this order was priced under, pinned."
+                          "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned."
                         },
                         "notes": {
                           "type": [
@@ -4868,7 +4868,7 @@
                         },
                         "version": {
                           "type": "integer",
-                          "description": "Optimistic-concurrency version; also the ETag validator (§24.6.4)."
+                          "description": "Optimistic-concurrency version; also the ETag validator (\u00a724.6.4)."
                         },
                         "createdAt": {
                           "type": "string",
@@ -5105,7 +5105,7 @@
                             "string",
                             "null"
                           ],
-                          "description": "Basis points — 1bp = 0.01 percentage point (1500 = 15.00%). Exact integer string."
+                          "description": "Basis points \u2014 1bp = 0.01 percentage point (1500 = 15.00%). Exact integer string."
                         },
                         "fixedValueMinor": {
                           "type": [
@@ -5290,7 +5290,7 @@
             "description": "The order with its new discount applied.",
             "headers": {
               "ETag": {
-                "description": "Weak validator W/\"<orderId>.<version>\" for this order — send back as If-Match on the next mutation.",
+                "description": "Weak validator W/\"<orderId>.<version>\" for this order \u2014 send back as If-Match on the next mutation.",
                 "schema": {
                   "type": "string",
                   "example": "W/\"3fa85f64-5717-4562-b3fc-2c963f66afa6.4\""
@@ -5485,7 +5485,7 @@
                         },
                         "countryPackVersion": {
                           "type": "string",
-                          "description": "FR-LOC-021 — the pack version this order was priced under, pinned."
+                          "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned."
                         },
                         "notes": {
                           "type": [
@@ -5495,7 +5495,7 @@
                         },
                         "version": {
                           "type": "integer",
-                          "description": "Optimistic-concurrency version; also the ETag validator (§24.6.4)."
+                          "description": "Optimistic-concurrency version; also the ETag validator (\u00a724.6.4)."
                         },
                         "createdAt": {
                           "type": "string",
@@ -5732,7 +5732,7 @@
                             "string",
                             "null"
                           ],
-                          "description": "Basis points — 1bp = 0.01 percentage point (1500 = 15.00%). Exact integer string."
+                          "description": "Basis points \u2014 1bp = 0.01 percentage point (1500 = 15.00%). Exact integer string."
                         },
                         "fixedValueMinor": {
                           "type": [
@@ -5916,7 +5916,7 @@
             "description": "The comped line and the order it belongs to.",
             "headers": {
               "ETag": {
-                "description": "Weak validator W/\"<orderId>.<version>\" for this order — send back as If-Match on the next mutation.",
+                "description": "Weak validator W/\"<orderId>.<version>\" for this order \u2014 send back as If-Match on the next mutation.",
                 "schema": {
                   "type": "string",
                   "example": "W/\"3fa85f64-5717-4562-b3fc-2c963f66afa6.4\""
@@ -6279,7 +6279,7 @@
                         },
                         "countryPackVersion": {
                           "type": "string",
-                          "description": "FR-LOC-021 — the pack version this order was priced under, pinned."
+                          "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned."
                         },
                         "notes": {
                           "type": [
@@ -6289,7 +6289,7 @@
                         },
                         "version": {
                           "type": "integer",
-                          "description": "Optimistic-concurrency version; also the ETag validator (§24.6.4)."
+                          "description": "Optimistic-concurrency version; also the ETag validator (\u00a724.6.4)."
                         },
                         "createdAt": {
                           "type": "string",
@@ -6526,7 +6526,7 @@
                             "string",
                             "null"
                           ],
-                          "description": "Basis points — 1bp = 0.01 percentage point (1500 = 15.00%). Exact integer string."
+                          "description": "Basis points \u2014 1bp = 0.01 percentage point (1500 = 15.00%). Exact integer string."
                         },
                         "fixedValueMinor": {
                           "type": [
@@ -6710,7 +6710,7 @@
             "description": "The voided line, the order, and the disposition record.",
             "headers": {
               "ETag": {
-                "description": "Weak validator W/\"<orderId>.<version>\" for this order — send back as If-Match on the next mutation.",
+                "description": "Weak validator W/\"<orderId>.<version>\" for this order \u2014 send back as If-Match on the next mutation.",
                 "schema": {
                   "type": "string",
                   "example": "W/\"3fa85f64-5717-4562-b3fc-2c963f66afa6.4\""
@@ -7073,7 +7073,7 @@
                         },
                         "countryPackVersion": {
                           "type": "string",
-                          "description": "FR-LOC-021 — the pack version this order was priced under, pinned."
+                          "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned."
                         },
                         "notes": {
                           "type": [
@@ -7083,7 +7083,7 @@
                         },
                         "version": {
                           "type": "integer",
-                          "description": "Optimistic-concurrency version; also the ETag validator (§24.6.4)."
+                          "description": "Optimistic-concurrency version; also the ETag validator (\u00a724.6.4)."
                         },
                         "createdAt": {
                           "type": "string",
@@ -7447,7 +7447,7 @@
             "description": "The new Refund and the order it was issued against.",
             "headers": {
               "ETag": {
-                "description": "Weak validator W/\"<orderId>.<version>\" for this order — send back as If-Match on the next mutation.",
+                "description": "Weak validator W/\"<orderId>.<version>\" for this order \u2014 send back as If-Match on the next mutation.",
                 "schema": {
                   "type": "string",
                   "example": "W/\"3fa85f64-5717-4562-b3fc-2c963f66afa6.4\""
@@ -7744,7 +7744,7 @@
                         },
                         "countryPackVersion": {
                           "type": "string",
-                          "description": "FR-LOC-021 — the pack version this order was priced under, pinned."
+                          "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned."
                         },
                         "notes": {
                           "type": [
@@ -7754,7 +7754,7 @@
                         },
                         "version": {
                           "type": "integer",
-                          "description": "Optimistic-concurrency version; also the ETag validator (§24.6.4)."
+                          "description": "Optimistic-concurrency version; also the ETag validator (\u00a724.6.4)."
                         },
                         "createdAt": {
                           "type": "string",
@@ -8215,7 +8215,7 @@
             }
           },
           "401": {
-            "description": "Invalid PIN, unknown employee code, or unknown terminal/tenant.",
+            "description": "Invalid PIN, unknown employee code, or unknown branch/tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8755,7 +8755,7 @@
                       "items": {
                         "type": "string"
                       },
-                      "description": "TENANT-scoped permission codes only — what an unscoped, target-less endpoint authorises today."
+                      "description": "TENANT-scoped permission codes only \u2014 what an unscoped, target-less endpoint authorises today."
                     },
                     "scopes": {
                       "type": "array",
@@ -8835,7 +8835,7 @@
                     },
                     "scopeReviewRequired": {
                       "type": "boolean",
-                      "description": "M-4+ — the tenant still holds unreviewed migration-originated TENANT grants."
+                      "description": "M-4+ \u2014 the tenant still holds unreviewed migration-originated TENANT grants."
                     }
                   }
                 }
@@ -9148,7 +9148,7 @@
     },
     "/auth/memberships/{membershipId}/roles": {
       "post": {
-        "description": "FR-SEC-002/003/005. `scope` is mandatory — a new assignment is never silently tenant-scoped. The same role may be assigned at several scopes; each is a separate assignment with its own id and its own validity window.",
+        "description": "FR-SEC-002/003/005. `scope` is mandatory \u2014 a new assignment is never silently tenant-scoped. The same role may be assigned at several scopes; each is a separate assignment with its own id and its own validity window.",
         "operationId": "RbacController_assignRole",
         "parameters": [
           {
@@ -9938,7 +9938,7 @@
             "bearer": []
           }
         ],
-        "summary": "DEPRECATED — remove a role from a membership by role id.",
+        "summary": "DEPRECATED \u2014 remove a role from a membership by role id.",
         "tags": [
           "rbac"
         ]
@@ -10614,7 +10614,7 @@
         },
         "responses": {
           "202": {
-            "description": "Always accepted, whether or not the account exists — the response never discloses which.",
+            "description": "Always accepted, whether or not the account exists \u2014 the response never discloses which.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10924,7 +10924,7 @@
                     },
                     "branches": {
                       "type": "array",
-                      "description": "Branches the caller's live scoped authority can see, both active and inactive (status is returned so the frontend can grey out an inactive branch rather than have it silently disappear). Resolved from LIVE scoped role assignments on every call — never from a JWT claim, a home branch, or `EmployeeBranch`, none of which grant visibility on their own.",
+                      "description": "Branches the caller's live scoped authority can see, both active and inactive (status is returned so the frontend can grey out an inactive branch rather than have it silently disappear). Resolved from LIVE scoped role assignments on every call \u2014 never from a JWT claim, a home branch, or `EmployeeBranch`, none of which grant visibility on their own.",
                       "items": {
                         "type": "object",
                         "properties": {
@@ -14297,7 +14297,7 @@
     },
     "/governance/audit/entries": {
       "get": {
-        "description": "Filters: actorId, entityType, entityId, action, dateFrom/dateTo, branchId, correlationId — the exact FR-AUD-008 filter set. Ordered by sequenceNo DESC (most recent first); keyset-paginated via `cursor` (the last sequenceNo already seen) — never OFFSET, so no page can skip or duplicate a row. `limit` defaults to 50, max 200. Every call records its own AUDIT_LOG_QUERIED audit entry (FR-AUD-007).",
+        "description": "Filters: actorId, entityType, entityId, action, dateFrom/dateTo, branchId, correlationId \u2014 the exact FR-AUD-008 filter set. Ordered by sequenceNo DESC (most recent first); keyset-paginated via `cursor` (the last sequenceNo already seen) \u2014 never OFFSET, so no page can skip or duplicate a row. `limit` defaults to 50, max 200. Every call records its own AUDIT_LOG_QUERIED audit entry (FR-AUD-007).",
         "operationId": "AuditQueryController_search",
         "parameters": [
           {
@@ -14608,7 +14608,7 @@
     },
     "/governance/audit/entries/export": {
       "get": {
-        "description": "Same six filters as search; dateFrom/dateTo are REQUIRED so every export is bounded. Refused (400) if more than 10,000 records would match — narrow the date range and retry. Not paginated: a bounded, complete result for the requested range in one response, preserving every canonical audit fact and hash-chain field (entryHash, previousHash) verbatim — nothing is re-derived, re-signed, or modified. Every call records its own AUDIT_LOG_EXPORTED audit entry (FR-AUD-007).",
+        "description": "Same six filters as search; dateFrom/dateTo are REQUIRED so every export is bounded. Refused (400) if more than 10,000 records would match \u2014 narrow the date range and retry. Not paginated: a bounded, complete result for the requested range in one response, preserving every canonical audit fact and hash-chain field (entryHash, previousHash) verbatim \u2014 nothing is re-derived, re-signed, or modified. Every call records its own AUDIT_LOG_EXPORTED audit entry (FR-AUD-007).",
         "operationId": "AuditQueryController_exportEntries",
         "parameters": [
           {
@@ -15076,7 +15076,7 @@
                           },
                           "isAvailable": {
                             "type": "boolean",
-                            "description": "FR-MNU-030/031 — false when this item is manually 86'd."
+                            "description": "FR-MNU-030/031 \u2014 false when this item is manually 86'd."
                           },
                           "variants": {
                             "type": "array",
@@ -15103,7 +15103,7 @@
                                 },
                                 "isAvailable": {
                                   "type": "boolean",
-                                  "description": "FR-MNU-030/031 — false when this variant is manually 86'd."
+                                  "description": "FR-MNU-030/031 \u2014 false when this variant is manually 86'd."
                                 },
                                 "price": {
                                   "type": [
@@ -15123,7 +15123,7 @@
                                 },
                                 "priceAmbiguous": {
                                   "type": "boolean",
-                                  "description": "True when two price lists tie for this variant (SRS §7.3 #10) — price is null and this is why."
+                                  "description": "True when two price lists tie for this variant (SRS \u00a77.3 #10) \u2014 price is null and this is why."
                                 }
                               }
                             }
@@ -15206,7 +15206,7 @@
                     },
                     "ambiguousMenuPriority": {
                       "type": "boolean",
-                      "description": "FR-MNU-003 — true when two or more active menus share the same priority for this branch."
+                      "description": "FR-MNU-003 \u2014 true when two or more active menus share the same priority for this branch."
                     },
                     "warning": {
                       "type": "string",
@@ -15243,7 +15243,7 @@
             "bearer": []
           }
         ],
-        "summary": "The caller's own branch sellable menu — items, variants, resolved prices, availability and modifier groups.",
+        "summary": "The caller's own branch sellable menu \u2014 items, variants, resolved prices, availability and modifier groups.",
         "tags": [
           "catalogue"
         ]
@@ -16023,7 +16023,7 @@
                     },
                     "ambiguous": {
                       "type": "boolean",
-                      "description": "True when two or more menus share the same priority — resolution order is then not deterministic."
+                      "description": "True when two or more menus share the same priority \u2014 resolution order is then not deterministic."
                     },
                     "warning": {
                       "type": "string",
@@ -16055,7 +16055,7 @@
             }
           },
           "404": {
-            "description": "The named branch is not visible in this tenant — unknown, or another tenant's. Byte-identical for both, so a caller cannot learn that a foreign branch exists.",
+            "description": "The named branch is not visible in this tenant \u2014 unknown, or another tenant's. Byte-identical for both, so a caller cannot learn that a foreign branch exists.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16490,7 +16490,7 @@
                     },
                     "isCombo": {
                       "type": "boolean",
-                      "description": "Retained per FR-MNU-004; no Combo tables exist (C-08) — always false in practice."
+                      "description": "Retained per FR-MNU-004; no Combo tables exist (C-08) \u2014 always false in practice."
                     },
                     "isOpenPrice": {
                       "type": "boolean"
@@ -16622,7 +16622,7 @@
                       },
                       "isCombo": {
                         "type": "boolean",
-                        "description": "Retained per FR-MNU-004; no Combo tables exist (C-08) — always false in practice."
+                        "description": "Retained per FR-MNU-004; no Combo tables exist (C-08) \u2014 always false in practice."
                       },
                       "isOpenPrice": {
                         "type": "boolean"
@@ -16766,7 +16766,7 @@
                     },
                     "isCombo": {
                       "type": "boolean",
-                      "description": "Retained per FR-MNU-004; no Combo tables exist (C-08) — always false in practice."
+                      "description": "Retained per FR-MNU-004; no Combo tables exist (C-08) \u2014 always false in practice."
                     },
                     "isOpenPrice": {
                       "type": "boolean"
@@ -16927,7 +16927,7 @@
                     },
                     "isCombo": {
                       "type": "boolean",
-                      "description": "Retained per FR-MNU-004; no Combo tables exist (C-08) — always false in practice."
+                      "description": "Retained per FR-MNU-004; no Combo tables exist (C-08) \u2014 always false in practice."
                     },
                     "isOpenPrice": {
                       "type": "boolean"
@@ -17090,7 +17090,7 @@
                     },
                     "isCombo": {
                       "type": "boolean",
-                      "description": "Retained per FR-MNU-004; no Combo tables exist (C-08) — always false in practice."
+                      "description": "Retained per FR-MNU-004; no Combo tables exist (C-08) \u2014 always false in practice."
                     },
                     "isOpenPrice": {
                       "type": "boolean"
@@ -17228,7 +17228,7 @@
             "bearer": []
           }
         ],
-        "summary": "Place an item into a category (C-02) — an item may be placed in many categories.",
+        "summary": "Place an item into a category (C-02) \u2014 an item may be placed in many categories.",
         "tags": [
           "catalogue"
         ]
@@ -17863,7 +17863,7 @@
             }
           },
           "400": {
-            "description": "min > max, or isRequired with min < 1 (SRS §7.3 #8).",
+            "description": "min > max, or isRequired with min < 1 (SRS \u00a77.3 #8).",
             "content": {
               "application/json": {
                 "schema": {
@@ -18041,7 +18041,7 @@
             }
           },
           "400": {
-            "description": "min > max, or isRequired with min < 1 (SRS §7.3 #8).",
+            "description": "min > max, or isRequired with min < 1 (SRS \u00a77.3 #8).",
             "content": {
               "application/json": {
                 "schema": {
@@ -18520,7 +18520,7 @@
             }
           },
           "409": {
-            "description": "Another price list already covers this scope at this priority for an overlapping validity window (SRS §7.3 #10), or (created as active) it is incomplete (C-11 amended).",
+            "description": "Another price list already covers this scope at this priority for an overlapping validity window (SRS \u00a77.3 #10), or (created as active) it is incomplete (C-11 amended).",
             "content": {
               "application/json": {
                 "schema": {
@@ -19473,7 +19473,7 @@
                           }
                         }
                       },
-                      "description": "(active price list x active variant) pairs lacking a price — the exact SRS §7.3 #7 invariant."
+                      "description": "(active price list x active variant) pairs lacking a price \u2014 the exact SRS \u00a77.3 #7 invariant."
                     },
                     "sellable": {
                       "type": "boolean"
@@ -19593,7 +19593,7 @@
                     },
                     "sellableVariantCount": {
                       "type": "integer",
-                      "description": "Active variants examined — the denominator of the completeness metric."
+                      "description": "Active variants examined \u2014 the denominator of the completeness metric."
                     }
                   }
                 }
@@ -19986,7 +19986,7 @@
                           "null"
                         ],
                         "format": "date-time",
-                        "description": "Informational only (D-17-08 Q2) — never consulted in selection.",
+                        "description": "Informational only (D-17-08 Q2) \u2014 never consulted in selection.",
                         "example": "2026-08-23T14:30:00.000Z"
                       },
                       "publishedBy": {
@@ -20229,7 +20229,7 @@
                         "null"
                       ],
                       "format": "date-time",
-                      "description": "Informational only (D-17-08 Q2) — never consulted in selection.",
+                      "description": "Informational only (D-17-08 Q2) \u2014 never consulted in selection.",
                       "example": "2026-08-23T14:30:00.000Z"
                     },
                     "publishedBy": {
@@ -20368,7 +20368,7 @@
             "bearer": []
           }
         ],
-        "summary": "SRS §26.3 — create a draft version.\nA recipe is NEVER auto-created here (GAP-1): an unknown id is a 404.",
+        "summary": "SRS \u00a726.3 \u2014 create a draft version.\nA recipe is NEVER auto-created here (GAP-1): an unknown id is a 404.",
         "tags": [
           "production"
         ]
@@ -20482,7 +20482,7 @@
                         "null"
                       ],
                       "format": "date-time",
-                      "description": "Informational only (D-17-08 Q2) — never consulted in selection.",
+                      "description": "Informational only (D-17-08 Q2) \u2014 never consulted in selection.",
                       "example": "2026-08-23T14:30:00.000Z"
                     },
                     "publishedBy": {
@@ -20738,7 +20738,7 @@
                         "null"
                       ],
                       "format": "date-time",
-                      "description": "Informational only (D-17-08 Q2) — never consulted in selection.",
+                      "description": "Informational only (D-17-08 Q2) \u2014 never consulted in selection.",
                       "example": "2026-08-23T14:30:00.000Z"
                     },
                     "publishedBy": {
@@ -20885,7 +20885,7 @@
             "bearer": []
           }
         ],
-        "summary": "SRS §26.3 — publish. Demotes the incumbent, promotes the target, one txn.",
+        "summary": "SRS \u00a726.3 \u2014 publish. Demotes the incumbent, promotes the target, one txn.",
         "tags": [
           "production"
         ]
@@ -21215,7 +21215,7 @@
                           "null"
                         ],
                         "format": "uuid",
-                        "description": "LOGICAL recipe identity — resolved to its published version at capture time.",
+                        "description": "LOGICAL recipe identity \u2014 resolved to its published version at capture time.",
                         "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
                       },
                       "quantity": {
@@ -21369,7 +21369,7 @@
                               "null"
                             ],
                             "format": "uuid",
-                            "description": "LOGICAL recipe identity — resolved to its published version at capture time.",
+                            "description": "LOGICAL recipe identity \u2014 resolved to its published version at capture time.",
                             "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
                           },
                           "quantity": {
@@ -21514,7 +21514,7 @@
             "bearer": []
           }
         ],
-        "summary": "DEMO-OPS-HOTFIX-3 — the real drawers a Cashier may open a shift over,\nfor the POS Open-Shift drawer selector. Resolves the branch from the\nCALLER'S OWN terminal (`DrawersService.listForTerminal`), never a\ncaller-supplied branchId — a cashier cannot browse another branch's\ndrawers by asking for one. Gated on `cash.session.open`, the SAME\npermission `POST /cash-sessions` already requires, deliberately NOT\n`settings.branch.manage` — this is a read of what a Cashier may already\nact on, not a drawer-administration grant (that lives on the separate\n`DrawersController`).",
+        "summary": "DEMO-OPS-HOTFIX-3 \u2014 the real drawers a Cashier may open a shift over,\nfor the POS Open-Shift drawer selector. Resolves the branch from the\nCALLER'S OWN terminal (`DrawersService.listForTerminal`), never a\ncaller-supplied branchId \u2014 a cashier cannot browse another branch's\ndrawers by asking for one. Gated on `cash.session.open`, the SAME\npermission `POST /cash-sessions` already requires, deliberately NOT\n`settings.branch.manage` \u2014 this is a read of what a Cashier may already\nact on, not a drawer-administration grant (that lives on the separate\n`DrawersController`).",
         "tags": [
           "treasury"
         ]
@@ -21628,7 +21628,7 @@
             "bearer": []
           }
         ],
-        "summary": "DEMO-CASH-SESSION-RECOVERY-P0 — the caller's OWN open cash session at\nTHEIR OWN terminal-bound branch, if exactly one exists.\n\nRecovery contract: after a fresh PIN login (e.g. after a frontend\nreload/deploy wiped the locally-remembered `cashSessionId`), the POS\ncalls this BEFORE showing Open Shift. A non-null `cashSession` means the\nemployee already holds an open shift here — the client resumes it\nin-place; `POST /cash-sessions` is never called again for it, and no new\ndrawer is opened. `null` means either no open session exists (normal\nOpen Shift) or more than one does (ambiguous — see\n`CashSessionsService.findCurrentForEmployee`).\n\nGated on `cash.session.open` — the SAME permission `POST /cash-sessions`\nalready requires, deliberately not a new/invented read permission. This\nmirrors `GET /cash-sessions/drawers` immediately above: a narrow read of\nstate the caller may already act on, scoped to their own\nterminal-derived branch and their own employee identity, never a\ngeneric CashSession read (`findOne` stays internal-only — see its own\ndocblock and D-20).",
+        "summary": "DEMO-CASH-SESSION-RECOVERY-P0 \u2014 the caller's OWN open cash session at\nTHEIR OWN terminal-bound branch, if exactly one exists.\n\nRecovery contract: after a fresh PIN login (e.g. after a frontend\nreload/deploy wiped the locally-remembered `cashSessionId`), the POS\ncalls this BEFORE showing Open Shift. A non-null `cashSession` means the\nemployee already holds an open shift here \u2014 the client resumes it\nin-place; `POST /cash-sessions` is never called again for it, and no new\ndrawer is opened. `null` means either no open session exists (normal\nOpen Shift) or more than one does (ambiguous \u2014 see\n`CashSessionsService.findCurrentForEmployee`).\n\nGated on `cash.session.open` \u2014 the SAME permission `POST /cash-sessions`\nalready requires, deliberately not a new/invented read permission. This\nmirrors `GET /cash-sessions/drawers` immediately above: a narrow read of\nstate the caller may already act on, scoped to their own\nterminal-derived branch and their own employee identity, never a\ngeneric CashSession read (`findOne` stays internal-only \u2014 see its own\ndocblock and D-20).",
         "tags": [
           "treasury"
         ]
@@ -21824,7 +21824,7 @@
             "bearer": []
           }
         ],
-        "summary": "Open a cashier shift and its cash session — FR-POS-090, FR-FIN-001/002.\n\nONE command for the cashier, two records for the model. FR-POS-090\ndescribes a single action (\"open a shift, declaring an opening float\"), and\nthe cashier should not have to know that a shift is a Workforce concept and\na session a Treasury one. They stay distinct in the schema (carried item\nP1D-A); only the command is unified, and both are written in one transaction.\n\n`Idempotency-Key` is MANDATORY (FR-API-020): opening a drawer is a\nfinancially significant act, and a retry over a flaky link must not produce\na second shift or a second session. The two client ULIDs are independent\nduplicate protection beneath it.",
+        "summary": "Open a cashier shift and its cash session \u2014 FR-POS-090, FR-FIN-001/002.\n\nONE command for the cashier, two records for the model. FR-POS-090\ndescribes a single action (\"open a shift, declaring an opening float\"), and\nthe cashier should not have to know that a shift is a Workforce concept and\na session a Treasury one. They stay distinct in the schema (carried item\nP1D-A); only the command is unified, and both are written in one transaction.\n\n`Idempotency-Key` is MANDATORY (FR-API-020): opening a drawer is a\nfinancially significant act, and a retry over a flaky link must not produce\na second shift or a second session. The two client ULIDs are independent\nduplicate protection beneath it.",
         "tags": [
           "treasury"
         ]
@@ -21908,7 +21908,7 @@
                     },
                     "currency": {
                       "type": "string",
-                      "description": "ISO 4217 currency code — the cash session’s own currency.",
+                      "description": "ISO 4217 currency code \u2014 the cash session\u2019s own currency.",
                       "example": "AED"
                     },
                     "reason": {
@@ -21980,7 +21980,7 @@
             "bearer": []
           }
         ],
-        "summary": "Record cash added to the drawer — FR-POS-091 [M].",
+        "summary": "Record cash added to the drawer \u2014 FR-POS-091 [M].",
         "tags": [
           "treasury"
         ]
@@ -22064,7 +22064,7 @@
                     },
                     "currency": {
                       "type": "string",
-                      "description": "ISO 4217 currency code — the cash session’s own currency.",
+                      "description": "ISO 4217 currency code \u2014 the cash session\u2019s own currency.",
                       "example": "AED"
                     },
                     "reason": {
@@ -22136,7 +22136,7 @@
             "bearer": []
           }
         ],
-        "summary": "Record cash removed from the drawer for an expense — FR-POS-091 [M].",
+        "summary": "Record cash removed from the drawer for an expense \u2014 FR-POS-091 [M].",
         "tags": [
           "treasury"
         ]
@@ -22220,7 +22220,7 @@
                     },
                     "currency": {
                       "type": "string",
-                      "description": "ISO 4217 currency code — the cash session’s own currency.",
+                      "description": "ISO 4217 currency code \u2014 the cash session\u2019s own currency.",
                       "example": "AED"
                     },
                     "reason": {
@@ -22277,7 +22277,7 @@
             }
           },
           "409": {
-            "description": "The cash session is not open, or the movement id already exists with different content (FR-OFF-015). NOTE: FR-POS-092’s configurable drawer limit is NOT enforced here (design gate §5 — all four of its parameters are undecided).",
+            "description": "The cash session is not open, or the movement id already exists with different content (FR-OFF-015). NOTE: FR-POS-092\u2019s configurable drawer limit is NOT enforced here (design gate \u00a75 \u2014 all four of its parameters are undecided).",
             "content": {
               "application/json": {
                 "schema": {
@@ -22292,7 +22292,7 @@
             "bearer": []
           }
         ],
-        "summary": "Record excess cash removed to the safe — FR-POS-091 [M].",
+        "summary": "Record excess cash removed to the safe \u2014 FR-POS-091 [M].",
         "tags": [
           "treasury"
         ]
@@ -22355,7 +22355,7 @@
                     "toleranceMinorUnits": {
                       "type": "string",
                       "pattern": "^-?\\d+$",
-                      "description": "Present whenever a cash-close policy is configured for the branch — in BOTH blind and open mode. Absent only when no policy is configured at all.",
+                      "description": "Present whenever a cash-close policy is configured for the branch \u2014 in BOTH blind and open mode. Absent only when no policy is configured at all.",
                       "example": "1250"
                     },
                     "expectedCashMinorUnits": {
@@ -22429,7 +22429,7 @@
             "bearer": []
           }
         ],
-        "summary": "The close context — FR-POS-094/095. Read-only.\n\n`cash.session.close` (own) / `cash.session.close_other` (another\nemployee's) — the SAME own/other split `declareClose`/`finalizeClose`\nenforce, checked here too so a caller cannot probe another employee's\nsession state without holding the right authority.\n\nWhile `open` in BLIND mode (FR-POS-095's default), `toleranceMinorUnits`/\n`expectedCashMinorUnits` are structurally ABSENT from the response —\nnever merely `null` — until a count is durably declared. While `open` in\nopen-count mode, they are a PREVIEW only (not authoritative — the actual\nclose re-resolves everything fresh, under the advisory lock).",
+        "summary": "The close context \u2014 FR-POS-094/095. Read-only.\n\n`cash.session.close` (own) / `cash.session.close_other` (another\nemployee's) \u2014 the SAME own/other split `declareClose`/`finalizeClose`\nenforce, checked here too so a caller cannot probe another employee's\nsession state without holding the right authority.\n\nWhile `open` in BLIND mode (FR-POS-095's default), `toleranceMinorUnits`/\n`expectedCashMinorUnits` are structurally ABSENT from the response \u2014\nnever merely `null` \u2014 until a count is durably declared. While `open` in\nopen-count mode, they are a PREVIEW only (not authoritative \u2014 the actual\nclose re-resolves everything fresh, under the advisory lock).",
         "tags": [
           "treasury"
         ]
@@ -22471,7 +22471,7 @@
         },
         "responses": {
           "201": {
-            "description": "The committed count declaration — closed immediately if within tolerance, otherwise frozen awaiting a manager decision.",
+            "description": "The committed count declaration \u2014 closed immediately if within tolerance, otherwise frozen awaiting a manager decision.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22518,7 +22518,7 @@
                     "expectedCashMinorUnits": {
                       "type": "string",
                       "pattern": "^-?\\d+$",
-                      "description": "Disclosed only in this COMMITTED response — never before the count is durable (FR-POS-095).",
+                      "description": "Disclosed only in this COMMITTED response \u2014 never before the count is durable (FR-POS-095).",
                       "example": "1250"
                     },
                     "countedCashMinorUnits": {
@@ -22598,7 +22598,7 @@
             "bearer": []
           }
         ],
-        "summary": "Declare the physical cash count — FR-POS-094/096/097 [M].\n\nWithin tolerance, this closes the session in the SAME request. Above\ntolerance, it freezes the session (`open -> closing`) and the disclosed\nfigures in THIS response are the first and only legitimate disclosure —\nFR-POS-095's blind-count control is that expected cash/variance are\nrevealed strictly AFTER the count is durably committed, never before.\n`POST .../close/finalize` is the ONLY way out of `closing` — there is no\nabove-tolerance one-request path (a manager PIN entered before this\nresponse exists could not be an informed decision).",
+        "summary": "Declare the physical cash count \u2014 FR-POS-094/096/097 [M].\n\nWithin tolerance, this closes the session in the SAME request. Above\ntolerance, it freezes the session (`open -> closing`) and the disclosed\nfigures in THIS response are the first and only legitimate disclosure \u2014\nFR-POS-095's blind-count control is that expected cash/variance are\nrevealed strictly AFTER the count is durably committed, never before.\n`POST .../close/finalize` is the ONLY way out of `closing` \u2014 there is no\nabove-tolerance one-request path (a manager PIN entered before this\nresponse exists could not be an informed decision).",
         "tags": [
           "treasury"
         ]
@@ -22640,7 +22640,7 @@
         },
         "responses": {
           "200": {
-            "description": "The manager decision outcome — \"closed\" (approved) or \"rejected\" (R-6(a); the session remains closing).",
+            "description": "The manager decision outcome \u2014 \"closed\" (approved) or \"rejected\" (R-6(a); the session remains closing).",
             "content": {
               "application/json": {
                 "schema": {
@@ -22664,7 +22664,7 @@
                         "closed",
                         "rejected"
                       ],
-                      "description": "R-6(a): an explicit rejection COMMITS and returns 200 with outcome \"rejected\" — never an error. The session remains \"closing\"; a retry with fresh approvalRequestId/approvalDecisionId is expected."
+                      "description": "R-6(a): an explicit rejection COMMITS and returns 200 with outcome \"rejected\" \u2014 never an error. The session remains \"closing\"; a retry with fresh approvalRequestId/approvalDecisionId is expected."
                     }
                   }
                 }
@@ -22727,7 +22727,7 @@
             "bearer": []
           }
         ],
-        "summary": "The manager's decision on a frozen (above-tolerance) close — FR-FIN-006\n[M], FR-SEC-016/030/032/033.\n\nThe manager PIN is verified BEFORE the business transaction opens\n(`identity/contract`'s `TERMINAL_PIN_VERIFIER` — a failed-attempt/\nlockout counter must survive a later rollback, and never runs at all on\nan idempotent replay). The verified manager's permission set — not the\ncalling cashier's — is what `cash.variance.approve` is checked against,\nby the Approval Runtime itself, never by a route-level permission guard\n(the approver is a different actor than the caller).\n\nR-6(a): an explicit REJECTED decision COMMITS and returns 200 with\n`outcome: \"rejected\"` — never an error. The session stays `closing`; a\nretry supplies FRESH `approvalRequestId`/`approvalDecisionId` values.",
+        "summary": "The manager's decision on a frozen (above-tolerance) close \u2014 FR-FIN-006\n[M], FR-SEC-016/030/032/033.\n\nThe manager PIN is verified BEFORE the business transaction opens\n(`identity/contract`'s `TERMINAL_PIN_VERIFIER` \u2014 a failed-attempt/\nlockout counter must survive a later rollback, and never runs at all on\nan idempotent replay). The verified manager's permission set \u2014 not the\ncalling cashier's \u2014 is what `cash.variance.approve` is checked against,\nby the Approval Runtime itself, never by a route-level permission guard\n(the approver is a different actor than the caller).\n\nR-6(a): an explicit REJECTED decision COMMITS and returns 200 with\n`outcome: \"rejected\"` \u2014 never an error. The session stays `closing`; a\nretry supplies FRESH `approvalRequestId`/`approvalDecisionId` values.",
         "tags": [
           "treasury"
         ]
@@ -22805,7 +22805,7 @@
                     },
                     "currency": {
                       "type": "string",
-                      "description": "ISO 4217 currency code — the branch's own base currency, never client-supplied.",
+                      "description": "ISO 4217 currency code \u2014 the branch's own base currency, never client-supplied.",
                       "example": "AED"
                     },
                     "varianceApprovalExpirySeconds": {
@@ -22883,7 +22883,7 @@
             "bearer": []
           }
         ],
-        "summary": "Create a new immutable cash-close policy version for a branch — R-1(a),\nR-4(a), R-5. `Idempotency-Key` is MANDATORY (FR-API-020): a retry over a\nflaky link must not produce a second version.",
+        "summary": "Create a new immutable cash-close policy version for a branch \u2014 R-1(a),\nR-4(a), R-5. `Idempotency-Key` is MANDATORY (FR-API-020): a retry over a\nflaky link must not produce a second version.",
         "tags": [
           "treasury"
         ]
@@ -22946,7 +22946,7 @@
                         },
                         "currency": {
                           "type": "string",
-                          "description": "ISO 4217 currency code — the branch's own base currency.",
+                          "description": "ISO 4217 currency code \u2014 the branch's own base currency.",
                           "example": "AED"
                         },
                         "varianceApprovalExpirySeconds": {
@@ -23001,7 +23001,7 @@
             "bearer": []
           }
         ],
-        "summary": "The currently-effective cash-close policy for a branch, wrapped as\n`{ policy: ... | null }` — GOLDEN-PATH-BACKEND-CLOSURE (2026-09-07).\n`policy` is `null` when none has ever been configured; a bare top-level\n`null` body is deliberately avoided (Express sends an empty body for a\nhandler returning `null`, which is indistinguishable on the wire from\n\"no response content\" — a wrapper object keeps `null` an unambiguous,\ninspectable JSON value). Not FR-PLT-027's settings inspector (see class\ndocblock) — a single resolved value, not a level-by-level override\ntrace.",
+        "summary": "The currently-effective cash-close policy for a branch, wrapped as\n`{ policy: ... | null }` \u2014 GOLDEN-PATH-BACKEND-CLOSURE (2026-09-07).\n`policy` is `null` when none has ever been configured; a bare top-level\n`null` body is deliberately avoided (Express sends an empty body for a\nhandler returning `null`, which is indistinguishable on the wire from\n\"no response content\" \u2014 a wrapper object keeps `null` an unambiguous,\ninspectable JSON value). Not FR-PLT-027's settings inspector (see class\ndocblock) \u2014 a single resolved value, not a level-by-level override\ntrace.",
         "tags": [
           "treasury"
         ]
@@ -23009,7 +23009,7 @@
     },
     "/branches/{branchId}/day-closes/{businessDay}": {
       "post": {
-        "description": "The FIRST request for a branch ACTIVATES it: commits a durable, audited, idempotent `outcome: \"ACTIVATED\"` and never throws. A later request, once `activationBusinessDay < businessDay < currentBusinessDay`, performs a real close and returns `outcome: \"CLOSED\"` with the full Z snapshot. Internal-MVP: FR-FIN-022/026 remain PARTIAL — see the response’s own `scope` block.",
+        "description": "The FIRST request for a branch ACTIVATES it: commits a durable, audited, idempotent `outcome: \"ACTIVATED\"` and never throws. A later request, once `activationBusinessDay < businessDay < currentBusinessDay`, performs a real close and returns `outcome: \"CLOSED\"` with the full Z snapshot. Internal-MVP: FR-FIN-022/026 remain PARTIAL \u2014 see the response\u2019s own `scope` block.",
         "operationId": "DayCloseController_post",
         "parameters": [
           {
@@ -23061,7 +23061,7 @@
                   "oneOf": [
                     {
                       "type": "object",
-                      "description": "The branch’s first ever DayClose request: commits and activates the DayClose epoch. No day is sealed; there is no `dayClose` snapshot.",
+                      "description": "The branch\u2019s first ever DayClose request: commits and activates the DayClose epoch. No day is sealed; there is no `dayClose` snapshot.",
                       "required": [
                         "outcome",
                         "branchId",
@@ -23277,7 +23277,7 @@
                                 "completedExcessCapturedTotal": {
                                   "type": "string",
                                   "pattern": "^-?\\d+$",
-                                  "description": "Captured payment value above a completed order’s grand total. Reconciliation-only.",
+                                  "description": "Captured payment value above a completed order\u2019s grand total. Reconciliation-only.",
                                   "example": "1250"
                                 }
                               }
@@ -23568,13 +23568,13 @@
             "bearer": []
           }
         ],
-        "summary": "Close a business day, or — on the branch’s first ever DayClose request — activate the branch’s DayClose epoch.",
+        "summary": "Close a business day, or \u2014 on the branch\u2019s first ever DayClose request \u2014 activate the branch\u2019s DayClose epoch.",
         "tags": [
           "treasury"
         ]
       },
       "get": {
-        "description": "Returns the persisted immutable snapshot, byte-stable forever — never recomputed, never manufactured for a pre-activation date. Requires `report.view.financial` (DC-R3); NOT `cash.day.close` (a write authority) and NOT `report.view.sales`.",
+        "description": "Returns the persisted immutable snapshot, byte-stable forever \u2014 never recomputed, never manufactured for a pre-activation date. Requires `report.view.financial` (DC-R3); NOT `cash.day.close` (a write authority) and NOT `report.view.sales`.",
         "operationId": "DayCloseController_get",
         "parameters": [
           {
@@ -23734,7 +23734,7 @@
                         "completedExcessCapturedTotal": {
                           "type": "string",
                           "pattern": "^-?\\d+$",
-                          "description": "Captured payment value above a completed order’s grand total. Reconciliation-only.",
+                          "description": "Captured payment value above a completed order\u2019s grand total. Reconciliation-only.",
                           "example": "1250"
                         }
                       }
@@ -24240,7 +24240,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Every OPEN or CLOSING cash session at this branch, oldest first — enough to identify and act on a stranded session through the existing close-other workflow (close-context / close / close/finalize).",
+            "description": "Every OPEN or CLOSING cash session at this branch, oldest first \u2014 enough to identify and act on a stranded session through the existing close-other workflow (close-context / close / close/finalize).",
             "content": {
               "application/json": {
                 "schema": {
@@ -24524,7 +24524,7 @@
             "bearer": []
           }
         ],
-        "summary": "FR-HRM-001/002/005 — create a full employee record.",
+        "summary": "FR-HRM-001/002/005 \u2014 create a full employee record.",
         "tags": [
           "workforce-employees"
         ]
@@ -25126,7 +25126,7 @@
             "bearer": []
           }
         ],
-        "summary": "FR-HRM-003 — restricted to `hr.compensation.view` holders only.",
+        "summary": "FR-HRM-003 \u2014 restricted to `hr.compensation.view` holders only.",
         "tags": [
           "workforce-employees"
         ]
@@ -25220,7 +25220,7 @@
             "bearer": []
           }
         ],
-        "summary": "FR-HRM-003 — a new effective-dated version. No `hr.compensation.manage`\ncode exists in §15.2 (only `.view`); writing pay is therefore gated on\n`hr.employee.manage`, the same \"no write verb given\" discipline\n`SALES_PERMISSIONS` documents for `pos.order.create`.",
+        "summary": "FR-HRM-003 \u2014 a new effective-dated version. No `hr.compensation.manage`\ncode exists in \u00a715.2 (only `.view`); writing pay is therefore gated on\n`hr.employee.manage`, the same \"no write verb given\" discipline\n`SALES_PERMISSIONS` documents for `pos.order.create`.",
         "tags": [
           "workforce-employees"
         ]
@@ -25399,7 +25399,7 @@
             "bearer": []
           }
         ],
-        "summary": "FR-HRM-006 — deactivate, never hard-delete.",
+        "summary": "FR-HRM-006 \u2014 deactivate, never hard-delete.",
         "tags": [
           "workforce-employees"
         ]
@@ -25467,7 +25467,7 @@
             "bearer": []
           }
         ],
-        "summary": "FR-HRM-005 — multi-branch assignment.",
+        "summary": "FR-HRM-005 \u2014 multi-branch assignment.",
         "tags": [
           "workforce-employees"
         ]
@@ -25515,7 +25515,7 @@
             "bearer": []
           }
         ],
-        "summary": "LIVE-DEMO-HOTFIX-1 — set/rotate this employee's POS PIN through the real\nWorkforce Employees surface. Thin passthrough to the existing\n`PinService.setPin` (identity/employees) — no logic duplicated here, and\n`PinService.authenticate`'s verification path is completely untouched.",
+        "summary": "LIVE-DEMO-HOTFIX-1 \u2014 set/rotate this employee's POS PIN through the real\nWorkforce Employees surface. Thin passthrough to the existing\n`PinService.setPin` (identity/employees) \u2014 no logic duplicated here, and\n`PinService.authenticate`'s verification path is completely untouched.",
         "tags": [
           "workforce-employees"
         ]
@@ -25637,7 +25637,7 @@
             "bearer": []
           }
         ],
-        "summary": "DEMO-EMPLOYEE-RBAC-1 — this employee's scoped role assignments. A thin\nfacade: the Employees UI knows only `employeeId`, never the raw\n`membershipId` `POST /auth/memberships/{membershipId}/roles` addresses —\n`WorkforceEmployeesService.listRoleAssignments` resolves that link and\ndelegates entirely to the existing `MembershipRolesService`.",
+        "summary": "DEMO-EMPLOYEE-RBAC-1 \u2014 this employee's scoped role assignments. A thin\nfacade: the Employees UI knows only `employeeId`, never the raw\n`membershipId` `POST /auth/memberships/{membershipId}/roles` addresses \u2014\n`WorkforceEmployeesService.listRoleAssignments` resolves that link and\ndelegates entirely to the existing `MembershipRolesService`.",
         "tags": [
           "workforce-employees"
         ]
@@ -25773,7 +25773,7 @@
             "bearer": []
           }
         ],
-        "summary": "DEMO-EMPLOYEE-RBAC-1 — assign a role to this employee at an EXPLICIT\nscope. Same `AssignRoleDto`/`AssignmentScopeDto` shape\n`POST /auth/memberships/{membershipId}/roles` already accepts — no\nparallel contract. Delegates to `MembershipRolesService.create`, which\nperforms the atomic scoped-assignment insert + `authzEpoch` bump + audit\nwrite; nothing is reimplemented here.",
+        "summary": "DEMO-EMPLOYEE-RBAC-1 \u2014 assign a role to this employee at an EXPLICIT\nscope. Same `AssignRoleDto`/`AssignmentScopeDto` shape\n`POST /auth/memberships/{membershipId}/roles` already accepts \u2014 no\nparallel contract. Delegates to `MembershipRolesService.create`, which\nperforms the atomic scoped-assignment insert + `authzEpoch` bump + audit\nwrite; nothing is reimplemented here.",
         "tags": [
           "workforce-employees"
         ]
@@ -25810,7 +25810,7 @@
             "bearer": []
           }
         ],
-        "summary": "DEMO-EMPLOYEE-RBAC-1 — remove ONE of this employee's role assignments.\n`WorkforceEmployeesService.removeRoleAssignment` confirms the assignment\nactually belongs to this employee before delegating to\n`MembershipRolesService.remove`.",
+        "summary": "DEMO-EMPLOYEE-RBAC-1 \u2014 remove ONE of this employee's role assignments.\n`WorkforceEmployeesService.removeRoleAssignment` confirms the assignment\nactually belongs to this employee before delegating to\n`MembershipRolesService.remove`.",
         "tags": [
           "workforce-employees"
         ]
@@ -25878,7 +25878,7 @@
             "bearer": []
           }
         ],
-        "summary": "FR-HRM-010 — create a schedule by branch and week.",
+        "summary": "FR-HRM-010 \u2014 create a schedule by branch and week.",
         "tags": [
           "workforce-schedules"
         ]
@@ -26102,7 +26102,7 @@
             "bearer": []
           }
         ],
-        "summary": "FR-HRM-010/012 — create one validated scheduled shift.",
+        "summary": "FR-HRM-010/012 \u2014 create one validated scheduled shift.",
         "tags": [
           "workforce-schedules"
         ]
@@ -26209,7 +26209,7 @@
             "bearer": []
           }
         ],
-        "summary": "FR-HRM-020/021/022/023 — POS-terminal PIN clock-in.\n\nNO `@RequirePermission`: the caller acts on their OWN employment record\nvia a PIN-verified POS session, never on an RBAC grant — every active\nemployee must be able to clock themselves in regardless of what else\nthey are permitted to do. §15.2's Workforce catalogue has no \"clock in\"\nverb to invent one from. See `REVIEWED_UNPROTECTED_ROUTES` in\n`authorization-coverage.spec.ts`.",
+        "summary": "FR-HRM-020/021/022/023 \u2014 POS-terminal PIN clock-in.\n\nNO `@RequirePermission`: the caller acts on their OWN employment record\nvia a PIN-verified POS session, never on an RBAC grant \u2014 every active\nemployee must be able to clock themselves in regardless of what else\nthey are permitted to do. \u00a715.2's Workforce catalogue has no \"clock in\"\nverb to invent one from. See `REVIEWED_UNPROTECTED_ROUTES` in\n`authorization-coverage.spec.ts`.",
         "tags": [
           "workforce-attendance"
         ]
@@ -26316,7 +26316,7 @@
             "bearer": []
           }
         ],
-        "summary": "FR-HRM-020/021/022 — POS-terminal PIN clock-out. Same authority as clock-in.",
+        "summary": "FR-HRM-020/021/022 \u2014 POS-terminal PIN clock-out. Same authority as clock-in.",
         "tags": [
           "workforce-attendance"
         ]
@@ -26672,7 +26672,7 @@
             "bearer": []
           }
         ],
-        "summary": "FR-HRM-025 — manual correction: permission-gated, reasoned, evidenced.",
+        "summary": "FR-HRM-025 \u2014 manual correction: permission-gated, reasoned, evidenced.",
         "tags": [
           "workforce-attendance"
         ]
@@ -26771,7 +26771,7 @@
             "bearer": []
           }
         ],
-        "summary": "FR-HRM-022/023 threshold configuration — a NEW effective-dated version.\n`settings.branch.manage` (\"Branch configuration\"), NOT an HR code: the\nexact `treasury/cash-close-policy` precedent for reusing this\nalready-seeded Organisation permission for a new per-branch policy\ntable, declared as a plain string literal to avoid a new\n`workforce->organisation` private-path import.",
+        "summary": "FR-HRM-022/023 threshold configuration \u2014 a NEW effective-dated version.\n`settings.branch.manage` (\"Branch configuration\"), NOT an HR code: the\nexact `treasury/cash-close-policy` precedent for reusing this\nalready-seeded Organisation permission for a new per-branch policy\ntable, declared as a plain string literal to avoid a new\n`workforce->organisation` private-path import.",
         "tags": [
           "workforce-attendance"
         ]
@@ -27656,7 +27656,7 @@
                     },
                     "balanceAfter": {
                       "type": "number",
-                      "description": "Stock balance after this movement. A JS number here, not a string — see the schema-level note."
+                      "description": "Stock balance after this movement. A JS number here, not a string \u2014 see the schema-level note."
                     },
                     "unitCost": {
                       "type": "string",
@@ -27862,7 +27862,7 @@
             }
           },
           "404": {
-            "description": "The named location is not visible in this tenant — unknown, or another tenant's. Byte-identical for both.",
+            "description": "The named location is not visible in this tenant \u2014 unknown, or another tenant's. Byte-identical for both.",
             "content": {
               "application/json": {
                 "schema": {
@@ -27877,7 +27877,7 @@
             "bearer": []
           }
         ],
-        "summary": "Cost-bearing read — gated by inventory.cost.view, not inventory.view.",
+        "summary": "Cost-bearing read \u2014 gated by inventory.cost.view, not inventory.view.",
         "tags": [
           "inventory"
         ]
@@ -28458,7 +28458,7 @@
                     },
                     "movementsDuringCountWindow": {
                       "type": "integer",
-                      "description": "FR-INV-044: reported, not folded into the variance — the expected quantity was frozen at open."
+                      "description": "FR-INV-044: reported, not folded into the variance \u2014 the expected quantity was frozen at open."
                     }
                   }
                 }
@@ -28486,7 +28486,7 @@
             }
           },
           "403": {
-            "description": "The session requires approval, which the Governance workflow does not yet implement — posting is refused rather than completed unapproved.",
+            "description": "The session requires approval, which the Governance workflow does not yet implement \u2014 posting is refused rather than completed unapproved.",
             "content": {
               "application/json": {
                 "schema": {
@@ -28584,7 +28584,7 @@
             }
           },
           "403": {
-            "description": "requiresApproval was set — the Governance approval workflow is not implemented in this phase, so the posting is refused rather than completed unapproved.",
+            "description": "requiresApproval was set \u2014 the Governance approval workflow is not implemented in this phase, so the posting is refused rather than completed unapproved.",
             "content": {
               "application/json": {
                 "schema": {
@@ -28609,7 +28609,7 @@
             "bearer": []
           }
         ],
-        "summary": "Record waste (writes waste movements for each line; FR-INV-055…059).",
+        "summary": "Record waste (writes waste movements for each line; FR-INV-055\u2026059).",
         "tags": [
           "inventory"
         ]
@@ -28773,7 +28773,7 @@
             }
           },
           "404": {
-            "description": "The named location is not visible in this tenant — unknown, or another tenant's. Byte-identical for both.",
+            "description": "The named location is not visible in this tenant \u2014 unknown, or another tenant's. Byte-identical for both.",
             "content": {
               "application/json": {
                 "schema": {
@@ -28991,7 +28991,7 @@
                           "null"
                         ],
                         "format": "date-time",
-                        "description": "A DATE column returned as a full ISO instant (midnight UTC) — not truncated to YYYY-MM-DD in this response.",
+                        "description": "A DATE column returned as a full ISO instant (midnight UTC) \u2014 not truncated to YYYY-MM-DD in this response.",
                         "example": "2026-08-23T14:30:00.000Z"
                       },
                       "quantityRemaining": {
@@ -29237,7 +29237,7 @@
                           },
                           "elapsedSeconds": {
                             "type": "integer",
-                            "description": "Server-computed at response time — never a client value."
+                            "description": "Server-computed at response time \u2014 never a client value."
                           },
                           "targetReadyAt": {
                             "type": [
@@ -29481,7 +29481,7 @@
           {
             "name": "idempotency-key",
             "in": "header",
-            "description": "Accepted but not required — the acknowledgement is naturally database-idempotent (write-once).",
+            "description": "Accepted but not required \u2014 the acknowledgement is naturally database-idempotent (write-once).",
             "required": false,
             "schema": {
               "type": "string"
@@ -29560,6 +29560,16 @@
               "format": "uuid",
               "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
             }
+          },
+          {
+            "name": "stationId",
+            "in": "query",
+            "required": true,
+            "description": "The kitchen station this mutation is being performed from \u2014 operational context, not device identity.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
@@ -29614,7 +29624,7 @@
                         },
                         "elapsedSeconds": {
                           "type": "integer",
-                          "description": "Server-computed at response time — never a client value."
+                          "description": "Server-computed at response time \u2014 never a client value."
                         },
                         "targetReadyAt": {
                           "type": [
@@ -29983,6 +29993,16 @@
               "format": "uuid",
               "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
             }
+          },
+          {
+            "name": "stationId",
+            "in": "query",
+            "required": true,
+            "description": "The kitchen station this mutation is being performed from \u2014 operational context, not device identity.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
@@ -30037,7 +30057,7 @@
                         },
                         "elapsedSeconds": {
                           "type": "integer",
-                          "description": "Server-computed at response time — never a client value."
+                          "description": "Server-computed at response time \u2014 never a client value."
                         },
                         "targetReadyAt": {
                           "type": [
@@ -30362,7 +30382,7 @@
             }
           },
           "409": {
-            "description": "Serialization retries exhausted — reload and retry.",
+            "description": "Serialization retries exhausted \u2014 reload and retry.",
             "content": {
               "application/json": {
                 "schema": {
@@ -30405,6 +30425,16 @@
               "type": "string",
               "format": "uuid",
               "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+            }
+          },
+          {
+            "name": "stationId",
+            "in": "query",
+            "required": true,
+            "description": "The kitchen station this mutation is being performed from \u2014 operational context, not device identity.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
@@ -30460,7 +30490,7 @@
                         },
                         "elapsedSeconds": {
                           "type": "integer",
-                          "description": "Server-computed at response time — never a client value."
+                          "description": "Server-computed at response time \u2014 never a client value."
                         },
                         "targetReadyAt": {
                           "type": [
@@ -30674,7 +30704,7 @@
             }
           },
           "409": {
-            "description": "Serialization retries exhausted — reload and retry.",
+            "description": "Serialization retries exhausted \u2014 reload and retry.",
             "content": {
               "application/json": {
                 "schema": {
@@ -30712,10 +30742,20 @@
           {
             "name": "idempotency-key",
             "in": "header",
-            "description": "REQUIRED — recall increments recall_count and is not naturally idempotent.",
+            "description": "REQUIRED \u2014 recall increments recall_count and is not naturally idempotent.",
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "stationId",
+            "in": "query",
+            "required": true,
+            "description": "The kitchen station this mutation is being performed from \u2014 operational context, not device identity.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
@@ -30771,7 +30811,7 @@
                         },
                         "elapsedSeconds": {
                           "type": "integer",
-                          "description": "Server-computed at response time — never a client value."
+                          "description": "Server-computed at response time \u2014 never a client value."
                         },
                         "targetReadyAt": {
                           "type": [
@@ -31010,7 +31050,7 @@
     },
     "/reports/branches/{branchId}/daily-trading/{businessDay}": {
       "get": {
-        "description": "Financially-correct, read-only, query-time aggregation over the transactional primary — NOT a read replica, NOT a rollup, NOT a cache (FR-RPT-001/002/003/005 remain NOT IMPLEMENTED). Requires BOTH report.view.sales and report.view.financial (AND), held by a single role assignment whose scope COVERS this branch (FR-SEC-004). The Internal-MVP single-active-branch restriction is retired: a tenant may have any number of active branches. Refused (403) if the branch is not active, or if the tenant still holds unreviewed role assignments inherited from the scoped-RBAC migration. A future businessDay is 400, never an all-zeros OPEN report. Cash Reconciliation is WHOLE_SESSION scope and PARTIAL (zero-payment/movement-only sessions are not attributable to a business day and are not listed; no day-level variance/expected/counted/movement total is ever emitted). Tax is broken down by class only, never by rate. Money is a decimal (minor-unit) string on the wire, never a JSON number. tenderTotals.completedExcessCapturedTotal (acceptance correction, 2026-08-31) is captured payment value above a completed order’s grand total — P1F-2 permits paidTotal > grandTotal on completion; this term is reconciliation-only, with no revenue/tax/tip/discount/ refund/rounding/variance disposition inferred, and it makes tenderGrandTotal === grossSales + unsettledCapturedTotal + completedExcessCapturedTotal hold exactly.",
+        "description": "Financially-correct, read-only, query-time aggregation over the transactional primary \u2014 NOT a read replica, NOT a rollup, NOT a cache (FR-RPT-001/002/003/005 remain NOT IMPLEMENTED). Requires BOTH report.view.sales and report.view.financial (AND), held by a single role assignment whose scope COVERS this branch (FR-SEC-004). The Internal-MVP single-active-branch restriction is retired: a tenant may have any number of active branches. Refused (403) if the branch is not active, or if the tenant still holds unreviewed role assignments inherited from the scoped-RBAC migration. A future businessDay is 400, never an all-zeros OPEN report. Cash Reconciliation is WHOLE_SESSION scope and PARTIAL (zero-payment/movement-only sessions are not attributable to a business day and are not listed; no day-level variance/expected/counted/movement total is ever emitted). Tax is broken down by class only, never by rate. Money is a decimal (minor-unit) string on the wire, never a JSON number. tenderTotals.completedExcessCapturedTotal (acceptance correction, 2026-08-31) is captured payment value above a completed order\u2019s grand total \u2014 P1F-2 permits paidTotal > grandTotal on completion; this term is reconciliation-only, with no revenue/tax/tip/discount/ refund/rounding/variance disposition inferred, and it makes tenderGrandTotal === grossSales + unsettledCapturedTotal + completedExcessCapturedTotal hold exactly.",
         "operationId": "ReportingController_getDailyTradingReport",
         "parameters": [
           {
@@ -31036,7 +31076,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The daily-trading report: salesSummary, tenderTotals (incl. completedExcessCapturedTotal), taxSummary, cashReconciliation (WHOLE_SESSION scope), dataAsOf, periodStatus (OPEN/UNSEALED/SETTLED — no SEALED, no FUTURE), currency/currencySource, and a scope block disclosing exactly what this Internal-MVP slice does and does not cover.",
+            "description": "The daily-trading report: salesSummary, tenderTotals (incl. completedExcessCapturedTotal), taxSummary, cashReconciliation (WHOLE_SESSION scope), dataAsOf, periodStatus (OPEN/UNSEALED/SETTLED \u2014 no SEALED, no FUTURE), currency/currencySource, and a scope block disclosing exactly what this Internal-MVP slice does and does not cover.",
             "content": {
               "application/json": {
                 "schema": {
@@ -31206,7 +31246,7 @@
                         "completedExcessCapturedTotal": {
                           "type": "string",
                           "pattern": "^-?\\d+$",
-                          "description": "Captured payment value above a completed order’s grand total. Reconciliation-only — no revenue/tax/tip/discount/refund/rounding/variance disposition is inferred.",
+                          "description": "Captured payment value above a completed order\u2019s grand total. Reconciliation-only \u2014 no revenue/tax/tip/discount/refund/rounding/variance disposition is inferred.",
                           "example": "1250"
                         }
                       }
@@ -31488,7 +31528,7 @@
             }
           },
           "404": {
-            "description": "branchId is unknown or belongs to another tenant — byte-identical response for both, so a caller cannot learn a foreign branch exists.",
+            "description": "branchId is unknown or belongs to another tenant \u2014 byte-identical response for both, so a caller cannot learn a foreign branch exists.",
             "content": {
               "application/json": {
                 "schema": {
@@ -31521,7 +31561,7 @@
     },
     "/reports/branches/{branchId}/overview": {
       "get": {
-        "description": "Operational Analytics / Reporting Demo Pack (RPT-DEMO-1). Read-only, query-time aggregation over the transactional primary — NOT a read replica, NOT a rollup, NOT a cache. Requires BOTH report.view.sales and report.view.financial (AND), held by a single role assignment whose scope COVERS this branch, exactly like daily-trading — no new permission code is introduced. sales/cash reuse daily-trading’s exact population/formulas and gates (branch existence, unreviewed-migration scope review, operative-branch, future-day 400). inventory/workforce use a CALENDAR-day window (not the POS business day — neither carries a business-day column); kds uses the SAME business day as sales/cash (kitchen.tickets does carry one). Every section’s `notes` discloses its own time model and any metric deliberately omitted for lack of real source data (e.g. KDS fulfilment/serving time — servedAt is never populated by any write path).",
+        "description": "Operational Analytics / Reporting Demo Pack (RPT-DEMO-1). Read-only, query-time aggregation over the transactional primary \u2014 NOT a read replica, NOT a rollup, NOT a cache. Requires BOTH report.view.sales and report.view.financial (AND), held by a single role assignment whose scope COVERS this branch, exactly like daily-trading \u2014 no new permission code is introduced. sales/cash reuse daily-trading\u2019s exact population/formulas and gates (branch existence, unreviewed-migration scope review, operative-branch, future-day 400). inventory/workforce use a CALENDAR-day window (not the POS business day \u2014 neither carries a business-day column); kds uses the SAME business day as sales/cash (kitchen.tickets does carry one). Every section\u2019s `notes` discloses its own time model and any metric deliberately omitted for lack of real source data (e.g. KDS fulfilment/serving time \u2014 servedAt is never populated by any write path).",
         "operationId": "ReportingController_getOperationalOverview",
         "parameters": [
           {
@@ -31979,7 +32019,7 @@
             }
           },
           "404": {
-            "description": "branchId is unknown or belongs to another tenant — byte-identical response for both, so a caller cannot learn a foreign branch exists.",
+            "description": "branchId is unknown or belongs to another tenant \u2014 byte-identical response for both, so a caller cannot learn a foreign branch exists.",
             "content": {
               "application/json": {
                 "schema": {
@@ -31989,7 +32029,7 @@
             }
           },
           "409": {
-            "description": "More than one transaction currency was observed for this business day, a contributing cash session's currency disagrees with the report’s currency, or an internal cash-reconciliation invariant was violated. No partial financial total is ever returned on a 409.",
+            "description": "More than one transaction currency was observed for this business day, a contributing cash session's currency disagrees with the report\u2019s currency, or an internal cash-reconciliation invariant was violated. No partial financial total is ever returned on a 409.",
             "content": {
               "application/json": {
                 "schema": {
@@ -32004,7 +32044,7 @@
             "bearer": []
           }
         ],
-        "summary": "Branch operational overview — sales, cash, inventory, workforce, kds (dashboard-only; authorized against the branch it names).",
+        "summary": "Branch operational overview \u2014 sales, cash, inventory, workforce, kds (dashboard-only; authorized against the branch it names).",
         "tags": [
           "reporting"
         ]
@@ -32099,7 +32139,7 @@
                     },
                     "clockSkewMs": {
                       "type": "integer",
-                      "description": "Largest observed |device HLC physical clock − server receipt|, signed: positive means the device runs AHEAD. Reported, never silently corrected (FR-OFF-042).",
+                      "description": "Largest observed |device HLC physical clock \u2212 server receipt|, signed: positive means the device runs AHEAD. Reported, never silently corrected (FR-OFF-042).",
                       "example": 1200
                     },
                     "clockSkewExceededThreshold": {
@@ -32121,7 +32161,7 @@
                           "opId": {
                             "type": "string",
                             "format": "uuid",
-                            "description": "The client-generated operation id, echoed back UNCHANGED — FR-OFF-015: the server never reassigns an identifier.",
+                            "description": "The client-generated operation id, echoed back UNCHANGED \u2014 FR-OFF-015: the server never reassigns an identifier.",
                             "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
                           },
                           "status": {
@@ -32133,7 +32173,7 @@
                               "rejected",
                               "deferred"
                             ],
-                            "description": "accepted | duplicate | conflict | rejected are DEFINITIVE — the client may remove the operation from its outbox. deferred is NOT definitive: the causal parent has not been applied, so retain the operation and resend it once the parent is accepted (FR-OFF-022 / FR-OFF-024).",
+                            "description": "accepted | duplicate | conflict | rejected are DEFINITIVE \u2014 the client may remove the operation from its outbox. deferred is NOT definitive: the causal parent has not been applied, so retain the operation and resend it once the parent is accepted (FR-OFF-022 / FR-OFF-024).",
                             "example": "accepted"
                           },
                           "definitive": {
@@ -32377,7 +32417,7 @@
         },
         "responses": {
           "200": {
-            "description": "Per-operation results — identical shape to ordinary sync.",
+            "description": "Per-operation results \u2014 identical shape to ordinary sync.",
             "content": {
               "application/json": {
                 "schema": {
@@ -32449,7 +32489,7 @@
                     },
                     "clockSkewMs": {
                       "type": "integer",
-                      "description": "Largest observed |device HLC physical clock − server receipt|, signed: positive means the device runs AHEAD. Reported, never silently corrected (FR-OFF-042).",
+                      "description": "Largest observed |device HLC physical clock \u2212 server receipt|, signed: positive means the device runs AHEAD. Reported, never silently corrected (FR-OFF-042).",
                       "example": 1200
                     },
                     "clockSkewExceededThreshold": {
@@ -32471,7 +32511,7 @@
                           "opId": {
                             "type": "string",
                             "format": "uuid",
-                            "description": "The client-generated operation id, echoed back UNCHANGED — FR-OFF-015: the server never reassigns an identifier.",
+                            "description": "The client-generated operation id, echoed back UNCHANGED \u2014 FR-OFF-015: the server never reassigns an identifier.",
                             "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
                           },
                           "status": {
@@ -32483,7 +32523,7 @@
                               "rejected",
                               "deferred"
                             ],
-                            "description": "accepted | duplicate | conflict | rejected are DEFINITIVE — the client may remove the operation from its outbox. deferred is NOT definitive: the causal parent has not been applied, so retain the operation and resend it once the parent is accepted (FR-OFF-022 / FR-OFF-024).",
+                            "description": "accepted | duplicate | conflict | rejected are DEFINITIVE \u2014 the client may remove the operation from its outbox. deferred is NOT definitive: the causal parent has not been applied, so retain the operation and resend it once the parent is accepted (FR-OFF-022 / FR-OFF-024).",
                             "example": "accepted"
                           },
                           "definitive": {
@@ -32551,7 +32591,7 @@
             }
           },
           "403": {
-            "description": "Caller lacks identity.terminal.manage at the grant’s branch.",
+            "description": "Caller lacks identity.terminal.manage at the grant\u2019s branch.",
             "content": {
               "application/json": {
                 "schema": {
@@ -32586,7 +32626,7 @@
             "bearer": []
           }
         ],
-        "summary": "Upload one batch of a revoked terminal's committed offline backlog, authenticated as the admin who holds (or was granted) recovery authority for it — never as the terminal itself (see the service docblock for why).",
+        "summary": "Upload one batch of a revoked terminal's committed offline backlog, authenticated as the admin who holds (or was granted) recovery authority for it \u2014 never as the terminal itself (see the service docblock for why).",
         "tags": [
           "sync"
         ]
@@ -32595,7 +32635,7 @@
   },
   "info": {
     "title": "ROS Backend API",
-    "description": "Restaurant Operating System backend API — the live, implemented HTTP surface of this NestJS backend. Endpoints not yet built (Fire, Payment, Completion, KDS bump/recall, and others the SRS describes but this repository has not implemented) are deliberately absent from this document, not merely undocumented.",
+    "description": "Restaurant Operating System backend API \u2014 the live, implemented HTTP surface of this NestJS backend. Endpoints not yet built (Fire, Payment, Completion, KDS bump/recall, and others the SRS describes but this repository has not implemented) are deliberately absent from this document, not merely undocumented.",
     "version": "0.0.1",
     "contact": {}
   },
@@ -32603,7 +32643,7 @@
   "servers": [
     {
       "url": "/",
-      "description": "Current application root. There is no global path prefix: routes appear here at the exact paths the application serves. Most are unversioned; the Sync routes are versioned under /v1 because their canonical contract requires it, using Nest URI versioning with a VERSION_NEUTRAL default so no other route was moved. Repository-wide /v1 versioning (SRS §26.1) is a Platform decision and is not yet made. No deployment/proxy configuration exists in this repository, so confirm the real deployed base URL with deployment/ops before treating any prefix as authoritative."
+      "description": "Current application root. There is no global path prefix: routes appear here at the exact paths the application serves. Most are unversioned; the Sync routes are versioned under /v1 because their canonical contract requires it, using Nest URI versioning with a VERSION_NEUTRAL default so no other route was moved. Repository-wide /v1 versioning (SRS \u00a726.1) is a Platform decision and is not yet made. No deployment/proxy configuration exists in this repository, so confirm the real deployed base URL with deployment/ops before treating any prefix as authoritative."
     }
   ],
   "components": {
@@ -32621,7 +32661,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "FR-OFF-015 — the ULID the device already assigned. Preserved exactly, so an\norder created offline keeps one identity for its whole life."
+            "description": "FR-OFF-015 \u2014 the ULID the device already assigned. Preserved exactly, so an\norder created offline keeps one identity for its whole life."
           },
           "terminalId": {
             "type": "string",
@@ -32663,7 +32703,7 @@
           },
           "originDeviceTime": {
             "type": "string",
-            "description": "FR-OFF-015 — the device's own clock reading for the sale. Recorded as\n`origin_device_time`; it never decides the business day."
+            "description": "FR-OFF-015 \u2014 the device's own clock reading for the sale. Recorded as\n`origin_device_time`; it never decides the business day."
           },
           "notes": {
             "type": "string",
@@ -32697,7 +32737,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "FR-OFF-015 — the ULID the device assigned to this line."
+            "description": "FR-OFF-015 \u2014 the ULID the device assigned to this line."
           },
           "menuItemId": {
             "type": "string"
@@ -32743,7 +32783,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "FR-OFF-015 — the ULID the device assigned to this Payment."
+            "description": "FR-OFF-015 \u2014 the ULID the device assigned to this Payment."
           },
           "tender": {
             "type": "string",
@@ -32754,7 +32794,7 @@
           },
           "amountMinor": {
             "type": "string",
-            "description": "The amount this Payment applies toward the order, in MINOR units, as an\nexact integer string (ADR-008 — never a JSON number). For CASH, the\nEXACT amount being settled — never the cash-rounded figure, which the\nserver derives from `tenderedAmountMinor` and the order's pinned\ncountry pack.",
+            "description": "The amount this Payment applies toward the order, in MINOR units, as an\nexact integer string (ADR-008 \u2014 never a JSON number). For CASH, the\nEXACT amount being settled \u2014 never the cash-rounded figure, which the\nserver derives from `tenderedAmountMinor` and the order's pinned\ncountry pack.",
             "pattern": "^\\d{1,18}$"
           },
           "cashSessionId": {
@@ -32767,7 +32807,7 @@
           },
           "terminalReference": {
             "type": "string",
-            "description": "REQUIRED for MANUAL_EXTERNAL_CARD; refused for CASH. The cashier's own\nrecord of the already-completed EXTERNAL terminal transaction — never a\nROS-side integrated-terminal session id (FR-POS-064 is not implemented).",
+            "description": "REQUIRED for MANUAL_EXTERNAL_CARD; refused for CASH. The cashier's own\nrecord of the already-completed EXTERNAL terminal transaction \u2014 never a\nROS-side integrated-terminal session id (FR-POS-064 is not implemented).",
             "maxLength": 64
           },
           "cardScheme": {
@@ -32777,7 +32817,7 @@
           },
           "last4": {
             "type": "string",
-            "description": "Optional. Exactly 4 digits when present — never more (FR-POS-066).",
+            "description": "Optional. Exactly 4 digits when present \u2014 never more (FR-POS-066).",
             "pattern": "^\\d{4}$"
           },
           "authorizationCode": {
@@ -32809,7 +32849,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "FR-OFF-015 — the ULID the device assigned to this Discount."
+            "description": "FR-OFF-015 \u2014 the ULID the device assigned to this Discount."
           },
           "type": {
             "enum": [
@@ -32820,12 +32860,12 @@
           },
           "value": {
             "type": "string",
-            "description": "`type: percentage` — exact decimal string, at most 2 decimal places,\n`0 < value <= 100` (e.g. `\"15.50\"`). `type: fixed` — a whole number of\nminor units expressed as a string (ADR-008).",
+            "description": "`type: percentage` \u2014 exact decimal string, at most 2 decimal places,\n`0 < value <= 100` (e.g. `\"15.50\"`). `type: fixed` \u2014 a whole number of\nminor units expressed as a string (ADR-008).",
             "maxLength": 24
           },
           "reasonCodeId": {
             "type": "string",
-            "description": "REQUIRED — FR-POS-046: selection from a configurable list, never free text."
+            "description": "REQUIRED \u2014 FR-POS-046: selection from a configurable list, never free text."
           },
           "managerEmployeeCode": {
             "type": "string",
@@ -32893,7 +32933,7 @@
           },
           "originalPaymentId": {
             "type": "string",
-            "description": "REQUIRED — the exact Payment this refund is issued against."
+            "description": "REQUIRED \u2014 the exact Payment this refund is issued against."
           },
           "tender": {
             "type": "string",
@@ -32959,28 +32999,40 @@
         "type": "object",
         "properties": {
           "tenantId": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
           },
-          "terminalId": {
-            "type": "string"
+          "branchId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The branch this PIN session operates against. POS and KDS are branch/employee application sessions, not registered Terminal/device ones \u2014 there is no terminalId on this DTO."
           },
           "employeeCode": {
             "type": "string",
-            "description": "Employee code, not an email — a POS operator identifies by staff code.",
+            "description": "Employee code, not an email \u2014 a POS operator identifies by staff code.",
             "minLength": 1,
             "maxLength": 32
           },
           "pin": {
             "type": "string",
-            "description": "FR-SEC-020: 4–8 digits. Never logged, never echoed.",
+            "description": "FR-SEC-020: 4\u20138 digits. Never logged, never echoed.",
             "pattern": "^\\d{4,8}$"
+          },
+          "sessionType": {
+            "type": "string",
+            "enum": [
+              "pos",
+              "kds"
+            ],
+            "description": "Which operational surface this PIN session is for."
           }
         },
         "required": [
           "tenantId",
-          "terminalId",
+          "branchId",
           "employeeCode",
-          "pin"
+          "pin",
+          "sessionType"
         ]
       },
       "RefreshDto": {
@@ -33075,14 +33127,14 @@
           },
           "validFrom": {
             "type": "string",
-            "description": "FR-SEC-005 — defaults to now when omitted."
+            "description": "FR-SEC-005 \u2014 defaults to now when omitted."
           },
           "validTo": {
             "type": [
               "string",
               "null"
             ],
-            "description": "FR-SEC-005 — omit or null for an open-ended assignment."
+            "description": "FR-SEC-005 \u2014 omit or null for an open-ended assignment."
           }
         },
         "required": [
@@ -33273,7 +33325,7 @@
           },
           "scopeName": {
             "type": "string",
-            "description": "First branch name. Optional — defaults to \"Main\" when omitted.",
+            "description": "First branch name. Optional \u2014 defaults to \"Main\" when omitted.",
             "minLength": 1,
             "maxLength": 120
           },
@@ -33288,7 +33340,7 @@
           },
           "password": {
             "type": "string",
-            "description": "FR-SEC-025 — signup requires a minimum of 10 characters.",
+            "description": "FR-SEC-025 \u2014 signup requires a minimum of 10 characters.",
             "minLength": 10,
             "maxLength": 128
           }
@@ -34080,7 +34132,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "FR-POS-021 [M]. REQUIRED — P1E-5. Pre-existing rows may carry `kind:\nnull` (no non-heuristic source data could classify them; see the\ncatalogue-modifier-kind migration header), but every NEW modifier\ncreated through this API must state its semantic kind explicitly.",
+            "description": "FR-POS-021 [M]. REQUIRED \u2014 P1E-5. Pre-existing rows may carry `kind:\nnull` (no non-heuristic source data could classify them; see the\ncatalogue-modifier-kind migration header), but every NEW modifier\ncreated through this API must state its semantic kind explicitly.",
             "enum": [
               "addition",
               "removal",
@@ -34094,7 +34146,7 @@
           },
           "stockItemId": {
             "type": "string",
-            "description": "FR-MNU-012: recorded only — Inventory is out of scope."
+            "description": "FR-MNU-012: recorded only \u2014 Inventory is out of scope."
           },
           "consumptionQuantity": {
             "type": "string",
@@ -34106,7 +34158,7 @@
           "recipeDelta": {
             "type": "object",
             "additionalProperties": true,
-            "description": "FR-MNU-013: opaque JSON — Production Spec is not implemented."
+            "description": "FR-MNU-013: opaque JSON \u2014 Production Spec is not implemented."
           },
           "isDefault": {
             "type": "boolean"
@@ -34356,7 +34408,7 @@
           },
           "effectiveFrom": {
             "type": "string",
-            "description": "D-17-08 Q2 — INFORMATIONAL ONLY. Accepted, stored and returned. It is\nnever read by publish, resolution or any selection predicate."
+            "description": "D-17-08 Q2 \u2014 INFORMATIONAL ONLY. Accepted, stored and returned. It is\nnever read by publish, resolution or any selection predicate."
           },
           "instructions": {
             "type": "object",
@@ -34448,7 +34500,7 @@
           },
           "subRecipeId": {
             "type": "string",
-            "description": "LOGICAL recipe identity — resolved to its published version at capture time."
+            "description": "LOGICAL recipe identity \u2014 resolved to its published version at capture time."
           },
           "quantity": {
             "type": "string",
@@ -34484,11 +34536,11 @@
         "properties": {
           "shiftId": {
             "type": "string",
-            "description": "FR-OFF-015 — the ULID the device assigned to the shift. Preserved exactly."
+            "description": "FR-OFF-015 \u2014 the ULID the device assigned to the shift. Preserved exactly."
           },
           "cashSessionId": {
             "type": "string",
-            "description": "FR-OFF-015 — the ULID the device assigned to the session. Preserved exactly."
+            "description": "FR-OFF-015 \u2014 the ULID the device assigned to the session. Preserved exactly."
           },
           "drawerId": {
             "type": "string"
@@ -34516,16 +34568,16 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "FR-OFF-015 — the device's permanent ULID for this movement. REQUIRED."
+            "description": "FR-OFF-015 \u2014 the device's permanent ULID for this movement. REQUIRED."
           },
           "amountMinor": {
             "type": "string",
-            "description": "Positive integer minor units, as an exact string (ADR-008: money is never\na JSON number). The movement TYPE (the route) supplies the sign — a\nclient can never submit a negative amount.",
+            "description": "Positive integer minor units, as an exact string (ADR-008: money is never\na JSON number). The movement TYPE (the route) supplies the sign \u2014 a\nclient can never submit a negative amount.",
             "pattern": "^(?!0+$)\\d{1,18}$"
           },
           "reason": {
             "type": "string",
-            "description": "FR-POS-091 [M] — mandatory for ALL THREE movement types. Non-blank.",
+            "description": "FR-POS-091 [M] \u2014 mandatory for ALL THREE movement types. Non-blank.",
             "maxLength": 500,
             "pattern": "\\S"
           },
@@ -34563,7 +34615,7 @@
         "properties": {
           "closeAttemptId": {
             "type": "string",
-            "description": "FR-OFF-015 — the device's permanent ULID for this close attempt. REQUIRED."
+            "description": "FR-OFF-015 \u2014 the device's permanent ULID for this close attempt. REQUIRED."
           },
           "countedTotalMinorUnits": {
             "type": "string",
@@ -34587,11 +34639,11 @@
         "properties": {
           "approvalRequestId": {
             "type": "string",
-            "description": "FR-OFF-015 — client-generated permanent id for THIS approval request."
+            "description": "FR-OFF-015 \u2014 client-generated permanent id for THIS approval request."
           },
           "approvalDecisionId": {
             "type": "string",
-            "description": "FR-OFF-015 — client-generated permanent id for THIS approval decision."
+            "description": "FR-OFF-015 \u2014 client-generated permanent id for THIS approval decision."
           },
           "decision": {
             "type": "string",
@@ -34602,13 +34654,13 @@
           },
           "reason": {
             "type": "string",
-            "description": "FR-FIN-006 [M] — mandatory above tolerance. Non-blank.",
+            "description": "FR-FIN-006 [M] \u2014 mandatory above tolerance. Non-blank.",
             "maxLength": 1000,
             "pattern": "\\S"
           },
           "managerEmployeeCode": {
             "type": "string",
-            "description": "The deciding manager's employee code — mirrors `PinLoginDto`.",
+            "description": "The deciding manager's employee code \u2014 mirrors `PinLoginDto`.",
             "maxLength": 32
           },
           "managerPin": {
@@ -34670,13 +34722,13 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "`Drawer.name` — VARCHAR(64).",
+            "description": "`Drawer.name` \u2014 VARCHAR(64).",
             "minLength": 1,
             "maxLength": 64
           },
           "terminalId": {
             "type": "string",
-            "description": "Optional device binding. When set, a cash session may only be opened\nagainst this drawer from THAT terminal — `DrawersService.create`\nenforces same-branch (ADR 0008 D-16). Omitted = any terminal in the\nbranch may open a session over this drawer."
+            "description": "Optional device binding. When set, a cash session may only be opened\nagainst this drawer from THAT terminal \u2014 `DrawersService.create`\nenforces same-branch (ADR 0008 D-16). Omitted = any terminal in the\nbranch may open a session over this drawer."
           }
         },
         "required": [
@@ -34850,7 +34902,7 @@
         "properties": {
           "pin": {
             "type": "string",
-            "description": "FR-SEC-020 — 4 to 8 digits. Never logged.",
+            "description": "FR-SEC-020 \u2014 4 to 8 digits. Never logged.",
             "pattern": "^\\d{4,8}$"
           }
         },
@@ -35355,7 +35407,7 @@
         "properties": {
           "opId": {
             "type": "string",
-            "description": "`FR-OFF-021` / SRS §21.5.1 — \"idempotency key for the operation\". There is\nno separate idempotency field: `opId` IS it."
+            "description": "`FR-OFF-021` / SRS \u00a721.5.1 \u2014 \"idempotency key for the operation\". There is\nno separate idempotency field: `opId` IS it."
           },
           "hlc": {
             "type": "string",
@@ -35374,7 +35426,7 @@
               "string",
               "null"
             ],
-            "description": "`FR-OFF-022` — the opId of the causal parent. A child whose parent has not\nbeen applied is DEFERRED, never rejected."
+            "description": "`FR-OFF-022` \u2014 the opId of the causal parent. A child whose parent has not\nbeen applied is DEFERRED, never rejected."
           },
           "actorEmployeeId": {
             "type": [
@@ -35423,7 +35475,7 @@
           },
           "batchId": {
             "type": "string",
-            "description": "SRS §21.5.1 — \"idempotency key for the batch\"."
+            "description": "SRS \u00a721.5.1 \u2014 \"idempotency key for the batch\"."
           },
           "lastServerCursor": {
             "type": [
@@ -35473,7 +35525,7 @@
       },
       "ErrorResponse": {
         "type": "object",
-        "description": "Nest's default HttpException envelope, also used verbatim by the single global SalesDomainExceptionFilter (statusCode/message differ, error is the class's HTTP reason phrase or domain error name). error is sometimes absent — a bare `new UnauthorizedException()` with no message omits it.",
+        "description": "Nest's default HttpException envelope, also used verbatim by the single global SalesDomainExceptionFilter (statusCode/message differ, error is the class's HTTP reason phrase or domain error name). error is sometimes absent \u2014 a bare `new UnauthorizedException()` with no message omits it.",
         "required": [
           "statusCode",
           "message"

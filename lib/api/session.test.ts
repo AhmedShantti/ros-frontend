@@ -2,17 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearSession,
   clearTerminalIdentity,
+  getDeviceBranchId,
   getOpenCashSession,
   getPendingCashOpen,
   getPosEmployee,
-  getTerminalId,
   isSignedIn,
   onSessionChange,
   setActiveSurface,
+  setDeviceBranchId,
   setOpenCashSession,
   setPendingCashOpen,
   setPosEmployee,
-  setTerminalId,
   setTokens,
 } from "./session";
 
@@ -42,13 +42,28 @@ describe("isSignedIn", () => {
   });
 });
 
+describe("PosEmployee.sessionType — FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0", () => {
+  it("round-trips a KDS sign-on distinctly from a POS one", () => {
+    setPosEmployee({ code: "EMP02", name: "Cook", sessionType: "kds" });
+    expect(getPosEmployee()).toEqual({ code: "EMP02", name: "Cook", sessionType: "kds" });
+  });
+
+  it("defaults an unmarked record to \"pos\" — the only kind that existed before KDS had its own sign-on", () => {
+    window.localStorage.setItem(
+      "ros.api.posEmployee",
+      JSON.stringify({ code: "EMP01", name: "Amina" }),
+    );
+    expect(getPosEmployee()).toEqual({ code: "EMP01", name: "Amina", sessionType: "pos" });
+  });
+});
+
 describe("OpenCashSession storage", () => {
   it("round-trips a full record", () => {
-    setOpenCashSession({ cashSessionId: "cs-1", employeeCode: "EMP01", terminalId: "t1" });
+    setOpenCashSession({ cashSessionId: "cs-1", employeeCode: "EMP01", branchId: "branch-1" });
     expect(getOpenCashSession()).toEqual({
       cashSessionId: "cs-1",
       employeeCode: "EMP01",
-      terminalId: "t1",
+      branchId: "branch-1",
     });
   });
 
@@ -57,12 +72,12 @@ describe("OpenCashSession storage", () => {
     expect(getOpenCashSession()).toEqual({
       cashSessionId: "cs-legacy",
       employeeCode: "",
-      terminalId: "",
+      branchId: "",
     });
   });
 
   it("returns null once cleared", () => {
-    setOpenCashSession({ cashSessionId: "cs-1", employeeCode: "EMP01", terminalId: "t1" });
+    setOpenCashSession({ cashSessionId: "cs-1", employeeCode: "EMP01", branchId: "branch-1" });
     setOpenCashSession(null);
     expect(getOpenCashSession()).toBeNull();
   });
@@ -70,7 +85,7 @@ describe("OpenCashSession storage", () => {
   it("survives clearTerminalIdentity — a drawer belongs to the employee who opened it, not the token", () => {
     setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
     setPosEmployee({ code: "EMP01", name: "Amina" });
-    setOpenCashSession({ cashSessionId: "cs-1", employeeCode: "EMP01", terminalId: "t1" });
+    setOpenCashSession({ cashSessionId: "cs-1", employeeCode: "EMP01", branchId: "branch-1" });
 
     clearTerminalIdentity();
 
@@ -79,14 +94,14 @@ describe("OpenCashSession storage", () => {
     expect(getOpenCashSession()).toEqual({
       cashSessionId: "cs-1",
       employeeCode: "EMP01",
-      terminalId: "t1",
+      branchId: "branch-1",
     });
   });
 });
 
-describe("terminal binding vs. cashier identity", () => {
-  it("clearTerminalIdentity ends the PIN session without unbinding the terminal", () => {
-    setTerminalId("term-1");
+describe("device branch vs. cashier identity — FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0", () => {
+  it("clearTerminalIdentity ends the PIN session without forgetting the device's branch", () => {
+    setDeviceBranchId("branch-1");
     setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
     setPosEmployee({ code: "EMP01", name: "Amina" });
 
@@ -94,8 +109,9 @@ describe("terminal binding vs. cashier identity", () => {
 
     expect(isSignedIn()).toBe(false);
     expect(getPosEmployee()).toBeNull();
-    // The physical till does not stop being that till because a cashier signed off.
-    expect(getTerminalId()).toBe("term-1");
+    // The physical device does not stop running that branch's POS/KDS
+    // because a cashier signed off.
+    expect(getDeviceBranchId()).toBe("branch-1");
   });
 
   it("a half-finished pending open survives a sign-off, so a timed-out open cannot be doubled", () => {
@@ -158,6 +174,6 @@ describe("clearSession (console surface sign-out)", () => {
 
     setActiveSurface("terminal");
     expect(isSignedIn()).toBe(true); // terminal surface, untouched
-    expect(getPosEmployee()).toEqual({ code: "EMP01", name: "Amina" });
+    expect(getPosEmployee()).toEqual({ code: "EMP01", name: "Amina", sessionType: "pos" });
   });
 });

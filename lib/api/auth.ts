@@ -1,29 +1,29 @@
 /**
  * Signing in against the real backend.
  *
- * The API splits what the console thinks of as one step into three, and the
+ * The API splits what the console thinks of as one step into two, and the
  * order matters — every `/org`, `/catalogue`, `/inventory` and `/orders` call
  * 403s until the second one has happened:
  *
  *   1. POST /auth/login     → access + refresh token, no tenant claim
  *   2. POST /auth/tenant    → the access token is rotated to carry a tenant
- *   3. POST /auth/terminal  → a CONSOLE (password-signed-in) user binding a
- *                             device, e.g. from `/register-device`.
  *
- * `signIn()` does 1 and 2, picking the tenant automatically when the account
+ * `signIn()` does both, picking the tenant automatically when the account
  * belongs to exactly one — which is the ordinary case, and one screen fewer.
  *
- * Step 3 is a console-only path, not a third step every session takes:
- * `signInWithPin` below mints a token that is ALREADY terminal-bound in one
- * request, and step 3's own route refuses a PIN-issued token outright — see
- * that function's comment.
+ * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — there used to be a step 3,
+ * `POST /auth/terminal`, a CONSOLE (password-signed-in) user binding a
+ * device to a registered ROS Terminal from `/register-device`. POS and KDS
+ * are branch/employee application sessions now, not Terminal/device ones:
+ * `/register-device` has a console user pick a branch instead (see that
+ * file), and `signInWithPin` below takes that branchId directly. Nothing in
+ * this file calls `/auth/terminal` or `/auth/terminals` any more.
  */
 
 import { api } from "./endpoints";
 import { http } from "./client";
 import { ServiceError } from "../console/services/types";
 import { setDefaultCurrency } from "../console/services/map";
-import { appVersion, deviceFingerprint, deviceOs } from "./device";
 import {
   clearSession,
   clearTerminalIdentity,
@@ -31,9 +31,6 @@ import {
   peekTerminalAccessToken,
   setPosEmployee,
   setTenantId,
-  setTerminalBranchId,
-  setTerminalId,
-  setTerminalName,
   setTokens,
 } from "./session";
 import type * as S from "./schema";
@@ -120,81 +117,13 @@ export async function selectTenant(
   return tenantId;
 }
 
-/**
- * Step 3 — a CONSOLE (password) session's own path to a terminal-scoped
- * token, e.g. `/register-device` binding this device for the first time. A
- * PIN session never calls this: `POST /auth/pin` already mints a
- * terminal-bound token in one request, and this route refuses a PIN-issued
- * bearer outright (no `@AllowPosSession()`) — see `signInWithPin`.
- *
- * The response already carries the full terminal record — name and branch
- * included — so both are saved here once. No screen needs to re-derive them
- * later from `GET /auth/terminals`, the tenant-wide admin listing a bound
- * session's own token is not entitled to call, or from the Console's own
- * `/org/access` discovery, which a PIN session is refused outright.
- */
-export async function bindTerminal(terminalId: string): Promise<void> {
-  const bound = await api.terminals.bind({ terminalId });
-  setTokens(bound);
-  setTerminalId(terminalId);
-  setTerminalName(bound.terminal.name);
-  setTerminalBranchId(bound.terminal.branchId);
-}
-
-export type TerminalRow = S.TerminalController_listResponse[number];
-
-/** Terminals registered to this tenant — the list a device picks itself from. */
-export async function listTerminals(): Promise<TerminalRow[]> {
-  return api.terminals.list();
-}
-
-/**
- * Registers a new terminal against a branch.
- *
- * The device's own fingerprint goes on the create call, so the terminal is
- * usable from this device immediately without a second round trip.
- */
-export async function registerTerminal(input: {
-  branchId: string;
-  name: string;
-  terminalType: "pos" | "kds" | "kiosk" | "handheld";
-}): Promise<TerminalRow> {
-  return api.terminals.register({
-    branchId: input.branchId,
-    name: input.name,
-    terminalType: input.terminalType,
-    deviceFingerprint: deviceFingerprint(),
-    os: deviceOs(),
-    appVersion: appVersion(),
-  });
-}
-
-/**
- * Binds this session to a terminal and enrols the device against it.
- *
- * The fingerprint call is idempotent and secondary: a terminal that is bound
- * but whose device is not yet enrolled still works, so a failure there must
- * not undo a successful bind.
- */
-export async function bindTerminalFromThisDevice(terminalId: string): Promise<void> {
-  await bindTerminal(terminalId);
-  try {
-    await api.terminals.addFingerprint(terminalId, {
-      deviceFingerprint: deviceFingerprint(),
-      os: deviceOs(),
-      appVersion: appVersion(),
-    });
-  } catch {
-    // Already enrolled, or the caller may not enrol devices. Neither is a
-    // reason to tell someone their terminal did not bind — it did.
-  }
-}
-
-/** The terminal the current token is bound to, if any. */
+/** The terminal the current token is bound to, if any — Category B: admin device visibility, independent of POS/KDS PIN sign-on. */
 export async function currentTerminal(): Promise<string | null> {
   const response = await api.terminals.currentTerminal();
   return response.terminalId;
 }
+
+export type TerminalRow = S.TerminalController_listResponse[number];
 
 /** FR-SEC-030 — disable or revoke a terminal from the console. */
 export async function setTerminalStatus(
@@ -205,46 +134,43 @@ export async function setTerminalStatus(
 }
 
 /**
- * A cashier signing on at a bound terminal, rather than a console user. The
- * POS identifies staff by employee code and PIN — never by email — and the
- * terminal and tenant are known from the device, not typed (FR-SEC-020).
+ * A POS cashier or KDS employee signing on at this device with a PIN, rather
+ * than a console user signing in with a password. The POS/KDS surface
+ * identifies staff by employee code and PIN — never by email — and the
+ * tenant/branch are known from the device (`getDeviceTenantId`/
+ * `getDeviceBranchId`, set once at `/register-device`), not typed
+ * (FR-SEC-020).
  *
- * `POST /auth/pin` is already the terminal-scoped issue, not step 1 of a
- * two-step one: `PinLoginDto.terminalId` is minted straight into the access
- * token as `trm`, alongside `tid`/`mid`/`emp`, so a fresh PIN token already
- * carries everything `GET /cash-sessions/drawers` needs. `bindTerminal`
- * (`POST /auth/terminal`, "Step 3" above) is the CONSOLE's own path to a
- * terminal-scoped session — for a user who signed in with a password and has
- * no terminal claim yet — and it is not merely unnecessary for a PIN
- * session, it is refused: that route carries no `@AllowPosSession()`, so
- * `JwtAuthGuard` 403s a `typ: 'pos'` bearer on it outright ("PIN (POS)
- * sessions cannot access dashboard or back-office endpoints"). A prior
- * version of this function called it anyway, on the mistaken assumption
- * that PIN login alone was not terminal-bound — do not reintroduce that
- * call. See `test/drawers-provisioning.e2e-spec.ts` (backend repo) for the
- * proof both ways: a bare PIN token already gets 200 from the drawers read,
- * and a rebind attempt after PIN login gets 403 from `POST /auth/terminal`
- * itself.
+ * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — `PinLoginDto` no longer takes a
+ * `terminalId`, and the token it mints no longer carries `trm`: POS and KDS
+ * are branch/employee application sessions, distinguished by `sessionType`
+ * ("pos" | "kds"), not registered Terminal/device ones. Do not reintroduce a
+ * terminal lookup, a terminal selector, or a call to `POST /auth/terminal`
+ * on this path — that concept is gone from this contract.
  */
 export async function signInWithPin(input: {
   tenantId: string;
-  terminalId: string;
+  branchId: string;
   employeeCode: string;
   pin: string;
+  sessionType: "pos" | "kds";
 }): Promise<void> {
-  // The employee on this till is being replaced, so nothing of the previous
-  // one may survive into the new session — including a half-finished drawer
-  // open, which would otherwise be replayed under the new employee's name.
+  // The employee on this device is being replaced, so nothing of the
+  // previous one may survive into the new session — including a
+  // half-finished drawer open, which would otherwise be replayed under the
+  // new employee's name.
   clearTerminalIdentity();
 
   const session = await api.auth.loginWithPin(input);
   setTokens(session);
   setTenantId(input.tenantId);
-  setTerminalId(input.terminalId);
-  // The till shows who is on it, and knows to ask when nobody is.
+  // The till/display shows who is on it, and knows to ask when nobody is —
+  // and, since POS and KDS share this one device-level slot, which kind of
+  // session it actually is.
   setPosEmployee({
     code: input.employeeCode,
     name: session.user?.displayName || input.employeeCode,
+    sessionType: input.sessionType,
   });
 }
 

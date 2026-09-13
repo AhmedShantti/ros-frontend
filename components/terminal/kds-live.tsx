@@ -44,7 +44,17 @@ import { useNow, elapsedSince } from "@/lib/console/live/store";
 import { formatElapsed } from "@/lib/console/format";
 import { ORDER_TYPE, TICKET_URGENCY } from "@/lib/console/labels";
 import { urgencyFor } from "@/lib/console/live/engine";
-import { getKdsStationId, setKdsStationId } from "@/lib/api/session";
+import {
+  getDeviceBranchId,
+  getDeviceTenantId,
+  getKdsStationId,
+  getPosEmployee,
+  isSignedIn,
+  onSessionChange,
+  setKdsStationId,
+  type PosEmployee,
+} from "@/lib/api/session";
+import { signInWithPin } from "@/lib/api/auth";
 import { ErrorPanel } from "@/components/console/states";
 import { HoldToBump } from "@/components/terminal/chrome";
 import {
@@ -53,10 +63,26 @@ import {
   Callout,
   Card,
   CardHeader,
+  Field,
+  Input,
   Spinner,
   Toast,
   cx,
 } from "@/components/console/ui";
+
+/**
+ * Whoever is PIN-signed-on at this device, but ONLY if that sign-on was for
+ * KDS. FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — POS and KDS share one
+ * device-level identity slot (`lib/api/session.ts`'s `posEmployee`), because
+ * a real device is physically either a till or a kitchen display, never
+ * both — but a stray POS sign-on left on a KDS-configured device (or the
+ * reverse) must never be treated as "signed on for KDS". `sessionType` is
+ * what tells the two apart.
+ */
+function getKdsEmployee(): PosEmployee | null {
+  const employee = isSignedIn() ? getPosEmployee() : null;
+  return employee?.sessionType === "kds" ? employee : null;
+}
 
 /** How often the queue is re-read. Kitchen work is measured in seconds. */
 const POLL_MS = 5_000;
@@ -93,15 +119,38 @@ export function LiveKds() {
   /**
    * The stored station is in `localStorage`, which the server render cannot
    * see. Reading it during render would make the first client paint disagree
-   * with the server's, so nothing is decided until after mount.
+   * with the server's, so nothing is decided until after mount. Same for the
+   * device's branch and whoever is PIN-signed-on to this KDS.
    */
   const [mounted, setMounted] = useState(false);
   const [stationId, setStation] = useState<Id | null>(null);
+  const [employee, setEmployee] = useState<PosEmployee | null>(null);
 
   useEffect(() => {
-    setStation(getKdsStationId());
+    const sync = () => {
+      setStation(getKdsStationId());
+      setEmployee(getKdsEmployee());
+    };
+    sync();
     setMounted(true);
+    // Signing on and signing off both announce, so this screen follows the
+    // display's real state rather than a copy taken once at mount.
+    return onSessionChange(sync);
   }, []);
+
+  /**
+   * A dead refresh token (an expired PIN session nobody renewed) clears the
+   * identity from underneath an already-mounted tree — see the identical
+   * gate in `pos-live.tsx`'s `LivePos`. React to storage disappearing, not
+   * just read it once.
+   */
+  useEffect(() => {
+    return onSessionChange(() => {
+      if (!isSignedIn()) setEmployee(null);
+    });
+  }, []);
+
+  const deviceBranchId = mounted ? getDeviceBranchId() : null;
 
   const chooseStation = useCallback((next: Id | null) => {
     setKdsStationId(next);
@@ -230,6 +279,42 @@ export function LiveKds() {
     );
   }
 
+  if (!deviceBranchId) {
+    return (
+      <div className="mx-auto min-h-0 w-full max-w-md flex-1 overflow-y-auto p-4">
+        <Card>
+          <CardHeader title={t("pos.noBranch")} spec="FR-SEC-030" />
+          <Callout tone="warn">{t("pos.noBranchNote")}</Callout>
+          <Button
+            variant="primary"
+            className="mt-4 w-full"
+            onClick={() => {
+              window.location.href = "/register-device";
+            }}
+          >
+            {t("auth.deviceTitle")}
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  /*
+   * FR-SEC-020 (KDS) — a station picker means nothing without knowing WHO is
+   * on this display. `POST /auth/pin` is what mints a session identifying the
+   * employee, the same as POS; this display has a sign-on of its own on top
+   * of the console setup that gave it a branch.
+   */
+  if (!employee) {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-md p-4">
+          <KdsSignOn branchId={deviceBranchId} onSignedOn={() => setEmployee(getKdsEmployee())} />
+        </div>
+      </div>
+    );
+  }
+
   if (!stationId) {
     return (
       <StationPicker
@@ -289,17 +374,17 @@ export function LiveKds() {
                     cancelledVisibleFor={queue.data?.cancelledLineVisibilitySeconds ?? null}
                     pending={action.pending}
                     onStartLine={(lineId) =>
-                      action.run(() => services.kitchen.startLine(ticket.id, lineId), {
+                      action.run(() => services.kitchen.startLine(ticket.id, lineId, stationId), {
                         onSuccess: queue.reload,
                       })
                     }
                     onBumpLine={(lineId) =>
-                      action.run(() => services.kitchen.bumpLine(ticket.id, lineId), {
+                      action.run(() => services.kitchen.bumpLine(ticket.id, lineId, stationId), {
                         onSuccess: queue.reload,
                       })
                     }
                     onBumpAll={() =>
-                      action.run(() => services.kitchen.bumpAll(ticket.id), {
+                      action.run(() => services.kitchen.bumpAll(ticket.id, stationId), {
                         onSuccess: queue.reload,
                         success: t("kds.bumpedTicket"),
                       })
@@ -342,7 +427,7 @@ export function LiveKds() {
                         type="button"
                         disabled={action.pending}
                         onClick={() =>
-                          action.run(() => services.kitchen.recall(ticket.id), {
+                          action.run(() => services.kitchen.recall(ticket.id, stationId), {
                             onSuccess: queue.reload,
                             success: t("kds.recalled"),
                           })
@@ -372,6 +457,88 @@ export function LiveKds() {
 
       <Toast message={message} />
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * FR-SEC-020 (KDS) — the kitchen employee signs on to the display by staff
+ * code and PIN, exactly like `pos-live.tsx`'s `CashierSignOn` — same
+ * underlying `signInWithPin` call, `sessionType: "kds"` instead of `"pos"`.
+ * The tenant and branch are read off the device rather than typed. There is
+ * no terminalId to send: KDS is a branch/employee application session, not a
+ * registered Terminal/device one.
+ */
+function KdsSignOn({
+  branchId,
+  onSignedOn,
+}: {
+  branchId: string;
+  onSignedOn: () => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction();
+  const [employeeCode, setEmployeeCode] = useState("");
+  const [pin, setPin] = useState("");
+
+  const tenantId = getDeviceTenantId();
+  const valid = employeeCode.trim() !== "" && /^[0-9]{4,8}$/.test(pin) && Boolean(tenantId);
+
+  async function signOn() {
+    if (!valid || !tenantId) return;
+    const code = employeeCode.trim();
+    await action.run(
+      () => signInWithPin({ tenantId, branchId, employeeCode: code, pin, sessionType: "kds" }),
+      {
+        onSuccess: () => {
+          // Never leave a PIN sitting in a field on a shared display.
+          setPin("");
+          onSignedOn();
+        },
+      },
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader title={t("shift.signOnTitle")} hint={t("shift.signOnNote")} spec="FR-SEC-020" />
+
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      {tenantId ? null : <Callout tone="warn">{t("shift.signOnNoTenant")}</Callout>}
+
+      <div className="mt-4 space-y-4">
+        <Field label={t("shift.employeeCode")} required>
+          <Input
+            dir="ltr"
+            autoComplete="off"
+            value={employeeCode}
+            onChange={(event) => setEmployeeCode(event.target.value)}
+          />
+        </Field>
+
+        <Field label={t("shift.pinLabel")} hint={t("shift.pinHint")} required>
+          <Input
+            type="password"
+            inputMode="numeric"
+            dir="ltr"
+            autoComplete="off"
+            value={pin}
+            onChange={(event) => setPin(event.target.value)}
+          />
+        </Field>
+
+        <Button
+          variant="primary"
+          className="w-full"
+          loading={action.pending}
+          disabled={!valid}
+          onClick={signOn}
+        >
+          {t("shift.signOn")}
+        </Button>
+      </div>
+    </Card>
   );
 }
 

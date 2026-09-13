@@ -67,7 +67,7 @@ import {
   clearTerminalIdentity,
   getOpenCashSession,
   getPendingCashOpen,
-  getTerminalId,
+  getDeviceBranchId,
   isSignedIn,
   onSessionChange,
   setOpenCashSession,
@@ -183,11 +183,11 @@ export function LivePos() {
     });
   }, []);
 
-  const terminalId = mounted ? getTerminalId() : null;
+  const deviceBranchId = mounted ? getDeviceBranchId() : null;
 
   /** Write through, so the drawer survives the next reload too. */
   const takeCashSession = (next: string | null) => {
-    if (next === null || !cashier || !terminalId) {
+    if (next === null || !cashier || !deviceBranchId) {
       setOpenCashSession(null);
       setHeld(null);
       return;
@@ -196,7 +196,7 @@ export function LivePos() {
     const record: OpenCashSession = {
       cashSessionId: next,
       employeeCode: cashier.code,
-      terminalId,
+      branchId: deviceBranchId,
     };
 
     setOpenCashSession(record);
@@ -213,7 +213,7 @@ export function LivePos() {
    * also why a foreign `held` record must never be reconciled away just
    * because the SIGNED-ON cashier's own server session comes back empty.
    */
-  const mine = isMine(held, cashier, terminalId);
+  const mine = isMine(held, cashier, deviceBranchId);
   const blockedByForeignDrawer = held !== null && !mine;
 
   /*
@@ -278,12 +278,12 @@ export function LivePos() {
     );
   }
 
-  if (!terminalId) {
+  if (!deviceBranchId) {
     return (
       <div className="mx-auto min-h-0 w-full max-w-md flex-1 overflow-y-auto p-4">
         <Card>
-          <CardHeader title={t("pos.noTerminal")} spec="FR-SEC-030" />
-          <Callout tone="warn">{t("pos.noTerminalNote")}</Callout>
+          <CardHeader title={t("pos.noBranch")} spec="FR-SEC-030" />
+          <Callout tone="warn">{t("pos.noBranchNote")}</Callout>
           <Button
             variant="primary"
             className="mt-4 w-full"
@@ -301,10 +301,10 @@ export function LivePos() {
   /*
    * A drawer is taken into someone's custody, so the token must say whose.
    *
-   * Signing in to the console and binding a terminal is not enough: that
-   * token identifies a *user*, and the server answers "Opening a cash
-   * session requires a session that identifies the employee taking custody
-   * of the drawer." Only `POST /auth/pin` mints a token carrying an
+   * Signing in to the console and setting this device's branch is not
+   * enough: that token identifies a *user*, and the server answers "Opening
+   * a cash session requires a session that identifies the employee taking
+   * custody of the drawer." Only `POST /auth/pin` mints a token carrying an
    * employee, so the till has a sign-on of its own on top of signing in.
    */
   if (!cashier) {
@@ -312,7 +312,7 @@ export function LivePos() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-md p-4">
           <CashierSignOn
-            terminalId={terminalId}
+            branchId={deviceBranchId}
             // `onSessionChange` above already re-reads who is on the till,
             // so there is nothing to hand back but the confirmation.
             onSignedOn={() => setMessage(t("shift.signedOn"))}
@@ -421,7 +421,6 @@ export function LivePos() {
         ) : (
           <NewOrderPane
             branchId={scope.branchId}
-            terminalId={terminalId}
             scope={scope}
             onOpened={(next) => {
               setOrder(next);
@@ -468,16 +467,17 @@ export function LivePos() {
  * FR-SEC-020 — the cashier signs on to the till by staff code and PIN.
  *
  * Not by email: a POS operator identifies by employee code, and the tenant
- * and terminal are read off the device rather than typed. The session this
- * mints is POS-only and replaces the console token on this device, which is
- * correct — a till in service is the cashier's, not the manager's who set
- * it up.
+ * and branch are read off the device rather than typed. The session this
+ * mints is POS-only (`sessionType: "pos"`) and replaces the console token on
+ * this device, which is correct — a till in service is the cashier's, not
+ * the manager's who set it up. There is no terminalId to send: POS is a
+ * branch/employee application session, not a registered Terminal/device one.
  */
 function CashierSignOn({
-  terminalId,
+  branchId,
   onSignedOn,
 }: {
-  terminalId: string;
+  branchId: string;
   onSignedOn: () => void;
 }) {
   const { t } = useI18n();
@@ -492,7 +492,7 @@ function CashierSignOn({
     if (!valid || !tenantId) return;
     const code = employeeCode.trim();
     await action.run(
-      () => signInWithPin({ tenantId, terminalId, employeeCode: code, pin }),
+      () => signInWithPin({ tenantId, branchId, employeeCode: code, pin, sessionType: "pos" }),
       {
         onSuccess: () => {
           // Never leave a PIN sitting in a field on a shared till.
@@ -827,12 +827,10 @@ function OpenDrawer({
 
 function NewOrderPane({
   branchId,
-  terminalId,
   scope,
   onOpened,
 }: {
   branchId: string | null;
-  terminalId: string;
   scope: Scope;
   onOpened: (order: Order) => void;
 }) {
@@ -869,7 +867,6 @@ function NewOrderPane({
         services.sales.mutations.open({
           orderType,
           channel: "pos",
-          terminalId,
           guestCount: Number(guestCount) || undefined,
           tableId: orderType === "dine_in" ? tableId : undefined,
         }),
@@ -883,7 +880,7 @@ function NewOrderPane({
         <CardHeader title={t("pos.newOrder")} spec="FR-POS-001" />
 
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
-        {!branchId ? <Callout tone="muted">{t("pos.branchFromTerminal")}</Callout> : null}
+        {!branchId ? <Callout tone="muted">{t("pos.branchFromDevice")}</Callout> : null}
 
         <div className="mt-4 space-y-4">
           <Field label={t("orders.type")}>

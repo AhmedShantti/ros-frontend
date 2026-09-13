@@ -161,14 +161,22 @@ export interface KitchenService {
    * Write-once per ticket; returns how many were newly acknowledged.
    */
   acknowledgeViewed(stationId: Id, ticketIds: Id[]): Promise<number>;
-  /** A cook has taken the line on. */
-  startLine(ticketId: Id, lineId: Id): Promise<KitchenTicket>;
-  /** FR-KDS-026 — one line is made and ready. */
-  bumpLine(ticketId: Id, lineId: Id): Promise<KitchenTicket>;
-  /** Every eligible line on the ticket at once. */
-  bumpAll(ticketId: Id): Promise<{ ticket: KitchenTicket; bumpedLineIds: Id[] }>;
-  /** FR-KDS-025 — pull a bumped ticket back, inside the recall window. */
-  recall(ticketId: Id): Promise<KitchenTicket>;
+  /**
+   * A cook has taken the line on.
+   *
+   * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — `stationId` is required on the
+   * wire now, as a `?stationId=` QUERY PARAMETER (not a JSON body field):
+   * operational context (which station this mutation is being performed
+   * from), not a device identity. Always the station this ticket's own
+   * queue was read from, never a Terminal/device fact.
+   */
+  startLine(ticketId: Id, lineId: Id, stationId: Id): Promise<KitchenTicket>;
+  /** FR-KDS-026 — one line is made and ready. Same `stationId` requirement as `startLine`. */
+  bumpLine(ticketId: Id, lineId: Id, stationId: Id): Promise<KitchenTicket>;
+  /** Every eligible line on the ticket at once. Same `stationId` requirement as `startLine`. */
+  bumpAll(ticketId: Id, stationId: Id): Promise<{ ticket: KitchenTicket; bumpedLineIds: Id[] }>;
+  /** FR-KDS-025 — pull a bumped ticket back, inside the recall window. Same `stationId` requirement as `startLine`. */
+  recall(ticketId: Id, stationId: Id): Promise<KitchenTicket>;
 }
 
 export interface OperationsService {
@@ -742,7 +750,6 @@ export interface OrderMutationService {
     tableId?: Id;
     guestCount?: number;
     notes?: string;
-    terminalId?: Id;
     openedByEmployeeId?: Id;
   }): Promise<Order>;
 

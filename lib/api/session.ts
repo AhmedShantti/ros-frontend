@@ -1,13 +1,12 @@
 /**
- * The tokens, and the tenant/terminal the tokens are currently bound to.
+ * The tokens, and the tenant/branch the tokens are currently scoped to.
  *
  * `POST /auth/login` returns a short-lived access token and a refresh token.
  * The tenant is *not* chosen at login: `POST /auth/tenant` rotates the access
  * token so it carries a tenant claim, and every `/org`, `/catalogue`,
- * `/inventory`, `/orders` call 403s until that has happened. The same is true
- * of `POST /auth/terminal` for the endpoints that need a bound device.
+ * `/inventory`, `/orders` call 403s until that has happened.
  *
- * Storage is `localStorage`, deliberately: a POS terminal that reloads mid
+ * Storage is `localStorage`, deliberately: a POS/KDS device that reloads mid
  * service must come back signed in. It is also, equally deliberately, only
  * the token — no permission set is cached here, because the server is the
  * authority on every request (FR-SEC-045).
@@ -16,31 +15,39 @@
  * its expiry, the selected tenant) are kept in TWO INDEPENDENT storage slots,
  * one per "surface": `console` (password login, `(console)`/`(auth)` route
  * groups — the dashboard) and `terminal` (PIN login, `(terminal)` route
- * group — POS/KDS). Before this, `signInWithPin` overwrote the SAME
- * `ros.api.*` keys a signed-in Owner's dashboard session was reading, so a
- * cashier PIN login on the same browser silently replaced the Owner's own
- * token — every `/dashboard` call afterwards 403'd, authenticated as the
- * Cashier instead. `setActiveSurface`, called once by each route group's own
- * root layout (module scope, before any child can fire a request), picks
- * which slot every one of the functions below reads and writes — every
- * existing call site (`lib/api/auth.ts`, `lib/api/client.ts`,
- * `lib/console/services/http.ts`'s ~50 `getTenantId()` reads,
- * `components/terminal/pos-live.tsx`) keeps calling the SAME function names
- * unchanged, and is automatically correct for whichever surface it runs on.
+ * group — POS/KDS; the surface name predates, and is unrelated to, the ROS
+ * Terminal device concept decoupled below). Before this, `signInWithPin`
+ * overwrote the SAME `ros.api.*` keys a signed-in Owner's dashboard session
+ * was reading, so a cashier PIN login on the same browser silently replaced
+ * the Owner's own token — every `/dashboard` call afterwards 403'd,
+ * authenticated as the Cashier instead. `setActiveSurface`, called once by
+ * each route group's own root layout (module scope, before any child can
+ * fire a request), picks which slot every one of the functions below reads
+ * and writes — every existing call site (`lib/api/auth.ts`,
+ * `lib/api/client.ts`, `lib/console/services/http.ts`'s ~50 `getTenantId()`
+ * reads, `components/terminal/pos-live.tsx`) keeps calling the SAME function
+ * names unchanged, and is automatically correct for whichever surface it
+ * runs on.
  *
- * `terminalId`/`kdsStationId` stay a SINGLE shared value on purpose: they
- * name the PHYSICAL DEVICE ("which terminal/station is this till"), not an
- * authenticated identity — `/register-device` (a console-authenticated
- * screen) sets it once, and the SAME value must be visible to `/pos`/`/kds`
- * afterwards for a PIN sign-on to even know which terminal it is signing
- * into.
+ * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — POS and KDS are branch/employee
+ * application sessions, not registered Terminal/device ones: `POST /auth/pin`
+ * takes `branchId` and `sessionType` ("pos" | "kds") instead of `terminalId`,
+ * and the JWT it mints no longer carries `trm`. `deviceBranchId`/
+ * `kdsStationId` stay SINGLE shared, DEVICE-scoped values for the same reason
+ * `terminalId` used to: they name OPERATIONAL CONTEXT ("which branch/station
+ * is this device"), not an authenticated identity — `/register-device` (a
+ * console-authenticated screen) sets the branch once, and the SAME value
+ * must be visible to `/pos`/`/kds` afterwards for a PIN sign-on to even know
+ * which branch it is signing into. A Kitchen Station is operational context
+ * the same way, never a device identity — see `lib/api/session.ts`'s own
+ * `KEY_KDS_STATION` below.
  *
  * POS-CUSTODY — everything else on this device is scoped to WHO IS ON THE
  * TILL, and the split is the whole point of this module:
  *
- *   DEVICE-scoped, survives any sign-out: terminalId, kdsStationId,
- *   deviceTenantId, deviceFingerprint. A till does not stop being that till
- *   because someone went home.
+ *   DEVICE-scoped, survives any sign-out: deviceBranchId, kdsStationId,
+ *   deviceTenantId, deviceFingerprint. A device does not stop running the
+ *   same branch's POS/KDS because someone went home.
  *
  *   USER-scoped, must never outlive the person who created it: both token
  *   slots, `posEmployee`, and any half-finished drawer open. Left behind,
@@ -95,21 +102,27 @@ function identityKeys() {
   return activeSurface === "console" ? CONSOLE_KEYS : TERMINAL_KEYS;
 }
 
-const KEY_TERMINAL = "ros.api.terminalId";
 /**
- * PROD-POS-TERMINAL-LISTING-P0 — the display name of the device's own bound
- * terminal, exactly as `POST /auth/terminal` returned it at bind time.
+ * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — these three keys named a
+ * registered ROS Terminal device: `POST /auth/terminal`'s bind response and
+ * `PinLoginDto.terminalId`, both gone from the backend contract. POS and KDS
+ * are branch/employee application sessions now, not Terminal/device ones —
+ * see `getDeviceBranchId`/`setDeviceBranchId` below for what replaced the
+ * branch fact, and `clearLegacyPosKdsTerminalState` for forgetting whatever a
+ * browser from before this migration still has sitting under them. Kept only
+ * as string literals, deliberately not live constants: nothing in this
+ * module may read or write through them again.
  *
- * `GET /auth/terminal` (the read-only "am I bound" check) answers with the
- * id and nothing else; the only place a name has ever come from is
- * `GET /auth/terminals` — every terminal registered to the whole tenant,
- * a dashboard/admin listing a PIN-issued session is not entitled to call
- * (it 401s even freshly bound). `POST /auth/terminal`'s own response
- * already carries the full terminal record, name included, so `bindTerminal`
- * saves it here once instead of a screen re-deriving it from a listing call
- * its token can never legally make.
+ *   "ros.api.terminalId"        — the bound terminal's id
+ *   "ros.api.terminalName"      — its display name, cached at bind time
+ *   "ros.api.terminalBranchId"  — its branch, cached at bind time
  */
-const KEY_TERMINAL_NAME = "ros.api.terminalName";
+const LEGACY_TERMINAL_KEYS = [
+  "ros.api.terminalId",
+  "ros.api.terminalName",
+  "ros.api.terminalBranchId",
+] as const;
+
 /**
  * DEMO-SESSION-ISOLATION-HOTFIX — which tenant THIS DEVICE operates under,
  * as a DEVICE-level fact, independent of either surface's own active
@@ -119,28 +132,31 @@ const KEY_TERMINAL_NAME = "ros.api.terminalName";
  * were separated it silently borrowed the shared `tenantId` slot, which
  * happened to already hold the right value only because the SAME browser
  * had, at some point, also been used for a console login as the manager who
- * registered this device. Kept here, set whenever EITHER surface
- * successfully resolves a tenant, and never cleared by a mere sign-out of
- * either one — the physical till does not change tenants just because
- * someone logged out of it.
+ * set this device up. Kept here, set whenever EITHER surface successfully
+ * resolves a tenant, and never cleared by a mere sign-out of either one — the
+ * physical till does not change tenants just because someone logged out of it.
  */
 const KEY_DEVICE_TENANT = "ros.api.deviceTenantId";
 /**
- * DEMO-POS-P0-5 — which branch THIS DEVICE's bound terminal belongs to, a
- * DEVICE-level fact mirroring `KEY_DEVICE_TENANT` above. `POST /auth/terminal`
- * (`bindTerminal`) already receives the full terminal record — `branchId`
- * included — so it is saved here once, the same way the terminal's name
- * already is. Every terminal-scoped read that needs "this till's own branch"
- * (the menu, the tables, the branch chip) reads it from here instead of the
- * console's brand/branch scope switcher: that switcher's storage keys
- * (`ros.console.brand`/`.branch`) are shared with `(console)` and persist
- * across a manager's own console session, so a Cashier who signs on to a
- * till right after that manager registered it would otherwise inherit
+ * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — which branch THIS DEVICE runs
+ * POS/KDS against, a DEVICE-level fact mirroring `KEY_DEVICE_TENANT` above.
+ * Replaces the old `terminalBranchId`, which came from a Terminal bind
+ * response that no longer exists: `/register-device` now has a console user
+ * pick a branch directly (from the same authorized-branches list the
+ * console's own switcher offers) instead of binding a till, and saves it
+ * here once. Every POS/KDS read that needs "this device's own branch" (the
+ * PIN sign-on request, the menu, the tables, the branch chip) reads it from
+ * here instead of the console's brand/branch scope switcher: that switcher's
+ * storage keys (`ros.console.brand`/`.branch`) are shared with `(console)`
+ * and persist across a manager's own console session, so a cashier signing
+ * on right after that manager set the device up would otherwise inherit
  * whatever branch the manager's dashboard happened to be filtered to — never
  * cleared by a sign-out, for the same reason `KEY_DEVICE_TENANT` is not: the
- * physical till does not change branches just because someone signed out.
+ * physical device does not change branches just because someone signed out.
+ * A DIFFERENT key from the legacy one on purpose — a value cached under the
+ * old Terminal-bind semantics must never be silently reinterpreted as this.
  */
-const KEY_TERMINAL_BRANCH = "ros.api.terminalBranchId";
+const KEY_DEVICE_BRANCH = "ros.api.deviceBranchId";
 const KEY_CASH_SESSION = "ros.api.cashSessionId";
 const KEY_CASH_OPENING = "ros.api.cashSessionOpening";
 const KEY_POS_EMPLOYEE = "ros.api.posEmployee";
@@ -339,31 +355,28 @@ export function getDeviceTenantId(): string | null {
   return read(KEY_DEVICE_TENANT);
 }
 
-export function getTerminalId(): string | null {
-  return read(KEY_TERMINAL);
+/** Which branch this DEVICE runs POS/KDS against — see `KEY_DEVICE_BRANCH`. */
+export function getDeviceBranchId(): string | null {
+  return read(KEY_DEVICE_BRANCH);
 }
 
-export function setTerminalId(terminalId: string | null): void {
-  write(KEY_TERMINAL, terminalId);
+export function setDeviceBranchId(branchId: string | null): void {
+  write(KEY_DEVICE_BRANCH, branchId);
   announce();
 }
 
-/** The bound terminal's display name — see `KEY_TERMINAL_NAME`. */
-export function getTerminalName(): string | null {
-  return read(KEY_TERMINAL_NAME);
-}
-
-export function setTerminalName(name: string | null): void {
-  write(KEY_TERMINAL_NAME, name);
-}
-
-/** The bound terminal's own branch — see `KEY_TERMINAL_BRANCH`. */
-export function getTerminalBranchId(): string | null {
-  return read(KEY_TERMINAL_BRANCH);
-}
-
-export function setTerminalBranchId(branchId: string | null): void {
-  write(KEY_TERMINAL_BRANCH, branchId);
+/**
+ * Forgets a pre-decoupling browser's Terminal/device state — see
+ * `LEGACY_TERMINAL_KEYS`. Safe to call unconditionally and repeatedly: a key
+ * already absent is simply a no-op removal. Called once at POS/KDS bootstrap
+ * so a production browser holding old `terminalId`/`terminalName`/
+ * `terminalBranchId` values cannot have them read, misinterpreted, or acted
+ * on by anything — the whole point being that a returning user lands on the
+ * new branch-selection flow instead of a crash or a redirect loop over state
+ * this build no longer knows how to use.
+ */
+export function clearLegacyPosKdsTerminalState(): void {
+  for (const key of LEGACY_TERMINAL_KEYS) write(key, null);
 }
 
 /**
@@ -413,8 +426,13 @@ export interface OpenCashSession {
    * which is to say: shown to whoever is standing there, never adopted.
    */
   employeeCode: string;
-  /** The terminal it was opened at, so a re-bound device does not inherit it. */
-  terminalId: string;
+  /**
+   * The branch it was opened at, so a device repurposed to a different
+   * branch does not inherit it. Was `terminalId` — a re-bound Terminal is not
+   * a scenario this build has anymore, but a device's assigned branch
+   * changing is the same shape of event, and gets the same protection.
+   */
+  branchId: string;
 }
 
 export function getOpenCashSession(): OpenCashSession | null {
@@ -425,16 +443,20 @@ export function getOpenCashSession(): OpenCashSession | null {
   // it and no endpoint to rediscover it with — but keep it as what it is: a
   // session whose owner this device cannot vouch for.
   if (!raw.startsWith("{")) {
-    return { cashSessionId: raw, employeeCode: "", terminalId: read(KEY_TERMINAL) ?? "" };
+    return { cashSessionId: raw, employeeCode: "", branchId: read(KEY_DEVICE_BRANCH) ?? "" };
   }
 
   try {
-    const parsed = JSON.parse(raw) as Partial<OpenCashSession>;
+    const parsed = JSON.parse(raw) as Partial<OpenCashSession> & { terminalId?: string };
     if (!parsed.cashSessionId) return null;
     return {
       cashSessionId: parsed.cashSessionId,
       employeeCode: parsed.employeeCode ?? "",
-      terminalId: parsed.terminalId ?? "",
+      // A record written before this migration carried `terminalId` instead;
+      // read as owner-unknown-for-branch rather than thrown away outright —
+      // there is still real money behind it — but never as a match for the
+      // device's CURRENT branch, since that field named a different axis.
+      branchId: parsed.branchId ?? "",
     };
   } catch {
     return null;
@@ -500,7 +522,8 @@ export function setPendingCashOpen(pending: PendingCashOpen | null): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Who signed on at this terminal with a PIN.
+ * Who signed on at this terminal with a PIN — the POS cashier, or the KDS
+ * employee, whichever `sessionType` this device's PIN sign-on actually used.
  *
  * A drawer is taken into someone's custody, so the token has to say whose:
  * open a cash session on a console user's token and the server answers
@@ -511,12 +534,16 @@ export function setPendingCashOpen(pending: PendingCashOpen | null): void {
  *
  * This is a *display* record, not an authorisation one — the token is what
  * the server checks, and it will refuse regardless of what is stored here.
- * It exists so the till can show who is on it and know to ask when nobody
- * is, without decoding a JWT it does not own.
+ * It exists so the till/display can show who is on it and know to ask when
+ * nobody is, without decoding a JWT it does not own — `sessionType` is what
+ * lets a KDS screen tell "somebody is signed on" apart from "somebody is
+ * signed on FOR KDS", since both surfaces share this one device-level slot.
  */
 export interface PosEmployee {
   code: string;
   name: string;
+  /** Absent on a record from before KDS had its own PIN sign-on — treated as `"pos"`, the only kind that existed then. */
+  sessionType?: "pos" | "kds";
 }
 
 export function getPosEmployee(): PosEmployee | null {
@@ -524,7 +551,12 @@ export function getPosEmployee(): PosEmployee | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<PosEmployee>;
-    return parsed.code ? { code: parsed.code, name: parsed.name ?? parsed.code } : null;
+    if (!parsed.code) return null;
+    return {
+      code: parsed.code,
+      name: parsed.name ?? parsed.code,
+      sessionType: parsed.sessionType === "kds" ? "kds" : "pos",
+    };
   } catch {
     return null;
   }

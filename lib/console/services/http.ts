@@ -2068,8 +2068,9 @@ const orderMutations: import("./types").OrderMutationService = {
       tableId: input.tableId,
       guestCount: input.guestCount,
       notes: input.notes,
-      // Optional on a terminal-bound session, where the token carries it.
-      terminalId: input.terminalId,
+      // No terminalId: POS is a branch/employee application session, and the
+      // branch already comes from the token. `CreateOrderDto.terminalId`
+      // remains on the wire DTO as an optional, ignorable legacy field.
       openedByEmployeeId: input.openedByEmployeeId,
       // The device's own clock reading. It is recorded, never used to decide
       // which business day the sale lands in — the server does that.
@@ -2719,21 +2720,21 @@ const kitchen: KitchenService = {
     return response.acknowledged;
   },
 
-  async startLine(ticketId, lineId) {
-    return toTicket((await api.kitchen.startLine(ticketId, lineId)).ticket);
+  async startLine(ticketId, lineId, stationId) {
+    return toTicket((await api.kitchen.startLine(ticketId, lineId, { stationId })).ticket);
   },
 
-  async bumpLine(ticketId, lineId) {
-    return toTicket((await api.kitchen.bumpLine(ticketId, lineId)).ticket);
+  async bumpLine(ticketId, lineId, stationId) {
+    return toTicket((await api.kitchen.bumpLine(ticketId, lineId, { stationId })).ticket);
   },
 
-  async bumpAll(ticketId) {
-    const response = await api.kitchen.bumpAll(ticketId);
+  async bumpAll(ticketId, stationId) {
+    const response = await api.kitchen.bumpAll(ticketId, { stationId });
     return { ticket: await toTicket(response.ticket), bumpedLineIds: response.bumpedLineIds };
   },
 
-  async recall(ticketId) {
-    return toTicket((await api.kitchen.recall(ticketId)).ticket);
+  async recall(ticketId, stationId) {
+    return toTicket((await api.kitchen.recall(ticketId, { stationId })).ticket);
   },
 };
 

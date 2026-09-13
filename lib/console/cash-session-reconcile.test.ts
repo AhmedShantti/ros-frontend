@@ -22,46 +22,46 @@ describe("sameEmployee", () => {
 });
 
 describe("isMine", () => {
-  const terminalId = "term-1";
+  const branchId = "branch-1";
   const cashier = { code: "EMP01" };
 
   it("is false with no held session", () => {
-    expect(isMine(null, cashier, terminalId)).toBe(false);
+    expect(isMine(null, cashier, branchId)).toBe(false);
   });
 
   it("is false with no signed-on cashier", () => {
-    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "EMP01", terminalId };
-    expect(isMine(held, null, terminalId)).toBe(false);
+    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "EMP01", branchId };
+    expect(isMine(held, null, branchId)).toBe(false);
   });
 
-  it("is true when the held session names the same employee and terminal", () => {
-    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "EMP01", terminalId };
-    expect(isMine(held, cashier, terminalId)).toBe(true);
+  it("is true when the held session names the same employee and branch", () => {
+    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "EMP01", branchId };
+    expect(isMine(held, cashier, branchId)).toBe(true);
   });
 
   it("tolerates case/whitespace differences in the employee code", () => {
-    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: " emp01", terminalId };
-    expect(isMine(held, cashier, terminalId)).toBe(true);
+    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: " emp01", branchId };
+    expect(isMine(held, cashier, branchId)).toBe(true);
   });
 
   it("is false for a foreign employee's session — never adopted silently", () => {
-    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "EMP02", terminalId };
-    expect(isMine(held, cashier, terminalId)).toBe(false);
+    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "EMP02", branchId };
+    expect(isMine(held, cashier, branchId)).toBe(false);
   });
 
   it("is false for a record with no owner on file (pre-custody shape)", () => {
-    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "", terminalId };
-    expect(isMine(held, cashier, terminalId)).toBe(false);
+    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "", branchId };
+    expect(isMine(held, cashier, branchId)).toBe(false);
   });
 
-  it("is false when the terminal does not match — a re-bound device does not inherit it", () => {
-    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "EMP01", terminalId: "term-2" };
-    expect(isMine(held, cashier, terminalId)).toBe(false);
+  it("is false when the branch does not match — a device repurposed to another branch does not inherit it", () => {
+    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "EMP01", branchId: "branch-2" };
+    expect(isMine(held, cashier, branchId)).toBe(false);
   });
 
-  it("tolerates a blank terminalId on the record (pre-terminal-tracking shape)", () => {
-    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "EMP01", terminalId: "" };
-    expect(isMine(held, cashier, terminalId)).toBe(true);
+  it("tolerates a blank branchId on the record (pre-branch-tracking shape)", () => {
+    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "EMP01", branchId: "" };
+    expect(isMine(held, cashier, branchId)).toBe(true);
   });
 });
 
@@ -72,19 +72,19 @@ describe("reconcileWithServer", () => {
   });
 
   it("restores when local storage names a stale id and the server has a different one", () => {
-    const held: HeldSession = { cashSessionId: "cs-old", employeeCode: "EMP01", terminalId: "t1" };
+    const held: HeldSession = { cashSessionId: "cs-old", employeeCode: "EMP01", branchId: "t1" };
     const action = reconcileWithServer({ held, serverCashSessionId: "cs-new" });
     expect(action).toEqual({ type: "restore", cashSessionId: "cs-new" });
   });
 
   it("does nothing when local storage already matches the server (idempotent)", () => {
-    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "EMP01", terminalId: "t1" };
+    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "EMP01", branchId: "t1" };
     const action = reconcileWithServer({ held, serverCashSessionId: "cs-1" });
     expect(action).toEqual({ type: "none" });
   });
 
   it("clears a stale local session once the server confirms it is closed/gone", () => {
-    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "EMP01", terminalId: "t1" };
+    const held: HeldSession = { cashSessionId: "cs-1", employeeCode: "EMP01", branchId: "t1" };
     const action = reconcileWithServer({ held, serverCashSessionId: null });
     expect(action).toEqual({ type: "clear" });
   });

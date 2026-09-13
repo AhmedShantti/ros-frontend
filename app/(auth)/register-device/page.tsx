@@ -1,128 +1,82 @@
 "use client";
 
 /**
- * Register this device — FR-SEC-030.
+ * Set this device's branch — FR-SEC-030.
  *
- * The pairing code is the credential. A terminal cannot enrol itself: a
- * manager issues the code in the console, which is what keeps "any device on
- * the network can start taking payments" from being true.
+ * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — this used to register/bind a ROS
+ * Terminal (`POST /auth/terminals`, `POST /auth/terminal`, a device
+ * fingerprint enrolment). POS and KDS are branch/employee application
+ * sessions now, not registered Terminal/device ones: `POST /auth/pin` takes
+ * `branchId` + `sessionType` directly, with no terminal to bind first. So
+ * there is no network call on the "set up" step at all any more — a manager
+ * picks one of the branches their OWN console session can see
+ * (`useSession()`'s `availableBranches`, the same authorized list the
+ * console's own branch switcher offers) and it is saved locally, once, as
+ * this device's `deviceBranchId` (`lib/api/session.ts`). `/pos`/`/kds` read
+ * it from there afterwards to know which branch a PIN sign-on is for.
  *
  * ## Live and demo differ here, and they have to
  *
- * The demo screen asks for an eight-digit pairing code. The backend has no
- * such concept — there is no pairing-code endpoint, and nothing accepts one.
- * What it has is:
- *
- *   GET  /auth/terminals                        the tenant's registered tills
- *   POST /auth/terminals                        register a new one on a branch
- *   POST /auth/terminal                         bind *this session* to one
- *   POST /auth/terminals/{id}/fingerprints      enrol this device against it
- *
- * So live, the code field is replaced by the thing it stood in for: a list
- * of real terminals to bind to, and a form to add one. Both are authorised
- * server-side, which is the same guarantee the pairing code was there to
- * provide — a device still cannot enrol itself without a session that may.
- *
- * Demo mode keeps the original screen, because with no backend there is
- * nothing to list and the code is the only thing it can meaningfully ask for.
+ * Demo mode has no backend and no real branch list to authorise against, so
+ * it keeps its own self-contained pairing-code screen — a simulated device
+ * setup for a simulated POS, matching `components/terminal/pos-*.tsx`'s own
+ * demo/live split elsewhere.
  */
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, KeyRound, MonitorCheck, Plus, ScanLine } from "lucide-react";
+import { ArrowLeft, Check, KeyRound, MonitorCheck, ScanLine } from "lucide-react";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { DATA_MODE } from "@/lib/api/config";
-import { isSignedIn } from "@/lib/api/session";
-import {
-  bindTerminalFromThisDevice,
-  listTerminals,
-  registerTerminal,
-  type TerminalRow,
-} from "@/lib/api/auth";
+import { isSignedIn, setDeviceBranchId } from "@/lib/api/session";
 import { setReturnTo } from "@/lib/console/auth";
 import { ServiceError } from "@/lib/console/services";
-import {
-  Badge,
-  Button,
-  Callout,
-  Card,
-  Field,
-  Input,
-  Select,
-  Spinner,
-  Toggle,
-} from "@/components/console/ui";
+import { Button, Callout, Card, Field, Input, Select, Spinner, Toggle } from "@/components/console/ui";
 import { Form, FormField, useZodForm } from "@/components/console/form";
 import { registerDeviceSchema, type RegisterDeviceInput } from "@/schemas/auth";
 
 export default function RegisterDevicePage() {
   const live = DATA_MODE === "http";
-  return live ? <LiveDeviceBinding /> : <DemoDevicePairing />;
+  return live ? <LiveBranchSetup /> : <DemoDevicePairing />;
 }
 
 // ---------------------------------------------------------------------------
 // Live
 // ---------------------------------------------------------------------------
 
-function LiveDeviceBinding() {
+function LiveBranchSetup() {
   const { t, tx } = useI18n();
   const router = useRouter();
-  const { availableBranches, org } = useSession();
-
-  const [terminals, setTerminals] = useState<TerminalRow[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [bound, setBound] = useState<TerminalRow | null>(null);
-  const [adding, setAdding] = useState(false);
+  const { branch, availableBranches, org } = useSession();
 
   /*
-   * Binding a terminal is an authenticated call; there is nothing useful to
-   * show someone who is not signed in but a way to sign in.
+   * Picking a branch for this device only means anything for someone signed
+   * in to the console; there is nothing useful to show someone who is not
+   * but a way to sign in.
    *
    * The token is in `localStorage`, which the server render cannot see, so
    * this cannot be read during render: the server always decided "signed
    * out" and rendered the sign-in prompt, the client decided "signed in" and
-   * rendered the terminal list, and React threw the tree away as a
-   * hydration mismatch. Nothing is decided until after mount.
+   * rendered the branch list, and React threw the tree away as a hydration
+   * mismatch. Nothing is decided until after mount.
    */
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   useEffect(() => setSignedIn(isSignedIn()), []);
 
+  const [branchId, setBranchId] = useState("");
+  const [saved, setSaved] = useState<{ id: string; name: string } | null>(null);
+
+  // Defaults to whichever branch the console's OWN switcher is already
+  // showing, when it has a real one selected — "already has an active
+  // branch" from the console flows straight into this. Never overwrites a
+  // choice the manager already made on this screen.
   useEffect(() => {
-    if (!signedIn) return;
-    let cancelled = false;
-
-    listTerminals()
-      .then((rows) => {
-        if (!cancelled) setTerminals(rows);
-      })
-      .catch((cause: unknown) => {
-        if (cancelled) return;
-        setTerminals([]);
-        setLoadError(
-          cause instanceof ServiceError ? cause.message : t("auth.errorNetwork"),
-        );
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [signedIn, t]);
-
-  async function bind(terminal: TerminalRow) {
-    setBusyId(terminal.id);
-    setError(null);
-    try {
-      await bindTerminalFromThisDevice(terminal.id);
-      setBound(terminal);
-    } catch (cause) {
-      setError(cause instanceof ServiceError ? cause.message : t("auth.errorNetwork"));
-    } finally {
-      setBusyId(null);
-    }
-  }
+    setBranchId((current) => {
+      if (current && availableBranches.some((b) => b.id === current)) return current;
+      return branch?.id ?? availableBranches[0]?.id ?? "";
+    });
+  }, [branch, availableBranches]);
 
   if (signedIn === null) {
     return (
@@ -156,8 +110,16 @@ function LiveDeviceBinding() {
     );
   }
 
-  if (bound) {
-    return <RegisteredConfirmation identifier={bound.name} detail={bound.id} live />;
+  if (saved) {
+    return (
+      <RegisteredConfirmation
+        identifier={saved.name}
+        detail={saved.id}
+        nameLabel={t("term.branch")}
+        idLabel={t("auth.deviceBranchId")}
+        live
+      />
+    );
   }
 
   return (
@@ -165,87 +127,50 @@ function LiveDeviceBinding() {
       <h1 className="text-fg text-lg font-semibold">{t("auth.deviceTitle")}</h1>
       <p className="text-fg-muted mt-1.5 text-xs leading-relaxed">{t("auth.deviceLedeLive")}</p>
 
-      {error ? (
+      {org.error ? (
         <Callout tone="bad" className="mt-4">
-          {error}
-        </Callout>
-      ) : null}
-      {loadError ? (
-        <Callout tone="bad" className="mt-4">
-          {loadError}
+          {org.error.message}
         </Callout>
       ) : null}
 
-      {terminals === null ? (
+      {org.loading && availableBranches.length === 0 ? (
         <div className="text-fg-subtle mt-5 flex items-center gap-2 text-xs">
           <Spinner size={14} />
           {t("state.loading")}
         </div>
+      ) : availableBranches.length === 0 ? (
+        <Callout tone="muted" className="mt-4">
+          {t("auth.deviceNoBranches")}
+        </Callout>
       ) : (
-        <>
-          {terminals.length === 0 ? (
-            <Callout tone="muted" className="mt-4">
-              {t("auth.deviceNoTerminals")}
-            </Callout>
-          ) : (
-            <ul className="mt-4">
-              {terminals.map((terminal) => {
-                const usable = terminal.status === "active";
-                return (
-                  <li key={terminal.id}>
-                    <button
-                      type="button"
-                      disabled={!usable || busyId !== null}
-                      onClick={() => bind(terminal)}
-                      className="border-line hover:bg-sunken focus-visible:bg-sunken flex w-full items-center gap-3 border-b px-1 py-3 text-start transition-colors last:border-b-0 disabled:opacity-50"
-                    >
-                      <MonitorCheck size={14} className="text-fg-subtle shrink-0" aria-hidden />
-                      <span className="min-w-0 flex-1">
-                        <span className="text-fg block text-xs font-medium">{terminal.name}</span>
-                        <span className="text-fg-subtle block truncate text-xs" dir="ltr">
-                          {terminal.terminalType} · {terminal.id}
-                        </span>
-                      </span>
-                      <span className="shrink-0">
-                        {busyId === terminal.id ? (
-                          <Spinner size={13} />
-                        ) : (
-                          <Badge tone={usable ? "good" : "muted"}>{terminal.status}</Badge>
-                        )}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-
-          {adding ? (
-            <NewTerminalForm
-              branches={availableBranches.map((branch) => ({
-                id: branch.id,
-                label: `${tx(branch.name)} · ${branch.code}`,
-              }))}
-              busy={org.loading}
-              onCancel={() => setAdding(false)}
-              onCreated={async (terminal) => {
-                setTerminals((rows) => [...(rows ?? []), terminal]);
-                setAdding(false);
-                await bind(terminal);
-              }}
-            />
-          ) : (
-            <Button
-              variant="secondary"
-              className="mt-4 w-full"
-              icon={<Plus size={14} />}
-              onClick={() => setAdding(true)}
-            >
-              {t("auth.deviceRegisterNew")}
-            </Button>
-          )}
-        </>
+        <div className="mt-4">
+          <Field label={t("term.branch")} required>
+            <Select value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+              {availableBranches.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {tx(row.name)} · {row.code}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
       )}
+
+      <Button
+        variant="primary"
+        className="mt-4 w-full"
+        disabled={!branchId}
+        icon={<Check size={14} />}
+        onClick={() => {
+          const chosen = availableBranches.find((row) => row.id === branchId);
+          if (!chosen) return;
+          // A local write only — there is no bind call to make any more.
+          setDeviceBranchId(chosen.id);
+          setSaved({ id: chosen.id, name: tx(chosen.name) });
+        }}
+      >
+        {t("auth.registerDevice")}
+      </Button>
 
       <Link
         href="/login"
@@ -255,93 +180,6 @@ function LiveDeviceBinding() {
         {t("auth.backToSignIn")}
       </Link>
     </Card>
-  );
-}
-
-/** `POST /auth/terminals` — a new till on a branch. */
-function NewTerminalForm({
-  branches,
-  busy,
-  onCancel,
-  onCreated,
-}: {
-  branches: { id: string; label: string }[];
-  busy: boolean;
-  onCancel: () => void;
-  onCreated: (terminal: TerminalRow) => void;
-}) {
-  const { t } = useI18n();
-  const [name, setName] = useState("");
-  const [branchId, setBranchId] = useState(branches[0]?.id ?? "");
-  const [terminalType, setTerminalType] = useState<"pos" | "kds" | "kiosk">("pos");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!branchId && branches[0]) setBranchId(branches[0].id);
-  }, [branches, branchId]);
-
-  async function submit() {
-    if (!name.trim() || !branchId) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      onCreated(await registerTerminal({ branchId, name: name.trim(), terminalType }));
-    } catch (cause) {
-      setError(cause instanceof ServiceError ? cause.message : t("auth.errorNetwork"));
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="border-line mt-4 space-y-4 rounded-lg border p-3">
-      {error ? <Callout tone="bad">{error}</Callout> : null}
-
-      <Field label={t("auth.deviceName")} hint={t("auth.deviceNameHint")} required>
-        <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={48} />
-      </Field>
-
-      <Field label={t("term.branch")} required>
-        <Select
-          value={branchId}
-          onChange={(e) => setBranchId(e.target.value)}
-          disabled={busy || branches.length === 0}
-        >
-          {branches.length === 0 ? <option value="">—</option> : null}
-          {branches.map((branch) => (
-            <option key={branch.id} value={branch.id}>
-              {branch.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
-
-      <Field label={t("auth.deviceType")}>
-        <Select
-          value={terminalType}
-          onChange={(e) => setTerminalType(e.target.value as "pos" | "kds" | "kiosk")}
-        >
-          <option value="pos">{t("term.pos")}</option>
-          <option value="kds">{t("term.kds")}</option>
-          <option value="kiosk">{t("auth.deviceKiosk")}</option>
-        </Select>
-      </Field>
-
-      <div className="flex gap-2">
-        <Button
-          variant="primary"
-          loading={submitting}
-          disabled={!name.trim() || !branchId}
-          icon={<KeyRound size={14} />}
-          onClick={submit}
-        >
-          {t("auth.registerDevice")}
-        </Button>
-        <Button variant="ghost" onClick={onCancel}>
-          {t("common.cancel")}
-        </Button>
-      </div>
-    </div>
   );
 }
 
@@ -465,10 +303,15 @@ function RegisteredConfirmation({
   identifier,
   detail,
   live,
+  nameLabel,
+  idLabel,
 }: {
   identifier: string;
   detail: string;
   live: boolean;
+  /** Defaults to the demo screen's "device" wording; live passes branch labels. */
+  nameLabel?: string;
+  idLabel?: string;
 }) {
   const { t } = useI18n();
 
@@ -483,10 +326,10 @@ function RegisteredConfirmation({
       </p>
 
       <div className="mt-4 space-y-3">
-        <Field label={t("auth.deviceName")}>
+        <Field label={nameLabel ?? t("auth.deviceName")}>
           <Input readOnly value={identifier} dir="ltr" />
         </Field>
-        <Field label={t("auth.deviceId")}>
+        <Field label={idLabel ?? t("auth.deviceId")}>
           <Input readOnly value={detail} dir="ltr" />
         </Field>
       </div>

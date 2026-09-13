@@ -52,9 +52,10 @@ import type { Scope } from "./services";
 import { DATA_MODE } from "@/lib/api/config";
 import { signOut as apiSignOut } from "@/lib/api/auth";
 import {
+  clearLegacyPosKdsTerminalState,
   clearTerminalIdentity,
+  getDeviceBranchId,
   getDeviceTenantId,
-  getTerminalBranchId,
   isSignedIn,
   onSessionChange,
   setActiveSurface,
@@ -314,6 +315,19 @@ function SessionProvider({
     setHydrated(true);
   }, []);
 
+  /**
+   * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — a browser from before this
+   * migration may still hold a bound Terminal's id/name/branch under the old
+   * keys. Forgetting them once, unconditionally, at the terminal surface's
+   * own mount is what keeps a returning POS/KDS device from reading stale
+   * state this build no longer understands — never a crash, never a redirect
+   * loop, just landing on the new branch-selection flow like a fresh device
+   * would. A no-op for anyone who was never on the old build.
+   */
+  useEffect(() => {
+    if (surface === "terminal") clearLegacyPosKdsTerminalState();
+  }, [surface]);
+
   const live = DATA_MODE === "http";
 
   /**
@@ -352,16 +366,16 @@ function SessionProvider({
    * Gated on `surface === "console"`, not merely `authenticated`: `org/access`,
    * `auth/tenants`, `auth/tenant` and `auth/permissions` are Console/back-office
    * discovery endpoints with no `@AllowPosSession()` — a PIN-issued `typ: 'pos'`
-   * bearer is refused outright, by design (see `lib/api/auth.ts`'s
-   * `bindTerminal`). `authenticated` alone is not a safe proxy for "on the
-   * console": it reads `KEY_AUTH`, a storage key this provider shares with
-   * `(console)`/`(auth)` — the SAME browser that registered this terminal (a
+   * or `typ: 'kds'` bearer is refused outright, by design. `authenticated`
+   * alone is not a safe proxy for "on the console": it reads `KEY_AUTH`, a
+   * storage key this provider shares with `(console)`/`(auth)` — the SAME
+   * browser that set this device's branch up at `/register-device` (a
    * console-only, password-authenticated step) already wrote it `true`, so a
    * terminal mounting this same provider inherited that flag and replayed the
-   * full console bootstrap against a POS token, 403ing on every leg of it. A
-   * terminal never needs this: it already has its own device-level tenant,
-   * branch and terminal facts (`getDeviceTenantId`/`getTerminalBranchId`/
-   * `getTerminalId`), used directly in `scope` below.
+   * full console bootstrap against a POS/KDS token, 403ing on every leg of
+   * it. A terminal never needs this: it already has its own device-level
+   * tenant/branch facts (`getDeviceTenantId`/`getDeviceBranchId`), used
+   * directly in `scope` below.
    */
   const org = useLiveOrgContext(authenticated && surface === "console");
 
@@ -571,17 +585,19 @@ function SessionProvider({
       tenants.find((t) => t.id === ACTIVE_TENANT_ID)!;
 
     /**
-     * DEMO-POS-P0-5 — a terminal's own scope never comes from the Console's
-     * org bootstrap (gated off above) or its brand/branch switcher (whose
-     * storage keys this provider shares with `(console)`): it comes from the
-     * device facts this till already carries — `getDeviceTenantId()` (the PIN
-     * sign-on form's own tenant source) and `getTerminalBranchId()` (cached
-     * from `POST /auth/terminal`'s response at bind time). Falls back to the
+     * DEMO-POS-P0-5 / FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — a POS/KDS
+     * device's own scope never comes from the Console's org bootstrap (gated
+     * off above) or its brand/branch switcher (whose storage keys this
+     * provider shares with `(console)`): it comes from the device facts this
+     * device already carries — `getDeviceTenantId()` (the PIN sign-on form's
+     * own tenant source) and `getDeviceBranchId()` (set once at
+     * `/register-device`, when a console user picks a branch for this device
+     * — there is no Terminal bind response any more). Falls back to the
      * console-derived value only for demo mode, or before either device fact
      * has ever been resolved.
      */
     const terminalTenantId = live && surface === "terminal" ? getDeviceTenantId() : null;
-    const terminalBranchId = live && surface === "terminal" ? getTerminalBranchId() : null;
+    const terminalBranchId = live && surface === "terminal" ? getDeviceBranchId() : null;
 
     /*
      * Local-backed services (customers, promotions, rosters, settings

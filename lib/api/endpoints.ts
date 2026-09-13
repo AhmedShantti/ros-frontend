@@ -878,20 +878,20 @@ export const kitchen = {
     http.post<S.KitchenController_acknowledgeViewedResponse>("/kds/stations/{stationId}/tickets/view", { params: { stationId }, body, idempotent: true }),
 
   /** `POST /kds/tickets/{ticketId}/lines/{lineId}/start` — Mark a ticket line started. — The updated ticket and line. */
-  startLine: (ticketId: string, lineId: string) =>
-    http.post<S.KitchenController_startLineResponse>("/kds/tickets/{ticketId}/lines/{lineId}/start", { params: { ticketId, lineId } }),
+  startLine: (ticketId: string, lineId: string, options: { stationId?: string } = {}) =>
+    http.post<S.KitchenController_startLineResponse>("/kds/tickets/{ticketId}/lines/{lineId}/start", { params: { ticketId, lineId }, query: { stationId: options.stationId } }),
 
   /** `POST /kds/tickets/{ticketId}/lines/{lineId}/bump` — Mark a ticket line ready (bump item). — The updated ticket and line. */
-  bumpLine: (ticketId: string, lineId: string) =>
-    http.post<S.KitchenController_bumpLineResponse>("/kds/tickets/{ticketId}/lines/{lineId}/bump", { params: { ticketId, lineId } }),
+  bumpLine: (ticketId: string, lineId: string, options: { stationId?: string } = {}) =>
+    http.post<S.KitchenController_bumpLineResponse>("/kds/tickets/{ticketId}/lines/{lineId}/bump", { params: { ticketId, lineId }, query: { stationId: options.stationId } }),
 
   /** `POST /kds/tickets/{ticketId}/bump-all` — Mark every eligible line on a ticket ready (bump all). — The updated ticket and the ids of lines this action bumped. */
-  bumpAll: (ticketId: string) =>
-    http.post<S.KitchenController_bumpAllResponse>("/kds/tickets/{ticketId}/bump-all", { params: { ticketId } }),
+  bumpAll: (ticketId: string, options: { stationId?: string } = {}) =>
+    http.post<S.KitchenController_bumpAllResponse>("/kds/tickets/{ticketId}/bump-all", { params: { ticketId }, query: { stationId: options.stationId } }),
 
   /** `POST /kds/tickets/{ticketId}/recall` — Recall a bumped ticket back to active work. — The recalled ticket. */
-  recall: (ticketId: string) =>
-    http.post<S.KitchenController_recallResponse>("/kds/tickets/{ticketId}/recall", { params: { ticketId }, idempotent: true }),
+  recall: (ticketId: string, options: { stationId?: string } = {}) =>
+    http.post<S.KitchenController_recallResponse>("/kds/tickets/{ticketId}/recall", { params: { ticketId }, query: { stationId: options.stationId }, idempotent: true }),
 
 };
 

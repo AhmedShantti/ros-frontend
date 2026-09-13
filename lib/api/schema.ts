@@ -119,11 +119,14 @@ export interface LoginDto {
 
 export interface PinLoginDto {
   tenantId: string;
-  terminalId: string;
+  /** The branch this PIN session operates against. POS and KDS are branch/employee application sessions, not registered Terminal/device ones — there is no terminalId on this DTO. */
+  branchId: string;
   /** Employee code, not an email — a POS operator identifies by staff code. */
   employeeCode: string;
   /** FR-SEC-020: 4–8 digits. Never logged, never echoed. */
   pin: string;
+  /** Which operational surface this PIN session is for. */
+  sessionType: "pos" | "kds";
 }
 
 export interface RefreshDto {

@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * The bar across the top of every terminal.
+ * The bar across the top of every terminal (POS or KDS) screen.
  *
  * A POS bar is not a dashboard topbar: it carries the few things a cashier
- * needs mid-service — which branch and terminal this is, whether the drawer
- * is open, and how to get to the other screen — and nothing else.
+ * needs mid-service — which branch this device is running, whether the
+ * drawer is open, and how to get to the other screen — and nothing else.
  */
 
 import Link from "next/link";
@@ -31,8 +31,6 @@ import { DATA_MODE } from "@/lib/api/config";
 import {
   getOpenCashSession,
   getPosEmployee,
-  getTerminalId,
-  getTerminalName,
   isSignedIn,
   onSessionChange,
   type PosEmployee,
@@ -295,24 +293,22 @@ function SignedOnCashier() {
 }
 
 /**
- * Which branch and terminal this device is actually bound to.
+ * Which branch this device is running POS/KDS against.
  *
- * The branch name is read from the server; the terminal name is not —
- * `POST /auth/terminal` (the bind step every sign-in already takes) returns
- * the full terminal record, so `bindTerminal` saves its name once, locally,
- * at bind time. The only other way to resolve a name from a bare id is
- * `GET /auth/terminals`, the tenant-wide admin listing: a bound session's
- * own token is not entitled to call it (it 401s even freshly bound), and
- * every 401 is a trigger for this client's own refresh — see `bindTerminal`
- * and `signInWithPin` for why that made even a *successful* sign-in look
- * broken. While the branch read is loading, or if the terminal has been
- * revoked out from under the till, the slot stays empty rather than naming
- * a branch that might not be this one.
+ * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — this used to also show the bound
+ * Terminal's name, cached locally from `POST /auth/terminal`'s bind
+ * response. That response, and the whole registered-device identity it
+ * named, is gone from this contract: POS and KDS are branch/employee
+ * application sessions, not Terminal/device ones, so there is no terminal
+ * name (or id) to show here any more — only the branch, read from the
+ * server via `scope.branchId` (which resolves to this device's own
+ * `getDeviceBranchId()`, set once at `/register-device`). While the branch
+ * read is loading, the slot stays empty rather than naming a branch that
+ * might not be this one.
  */
 function BoundIdentity() {
   const { tx } = useI18n();
   const { scope } = useSession();
-  const terminalName = getTerminalName();
 
   const bound = useAsync(async () => {
     const branch = scope.branchId
@@ -321,17 +317,11 @@ function BoundIdentity() {
     return { branchName: branch?.name ?? null };
   }, [scope.branchId]);
 
-  if (!bound.data?.branchName && !terminalName) return null;
+  if (!bound.data?.branchName) return null;
 
   return (
     <span className={TRIGGER}>
-      <span className="max-w-40 truncate">{tx(bound.data?.branchName ?? undefined)}</span>
-      {terminalName ? (
-        <>
-          <span className="text-fg-subtle">·</span>
-          <span className="text-fg-muted">{terminalName}</span>
-        </>
-      ) : null}
+      <span className="max-w-40 truncate">{tx(bound.data.branchName)}</span>
     </span>
   );
 }

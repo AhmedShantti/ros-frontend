@@ -74,12 +74,12 @@ import { signInWithPin, signOffTerminal } from "@/lib/api/auth";
 import * as Session from "@/lib/api/session";
 import { LivePos } from "./pos-live";
 
-const TERMINAL_ID = "term-1";
+const BRANCH_ID = "branch-1";
 const TENANT_ID = "tenant-1";
 
-function seedTerminal() {
+function seedDevice() {
   Session.setActiveSurface("terminal");
-  Session.setTerminalId(TERMINAL_ID);
+  Session.setDeviceBranchId(BRANCH_ID);
   Session.setTenantId(TENANT_ID);
 }
 
@@ -88,8 +88,7 @@ function signOnAs(code: string, name = code) {
   vi.mocked(signInWithPin).mockImplementation(async (input) => {
     Session.setTokens({ accessToken: `tok-${input.employeeCode}`, refreshToken: "ref", expiresIn: 900 });
     Session.setTenantId(input.tenantId);
-    Session.setTerminalId(input.terminalId);
-    Session.setPosEmployee({ code: input.employeeCode, name });
+    Session.setPosEmployee({ code: input.employeeCode, name, sessionType: input.sessionType });
   });
   return code;
 }
@@ -104,7 +103,7 @@ beforeEach(() => {
   });
   tables.mockResolvedValue({ rows: [], total: 0 });
   listSessionDrawers.mockResolvedValue(ONE_DRAWER);
-  seedTerminal();
+  seedDevice();
 });
 
 afterEach(() => {
@@ -150,14 +149,14 @@ describe("LivePos — sign-on and session recovery", () => {
     expect(Session.getOpenCashSession()).toEqual({
       cashSessionId: "cs-existing",
       employeeCode: cashierCode,
-      terminalId: TERMINAL_ID,
+      branchId: BRANCH_ID,
     });
   });
 
   it("refresh restores an active session already held locally", async () => {
     Session.setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
     Session.setPosEmployee({ code: "EMP01", name: "Amina" });
-    Session.setOpenCashSession({ cashSessionId: "cs-1", employeeCode: "EMP01", terminalId: TERMINAL_ID });
+    Session.setOpenCashSession({ cashSessionId: "cs-1", employeeCode: "EMP01", branchId: BRANCH_ID });
     getCurrentSession.mockResolvedValue({ cashSessionId: "cs-1", shiftId: "sh-1", drawerId: "drawer-1" });
 
     render(<LivePos />);
@@ -168,7 +167,7 @@ describe("LivePos — sign-on and session recovery", () => {
   it("clears a stale local session once the server confirms it is no longer open", async () => {
     Session.setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
     Session.setPosEmployee({ code: "EMP01", name: "Amina" });
-    Session.setOpenCashSession({ cashSessionId: "cs-stale", employeeCode: "EMP01", terminalId: TERMINAL_ID });
+    Session.setOpenCashSession({ cashSessionId: "cs-stale", employeeCode: "EMP01", branchId: BRANCH_ID });
     getCurrentSession.mockResolvedValue(null);
 
     render(<LivePos />);
@@ -178,7 +177,7 @@ describe("LivePos — sign-on and session recovery", () => {
   });
 
   it("never adopts a foreign cashier's held session", async () => {
-    Session.setOpenCashSession({ cashSessionId: "cs-foreign", employeeCode: "EMP99", terminalId: TERMINAL_ID });
+    Session.setOpenCashSession({ cashSessionId: "cs-foreign", employeeCode: "EMP99", branchId: BRANCH_ID });
     getCurrentSession.mockResolvedValue(null);
 
     Session.setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
@@ -194,7 +193,7 @@ describe("LivePos — sign-on and session recovery", () => {
     expect(Session.getOpenCashSession()).toEqual({
       cashSessionId: "cs-foreign",
       employeeCode: "EMP99",
-      terminalId: TERMINAL_ID,
+      branchId: BRANCH_ID,
     });
   });
 
@@ -218,7 +217,7 @@ describe("LivePos — sign-on and session recovery", () => {
     expect(Session.getOpenCashSession()).toEqual({
       cashSessionId: "cs-new",
       employeeCode: "EMP01",
-      terminalId: TERMINAL_ID,
+      branchId: BRANCH_ID,
     });
   });
 
@@ -244,7 +243,7 @@ describe("LivePos — sign-on and session recovery", () => {
     expect(Session.getOpenCashSession()).toEqual({
       cashSessionId: "cs-existing",
       employeeCode: "EMP01",
-      terminalId: TERMINAL_ID,
+      branchId: BRANCH_ID,
     });
   });
 
@@ -263,5 +262,59 @@ describe("LivePos — sign-on and session recovery", () => {
 
     await waitFor(() => expect(screen.getByLabelText(/shift\.employeeCode/)).toBeInTheDocument());
     expect(screen.queryByText("Amina")).not.toBeInTheDocument();
+  });
+});
+
+describe("LivePos — PIN sign-on contract (FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0)", () => {
+  it("calls signInWithPin with tenantId, branchId, sessionType \"pos\", and no terminalId", async () => {
+    getCurrentSession.mockResolvedValue(null);
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+
+    render(<LivePos />);
+
+    await user.type(await screen.findByLabelText(/shift\.employeeCode/), "EMP01");
+    await user.type(screen.getByLabelText(/shift\.pinLabel/), "1234");
+    await user.click(screen.getByRole("button", { name: "shift.signOn" }));
+
+    await waitFor(() => expect(signInWithPin).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(signInWithPin).mock.calls[0]![0];
+    expect(payload).toEqual({
+      tenantId: TENANT_ID,
+      branchId: BRANCH_ID,
+      employeeCode: "EMP01",
+      pin: "1234",
+      sessionType: "pos",
+    });
+    expect(payload).not.toHaveProperty("terminalId");
+  });
+
+  it("boots normally even when the device still carries legacy Terminal localStorage from before this migration", async () => {
+    getCurrentSession.mockResolvedValue(null);
+    // Left behind by a pre-decoupling build — must be inert, not read.
+    window.localStorage.setItem("ros.api.terminalId", "legacy-term-1");
+    window.localStorage.setItem("ros.api.terminalName", "Old Front Till");
+    window.localStorage.setItem("ros.api.terminalBranchId", "legacy-branch-9");
+
+    render(<LivePos />);
+
+    // The device's real branch (set independently in `seedDevice`) is what
+    // still gates entry — the legacy keys are simply never consulted.
+    await screen.findByLabelText(/shift\.employeeCode/);
+    expect(screen.queryByText("pos.noBranch")).not.toBeInTheDocument();
+  });
+
+  it("shows the branch-setup prompt, never a Terminal one, when this device has no branch set up", async () => {
+    // A genuinely fresh device: tenant known (from a console sign-in on this
+    // browser), but no deviceBranchId yet.
+    window.localStorage.clear();
+    Session.setActiveSurface("terminal");
+    Session.setTenantId(TENANT_ID);
+
+    render(<LivePos />);
+
+    expect(await screen.findByText("pos.noBranch")).toBeInTheDocument();
+    expect(screen.getByText("pos.noBranchNote")).toBeInTheDocument();
+    expect(screen.queryByText("pos.noTerminal")).not.toBeInTheDocument();
   });
 });
