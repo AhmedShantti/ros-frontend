@@ -165,6 +165,12 @@ export interface CentralKitchen {
   countryCode: CountryCode;
   servesBranchIds: Id[];
   active: boolean;
+  /**
+   * The stock location production consumes from and produces into. The API
+   * backs each kitchen with a warehouse; in the demo the kitchen is its own
+   * location. Absent means "the kitchen's own id".
+   */
+  locationId?: Id;
 }
 
 /** Any location that can hold stock — SRS BR-PLT-001. */
@@ -394,6 +400,18 @@ export interface MenuItem {
   sortOrder: number;
   colour: string;
   imageEmoji: string;
+  /** FR-MNU-005 — the short label on the POS button; falls back to `name`. */
+  posName?: Localised | null;
+  /** FR-MNU-005 — the aggregator listing name; falls back to `name`. */
+  aggregatorName?: Localised | null;
+  /** FR-MNU-004 — scanned or keyed at the till. */
+  barcodePlu?: string | null;
+  /** FR-MNU-004 — vegetarian, halal, spicy… shown to guests. */
+  dietaryTags?: string[];
+  /** FR-MNU-004 — where the revenue lands in the accounting export. */
+  revenueAccountCode?: string | null;
+  /** FR-MNU-004 — POS grid, QR menu, aggregator. A data URL when local. */
+  imageUrl?: string | null;
 }
 
 export type ModifierKind = "addition" | "removal" | "substitution";
@@ -676,6 +694,13 @@ export interface CountSession {
   flaggedCount: number;
   netVarianceValue: Money;
   lines: CountLine[];
+  /**
+   * FR-INV-040 — what the session covers. Only meaningful on create; the
+   * backend echoes it back as `scope`.
+   */
+  scopeType?: "full_location" | "category" | "item_list";
+  /** FR-INV-040 — the ad-hoc item list, when `scopeType` is `item_list`. */
+  itemIds?: Id[];
 }
 
 export type TransferStatus =
@@ -1202,6 +1227,8 @@ export interface OrderLine {
   recipeVersionId: Id | null;
   course: number;
   seatNumber: number | null;
+  /** FR-POS-037 — fired but held; the kitchen may not start it yet. */
+  held?: boolean;
   state: OrderLineState;
   stationId: Id | null;
   firedAt: IsoDateTime | null;
@@ -1337,6 +1364,8 @@ export interface TicketLine {
    * which is the one direction that costs food.
    */
   cancelledAt: IsoDateTime | null;
+  /** FR-POS-004 — which guest it is for, so the runner does not auction plates. */
+  seatNumber?: number | null;
 }
 
 export interface KitchenTicket {
@@ -1373,6 +1402,16 @@ export interface KitchenTicket {
   targetSeconds: number;
   elapsedSeconds: number;
   lines: TicketLine[];
+  /**
+   * FR-POS-037 — sent, but not to be started until the till releases it.
+   * The clock does not run while held; it starts at release.
+   */
+  held?: boolean;
+  /**
+   * FR-POS-038 — lines added to a course the kitchen already has. Printed
+   * as an addition on its own ticket, never as a reprint of the whole order.
+   */
+  amendment?: boolean;
 }
 
 // ---------------------------------------------------------------------------

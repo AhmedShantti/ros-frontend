@@ -264,12 +264,75 @@ export interface FinanceService {
   closeDay(branchId: Id, businessDay: string): Promise<DayCloseResult>;
 }
 
+/**
+ * FR-AUD-008 — the structured audit filters. Passed to `audit.list` as
+ * `query.filters`, and to `auditExport` directly. Dates are calendar days in
+ * the viewer's time; both ends are inclusive.
+ */
+export interface AuditFilters {
+  branchId?: Id;
+  actorId?: Id;
+  entityType?: string;
+  entityId?: Id;
+  action?: string;
+  correlationId?: string;
+  dateFrom?: IsoDate;
+  dateTo?: IsoDate;
+}
+
 export interface GovernanceService {
   approvals: ReadonlyCollectionService<ApprovalRequest>;
   audit: ReadonlyCollectionService<AuditEntry>;
+  /**
+   * FR-AUD-008 — the complete, bounded set of entries matching `filters`,
+   * for export. Requires `audit.view` and `report.export` on the server.
+   */
+  auditExport(filters: AuditFilters): Promise<AuditEntry[]>;
   anomalies: ReadonlyCollectionService<AnomalyFlag>;
   sodConflicts(scope: Scope): Promise<SodConflict[]>;
   decide(id: Id, decision: "approved" | "rejected", comment?: string): Promise<ApprovalRequest>;
+}
+
+/** Does an entry satisfy the structured filters? Shared by mock and UI. */
+export function matchesAuditFilters(entry: AuditEntry, filters: AuditFilters): boolean {
+  if (filters.branchId && entry.branchId !== filters.branchId) return false;
+  if (filters.actorId && entry.actorId !== filters.actorId) return false;
+  if (filters.entityType && entry.entityType !== filters.entityType) return false;
+  if (filters.entityId && !entry.entityId.toLowerCase().includes(filters.entityId.toLowerCase())) {
+    return false;
+  }
+  if (filters.action && entry.action !== filters.action) return false;
+  if (filters.correlationId && entry.correlationId !== filters.correlationId) return false;
+  const day = localDay(entry.occurredAt);
+  if (filters.dateFrom && day < filters.dateFrom) return false;
+  if (filters.dateTo && day > filters.dateTo) return false;
+  return true;
+}
+
+function localDay(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${m}-${d}`;
+}
+
+/** Read the audit filters back out of a generic `ListQuery.filters` bag. */
+export function auditFiltersOf(bag: ListQuery["filters"]): AuditFilters {
+  const pick = (key: keyof AuditFilters) => {
+    const value = bag?.[key];
+    return typeof value === "string" && value.trim() && value !== "all" ? value.trim() : undefined;
+  };
+  return {
+    branchId: pick("branchId"),
+    actorId: pick("actorId"),
+    entityType: pick("entityType"),
+    entityId: pick("entityId"),
+    action: pick("action"),
+    correlationId: pick("correlationId"),
+    dateFrom: pick("dateFrom"),
+    dateTo: pick("dateTo"),
+  };
 }
 
 /** FR-ORG — one opening interval on one weekday. */
@@ -393,7 +456,13 @@ export interface CatalogueService {
   linkModifierGroup(
     itemId: Id,
     groupId: Id,
-    options?: { sortOrder?: number },
+    options?: {
+      sortOrder?: number;
+      /** FR-MNU-010 — this item's price for a modifier, minor units, by modifier id. */
+      priceOverrides?: Record<Id, number>;
+      /** FR-MNU-010 — which modifiers start selected on this item. */
+      defaultModifierIds?: Id[];
+    },
   ): Promise<void>;
   /** Add a modifier to a group. */
   addModifier(groupId: Id, input: Partial<Modifier>): Promise<Modifier>;
@@ -466,6 +535,13 @@ export interface InventoryService {
   // -- Counting --------------------------------------------------------------
   /** FR-INV-042 — record a counted quantity against one open count line. */
   recordCount(lineId: Id, countedQuantity: string): Promise<void>;
+  /**
+   * FR-INV-040 — put an item that is on the shelf but not on the sheet into
+   * an open session. The backend has no endpoint for it (a session's lines
+   * are fixed when it opens), so live this is NOT_IMPLEMENTED and the caller
+   * opens an ad-hoc `item_list` session instead.
+   */
+  addCountLine(sessionId: Id, itemId: Id): Promise<void>;
 
   // -- Transfers -------------------------------------------------------------
   /**
@@ -485,6 +561,26 @@ export interface InventoryService {
     itemId: Id,
     input: { locationId: Id; reorderPoint: string; reorderQuantity: string },
   ): Promise<void>;
+
+  // -- Production ------------------------------------------------------------
+  /**
+   * FR-BRN-023 — post one leg of a production run to the ledger: an input
+   * consumed at the kitchen (`production_input`, out) or the output made
+   * there (`production_output`, in). Live this is `POST /inventory/movements`,
+   * whose movement types include both; the order id is the reference that
+   * ties a run's legs together. `quantity` is positive — the direction
+   * supplies the sign. `unitCostMinor` (output only) is a decimal string of
+   * minor units per base unit.
+   */
+  postProductionMovement(input: {
+    locationId: Id;
+    itemId: Id;
+    direction: "input" | "output";
+    quantity: string;
+    unitCostMinor?: string;
+    referenceId: Id;
+    notes?: string;
+  }): Promise<{ movementId: Id }>;
 
   // -- Reason codes ----------------------------------------------------------
   reasonCodes(): Promise<ReasonCode[]>;
@@ -537,6 +633,27 @@ export interface WorkforceService {
     scope: { type: "tenant" } | { type: "branch"; branchId: Id },
   ): Promise<EmployeeRoleAssignment>;
   removeEmployeeRoleAssignment(employeeId: Id, assignmentId: Id): Promise<void>;
+  /**
+   * FR-HRM-020/021/022 — clock the PIN-signed-on employee in or out at this
+   * terminal. The server decides who from the token and flags late,
+   * unscheduled, early and out-of-geofence events itself.
+   */
+  clockIn(input?: { gps?: { lat: number; lng: number } }): Promise<ClockEvent>;
+  clockOut(input?: { gps?: { lat: number; lng: number } }): Promise<ClockEvent>;
+}
+
+/** One attendance record as the clock endpoints return it — FR-HRM-021/022. */
+export interface ClockEvent {
+  recordId: Id;
+  employeeId: Id;
+  clockInAt: IsoDateTime;
+  clockOutAt: IsoDateTime | null;
+  status: "open" | "closed";
+  lateArrival: boolean;
+  earlyDeparture: boolean;
+  missingClockOut: boolean;
+  outsideGeofence: boolean;
+  unscheduled: boolean;
 }
 
 /** A user's membership of a tenant — what a role is actually assigned to. */
@@ -1160,6 +1277,37 @@ export interface ServiceRegistry {
    * `lib/console/services/crm.ts`.
    */
   crm: import("./crm").CrmService;
+  /**
+   * The configuration cascade's overrides — SRS §6.4. Browser-local under
+   * both data modes until the backend serves settings; see `./settings`.
+   */
+  settings: import("./settings").SettingsService;
+  /** Alert rules, report schedules, morning brief — SRS §19.5. Browser-local. */
+  delivery: import("./delivery").DeliveryService;
+  /**
+   * The stock item master attributes the backend has no fields for —
+   * purchase units, barcodes, allergens, density, account code. Local.
+   */
+  stockProfiles: import("./stock-profiles").StockProfileService;
+  /** FR-INV-046 — recount requests and variance explanations. Local. */
+  countReviews: import("./count-reviews").CountReviewService;
+  /** FR-SEC-023 — TOTP enrolment; no MFA endpoints exist yet. Local. */
+  mfa: import("./mfa").MfaService;
+  /** FR-OFF-042/043 — conflict register and clock-skew log. Local. */
+  conflicts: import("./conflicts").ConflictService;
+  /** FR-CST-042 — managers' reviews of anomaly flags. Local, append-only. */
+  anomalyReviews: import("./anomaly-reviews").AnomalyReviewService;
+  /** FR-MNU-005 — POS label, receipt name, image: no API field. Local. */
+  menuProfiles: import("./menu-profiles").MenuProfileService;
+  /** FR-POS-023 — modifier → child group links. No API field. Local. */
+  modifierNesting: import("./modifier-nesting").ModifierNestingService;
+  /** FR-POS-101 — receipt templates per brand and country. Local. */
+  receiptTemplates: import("./receipt-templates").ReceiptTemplateService;
+  /**
+   * Production and distribution orders — SRS §17.5. The documents are
+   * browser-local; the stock they move goes to the real ledger. See `./production`.
+   */
+  centralKitchen: import("./production").ProductionService;
   sales: SalesService;
   production: ProductionService;
   treasury: TreasuryService;

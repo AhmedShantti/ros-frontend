@@ -17,7 +17,7 @@
 
 import { useMemo, useState } from "react";
 import { CheckCircle2, Plus, Store, TriangleAlert } from "lucide-react";
-import type { Menu } from "@/lib/console/types";
+import type { Menu, Localised } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
@@ -40,6 +40,7 @@ import {
   Toast,
   Toggle,
 } from "@/components/console/ui";
+import { LocalisedField, EMPTY_LOCALISED, hasLocalisedText, trimLocalised } from "@/components/console/fields";
 
 export default function MenusPage() {
   return (
@@ -500,18 +501,18 @@ function NewMenuDrawer({
 }) {
   const { t } = useI18n();
   const action = useAction();
-  const [name, setName] = useState("");
+  const [name, setName] = useState<Localised>({ ...EMPTY_LOCALISED });
   const [priority, setPriority] = useState("10");
   const [orderTypes, setOrderTypes] = useState<string[]>(["dine_in"]);
 
   if (!open) return null;
 
   async function create() {
-    if (!name.trim()) return;
+    if (!hasLocalisedText(name)) return;
     await action.run(
       () =>
         services.catalogue.menus.create({
-          name: { en: name.trim(), ar: name.trim() },
+          name: trimLocalised(name),
           priority: Number(priority) || 0,
           orderTypes,
         }),
@@ -529,7 +530,7 @@ function NewMenuDrawer({
           <Button
             variant="primary"
             loading={action.pending}
-            disabled={!name.trim()}
+            disabled={!hasLocalisedText(name)}
             onClick={create}
           >
             {t("common.create")}
@@ -543,9 +544,7 @@ function NewMenuDrawer({
       <div className="space-y-4">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
 
-        <Field label={t("common.name")} required>
-          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
-        </Field>
+        <LocalisedField label={t("common.name")} value={name} onChange={setName} required maxLength={120} />
 
         <Field label={t("menu.priority")} hint={t("menu.menuPriorityHint")}>
           <Input

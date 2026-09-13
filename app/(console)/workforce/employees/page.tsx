@@ -19,7 +19,7 @@
 
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import type { Branch, Employee, EmployeeDocument, Id } from "@/lib/console/types";
+import type { Branch, Employee, EmployeeDocument, Id, Localised } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { DATA_MODE } from "@/lib/api/config";
 import { useAction } from "@/lib/console/actions";
@@ -44,6 +44,7 @@ import {
   Select,
   Toast,
 } from "@/components/console/ui";
+import { LocalisedField, EMPTY_LOCALISED, hasLocalisedText, trimLocalised } from "@/components/console/fields";
 
 export default function EmployeesPage() {
   return (
@@ -586,17 +587,17 @@ function NewEmployeeDrawer({
 }) {
   const { t, tx } = useI18n();
   const action = useAction();
-  const [name, setName] = useState("");
+  const [name, setName] = useState<Localised>({ ...EMPTY_LOCALISED });
   const [code, setCode] = useState("");
   const [homeBranchId, setHomeBranchId] = useState(branches[0]?.id ?? "");
   const [employmentType, setEmploymentType] = useState<keyof typeof EMPLOYMENT_TYPE>("full_time");
 
   async function create() {
-    if (!name.trim() || !homeBranchId) return;
+    if (!hasLocalisedText(name) || !homeBranchId) return;
     await action.run(
       () =>
         services.workforce.employees.create({
-          name: { en: name.trim(), ar: name.trim() },
+          name: trimLocalised(name),
           code: code.trim() || undefined,
           homeBranchId,
           employmentType,
@@ -615,7 +616,7 @@ function NewEmployeeDrawer({
           <Button
             variant="primary"
             loading={action.pending}
-            disabled={!name.trim() || !homeBranchId}
+            disabled={!hasLocalisedText(name) || !homeBranchId}
             onClick={create}
           >
             {t("common.create")}
@@ -629,9 +630,7 @@ function NewEmployeeDrawer({
       <div className="space-y-4">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
 
-        <Field label={t("common.name")} required>
-          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
-        </Field>
+        <LocalisedField label={t("common.name")} value={name} onChange={setName} required maxLength={120} />
 
         <Field label={t("wf.employeeCode")} hint={t("wf.employeeCodeHint")}>
           <Input

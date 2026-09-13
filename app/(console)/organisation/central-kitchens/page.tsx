@@ -36,6 +36,8 @@ import {
   Toast,
 } from "@/components/console/ui";
 import { RecordDrawer } from "@/components/console/record-drawer";
+import { trimLocalised } from "@/components/console/fields";
+import { DATA_MODE } from "@/lib/api/config";
 
 export default function CentralKitchensPage() {
   return (
@@ -109,6 +111,9 @@ function CentralKitchensScreen() {
     [t, tx, fmt],
   );
 
+  // FR-LOC-006 — the server keeps one name for this; say which one is sent.
+  const singleNameHint = DATA_MODE === "http" ? t("loc.singleOnServer") : undefined;
+
   return (
     <>
       <PageHeader
@@ -172,11 +177,11 @@ function CentralKitchensScreen() {
       <RecordDrawer
         open={creating}
         title={t("org.newKitchen")}
-        fields={[{ name: "name", label: t("common.name"), required: true, maxLength: 120 }]}
+        fields={[{ name: "name", label: t("common.name"), kind: "localised", required: true, maxLength: 120, hint: singleNameHint }]}
         onClose={() => setCreating(false)}
-        onSubmit={(values) =>
+        onSubmit={(values, localised) =>
           services.organisation.centralKitchens.create({
-            name: { en: values.name.trim(), ar: values.name.trim() },
+            name: trimLocalised(localised.name!),
           })
         }
         onDone={() => {

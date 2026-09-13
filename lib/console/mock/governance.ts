@@ -405,10 +405,16 @@ export const auditEntries: AuditEntry[] = (() => {
   const out: AuditEntry[] = [];
   let previousHash = fakeHash(1);
 
+  // Entries come in groups of three sharing one correlation id, actor and
+  // branch, a few minutes apart — so the correlation-chain view (FR-AUD-008)
+  // has real chains to follow rather than 320 chains of one.
+  let groupStart = 0;
   for (let i = 1; i <= 320; i += 1) {
+    const group = Math.ceil(i / 3);
+    if (i % 3 === 1) groupStart = int(rng, 30, 60 * 24 * 21);
     const spec = AUDIT_ACTIONS[(i * 7) % AUDIT_ACTIONS.length]!;
-    const actor = users[(i * 3) % users.length]!;
-    const branch = branches[i % branches.length]!;
+    const actor = users[(group * 3) % users.length]!;
+    const branch = branches[group % branches.length]!;
     const impersonated = spec.action.startsWith("support.") || chance(rng, 0.01);
     const hash = fakeHash(i * 7919);
 
@@ -430,8 +436,8 @@ export const auditEntries: AuditEntry[] = (() => {
       tenantId: ACTIVE_TENANT_ID,
       branchId: branch.id,
       branchName: branch.name,
-      occurredAt: minutesAgo(int(rng, 1, 60 * 24 * 21)),
-      recordedAt: minutesAgo(int(rng, 1, 60 * 24 * 21)),
+      occurredAt: minutesAgo(groupStart - ((i - 1) % 3) * 4),
+      recordedAt: minutesAgo(groupStart - ((i - 1) % 3) * 4),
       actorId: actor.id,
       actorName: actor.name,
       actorType: spec.action.startsWith("auth.") ? "user" : chance(rng, 0.9) ? "user" : "system",
@@ -446,7 +452,7 @@ export const auditEntries: AuditEntry[] = (() => {
       approverName: chance(rng, 0.2) ? users[1]!.name : null,
       ipAddress: `197.${int(rng, 10, 250)}.${int(rng, 1, 250)}.${int(rng, 1, 250)}`,
       terminalId: chance(rng, 0.6) ? seqId("trm", int(rng, 1, 40)) : null,
-      correlationId: seqId("cor", i),
+      correlationId: seqId("cor", group),
       hash,
       previousHash,
     });

@@ -286,7 +286,8 @@ function TicketCard({ ticket, now }: { ticket: KitchenTicket; now: number }) {
   const { t, tx } = useI18n();
   const { dispatch } = useLive();
 
-  const elapsed = elapsedSince(ticket.firedAt, now) ?? 0;
+  // A held course's clock has not started: it starts when the till releases it.
+  const elapsed = ticket.held ? 0 : (elapsedSince(ticket.firedAt, now) ?? 0);
   const urgency = urgencyFor(elapsed, ticket.targetSeconds);
   const outstanding = ticket.lines.filter((l) => l.state !== "ready" && l.state !== "voided");
 
@@ -357,6 +358,9 @@ function TicketCard({ ticket, now }: { ticket: KitchenTicket; now: number }) {
         {ticket.priority === "rush" ? <Badge tone="bad">{t("kds.rush")}</Badge> : null}
         {ticket.priority === "vip" ? <Badge tone="accent">{t("kds.vip")}</Badge> : null}
         {ticket.priority === "remake" ? <Badge tone="warn">{t("kds.amended")}</Badge> : null}
+        {/* FR-POS-038 — an addition, not a reprint of what is already cooking. */}
+        {ticket.amendment ? <Badge tone="accent">{t("kds.addition")}</Badge> : null}
+        {ticket.held ? <Badge tone="warn">{t("kds.held")}</Badge> : null}
         <Badge tone="muted">{tx(ticket.stationName)}</Badge>
       </div>
 
@@ -410,6 +414,11 @@ function TicketCard({ ticket, now }: { ticket: KitchenTicket; now: number }) {
                     {line.notes ? (
                       <span className="text-fg-muted block text-sm italic">“{line.notes}”</span>
                     ) : null}
+                    {typeof line.seatNumber === "number" ? (
+                      <span className="text-accent block text-xs font-semibold">
+                        {t("pos.seat")} {line.seatNumber}
+                      </span>
+                    ) : null}
                     {cancelled ? (
                       <span className="text-bad block text-xs font-semibold">
                         {t("kds.voidedLine")}
@@ -446,9 +455,12 @@ function TicketCard({ ticket, now }: { ticket: KitchenTicket; now: number }) {
           <Button
             size="sm"
             className="flex-1"
+            // FR-POS-037 — the till holds this course; starting it is not the kitchen's call.
+            disabled={ticket.held}
+            title={ticket.held ? t("kds.heldNote") : undefined}
             onClick={() => dispatch({ type: "TICKET_START", ticketId: ticket.id })}
           >
-            {t("kds.start")}
+            {ticket.held ? t("kds.held") : t("kds.start")}
           </Button>
         ) : null}
         <HoldToBump

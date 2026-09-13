@@ -150,6 +150,14 @@ export type LiveAction =
   | { type: "ORDER_CANCEL"; at: IsoDateTime; orderId: Id; reason: string }
   | { type: "ORDER_MOVE_TABLE"; at: IsoDateTime; orderId: Id; tableId: Id }
   | { type: "ORDER_NOTE"; at: IsoDateTime; orderId: Id; note: string }
+  /** FR-CRM-004 — attach (or detach, with nulls) a customer to the order. */
+  | {
+      type: "ORDER_SET_CUSTOMER";
+      at: IsoDateTime;
+      orderId: Id;
+      customerId: Id | null;
+      customerName: Localised | null;
+    }
   /** Offline sync — never changes anything financial, only the sync ledger. */
   | {
       type: "ORDER_SYNC";
@@ -175,6 +183,8 @@ export type LiveAction =
   | { type: "LINE_NOTE"; at: IsoDateTime; orderId: Id; lineId: Id; notes: string | null }
   /** FR-POS-036 — lines are grouped into courses and fired independently. */
   | { type: "LINE_COURSE"; at: IsoDateTime; orderId: Id; lineId: Id; course: number }
+  /** FR-POS-004 — `null` means shared by the table. */
+  | { type: "LINE_SEAT"; at: IsoDateTime; orderId: Id; lineId: Id; seat: number | null }
   | {
       type: "LINE_VOID";
       at: IsoDateTime;
@@ -193,7 +203,9 @@ export type LiveAction =
     }
   | { type: "ORDER_DISCOUNT"; at: IsoDateTime; orderId: Id; discount: DiscountInput }
   | { type: "ORDER_DISCOUNT_CLEAR"; at: IsoDateTime; orderId: Id }
-  | { type: "ORDER_FIRE"; at: IsoDateTime; orderId: Id; course: number | null }
+  | { type: "ORDER_FIRE"; at: IsoDateTime; orderId: Id; course: number | null; hold?: boolean }
+  /** FR-POS-037 — let the kitchen start a held course. */
+  | { type: "ORDER_RELEASE_HOLD"; at: IsoDateTime; orderId: Id; course: number | null }
   | {
       type: "ORDER_PAY";
       at: IsoDateTime;
@@ -611,6 +623,7 @@ function ticketLineFrom(line: OrderLine): TicketLine {
     // The demo engine acknowledges cancellations rather than timing them out,
     // so nothing here reads this clock. See `TicketLine.cancelledAt`.
     cancelledAt: null,
+    seatNumber: line.seatNumber,
   };
 }
 
@@ -627,7 +640,9 @@ function fireLines(
   order: Order,
   lineIds: Set<Id>,
   at: IsoDateTime,
+  options: { hold?: boolean } = {},
 ): { state: LiveState; order: Order } {
+  const hold = options.hold === true;
   const branchStations = stationsByBranch.get(state.branchId) ?? [];
   const byStation = new Map<Id, OrderLine[]>();
 
@@ -640,6 +655,7 @@ function fireLines(
       state: "fired",
       firedAt: at,
       stationId: station?.id ?? null,
+      held: hold,
     };
     if (station) {
       const list = byStation.get(station.id) ?? [];
@@ -660,26 +676,21 @@ function fireLines(
       ...stationLines.map((l) => menuItemById.get(l.menuItemId)?.prepTimeSeconds ?? 300),
     );
 
-    const openTicket = ticketIds
+    /*
+     * FR-POS-038 — lines added to a course this station has already been
+     * sent go out as their own ticket, marked as an addition. Folding them
+     * into the original card (or reprinting it) is how kitchens end up making
+     * the whole order twice.
+     */
+    const amendment = ticketIds
       .map((id) => tickets[id]!)
-      .find(
+      .some(
         (t) =>
           t.orderId === order.id &&
           t.stationId === stationId &&
           t.course === course &&
-          (t.state === "queued" || t.state === "started"),
+          t.state !== "cancelled",
       );
-
-    if (openTicket) {
-      tickets[openTicket.id] = {
-        ...openTicket,
-        lines: [...openTicket.lines, ...stationLines.map(ticketLineFrom)],
-        // The amendment is visually distinct on the station display, and the
-        // elapsed clock keeps running from the original fire.
-        priority: openTicket.priority === "normal" ? "remake" : openTicket.priority,
-      };
-      continue;
-    }
 
     const id = mint.next("tkt");
     tickets[id] = {
@@ -702,6 +713,8 @@ function fireLines(
       targetSeconds,
       elapsedSeconds: 0,
       lines: stationLines.map(ticketLineFrom),
+      held: hold,
+      amendment,
     };
     ticketIds.unshift(id);
   }
@@ -1445,6 +1458,45 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       return putOrder(state, { ...order, lines });
     }
 
+    case "ORDER_SET_CUSTOMER": {
+      const order = state.orders[action.orderId];
+      if (!order || order.state === "completed" || order.state === "cancelled") return state;
+      return withAudit(
+        putOrder(state, { ...order, customerId: action.customerId, customerName: action.customerName }),
+        audit(state, mint, {
+          at: action.at,
+          action: action.customerId ? "order.customer.attached" : "order.customer.detached",
+          entityType: "order",
+          entityId: order.id,
+          before: { customerId: order.customerId },
+          after: { customerId: action.customerId },
+        }),
+      );
+    }
+
+    case "LINE_SEAT": {
+      // FR-POS-004 — a seat can be set or corrected until the bill is
+      // settled, fired or not: it drives the split, not the kitchen.
+      const order = state.orders[action.orderId];
+      if (!order || order.state === "completed" || order.state === "cancelled") return state;
+      const seat = action.seat === null ? null : Math.max(1, Math.min(99, Math.floor(action.seat)));
+      const lines = order.lines.map((line) =>
+        line.id === action.lineId && line.state !== "voided" ? { ...line, seatNumber: seat } : line,
+      );
+      // Keep the kitchen's copy in step, so a runner reading the ticket sees it.
+      const tickets = { ...state.tickets };
+      for (const id of state.ticketIds) {
+        const ticket = tickets[id];
+        if (!ticket || ticket.orderId !== order.id) continue;
+        if (!ticket.lines.some((line) => line.id === action.lineId)) continue;
+        tickets[id] = {
+          ...ticket,
+          lines: ticket.lines.map((line) => (line.id === action.lineId ? { ...line, seatNumber: seat } : line)),
+        };
+      }
+      return putOrder({ ...state, tickets }, { ...order, lines });
+    }
+
     case "LINE_VOID": {
       const order = state.orders[action.orderId];
       if (!order) return state;
@@ -1649,24 +1701,56 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       );
       if (target.length === 0) return state;
 
-      const fired = fireLines(state, mint, order, new Set(target.map((l) => l.id)), action.at);
+      const fired = fireLines(state, mint, order, new Set(target.map((l) => l.id)), action.at, {
+        hold: action.hold,
+      });
       let next = putOrder(fired.state, retotal(fired.state, fired.order));
       next = setTable(next, order.tableId, { state: "ordered" });
 
       return commit(
         withAudit(next, audit(state, mint, {
           at: action.at,
-          action: "order.line.fired",
+          action: action.hold ? "order.course.held" : "order.line.fired",
           entityType: "order",
           entityId: order.id,
-          after: { lines: target.length, course: action.course },
+          after: { lines: target.length, course: action.course, hold: action.hold === true },
+        })),
+      );
+    }
+
+    case "ORDER_RELEASE_HOLD": {
+      const order = state.orders[action.orderId];
+      if (!order) return state;
+      const tickets = { ...state.tickets };
+      let released = 0;
+      for (const id of state.ticketIds) {
+        const ticket = tickets[id];
+        if (!ticket || ticket.orderId !== order.id || !ticket.held) continue;
+        if (action.course !== null && ticket.course !== action.course) continue;
+        // The clock starts now: time on hold is not time the kitchen took.
+        tickets[id] = { ...ticket, held: false, firedAt: action.at, elapsedSeconds: 0, urgency: "on_target" };
+        released += 1;
+      }
+      if (released === 0) return state;
+      const lines = order.lines.map((line) =>
+        line.held && (action.course === null || line.course === action.course) ? { ...line, held: false } : line,
+      );
+      const next = putOrder({ ...state, tickets }, { ...order, lines });
+      return commit(
+        withAudit(next, audit(state, mint, {
+          at: action.at,
+          action: "order.course.released",
+          entityType: "order",
+          entityId: order.id,
+          after: { course: action.course, tickets: released },
         })),
       );
     }
 
     case "TICKET_START": {
       const ticket = state.tickets[action.ticketId];
-      if (!ticket || ticket.state !== "queued") return state;
+      // FR-POS-037 — a held course is not the kitchen's to start.
+      if (!ticket || ticket.state !== "queued" || ticket.held) return state;
       return {
         ...state,
         tickets: {
@@ -2064,7 +2148,7 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       for (const id of state.ticketIds) {
         const ticket = tickets[id];
         // A cancelled ticket's clock is meaningless — nothing is being made.
-        if (!ticket || ticket.state === "bumped" || ticket.state === "cancelled") continue;
+        if (!ticket || ticket.state === "bumped" || ticket.state === "cancelled" || ticket.held) continue;
         const elapsed = Math.max(
           0,
           Math.floor((action.nowMs - new Date(ticket.firedAt).getTime()) / 1000),

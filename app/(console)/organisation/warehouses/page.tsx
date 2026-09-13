@@ -27,6 +27,8 @@ import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
 import { Badge, Button, Callout, Toast } from "@/components/console/ui";
 import { RecordDrawer } from "@/components/console/record-drawer";
+import { trimLocalised } from "@/components/console/fields";
+import { DATA_MODE } from "@/lib/api/config";
 
 export default function WarehousesPage() {
   return (
@@ -113,6 +115,9 @@ function WarehousesScreen() {
     [t, tx],
   );
 
+  // FR-LOC-006 — the server keeps one name for this; say which one is sent.
+  const singleNameHint = DATA_MODE === "http" ? t("loc.singleOnServer") : undefined;
+
   return (
     <>
       <PageHeader
@@ -171,7 +176,7 @@ function WarehousesScreen() {
         open={creating}
         title={t("org.newWarehouse")}
         fields={[
-          { name: "name", label: t("common.name"), required: true, maxLength: 120 },
+          { name: "name", label: t("common.name"), kind: "localised", required: true, maxLength: 120, hint: singleNameHint },
           {
             name: "warehouseType",
             label: t("org.warehouseType"),
@@ -185,9 +190,9 @@ function WarehousesScreen() {
           },
         ]}
         onClose={() => setCreating(false)}
-        onSubmit={(values) =>
+        onSubmit={(values, localised) =>
           services.organisation.warehouses.create({
-            name: { en: values.name.trim(), ar: values.name.trim() },
+            name: trimLocalised(localised.name!),
             warehouseType: values.warehouseType as "central" | "branch" | "virtual",
           })
         }

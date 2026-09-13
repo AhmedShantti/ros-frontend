@@ -76,57 +76,152 @@ re-inventing.
 
 ## Remaining — P0
 
-- [ ] **Settings hierarchy** — tenant → brand → branch → terminal resolution,
+- [x] **Settings hierarchy** — tenant → brand → branch → terminal resolution,
       locked settings naming the locking level, settings inspector, effective
       dating on financial settings. (FR-PLT-025…028)
-- [ ] **Alerts and delivery** — alert configuration (9 triggers, thresholds,
+      *Resolver + catalogue in `lib/console/settings.ts` (pure — reuse it for
+      any screen that needs an effective value); overrides in
+      `services.settings` (local store); UI in
+      `components/console/settings-editor.tsx`.*
+- [x] **Alerts and delivery** — alert configuration (9 triggers, thresholds,
       rate limits), scheduled report delivery, morning-brief config.
       (FR-RPT-040/041/045/046)
-- [ ] **Audit** — structured filters (actor / entity / action / branch /
+      *`/reports/delivery`. Policy engine (`decideDeliveries`) in
+      `lib/console/delivery.ts`; config in `services.delivery` (local).*
+- [x] **Audit** — structured filters (actor / entity / action / branch /
       correlation ID / date range), correlation-chain view, export,
       impersonation-session visibility. (FR-AUD-008/010)
-- [ ] **Stock item master** — full attribute form + edit mode: purchase units
+      *Filters go to the real `GET /governance/audit/entries`; export uses
+      the real `/export` endpoint via `governance.auditExport`.*
+- [x] **Stock item master** — full attribute form + edit mode: purchase units
       with conversion factors, multiple barcodes, allergens, storage, shelf
       life, reorder min/max, density, account code, base-unit lock.
       (FR-INV-001…005)
-- [ ] **Stock counts** — recount trigger, written explanation to unblock
+      *`components/console/stock-item-editor.tsx`. Core → `inventory.items`
+      (live: create-only, no PATCH); the rest → `services.stockProfiles`;
+      reorder point/qty → real reorder-config endpoint. Exact decimal
+      conversions + barcode check digits in `lib/console/stock-units.ts`;
+      allergen list in `lib/console/allergens.ts`.*
+- [x] **Stock counts** — recount trigger, written explanation to unblock
       posting, ad-hoc item, barcode scanning in the count drawer.
       (FR-INV-046…049)
-- [ ] **POS seat assignment** — seat picker on lines. *Split-by-seat is already
+      *Thresholds come from the settings cascade (`inv.countVariancePercent`
+      / `inv.countVarianceValue`); a lock on `inv.blindStockCount` makes
+      blind mandatory. Reviews in `services.countReviews` (local). Live, an
+      off-sheet item opens a real `item_list` session (no add-line route).*
+- [x] **POS seat assignment** — seat picker on lines. *Split-by-seat is already
       built and works; nothing currently assigns a seat number, so it has no
       data to act on.* (FR-POS-004)
-- [ ] **POS remainder** — hold-and-fire, amendment-ticket indicator, customer
+      *Seat selector for new lines + per-line seat chip (`LINE_SEAT`); seats
+      also print on the KDS line. Split-by-seat now has data.*
+- [x] **POS remainder** — hold-and-fire, amendment-ticket indicator, customer
       attach to order (the `CustomerQuickCreate` component is built and ready
       to mount), clock-in/out panel. (FR-POS-037/038, FR-CRM-004, FR-HRM-020)
-- [ ] **Session security** — idle timeout with re-auth prompt, MFA *enrolment*
+      *Hold/release in the simulator (`ORDER_FIRE hold`, `ORDER_RELEASE_HOLD`;
+      KDS refuses Start and freezes the clock while held). Additions to a sent
+      course now go as their own `amendment` ticket. Clock in/out uses the
+      real `/workforce/attendance/clock-in|out` (`components/terminal/clock.tsx`,
+      mounted on both tills).*
+- [x] **Session security** — idle timeout with re-auth prompt, MFA *enrolment*
       flow (verification page exists; enrolment does not). (FR-SEC-023/026)
-- [ ] **Conflict register** — `/operations/conflicts`, side-by-side version
+      *Idle: `components/console/idle-lock.tsx` (console lock + real re-auth
+      via `reauthenticate()`), `components/terminal/till-idle.tsx` (till
+      sign-off); periods from the cascade, SRS defaults 60/15/480 min. MFA:
+      real TOTP (`lib/console/totp.ts`, RFC vectors pass) + hand-written QR
+      encoder (`lib/console/qr.ts`, verified with OpenCV); enrolment kept in
+      `services.mfa` (local — no MFA endpoints); banner for roles that require it.*
+- [x] **Conflict register** — `/operations/conflicts`, side-by-side version
       resolution, `isolated` connectivity mode, clock-skew banner.
       (FR-OFF-042/043)
-- [ ] **Anomalies page** — `/governance/anomalies`. *Already referenced by
+      *Register + skew log in `services.conflicts` (local — the server records
+      conflicts but has no list endpoint); fed from the till's refused queue
+      writes. `store/connectivity.ts` now has SRS §21.2's four modes, with a
+      live health probe (>500 ms → degraded, no answer → offline, no
+      interface → isolated). Skew threshold `sync.clockSkewMinutes`.*
+- [x] **Anomalies page** — `/governance/anomalies`. *Already referenced by
       `REPORT_ROUTES` in `app/(console)/reports/page.tsx`, so that link is
       currently dead.* (FR-CST-040…043)
-- [ ] **Export history page** — surface `lib/console/export-log.ts`, which is
+      *Gated on `governance.view_anomalies` only; evidence + baseline bars;
+      dismiss/confirm need a written finding; append-only review history in
+      `services.anomalyReviews`. Live: no anomaly endpoint → unsupported panel.*
+- [x] **Export history page** — surface `lib/console/export-log.ts`, which is
       recording but has no screen. (FR-RPT-044)
-- [ ] **SoD conflict report by user** — the per-user computation already exists
+      *`/reports/exports` — filters, queued/ready jobs, exportable itself.*
+- [x] **SoD conflict report by user** — the per-user computation already exists
       in `app/(console)/users/page.tsx`; it needs running across the
       population. (FR-SEC-017)
-- [ ] **Role assignment scope + validity dates** — temporary elevation.
+      *`/governance/sod` (also the `sod-conflicts` catalogue entry). Shared
+      logic in `lib/console/access.ts`: only assignments in force today count;
+      conflicts arising only from combined roles are called out.*
+- [x] **Role assignment scope + validity dates** — temporary elevation.
       (FR-SEC-002/005)
-- [ ] **Menu item full edit** — surface-specific names (POS/KDS/receipt/
+      *`components/console/assignment-editor.tsx` in the users drawer: scope
+      picker, permanent/temporary with dates, countdown, End now, SoD check
+      before save (blocking pairs refuse). The fake "Force logout" is now a
+      disabled control naming the missing endpoint (FR-SEC-027).*
+- [x] **Menu item full edit** — surface-specific names (POS/KDS/receipt/
       aggregator), image, allergens, PLU, colour, sort order. (FR-MNU-004/005)
-- [ ] **Modifier group editor** — min/max/required/allow-repeat/free-quantity,
+      *`components/console/menu-item-editor.tsx` with live previews per
+      surface. Real `PATCH /catalogue/items` fields now mapped (aggregator
+      names, PLU, dietary tags, account code, tax class); the mapper no longer
+      files `aggregatorNames` as the receipt name. POS label, receipt name and
+      image (no API field) in `services.menuProfiles`.*
+- [x] **Modifier group editor** — min/max/required/allow-repeat/free-quantity,
       recipe-delta editor, per-item overrides, nested groups.
       (FR-MNU-010…013, FR-POS-023)
-- [ ] **Retrofit `LocalisedField`** — nine create forms still write one string
+      *`components/console/modifier-group-editor.tsx`: rules via the real
+      PATCH with unsatisfiable combinations refused (`lib/console/modifier-rules.ts`),
+      a till simulator, per-item price/default overrides via the real link
+      endpoint, nesting (depth 2, cycle-checked) in `services.modifierNesting`
+      (no API field). The recipe-effect editor was already real
+      (`modifier-effects.tsx`).*
+- [x] **Retrofit `LocalisedField`** — nine create forms still write one string
       into both locales. Grep for `{ en: values.name.trim(), ar: values.name.trim() }`.
       (FR-LOC-006)
-- [ ] **Receipt template editor** — logo, header/footer, language ordering,
+      *Fourteen forms converted (categories, recipes, menus, items, variants,
+      modifier groups, modifiers, price lists, stations, tables, branches,
+      brands, warehouses, central kitchens, roles, employees). Where the
+      backend keeps a single string (org entities, stations, tables, price
+      lists, roles) live mode shows `loc.singleOnServer`. The expense
+      payee stays a plain string — it is not authored copy.*
+- [x] **Receipt template editor** — logo, header/footer, language ordering,
       live preview. (FR-POS-101/102)
-- [ ] **Branch scorecard** — comparison, ranking, normalisation, outliers,
+      *`/operations/receipts`: per brand × country resolution
+      (`lib/console/receipt.ts`), 1-bit dithered logo, 58/80 mm column-exact
+      preview, language order defaulting to `pos.receiptLanguages`, ZATCA TLV
+      QR for Saudi receipts. Templates in `services.receiptTemplates` (local).
+      The till's QR placeholder is now a real code carrying the receipt text.*
+- [x] **Branch scorecard** — comparison, ranking, normalisation, outliers,
       branch template. (FR-BRN-008…014)
-- [ ] **Central kitchen** — production orders, yield variance, distribution
+      `/organisation/scorecard` ranks on any of the eight measures the
+      server's branch ranking carries, normalised per seat / m² / trading
+      hour (additive measures only; ratios are left alone), with prior-period
+      movement where the server gives it (net sales, totals), z-score outliers
+      at a configurable σ, and like-for-like excluding branches younger than
+      N months from the group mean. Per labour hour, void/discount rates and
+      service time have no per-branch source and say so. Branches page gains
+      "New from template" (`components/console/branch-template.tsx`): creates
+      the branch, then copies menus, stations, hours, printer routing, station
+      routing (remapped to the new stations) and branch-level settings as
+      separate calls, reporting each step; roles are tenant-wide and not copied.
+- [x] **Central kitchen** — production orders, yield variance, distribution
       orders with allocation rules. (FR-BRN-020…028)
+      `/inventory/production` (plan / orders / yield / distribution). The
+      backend has no production or distribution documents, so those live in
+      `services.centralKitchen` (browser-local); the stock they move is real.
+      Orders expand the recipe (sub-recipes walked, trim and yield loss
+      grossed up, unit conversion with density refusal) and check it against
+      the kitchen's stock; starting short needs a written reason kept on the
+      order. Completing records actual inputs/output, batch number,
+      production and expiry dates, overhead per unit or per batch, and posts
+      `production_input`/`production_output` movements via
+      `POST /inventory/movements` — per leg, with retry of only the legs that
+      failed. Yield variance = actual − theoretical from actual inputs
+      (limiting input), reported by item, batch, date and operator. The plan
+      uses branch par − on hand (no forecaster exists) less kitchen stock.
+      Distribution allocates proportional (largest remainder), by priority or
+      manually, dispatches one real transfer per branch, and exports a
+      manifest. `CentralKitchen.locationId` now carries the API's warehouse id.
 
 ## Remaining — P1
 

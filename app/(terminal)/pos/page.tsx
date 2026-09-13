@@ -19,6 +19,7 @@ import { PosFloor } from "@/components/terminal/pos-floor";
 import { PosMenu } from "@/components/terminal/pos-menu";
 import { PosOrderPane } from "@/components/terminal/pos-order";
 import { PaymentSheet } from "@/components/terminal/pos-payment";
+import { ClockButton } from "@/components/terminal/clock";
 import { SegmentedControl, Spinner } from "@/components/console/ui";
 import { DATA_MODE } from "@/lib/api/config";
 import { LivePos } from "@/components/terminal/pos-live";
@@ -46,10 +47,11 @@ export default function PosPage() {
 }
 
 function DemoPos() {
-  const { t } = useI18n();
+  const { t, tx } = useI18n();
   const { state, activeOrder, ready } = useLive();
   const [pane, setPane] = useState<"menu" | "floor">("floor");
   const [course, setCourse] = useState(1);
+  const [seat, setSeat] = useState<number | null>(null);
   const [paying, setPaying] = useState(false);
 
   // An order was just picked up or created: the menu is what you want next.
@@ -102,6 +104,7 @@ function DemoPos() {
           </span>
         ) : null}
         <div className="flex-1" />
+        <ClockButton employeeKey={state.session.employeeId} employeeName={tx(state.session.employeeName)} />
         <ShiftControls />
       </div>
 
@@ -114,7 +117,7 @@ function DemoPos() {
       */}
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         {effectivePane === "menu" && activeOrder ? (
-          <PosMenu orderId={activeOrder.id} course={course} />
+          <PosMenu orderId={activeOrder.id} course={course} seat={seat} />
         ) : (
           <PosFloor />
         )}
@@ -123,6 +126,8 @@ function DemoPos() {
           order={activeOrder}
           course={course}
           onCourseChange={setCourse}
+          seat={seat}
+          onSeatChange={setSeat}
           onPay={() => setPaying(true)}
         />
       </div>

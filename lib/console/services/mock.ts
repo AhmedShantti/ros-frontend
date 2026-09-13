@@ -24,6 +24,8 @@ import type {
   Station,
   Terminal,
   Warehouse,
+  CountSession,
+  UnitCode,
 } from "../types";
 import type {
   CatalogueService,
@@ -57,8 +59,22 @@ import type {
   ServiceRegistry,
   WorkforceService,
 } from "./types";
-import { ServiceError } from "./types";
+import { ServiceError, matchesAuditFilters, type ClockEvent } from "./types";
+
+/** The demo operator's open attendance record, if any. */
+let demoClock: ClockEvent | null = null;
 import { crmService } from "./crm";
+import { settingsService } from "./settings";
+import { deliveryService } from "./delivery";
+import { stockProfileService } from "./stock-profiles";
+import { countReviewService } from "./count-reviews";
+import { mfaService } from "./mfa";
+import { conflictService } from "./conflicts";
+import { anomalyReviewService } from "./anomaly-reviews";
+import { menuProfileService } from "./menu-profiles";
+import { modifierNestingService } from "./modifier-nesting";
+import { receiptTemplateService } from "./receipt-templates";
+import { productionService } from "./production";
 
 import { branchById, branches, brands, centralKitchens, stations, stockLocations, tables, tenants, terminals, warehouses } from "../mock/org";
 import { combos, menuCategories, menuItems, modifierGroups, priceLists, recipes } from "../mock/catalogue";
@@ -1226,6 +1242,34 @@ const demoReorderConfig = new Map<string, { reorderPoint: string; reorderQuantit
 const nameOfLocation = (locationId: Id): Localised =>
   stockLocations.find((row) => row.id === locationId)?.name ?? { en: locationId, ar: locationId };
 
+/** A count line with its expected quantity frozen now — FR-INV-044. */
+function frozenLine(itemId: Id, onHand: { value: string; unit: UnitCode } | null): CountSession["lines"][number] {
+  const item = stockItems.find((row) => row.id === itemId);
+  return {
+    id: `cnl_${itemId}_${Math.random().toString(36).slice(2, 8)}`,
+    itemId,
+    itemName: item?.name ?? { en: itemId, ar: itemId },
+    sku: item?.sku ?? "",
+    expected: onHand ?? { value: "0", unit: item?.baseUnit ?? "pc" },
+    counted: null,
+    varianceQty: 0,
+    varianceValue: { amount: 0, currency: item?.unitCost.currency ?? "EGP" },
+    variancePercent: 0,
+    flagged: false,
+    recount: false,
+  };
+}
+
+function retotalCount(session: CountSession): void {
+  session.lineCount = session.lines.length;
+  session.flaggedCount = session.lines.filter((line) => line.flagged).length;
+  session.netVarianceValue = {
+    amount: session.lines.reduce((sum, line) => sum + line.varianceValue.amount, 0),
+    currency: session.netVarianceValue.currency,
+  };
+  if (session.status === "draft") session.status = "counting";
+}
+
 const inventory: InventoryService = {
   items: makeCollection({
     rows: stockItems,
@@ -1294,6 +1338,7 @@ const inventory: InventoryService = {
       movementType: (m) => m.movementType,
       locationId: (m) => m.locationId,
       referenceType: (m) => m.referenceType,
+      itemId: (m) => m.itemId,
     },
     sorters: {
       occurredAt: (m) => m.occurredAt,
@@ -1312,26 +1357,48 @@ const inventory: InventoryService = {
       netVarianceValue: (c) => Math.abs(c.netVarianceValue.amount),
       flaggedCount: (c) => c.flaggedCount,
     },
-    factory: (input, id) => ({
-      id,
-      tenantId: tenants[0]!.id,
-      locationId: input.locationId ?? branches[0]!.id,
-      locationName: (input.locationName as Localised) ?? branches[0]!.name,
-      reference: `CNT-${Math.floor(Math.random() * 9000) + 1000}`,
-      scope: (input.scope as Localised) ?? { en: "Ad-hoc list", ar: "قائمة مخصصة" },
-      mode: input.mode ?? "blind",
-      status: "draft",
-      openedAt: new Date().toISOString(),
-      submittedAt: null,
-      postedAt: null,
-      countedBy: employees[0]!.id,
-      countedByName: employees[0]!.name,
-      postedBy: null,
-      lineCount: 0,
-      flaggedCount: 0,
-      netVarianceValue: { amount: 0, currency: "EGP" },
-      lines: [],
-    }),
+    factory: (input, id) => {
+      // FR-INV-044 — the expected quantity is frozen from the levels at the
+      // moment the session opens; later movements do not move it.
+      const locationId = input.locationId ?? branches[0]!.id;
+      const itemList = input.scopeType === "item_list";
+      if (itemList && (!input.itemIds || input.itemIds.length === 0)) {
+        throw new ServiceError("BAD_REQUEST", "Choose at least one item to count.", 400);
+      }
+      const wanted = itemList ? new Set(input.itemIds) : null;
+      const levels = stockLevels.filter(
+        (level) => level.locationId === locationId && (!wanted || wanted.has(level.itemId)),
+      );
+      const lines = [
+        ...levels.map((level) => frozenLine(level.itemId, level.onHand)),
+        ...[...(wanted ?? [])]
+          .filter((itemId) => !levels.some((level) => level.itemId === itemId))
+          .map((itemId) => frozenLine(itemId, null)),
+      ];
+      const location = stockLocations.find((row) => row.id === locationId);
+      return {
+        id,
+        tenantId: tenants[0]!.id,
+        locationId,
+        locationName: (input.locationName as Localised) ?? location?.name ?? branches[0]!.name,
+        reference: `CNT-${Math.floor(Math.random() * 9000) + 1000}`,
+        scope: itemList
+          ? { en: `Ad-hoc list · ${lines.length} items`, ar: `قائمة مخصصة · ${lines.length} صنف` }
+          : { en: "Full location", ar: "الموقع كاملًا" },
+        mode: input.mode ?? "blind",
+        status: "counting",
+        openedAt: new Date().toISOString(),
+        submittedAt: null,
+        postedAt: null,
+        countedBy: employees[0]!.id,
+        countedByName: employees[0]!.name,
+        postedBy: null,
+        lineCount: lines.length,
+        flaggedCount: 0,
+        netVarianceValue: { amount: 0, currency: "EGP" },
+        lines,
+      };
+    },
   }),
   transfers: makeCollection({
     rows: transfers,
@@ -1465,17 +1532,39 @@ const inventory: InventoryService = {
       for (const session of countSessions) {
         const line = session.lines.find((row) => row.id === lineId);
         if (!line) continue;
+        if (session.status === "posted") {
+          throw new ServiceError("CONFLICT", "This count has already been posted.", 409);
+        }
 
         line.counted = { value: countedQuantity, unit: line.expected.unit };
         const expected = Number(line.expected.value);
         const counted = Number(countedQuantity);
+        const unitCost = stockItems.find((item) => item.id === line.itemId)?.unitCost.amount ?? 0;
         line.varianceQty = counted - expected;
-        line.variancePercent = expected === 0 ? 0 : (line.varianceQty / expected) * 100;
+        line.variancePercent = expected === 0 ? (counted === 0 ? 0 : 100) : (line.varianceQty / expected) * 100;
+        line.varianceValue = { amount: Math.round(line.varianceQty * unitCost), currency: line.varianceValue.currency };
         // FR-INV-042 — a variance past the tolerance is flagged for recount.
         line.flagged = Math.abs(line.variancePercent) > 5;
+        retotalCount(session);
         return;
       }
       throw new ServiceError("NOT_FOUND", "That count line no longer exists.", 404);
+    });
+  },
+
+  async addCountLine(sessionId, itemId) {
+    return transport(() => {
+      const session = countSessions.find((row) => row.id === sessionId);
+      if (!session) throw new ServiceError("NOT_FOUND", "That count session no longer exists.", 404);
+      if (session.status === "posted") {
+        throw new ServiceError("CONFLICT", "This count has already been posted.", 409);
+      }
+      if (session.lines.some((line) => line.itemId === itemId)) {
+        throw new ServiceError("CONFLICT", "That item is already on this count.", 409);
+      }
+      const level = stockLevels.find((row) => row.locationId === session.locationId && row.itemId === itemId);
+      session.lines.push(frozenLine(itemId, level?.onHand ?? null));
+      retotalCount(session);
     });
   },
 
@@ -1500,6 +1589,76 @@ const inventory: InventoryService = {
         reorderPoint: input.reorderPoint,
         reorderQuantity: input.reorderQuantity,
       });
+    });
+  },
+
+  // -- Production ------------------------------------------------------------
+
+  async postProductionMovement(input) {
+    return transport(() => {
+      const item = stockItemById(input.itemId);
+      if (!item) throw new ServiceError("NOT_FOUND", "That stock item no longer exists.", 404);
+      const magnitude = Number(input.quantity);
+      if (!(magnitude > 0)) throw new ServiceError("VALIDATION", "A production quantity must be positive.", 400);
+      const signed = input.direction === "input" ? -magnitude : magnitude;
+
+      // Move the projection with the ledger so availability reads true after.
+      let level = stockLevels.find((row) => row.itemId === item.id && row.locationId === input.locationId);
+      if (!level) {
+        level = {
+          itemId: item.id,
+          itemName: item.name,
+          sku: item.sku,
+          locationId: input.locationId,
+          locationName: locationNameOf(input.locationId) ?? { en: "", ar: "" },
+          onHand: { value: "0", unit: item.baseUnit },
+          allocated: { value: "0", unit: item.baseUnit },
+          onOrder: { value: "0", unit: item.baseUnit },
+          reorderPoint: 0,
+          reorderQuantity: 0,
+          parLevel: 0,
+          unitCost: item.unitCost,
+          value: { amount: 0, currency: item.unitCost.currency },
+          daysOfCover: null,
+          lastCountedAt: null,
+          status: "ok",
+        };
+        stockLevels.push(level);
+      }
+      const after = Number(level.onHand.value) + signed;
+      level.onHand = { value: after.toFixed(3), unit: item.baseUnit };
+      level.value = { amount: Math.round(after * level.unitCost.amount), currency: level.unitCost.currency };
+
+      const unitCost =
+        input.unitCostMinor !== undefined
+          ? { amount: Number(input.unitCostMinor), currency: item.unitCost.currency }
+          : item.unitCost;
+      const id = `mv_prod_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      const now = new Date().toISOString();
+      stockMovements.unshift({
+        id,
+        tenantId: tenants[0]!.id,
+        locationId: input.locationId,
+        locationName: level.locationName,
+        itemId: item.id,
+        itemName: item.name,
+        batchId: null,
+        movementType: input.direction === "input" ? "production_input" : "production_output",
+        quantity: { value: signed.toFixed(3), unit: item.baseUnit },
+        unitCost,
+        totalCost: { amount: Math.round(unitCost.amount * magnitude), currency: unitCost.currency },
+        balanceAfter: { value: after.toFixed(3), unit: item.baseUnit },
+        referenceType: "production_order",
+        referenceId: input.referenceId,
+        counterpartMovementId: null,
+        occurredAt: now,
+        recordedAt: now,
+        performedBy: "",
+        performedByName: { en: "", ar: "" },
+        reasonCode: null,
+        notes: input.notes ?? null,
+      });
+      return { movementId: id };
     });
   },
 
@@ -1885,6 +2044,44 @@ const workforce: WorkforceService = {
       existing.filter((a) => a.id !== assignmentId),
     );
   },
+  async clockIn() {
+    return transport(() => {
+      if (demoClock && demoClock.status === "open") {
+        throw new ServiceError("CONFLICT", "You are already clocked in.", 409);
+      }
+      const now = new Date();
+      // FR-HRM-022 — the demo roster starts at 09:00 with a 10-minute grace.
+      const late = now.getHours() * 60 + now.getMinutes() > 9 * 60 + 10 && now.getHours() < 15;
+      demoClock = {
+        recordId: `att_${now.getTime().toString(36)}`,
+        employeeId: employees[0]!.id,
+        clockInAt: now.toISOString(),
+        clockOutAt: null,
+        status: "open",
+        lateArrival: late,
+        earlyDeparture: false,
+        missingClockOut: false,
+        outsideGeofence: false,
+        unscheduled: false,
+      };
+      return { ...demoClock };
+    });
+  },
+  async clockOut() {
+    return transport(() => {
+      if (!demoClock || demoClock.status !== "open") {
+        throw new ServiceError("CONFLICT", "You are not clocked in.", 409);
+      }
+      const now = new Date();
+      demoClock = {
+        ...demoClock,
+        clockOutAt: now.toISOString(),
+        status: "closed",
+        earlyDeparture: now.getHours() < 17,
+      };
+      return { ...demoClock };
+    });
+  },
   shifts: makeCollection({
     rows: scheduledShifts,
     idOf: (s) => s.id,
@@ -2104,6 +2301,9 @@ const governance: GovernanceService = {
     },
     sorters: { occurredAt: (a) => a.occurredAt, action: (a) => a.action },
   }),
+  async auditExport(filters) {
+    return transport(() => auditEntries.filter((entry) => matchesAuditFilters(entry, filters)));
+  },
   anomalies: staticCollection({
     rows: anomalyFlags,
     idOf: (a) => a.id,
@@ -2522,6 +2722,17 @@ const demoModifierEffects = new Map<Id, ModifierRecipeEffect[]>();
 export const mockServices: ServiceRegistry = {
   dashboard: dashboardService,
   crm: crmService,
+  settings: settingsService,
+  delivery: deliveryService,
+  stockProfiles: stockProfileService,
+  countReviews: countReviewService,
+  mfa: mfaService,
+  conflicts: conflictService,
+  anomalyReviews: anomalyReviewService,
+  menuProfiles: menuProfileService,
+  modifierNesting: modifierNestingService,
+  receiptTemplates: receiptTemplateService,
+  centralKitchen: productionService,
   sales,
   production,
   treasury,

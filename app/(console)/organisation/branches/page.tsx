@@ -17,7 +17,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { Copy, Plus } from "lucide-react";
 import type { Branch } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
@@ -41,6 +41,9 @@ import {
   Toggle,
 } from "@/components/console/ui";
 import { RecordDrawer } from "@/components/console/record-drawer";
+import { trimLocalised } from "@/components/console/fields";
+import { DATA_MODE } from "@/lib/api/config";
+import { BranchTemplateDrawer } from "@/components/console/branch-template";
 
 export default function BranchesPage() {
   return (
@@ -52,10 +55,11 @@ export default function BranchesPage() {
 
 function BranchesScreen() {
   const { t, tx, fmt } = useI18n();
-  const { scope, availableBrands } = useSession();
+  const { scope, availableBrands, availableBranches } = useSession();
   const canManage = usePermission("settings.branch.manage");
   const [selected, setSelected] = useState<Branch | null>(null);
   const [creating, setCreating] = useState(false);
+  const [templating, setTemplating] = useState(false);
   const [message, setMessage] = useTransientMessage();
 
   /**
@@ -165,6 +169,9 @@ function BranchesScreen() {
     [t, tx, fmt, brandName],
   );
 
+  // FR-LOC-006 — the server keeps one name for this; say which one is sent.
+  const singleNameHint = DATA_MODE === "http" ? t("loc.singleOnServer") : undefined;
+
   return (
     <>
       <PageHeader
@@ -173,9 +180,14 @@ function BranchesScreen() {
         spec="FR-BRN-001"
         actions={
           canManage ? (
-            <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
-              {t("common.new")}
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="secondary" icon={<Copy size={14} />} onClick={() => setTemplating(true)}>
+                {t("tpl.open")}
+              </Button>
+              <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
+                {t("common.new")}
+              </Button>
+            </div>
           ) : null
         }
       />
@@ -242,7 +254,7 @@ function BranchesScreen() {
         open={creating}
         title={t("org.newBranch")}
         fields={[
-          { name: "name", label: t("common.name"), required: true, maxLength: 120 },
+          { name: "name", label: t("common.name"), kind: "localised", required: true, maxLength: 120, hint: singleNameHint },
           { name: "code", label: t("common.code"), required: true, maxLength: 12, ltr: true },
           {
             name: "brandId",
@@ -256,9 +268,9 @@ function BranchesScreen() {
           { name: "timezone", label: t("org.timezone"), initial: "Africa/Cairo", ltr: true },
         ]}
         onClose={() => setCreating(false)}
-        onSubmit={(values) =>
+        onSubmit={(values, localised) =>
           services.organisation.branches.create({
-            name: { en: values.name.trim(), ar: values.name.trim() },
+            name: trimLocalised(localised.name!),
             code: values.code.trim(),
             brandId: values.brandId,
             countryCode: values.countryCode.trim().toUpperCase() as never,
@@ -268,6 +280,16 @@ function BranchesScreen() {
         }
         onDone={() => {
           setCreating(false);
+          setMessage(t("org.branchCreated"));
+          collection.reload();
+        }}
+      />
+
+      <BranchTemplateDrawer
+        open={templating}
+        branches={availableBranches}
+        onClose={() => setTemplating(false)}
+        onCreated={() => {
           setMessage(t("org.branchCreated"));
           collection.reload();
         }}

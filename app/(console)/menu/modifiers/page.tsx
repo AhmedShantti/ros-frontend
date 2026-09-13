@@ -15,10 +15,11 @@
  */
 
 import { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
-import type { Modifier, ModifierGroup, RecipeDelta } from "@/lib/console/types";
+import { Plus, SlidersHorizontal } from "lucide-react";
+import { GroupRulesDrawer, GroupSimulator, NestingPicker } from "@/components/console/modifier-group-editor";
+import type { Modifier, ModifierGroup, RecipeDelta, Localised } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatMoney, formatNumber, formatQuantity } from "@/lib/console/format";
@@ -41,6 +42,7 @@ import {
   Toast,
   Toggle,
 } from "@/components/console/ui";
+import { LocalisedField, EMPTY_LOCALISED, hasLocalisedText, trimLocalised } from "@/components/console/fields";
 
 export default function MenuModifiersPage() {
   return (
@@ -225,32 +227,59 @@ function GroupDrawer({
   const { t, tx, fmt } = useI18n();
   const canManage = usePermission("menu.item.manage");
   const [adding, setAdding] = useState(false);
+  const [editingRules, setEditingRules] = useState(false);
+  const context = useAsync(async () => {
+    const [groups, nesting] = await Promise.all([
+      services.catalogue.modifierGroups.list({ limit: 300 }).then((page) => page.rows),
+      services.modifierNesting.map(),
+    ]);
+    return { groups, nesting };
+  }, [group?.id]);
   if (!group) return null;
 
+  // The drawer is opened from a list row; the freshest copy of this group is
+  // the one in the context read, which reloads after every change.
+  const current = context.data?.groups.find((row) => row.id === group.id) ?? group;
+  const changed = (note: string) => {
+    context.reload();
+    onChanged(note);
+  };
+
   return (
-    <Drawer open onClose={onClose} title={tx(group.name)}>
+    <Drawer
+      open
+      onClose={onClose}
+      title={tx(current.name)}
+      footer={
+        canManage ? (
+          <Button icon={<SlidersHorizontal size={14} />} onClick={() => setEditingRules(true)}>
+            {t("mge.editRules")}
+          </Button>
+        ) : null
+      }
+    >
       <div className="space-y-5">
         <DescList>
           <DescRow label={t("menu.minMax")} mono>
             <span dir="ltr">
-              {formatNumber(group.minSelections, fmt)} / {formatNumber(group.maxSelections, fmt)}
+              {formatNumber(current.minSelections, fmt)} / {formatNumber(current.maxSelections, fmt)}
             </span>
           </DescRow>
           <DescRow label={t("menu.required")}>
-            <Badge tone={group.required ? "accent" : "muted"}>
-              {group.required ? t("common.required") : t("common.optional")}
+            <Badge tone={current.required ? "accent" : "muted"}>
+              {current.required ? t("common.required") : t("common.optional")}
             </Badge>
           </DescRow>
           <DescRow label={t("menu.allowRepeat")}>
-            {group.allowRepeat ? t("common.yes") : t("common.no")}
+            {current.allowRepeat ? t("common.yes") : t("common.no")}
           </DescRow>
           <DescRow label={t("menu.freeThreshold")} mono>
-            {group.freeQuantityThreshold === null
+            {current.freeQuantityThreshold === null
               ? t("common.none")
-              : formatNumber(group.freeQuantityThreshold, fmt)}
+              : formatNumber(current.freeQuantityThreshold, fmt)}
           </DescRow>
           <DescRow label={t("menu.attachedItems")} mono>
-            {formatNumber(group.attachedItemCount, fmt)}
+            {formatNumber(current.attachedItemCount, fmt)}
           </DescRow>
         </DescList>
 
@@ -264,12 +293,27 @@ function GroupDrawer({
             ) : null}
           </div>
 
-          {group.modifiers.length === 0 ? (
+          {current.modifiers.length === 0 ? (
             <Callout tone="muted">{t("menu.noModifiers")}</Callout>
           ) : (
             <ul className="divide-line divide-y">
-              {group.modifiers.map((modifier) => (
-                <ModifierRow key={modifier.id} modifier={modifier} onChanged={onChanged} />
+              {current.modifiers.map((modifier) => (
+                <ModifierRow
+                  key={modifier.id}
+                  modifier={modifier}
+                  onChanged={changed}
+                  nesting={
+                    canManage && context.data ? (
+                      <NestingPicker
+                        parent={current}
+                        modifier={modifier}
+                        groups={context.data.groups}
+                        nesting={context.data.nesting}
+                        onChanged={changed}
+                      />
+                    ) : null
+                  }
+                />
               ))}
             </ul>
           )}
@@ -277,16 +321,31 @@ function GroupDrawer({
 
         <NewModifierDrawer
           open={adding}
-          groupId={group.id}
-          currency={group.modifiers[0]?.priceDelta.currency ?? "EGP"}
+          groupId={current.id}
+          currency={current.modifiers[0]?.priceDelta.currency ?? "EGP"}
           onClose={() => setAdding(false)}
           onCreated={() => {
             setAdding(false);
-            onChanged(t("menu.modifierAdded"));
+            changed(t("menu.modifierAdded"));
           }}
         />
 
+        {context.data ? (
+          <GroupSimulator group={current} groups={context.data.groups} nesting={context.data.nesting} />
+        ) : null}
+
         <Callout tone="muted">{t("menu.recipeDeltaHint")}</Callout>
+
+        {editingRules ? (
+          <GroupRulesDrawer
+            group={current}
+            onClose={() => setEditingRules(false)}
+            onSaved={(note) => {
+              setEditingRules(false);
+              changed(note);
+            }}
+          />
+        ) : null}
       </div>
     </Drawer>
   );
@@ -295,9 +354,12 @@ function GroupDrawer({
 function ModifierRow({
   modifier,
   onChanged,
+  nesting,
 }: {
   modifier: Modifier;
   onChanged: (message: string) => void;
+  /** FR-POS-023 — the "opens group" control, when the viewer may edit. */
+  nesting?: React.ReactNode;
 }) {
   const { t, tx, fmt } = useI18n();
   const kind = labelOf(MODIFIER_KIND, modifier.kind);
@@ -335,6 +397,7 @@ function ModifierRow({
       ) : (
         <ModifierEffects modifier={modifier} onSaved={onChanged} />
       )}
+      {nesting}
     </li>
   );
 }
@@ -385,7 +448,7 @@ function NewModifierDrawer({
 }) {
   const { t, tx } = useI18n();
   const action = useAction();
-  const [name, setName] = useState("");
+  const [name, setName] = useState<Localised>({ ...EMPTY_LOCALISED });
   const [kind, setKind] = useState<Modifier["kind"]>("addition");
   const [priceDelta, setPriceDelta] = useState("0");
   const [isDefault, setIsDefault] = useState(false);
@@ -393,14 +456,14 @@ function NewModifierDrawer({
   if (!open) return null;
 
   const parsed = Number(priceDelta);
-  const valid = name.trim() !== "" && Number.isFinite(parsed);
+  const valid = hasLocalisedText(name) && Number.isFinite(parsed);
 
   async function create() {
     if (!valid) return;
     await action.run(
       () =>
         services.catalogue.addModifier(groupId, {
-          name: { en: name.trim(), ar: name.trim() },
+          name: trimLocalised(name),
           kind,
           priceDelta: { amount: Math.round(parsed * 100), currency },
           isDefault,
@@ -428,9 +491,7 @@ function NewModifierDrawer({
       <div className="space-y-4">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
 
-        <Field label={t("common.name")} required>
-          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
-        </Field>
+        <LocalisedField label={t("common.name")} value={name} onChange={setName} required maxLength={120} />
 
         <Field label={t("menu.modifierKind")} hint={t("menu.modifierKindHint")} required>
           <Select
@@ -474,7 +535,7 @@ function NewGroupDrawer({
 }) {
   const { t } = useI18n();
   const action = useAction();
-  const [name, setName] = useState("");
+  const [name, setName] = useState<Localised>({ ...EMPTY_LOCALISED });
   const [minSelections, setMin] = useState("0");
   const [maxSelections, setMax] = useState("1");
   const [required, setRequired] = useState(false);
@@ -482,11 +543,11 @@ function NewGroupDrawer({
   if (!open) return null;
 
   async function create() {
-    if (!name.trim()) return;
+    if (!hasLocalisedText(name)) return;
     await action.run(
       () =>
         services.catalogue.modifierGroups.create({
-          name: { en: name.trim(), ar: name.trim() },
+          name: trimLocalised(name),
           minSelections: Number(minSelections) || 0,
           maxSelections: Number(maxSelections) || 1,
           required,
@@ -505,7 +566,7 @@ function NewGroupDrawer({
           <Button
             variant="primary"
             loading={action.pending}
-            disabled={!name.trim()}
+            disabled={!hasLocalisedText(name)}
             onClick={create}
           >
             {t("common.create")}
@@ -519,9 +580,7 @@ function NewGroupDrawer({
       <div className="space-y-4">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
 
-        <Field label={t("common.name")} required>
-          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
-        </Field>
+        <LocalisedField label={t("common.name")} value={name} onChange={setName} required maxLength={120} />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label={t("menu.minSelections")}>

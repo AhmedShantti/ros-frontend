@@ -14,29 +14,20 @@
  */
 
 import { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, ScanBarcode } from "lucide-react";
 import type { StockItem } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
+import { useAction } from "@/lib/console/actions";
 import { formatMoney, formatNumber, unitLabel } from "@/lib/console/format";
 import { COSTING_METHOD, STORAGE, labelOf } from "@/lib/console/labels";
-import { supplierById } from "@/lib/console/mock/purchasing";
-import { DATA_MODE } from "@/lib/api/config";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
-import {
-  Badge,
-  Button,
-  Callout,
-  DescList,
-  DescRow,
-  Drawer,
-  Toast,
-} from "@/components/console/ui";
-import { RecordDrawer } from "@/components/console/record-drawer";
+import { Badge, Button, Input, Toast } from "@/components/console/ui";
+import { StockItemEditor } from "@/components/console/stock-item-editor";
 
 export default function StockItemsPage() {
   return (
@@ -48,10 +39,35 @@ export default function StockItemsPage() {
 
 function StockItemsScreen() {
   const { t, tx, fmt } = useI18n();
-  const { scope } = useSession();
+  const { scope, can } = useSession();
   const [selected, setSelected] = useState<StockItem | null>(null);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();
+  const [scan, setScan] = useState("");
+  const finder = useAction(setMessage);
+  const canManage = can("inventory.item.manage");
+
+  /**
+   * FR-INV-005 — a barcode off a delivery or a shelf resolves to its item.
+   * Supplier and case barcodes live on the item profile, so this asks the
+   * profile store rather than the SKU search.
+   */
+  async function findByBarcode() {
+    const code = scan.trim();
+    if (!code) return;
+    await finder.run(async () => {
+      const hit = await services.stockProfiles.findByBarcode(code);
+      if (!hit) {
+        setMessage(t("inv.barcodeNotFound").replace("{code}", code));
+        return;
+      }
+      const item = await services.inventory.items.get(hit.itemId);
+      if (item) {
+        setSelected(item);
+        setScan("");
+      }
+    });
+  }
 
   const collection = useCollection<StockItem>(
     (query) => services.inventory.items.list(query),
@@ -154,9 +170,34 @@ function StockItemsScreen() {
         subtitle={t("inv.itemsSubtitle")}
         spec="FR-INV-001"
         actions={
-          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
-            {t("common.new")}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative w-56">
+              <ScanBarcode
+                size={14}
+                aria-hidden
+                className="text-fg-subtle pointer-events-none absolute top-1/2 -translate-y-1/2 start-3"
+              />
+              <Input
+                dir="ltr"
+                value={scan}
+                onChange={(event) => setScan(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void findByBarcode();
+                  }
+                }}
+                placeholder={t("inv.findByBarcode")}
+                aria-label={t("inv.findByBarcode")}
+                className="ps-9 font-mono text-xs"
+              />
+            </div>
+            {canManage ? (
+              <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
+                {t("common.new")}
+              </Button>
+            ) : null}
+          </div>
         }
       />
 
@@ -213,153 +254,23 @@ function StockItemsScreen() {
         />
       </PageBody>
 
-      <ItemDrawer item={selected} onClose={() => setSelected(null)} />
-      <RecordDrawer
-        open={creating}
-        title={t("inv.newItem")}
-        note={t("inv.newItemUnitNote")}
-        fields={[
-          { name: "name", label: t("common.name"), required: true, maxLength: 120 },
-          { name: "sku", label: t("inv.sku"), required: true, maxLength: 40, ltr: true },
-          {
-            name: "baseUnitId",
-            label: t("inv.baseUnitId"),
-            hint: t("inv.baseUnitIdHint"),
-            required: true,
-            ltr: true,
-          },
-          {
-            name: "costingMethod",
-            label: t("inv.costingMethod"),
-            kind: "select",
-            required: true,
-            options: [
-              { value: "weighted_average", label: t("inv.costingWeighted") },
-              { value: "fifo", label: t("inv.costingFifo") },
-              { value: "standard", label: t("inv.costingStandard") },
-            ],
-          },
-        ]}
-        onClose={() => setCreating(false)}
-        onSubmit={(values) =>
-          services.inventory.items.create({
-            name: { en: values.name.trim(), ar: values.name.trim() },
-            sku: values.sku.trim(),
-            // The API keys units by id and publishes no unit catalogue, so
-            // the id is typed rather than picked. See BACKEND_INTEGRATION.md.
-            baseUnit: values.baseUnitId.trim() as never,
-            costingMethod: values.costingMethod as never,
-          })
-        }
-        onDone={() => {
-          setCreating(false);
-          setMessage(t("inv.itemCreated"));
-          collection.reload();
-        }}
-      />
+      {selected || creating ? (
+        <StockItemEditor
+          item={creating ? null : selected}
+          onClose={() => {
+            setSelected(null);
+            setCreating(false);
+          }}
+          onSaved={(text) => {
+            setSelected(null);
+            setCreating(false);
+            setMessage(text);
+            collection.reload();
+          }}
+        />
+      ) : null}
 
       <Toast message={message} />
     </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
-function ItemDrawer({ item, onClose }: { item: StockItem | null; onClose: () => void }) {
-  const { t, tx, fmt } = useI18n();
-  if (!item) return null;
-
-  const storage = labelOf(STORAGE, item.storage);
-  const costing = labelOf(COSTING_METHOD, item.costingMethod);
-  /*
-   * Purchasing has no endpoint on this backend, so there is no directory to
-   * resolve a supplier id against. In demo mode the fixture is the record
-   * and naming the supplier is correct; live, the id is all that is known,
-   * and printing a fixture's trading name beside it would attach a real
-   * item to a supplier that does not exist in the tenant.
-   */
-  const supplier =
-    DATA_MODE === "http" || !item.defaultSupplierId
-      ? null
-      : (supplierById.get(item.defaultSupplierId) ?? null);
-
-  return (
-    <Drawer
-      open
-      onClose={onClose}
-      title={tx(item.name)}
-      subtitle={
-        <span className="font-mono text-xs" dir="ltr">
-          {item.sku}
-        </span>
-      }
-    >
-      <div className="space-y-5">
-        <DescList>
-          <DescRow label={t("common.category")}>{tx(item.category)}</DescRow>
-          <DescRow label={t("inv.baseUnit")} mono>
-            {unitLabel(item.baseUnit, fmt.locale)}
-          </DescRow>
-          <DescRow label={t("inv.purchaseUnit")} mono>
-            <span dir="ltr">
-              1 {unitLabel(item.purchaseUnit, fmt.locale)} ={" "}
-              {formatNumber(item.purchaseConversion, fmt)}{" "}
-              {unitLabel(item.baseUnit, fmt.locale)}
-            </span>
-          </DescRow>
-          <DescRow label={t("inv.costingMethod")}>
-            <Badge tone={costing.tone}>{tx(costing.label)}</Badge>
-          </DescRow>
-          <DescRow label={t("inv.unitCost")} mono>
-            {formatMoney(item.unitCost, fmt)}
-          </DescRow>
-          <DescRow label={t("inv.storage")}>
-            <Badge tone={storage.tone}>{tx(storage.label)}</Badge>
-          </DescRow>
-          <DescRow label={t("inv.shelfLife")} mono>
-            {item.shelfLifeDays === null
-              ? "—"
-              : `${formatNumber(item.shelfLifeDays, fmt)} ${t("inv.days")}`}
-          </DescRow>
-          <DescRow label={t("inv.batchTracked")}>
-            {item.batchTracked ? t("common.yes") : t("common.no")}
-          </DescRow>
-          <DescRow label={t("inv.expiryTracked")}>
-            {item.expiryTracked ? t("common.yes") : t("common.no")}
-          </DescRow>
-          <DescRow label={t("inv.defaultSupplier")}>
-            {supplier ? (
-              tx(supplier.tradingName)
-            ) : item.defaultSupplierId ? (
-              <span className="font-mono text-xs" dir="ltr">
-                {item.defaultSupplierId}
-              </span>
-            ) : (
-              t("common.none")
-            )}
-          </DescRow>
-          <DescRow label={t("common.status")}>
-            <Badge tone={item.active ? "good" : "muted"} dot>
-              {item.active ? t("common.active") : t("common.inactive")}
-            </Badge>
-          </DescRow>
-        </DescList>
-
-        {item.allergens.length > 0 ? (
-          <section>
-            <h3 className="text-fg mb-2 text-sm font-semibold">{t("menu.allergens")}</h3>
-            <div className="flex flex-wrap gap-1.5">
-              {item.allergens.map((allergen) => (
-                <Badge key={allergen} tone="warn">
-                  {allergen}
-                </Badge>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        <Callout tone="muted">{t("inv.baseUnitNote")}</Callout>
-      </div>
-    </Drawer>
   );
 }

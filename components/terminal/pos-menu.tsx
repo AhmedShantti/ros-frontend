@@ -49,10 +49,12 @@ import {
 interface Props {
   orderId: Id | null;
   course: number;
+  /** FR-POS-004 — the seat new lines go to; null is shared by the table. */
+  seat?: number | null;
   onAdded?: () => void;
 }
 
-export function PosMenu({ orderId, course, onAdded }: Props) {
+export function PosMenu({ orderId, course, seat = null, onAdded }: Props) {
   const { t, tx, fmt } = useI18n();
   const { state, dispatch } = useLive();
 
@@ -118,7 +120,7 @@ export function PosMenu({ orderId, course, onAdded }: Props) {
       quantity: 1,
       modifierIds: groups.flatMap((g) => g.modifiers.filter((m) => m.isDefault).map((m) => m.id)),
       course,
-      seatNumber: null,
+      seatNumber: seat ?? null,
       notes: null,
     });
     onAdded?.();
@@ -146,12 +148,12 @@ export function PosMenu({ orderId, course, onAdded }: Props) {
           g.modifiers.filter((m) => m.isDefault).map((m) => m.id),
         ),
         course,
-        seatNumber: null,
+        seatNumber: seat ?? null,
         notes,
       });
       onAdded?.();
     },
-    [orderId, dispatch, course, onAdded],
+    [orderId, dispatch, course, seat, onAdded],
   );
 
   /**
@@ -337,6 +339,7 @@ export function PosMenu({ orderId, course, onAdded }: Props) {
           item={chosen}
           orderId={orderId}
           course={course}
+          seat={seat}
           onClose={() => setChosen(null)}
           onAdded={onAdded}
         />
@@ -458,12 +461,14 @@ function ItemSheet({
   item,
   orderId,
   course,
+  seat,
   onClose,
   onAdded,
 }: {
   item: MenuItem;
   orderId: Id | null;
   course: number;
+  seat: number | null;
   onClose: () => void;
   onAdded?: () => void;
 }) {
@@ -527,7 +532,7 @@ function ItemSheet({
                 quantity,
                 modifierIds: [...selected],
                 course,
-                seatNumber: null,
+                seatNumber: seat ?? null,
                 notes: notes.trim() || null,
               });
               onAdded?.();

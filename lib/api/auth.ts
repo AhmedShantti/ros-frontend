@@ -333,3 +333,17 @@ export async function ping(): Promise<{ ok: boolean; detail: string }> {
     return { ok: false, detail };
   }
 }
+
+/**
+ * FR-SEC-026 — prove it is still the same person after an idle lock.
+ *
+ * A real sign-in against `POST /auth/login`, then the tenant the console was
+ * already in is re-selected so the page underneath carries on where it was.
+ * Unlike `signIn` it leaves the till alone: nobody walked up to a terminal.
+ */
+export async function reauthenticate(email: string, password: string): Promise<void> {
+  const tenantId = getTenantId();
+  const session = await api.auth.login({ email, password });
+  setTokens(session);
+  if (tenantId) await selectTenant(tenantId);
+}

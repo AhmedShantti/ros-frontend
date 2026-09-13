@@ -17,6 +17,8 @@ import { useDismissable } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { AccountMenu, LanguageToggle, RoleSwitcher, ScopeSummary, ScopeSwitcher, ThemeToggle } from "./switchers";
 import { IconButton, cx } from "./ui";
+import { ConsoleIdleLock } from "@/components/console/idle-lock";
+import { MfaRequiredBanner } from "@/components/console/mfa-enrol";
 
 const KEY_COLLAPSED = "ros.console.sidebar";
 
@@ -362,9 +364,11 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onOpenNav={() => setNavOpen(true)} />
         <main id="console-main" className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8">
+          <MfaRequiredBanner />
           {children}
         </main>
       </div>
+      <ConsoleIdleLock />
     </div>
   );
 }

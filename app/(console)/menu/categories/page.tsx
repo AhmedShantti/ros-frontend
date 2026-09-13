@@ -27,6 +27,7 @@ import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
 import { Badge, Button, Toast, cx } from "@/components/console/ui";
 import { RecordDrawer } from "@/components/console/record-drawer";
+import { trimLocalised } from "@/components/console/fields";
 
 export default function MenuCategoriesPage() {
   return (
@@ -182,14 +183,14 @@ function CategoriesScreen() {
         open={creating}
         title={t("menu.newCategory")}
         fields={[
-          { name: "name", label: t("common.name"), required: true, maxLength: 120 },
+          { name: "name", label: t("common.name"), kind: "localised", required: true, maxLength: 120 },
           { name: "colour", label: t("org.colour"), placeholder: "#0f6f7a", ltr: true },
           { name: "sortOrder", label: t("menu.sortOrder"), kind: "number", initial: "0" },
         ]}
         onClose={() => setCreating(false)}
-        onSubmit={(values) =>
+        onSubmit={(values, localised) =>
           services.catalogue.categories.create({
-            name: { en: values.name.trim(), ar: values.name.trim() },
+            name: trimLocalised(localised.name!),
             colour: values.colour.trim() || undefined,
             sortOrder: Number(values.sortOrder) || 0,
           })

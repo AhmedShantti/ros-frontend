@@ -406,6 +406,7 @@ export function toCentralKitchen(row: WireCentralKitchen, tenantId: Id): Central
     countryCode: countryOf(null),
     servesBranchIds: [], // gap: the API models one warehouse, not a served set.
     active: true,
+    locationId: row.warehouseId,
   };
 }
 
@@ -656,7 +657,14 @@ export function toMenuItem(row: WireMenuItem, context: MenuItemContext): MenuIte
     categoryId: context.categoryId ?? "",
     name,
     kitchenName: localised(row.kitchenNames, name),
-    receiptName: localised(row.aggregatorNames, name),
+    // The API has no receipt name of its own; `aggregatorNames` is the
+    // aggregator listing (FR-MNU-005), not the receipt. The receipt name is
+    // kept by `services.menuProfiles` and falls back to the item name.
+    receiptName: name,
+    aggregatorName: localised(row.aggregatorNames, name),
+    barcodePlu: row.barcodePlu,
+    dietaryTags: row.dietaryTags,
+    revenueAccountCode: row.revenueAccountCode,
     description: localised(row.description),
     taxClass,
     // gap: routing lives in station-routing-rules, per branch, not on the item.

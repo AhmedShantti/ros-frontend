@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import type { Currency, PriceList, PriceListEntry } from "@/lib/console/types";
+import type { Currency, PriceList, PriceListEntry, Localised } from "@/lib/console/types";
 import { getDefaultCurrency, services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
@@ -49,6 +49,8 @@ import {
   Toast,
   cx,
 } from "@/components/console/ui";
+import { LocalisedField, EMPTY_LOCALISED, hasLocalisedText, trimLocalised } from "@/components/console/fields";
+import { DATA_MODE } from "@/lib/api/config";
 
 export default function MenuPricingPage() {
   return (
@@ -539,24 +541,27 @@ function NewPriceListDrawer({
 }) {
   const { t } = useI18n();
   const action = useAction();
-  const [name, setName] = useState("");
+  const [name, setName] = useState<Localised>({ ...EMPTY_LOCALISED });
   const [listScope, setListScope] = useState<"tenant" | "brand" | "branch">("tenant");
   const [priority, setPriority] = useState("10");
 
   if (!open) return null;
 
   async function create() {
-    if (!name.trim()) return;
+    if (!hasLocalisedText(name)) return;
     await action.run(
       () =>
         services.catalogue.priceLists.create({
-          name: { en: name.trim(), ar: name.trim() },
+          name: trimLocalised(name),
           scope: listScope,
           priority: Number(priority) || 0,
         }),
       { onSuccess: onCreated },
     );
   }
+
+  // FR-LOC-006 — the server keeps one string; say which side is sent.
+  const singleNameHint = DATA_MODE === "http" ? t("loc.singleOnServer") : undefined;
 
   return (
     <Drawer
@@ -568,7 +573,7 @@ function NewPriceListDrawer({
           <Button
             variant="primary"
             loading={action.pending}
-            disabled={!name.trim()}
+            disabled={!hasLocalisedText(name)}
             onClick={create}
           >
             {t("common.create")}
@@ -582,9 +587,7 @@ function NewPriceListDrawer({
       <div className="space-y-4">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
 
-        <Field label={t("common.name")} required>
-          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
-        </Field>
+        <LocalisedField label={t("common.name")} value={name} onChange={setName} required maxLength={120} hint={singleNameHint} />
 
         <Field label={t("menu.scope")}>
           <Select

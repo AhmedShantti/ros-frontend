@@ -33,6 +33,11 @@ export function hasLocalisedText(value: Localised | null | undefined): boolean {
   return Boolean(value && (value.en.trim() || value.ar.trim()));
 }
 
+/** Both sides trimmed, for writing. An empty side stays empty — FR-LOC-007 falls back at read. */
+export function trimLocalised(value: Localised): Localised {
+  return { en: value.en.trim(), ar: value.ar.trim() };
+}
+
 /**
  * Which locale actually supplies the displayed string — FR-LOC-007.
  *

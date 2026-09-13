@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Copy, ShieldCheck, Trash2 } from "lucide-react";
-import type { Role } from "@/lib/console/types";
+import type { Role, Localised } from "@/lib/console/types";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
@@ -53,6 +53,7 @@ import {
   Select,
   Toast,
 } from "@/components/console/ui";
+import { LocalisedField, EMPTY_LOCALISED, hasLocalisedText, trimLocalised } from "@/components/console/fields";
 
 export default function RolesPage() {
   return (
@@ -601,24 +602,26 @@ function NewRoleDrawer({
 }) {
   const { t } = useI18n();
   const action = useAction();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
+  const [name, setName] = useState<Localised>({ ...EMPTY_LOCALISED });
+  const [description, setDescription] = useState<Localised>({ ...EMPTY_LOCALISED });
 
   if (!open) return null;
 
   async function create() {
-    if (!name.trim()) return;
+    if (!hasLocalisedText(name)) return;
     await action.run(
       () =>
         services.security.roles.create({
-          name: { en: name.trim(), ar: name.trim() },
-          description: description.trim()
-            ? { en: description.trim(), ar: description.trim() }
+          name: trimLocalised(name),
+          description: hasLocalisedText(description) ? trimLocalised(description)
             : undefined,
         }),
       { onSuccess: onCreated },
     );
   }
+
+  // FR-LOC-006 — the server keeps one string; say which side is sent.
+  const singleNameHint = DATA_MODE === "http" ? t("loc.singleOnServer") : undefined;
 
   return (
     <Drawer
@@ -630,7 +633,7 @@ function NewRoleDrawer({
           <Button
             variant="primary"
             loading={action.pending}
-            disabled={!name.trim()}
+            disabled={!hasLocalisedText(name)}
             onClick={create}
           >
             {t("common.create")}
@@ -646,17 +649,9 @@ function NewRoleDrawer({
 
         <Callout tone="muted">{t("role.newRoleNote")}</Callout>
 
-        <Field label={t("common.name")} required>
-          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
-        </Field>
+        <LocalisedField label={t("common.name")} value={name} onChange={setName} required maxLength={120} hint={singleNameHint} />
 
-        <Field label={t("common.description")}>
-          <Input
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            maxLength={240}
-          />
-        </Field>
+        <LocalisedField label={t("common.description")} value={description} onChange={setDescription} maxLength={240} />
       </div>
     </Drawer>
   );

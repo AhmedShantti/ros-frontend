@@ -19,7 +19,7 @@
  *     fixes that is frequently neither the guest's nor the console's.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -38,6 +38,7 @@ import { useI18n } from "@/lib/console/providers";
 import { formatDateTime } from "@/lib/console/format";
 import { localId, nowIso } from "@/lib/console/local-store";
 import { normalisePhone } from "@/components/console/customer";
+import { encodeQr, qrSvgPath } from "@/lib/console/qr";
 import {
   Badge,
   Button,
@@ -380,12 +381,12 @@ export function ReceiptDeliverySheet({
         {channel === "qr" ? (
           <div className="border-line flex flex-col items-center gap-3 rounded-xl border p-6">
             {/*
-              A real QR carries a signed URL to the hosted receipt. Rendering
-              the module grid from the order number keeps the affordance and
-              the layout honest without inventing a link that resolves to
-              nothing.
+              There is no hosted-receipt URL to point at, and inventing one
+              would hand the guest a link that resolves to nothing. So the
+              code carries the receipt itself — order, lines and total as
+              text — which any phone camera reads with no network at all.
             */}
-            <QrPlaceholder seed={order.orderNumber} />
+            <ReceiptQr order={order} />
             <p className="text-fg-muted text-center text-xs leading-relaxed">
               {t("print.qrHint")}
             </p>
@@ -420,43 +421,29 @@ export function ReceiptDeliverySheet({
   );
 }
 
-/** A deterministic module grid — the shape of a QR, not a working one. */
-function QrPlaceholder({ seed }: { seed: string }) {
-  const size = 21;
-  const cells: boolean[] = [];
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  for (let i = 0; i < size * size; i += 1) {
-    hash = (hash * 1103515245 + 12345) >>> 0;
-    cells.push((hash >>> 16) % 3 === 0);
-  }
-
-  // The three finder patterns, so it reads as a QR at a glance.
-  const finder = (row: number, col: number) =>
-    (row < 7 && col < 7) || (row < 7 && col >= size - 7) || (row >= size - 7 && col < 7);
-
+/** A working QR of the receipt's own content. */
+function ReceiptQr({ order }: { order: Order }) {
+  const { tx } = useI18n();
+  const payload = [
+    `${order.orderNumber} · ${order.openedAt.slice(0, 16).replace("T", " ")}`,
+    ...order.lines
+      .filter((line) => line.state !== "voided")
+      .map((line) => `${line.quantity} x ${tx(line.itemNameSnapshot)} ${(line.lineSubtotal.amount / 100).toFixed(2)}`),
+    `TOTAL ${((order.grandTotal.amount + order.roundingAdjustment.amount) / 100).toFixed(2)} ${order.currency}`,
+  ].join(String.fromCharCode(10));
+  const encoded = useMemo(() => {
+    try {
+      return qrSvgPath(encodeQr(payload.slice(0, 200)), 3);
+    } catch {
+      return null;
+    }
+  }, [payload]);
+  if (!encoded) return null;
   return (
-    <div
-      aria-hidden
-      className="grid gap-px bg-white p-3"
-      style={{ gridTemplateColumns: `repeat(${size}, 6px)` }}
-    >
-      {cells.map((on, index) => {
-        const row = Math.floor(index / size);
-        const col = index % size;
-        const isFinder = finder(row, col);
-        const ring =
-          isFinder &&
-          (row % 7 === 0 || row % 7 === 6 || col % 7 === 0 || col % 7 === 6 ||
-            (row % 7 >= 2 && row % 7 <= 4 && col % 7 >= 2 && col % 7 <= 4));
-        return (
-          <span
-            key={index}
-            className={cx("h-1.5 w-1.5", (isFinder ? ring : on) ? "bg-black" : "bg-white")}
-          />
-        );
-      })}
-    </div>
+    <svg viewBox={`0 0 ${encoded.size} ${encoded.size}`} className="h-44 w-44" shapeRendering="crispEdges" role="img" aria-label={order.orderNumber}>
+      <rect width={encoded.size} height={encoded.size} fill="#fff" />
+      <path d={encoded.path} fill="#000" />
+    </svg>
   );
 }
 

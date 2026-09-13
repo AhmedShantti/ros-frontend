@@ -91,8 +91,19 @@ import type {
   SecurityService,
   ServiceRegistry,
 } from "./types";
-import { ServiceError } from "./types";
+import { ServiceError, auditFiltersOf, type AuditFilters, type ClockEvent } from "./types";
 import { crmService } from "./crm";
+import { settingsService } from "./settings";
+import { deliveryService } from "./delivery";
+import { stockProfileService } from "./stock-profiles";
+import { countReviewService } from "./count-reviews";
+import { mfaService } from "./mfa";
+import { conflictService } from "./conflicts";
+import { anomalyReviewService } from "./anomaly-reviews";
+import { menuProfileService } from "./menu-profiles";
+import { modifierNestingService } from "./modifier-nesting";
+import { receiptTemplateService } from "./receipt-templates";
+import { productionService } from "./production";
 import { emptyPage, project } from "./paging";
 import {
   notImplemented,
@@ -163,6 +174,7 @@ export const API_COVERAGE = {
     "inventory.recordCount",
     "inventory.receiveTransfer",
     "inventory.setReorderConfig",
+    "inventory.postProductionMovement",
     "inventory.reasonCodes",
     "inventory.lowStock",
     "inventory.negativeStock",
@@ -1020,7 +1032,12 @@ const items: CollectionService<MenuItem> = {
       names: map.toNameMap(input.name),
       kitchenNames: input.kitchenName ? map.toNameMap(input.kitchenName) : undefined,
       description: input.description ? map.toNameMap(input.description) : undefined,
+      aggregatorNames: input.aggregatorName ? map.toNameMap(input.aggregatorName) : undefined,
       allergens: input.allergens,
+      dietaryTags: input.dietaryTags,
+      barcodePlu: input.barcodePlu ?? undefined,
+      revenueAccountCode: input.revenueAccountCode ?? undefined,
+      taxClassId: input.taxClass,
       isCombo: input.isCombo,
       isOpenPrice: input.isOpenPrice,
       isWeighed: input.isWeighed,
@@ -1040,7 +1057,15 @@ const items: CollectionService<MenuItem> = {
       names: patch.name ? map.toNameMap(patch.name) : current.names,
       kitchenNames: patch.kitchenName ? map.toNameMap(patch.kitchenName) : undefined,
       description: patch.description ? map.toNameMap(patch.description) : undefined,
+      aggregatorNames: patch.aggregatorName ? map.toNameMap(patch.aggregatorName) : undefined,
       allergens: patch.allergens,
+      dietaryTags: patch.dietaryTags,
+      barcodePlu: patch.barcodePlu ?? undefined,
+      revenueAccountCode: patch.revenueAccountCode ?? undefined,
+      taxClassId: patch.taxClass,
+      isCombo: patch.isCombo,
+      isOpenPrice: patch.isOpenPrice,
+      isWeighed: patch.isWeighed,
       sortOrder: patch.sortOrder,
       colour: patch.colour,
     });
@@ -1374,9 +1399,20 @@ const catalogue: CatalogueService = {
   },
 
   async linkModifierGroup(itemId, groupId, options = {}) {
+    // FR-MNU-010 — both override payloads are opaque JSON on the DTO; they
+    // are sent keyed by modifier id, minor units as integer strings like
+    // every other money field this API takes.
+    const prices = options.priceOverrides ?? {};
     await api.catalogue.linkModifierGroup(itemId, {
       modifierGroupId: groupId,
       sortOrder: options.sortOrder,
+      priceOverride:
+        Object.keys(prices).length > 0
+          ? Object.fromEntries(Object.entries(prices).map(([id, minor]) => [id, String(minor)]))
+          : undefined,
+      defaultSelectionOverride: options.defaultModifierIds
+        ? { modifierIds: options.defaultModifierIds }
+        : undefined,
     });
     invalidateCatalogue();
   },
@@ -1517,7 +1553,13 @@ const stockItems: CollectionService<StockItem> = {
   },
 
   async update(id, patch) {
-    // The API exposes targeted mutations, not a general PATCH.
+    // The API exposes targeted mutations, not a general PATCH. Anything other
+    // than the base unit is refused here rather than silently dropped — a
+    // save that reports success and changed nothing is the worst outcome.
+    const unsupported = Object.keys(patch).filter((key) => key !== "baseUnit" && key !== "baseUnitId");
+    if (unsupported.length > 0) {
+      notImplemented(`Editing a stock item's ${unsupported.join(", ")} after creation`);
+    }
     if (patch.baseUnit) {
       await api.inventory.changeBaseUnit(id, { baseUnitId: patch.baseUnit });
     }
@@ -1651,9 +1693,14 @@ const counts: CollectionService<CountSession> = {
     if (!input.locationId) {
       throw new ServiceError("BAD_REQUEST", "Choose the location to count.", 400);
     }
+    const itemList = input.scopeType === "item_list";
+    if (itemList && (!input.itemIds || input.itemIds.length === 0)) {
+      throw new ServiceError("BAD_REQUEST", "Choose at least one item to count.", 400);
+    }
     const row = await api.inventory.openCount({
       locationId: input.locationId,
-      scopeType: "full_location",
+      scopeType: itemList ? "item_list" : "full_location",
+      itemIds: itemList ? input.itemIds : undefined,
       isBlindCount: input.mode === "blind",
     });
     return map.toCountSession(row, { tenantId: getTenantId() ?? "" });
@@ -1846,6 +1893,12 @@ const inventory: InventoryService = {
 
   // -- Counting --------------------------------------------------------------
 
+  async addCountLine() {
+    // gap: a count session's lines are frozen by `POST /inventory/counts`;
+    // there is no route to add one. The drawer opens an item_list session.
+    notImplemented("Adding an item to an open count session");
+  },
+
   async recordCount(lineId, countedQuantity) {
     await api.inventory.recordCount(lineId, { countedQuantity });
   },
@@ -1871,6 +1924,24 @@ const inventory: InventoryService = {
       reorderQuantity: input.reorderQuantity,
     });
     invalidateInventory();
+  },
+
+  // -- Production ------------------------------------------------------------
+
+  async postProductionMovement(input) {
+    const row = await api.inventory.postMovement({
+      locationId: input.locationId,
+      stockItemId: input.itemId,
+      movementType: input.direction === "input" ? "production_input" : "production_output",
+      // The ledger is signed: consumption leaves the location.
+      quantity: input.direction === "input" ? `-${input.quantity}` : input.quantity,
+      unitCost: input.direction === "output" ? input.unitCostMinor : undefined,
+      referenceType: "production_order",
+      referenceId: input.referenceId,
+      notes: input.notes,
+    });
+    invalidateInventory();
+    return { movementId: row.id };
   },
 
   // -- Reason codes ----------------------------------------------------------
@@ -2877,7 +2948,29 @@ const workforce: WorkforceService = {
   async removeEmployeeRoleAssignment(employeeId, assignmentId) {
     await api.workforceEmployees.removeRoleAssignment(String(employeeId), String(assignmentId));
   },
+  // FR-HRM-020 — the PIN session's own employee; no permission, by design.
+  async clockIn(input = {}) {
+    return toClockEvent(await api.workforceAttendance.clockIn({ gps: input.gps }));
+  },
+  async clockOut(input = {}) {
+    return toClockEvent(await api.workforceAttendance.clockOut({ gps: input.gps }));
+  },
 };
+
+function toClockEvent(row: S.AttendanceController_clockInResponse): ClockEvent {
+  return {
+    recordId: row.id,
+    employeeId: row.employeeId,
+    clockInAt: row.clockInAt,
+    clockOutAt: row.clockOutAt,
+    status: row.status,
+    lateArrival: row.lateArrival,
+    earlyDeparture: row.earlyDeparture,
+    missingClockOut: row.missingClockOut,
+    outsideGeofence: row.outsideGeofence,
+    unscheduled: row.unscheduled,
+  };
+}
 
 const security: SecurityService = {
   // No user index endpoint; memberships are reachable only by id.
@@ -3562,10 +3655,15 @@ const finance: FinanceService = {
 const governance: GovernanceService = {
   ...unsupportedGovernance,
   audit: {
+    // FR-AUD-008 — every structured filter the endpoint takes is passed
+    // through; the screen never filters server-sized data client-side and
+    // calls it a search.
     async list(query = {}) {
+      const filters = auditFiltersOf(query.filters);
       const [response, branchesById] = await Promise.all([
         api.governance.search({
-          branchId: query.scope?.branchId ?? undefined,
+          ...auditQuery(filters),
+          branchId: filters.branchId ?? query.scope?.branchId ?? undefined,
           limit: query.limit,
         }),
         branchIndex().catch(() => new Map<Id, Branch>()),
@@ -3582,7 +3680,37 @@ const governance: GovernanceService = {
       notImplemented("Reading a single audit entry by id");
     },
   },
+  async auditExport(filters) {
+    // `GET /governance/audit/entries/export` — the complete bounded set, not
+    // a page. The server enforces audit.view AND report.export.
+    const [response, branchesById] = await Promise.all([
+      api.governance.exportEntries(auditQuery(filters)),
+      branchIndex().catch(() => new Map<Id, Branch>()),
+    ]);
+    return response.entries.map((row) =>
+      map.toAuditEntry(row, row.branchId ? (branchesById.get(row.branchId)?.name ?? null) : null),
+    );
+  },
 };
+
+/**
+ * The audit filters as the endpoint's query. Calendar days are widened to
+ * the whole local day, so "to 12 Sep" includes an entry at 23:59 on it.
+ */
+function auditQuery(filters: AuditFilters) {
+  const startOf = (day: string) => new Date(`${day}T00:00:00`).toISOString();
+  const endOf = (day: string) => new Date(`${day}T23:59:59.999`).toISOString();
+  return {
+    branchId: filters.branchId,
+    actorId: filters.actorId,
+    entityType: filters.entityType,
+    entityId: filters.entityId,
+    action: filters.action,
+    correlationId: filters.correlationId,
+    dateFrom: filters.dateFrom ? startOf(filters.dateFrom) : undefined,
+    dateTo: filters.dateTo ? endOf(filters.dateTo) : undefined,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // The registry
@@ -3596,6 +3724,22 @@ export const httpServices: ServiceRegistry = {
    * satisfy, so connecting it later is a change here and nowhere else.
    */
   crm: crmService,
+
+  /*
+   * No settings endpoint either (SRS §6.4). The overrides are browser-local
+   * under both modes, behind the interface a server will implement.
+   */
+  settings: settingsService,
+  delivery: deliveryService,
+  stockProfiles: stockProfileService,
+  countReviews: countReviewService,
+  mfa: mfaService,
+  conflicts: conflictService,
+  anomalyReviews: anomalyReviewService,
+  menuProfiles: menuProfileService,
+  modifierNesting: modifierNestingService,
+  receiptTemplates: receiptTemplateService,
+  centralKitchen: productionService,
 
   // Live — every one of the document's 142 operations is reached from here.
   production,

@@ -65,6 +65,7 @@ const REPORT_ROUTES: Record<string, string> = {
   "z-report": "/finance/day-close",
   "audit-log": "/audit",
   "anomaly-flags": "/governance/anomalies",
+  "sod-conflicts": "/governance/sod",
 };
 
 function ReportsBody({ reports }: { reports: ReportDefinition[] }) {

@@ -24,6 +24,8 @@ import { Badge, Button, Callout, Card, CardHeader, Toast, cx } from "@/component
 import { DataTable } from "@/components/console/data-table";
 import { AsyncPanel } from "@/components/console/states";
 import { RecordDrawer } from "@/components/console/record-drawer";
+import { trimLocalised } from "@/components/console/fields";
+import { DATA_MODE } from "@/lib/api/config";
 
 const TONE: Record<TableState, string> = {
   available: "border-line bg-raised",
@@ -166,6 +168,9 @@ function TableDefinitions() {
     [scope.tenantId, scope.branchId],
   );
 
+  // FR-LOC-006 — the server keeps one section name; say which one is sent.
+  const singleNameHint = DATA_MODE === "http" ? t("loc.singleOnServer") : undefined;
+
   return (
     <Section title={t("ops.tableDefinitions")}>
       <Card>
@@ -223,14 +228,14 @@ function TableDefinitions() {
         title={t("ops.newTable")}
         fields={[
           { name: "label", label: t("ops.tableLabel"), required: true, maxLength: 24 },
-          { name: "section", label: t("ops.section"), maxLength: 48 },
+          { name: "section", label: t("ops.section"), kind: "localised", maxLength: 48, hint: singleNameHint },
           { name: "capacity", label: t("pos.seats"), kind: "number", initial: "4" },
         ]}
         onClose={() => setCreating(false)}
-        onSubmit={(values) =>
+        onSubmit={(values, localised) =>
           services.operations.createTable(branchId, {
             label: values.label.trim(),
-            area: { en: values.section.trim(), ar: values.section.trim() },
+            area: trimLocalised(localised.section!),
             capacity: Number(values.capacity) || 0,
           })
         }
@@ -256,8 +261,10 @@ function TableDefinitions() {
           {
             name: "section",
             label: t("ops.section"),
+            kind: "localised",
             maxLength: 48,
-            initial: editing ? tx(editing.area) : "",
+            hint: singleNameHint,
+            initialLocalised: editing?.area ?? undefined,
           },
           {
             name: "capacity",
@@ -267,10 +274,10 @@ function TableDefinitions() {
           },
         ]}
         onClose={() => setEditing(null)}
-        onSubmit={(values) =>
+        onSubmit={(values, localised) =>
           services.operations.updateTable(editing?.id ?? "", {
             label: values.label.trim(),
-            area: { en: values.section.trim(), ar: values.section.trim() },
+            area: trimLocalised(localised.section!),
             capacity: Number(values.capacity) || 0,
           })
         }

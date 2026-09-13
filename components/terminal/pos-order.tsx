@@ -11,18 +11,24 @@
  * says the numbers do not agree.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRightLeft,
   Ban,
   Gift,
+  Hand,
   Percent,
+  Play,
   Send,
   Trash2,
+  UserRound,
   Utensils,
   X,
 } from "lucide-react";
-import type { Id, Order, OrderLine } from "@/lib/console/types";
+import type { Customer, Id, Order, OrderLine } from "@/lib/console/types";
+import { services } from "@/lib/console/services";
+import { useAction } from "@/lib/console/actions";
+import { CustomerQuickCreate, normalisePhone } from "@/components/console/customer";
 import { menuItemById } from "@/lib/console/mock/catalogue";
 import { activeEmployees } from "@/lib/console/mock/workforce";
 import { formatMoney, formatTime, money, numberFromInput } from "@/lib/console/format";
@@ -76,17 +82,30 @@ type Sheet =
   | { kind: "orderDiscount" }
   | { kind: "cancel" }
   | { kind: "move" }
+  | { kind: "seat"; line: OrderLine }
+  | { kind: "customer" }
   | null;
+
+/** How many seat chips to offer: the party, or whatever is already in use. */
+function seatCount(order: Order, current: number | null): number {
+  const used = order.lines.reduce((max, line) => Math.max(max, line.seatNumber ?? 0), 0);
+  return Math.min(20, Math.max(order.guestCount ?? 2, used, current ?? 0, 2));
+}
 
 export function PosOrderPane({
   order,
   course,
   onCourseChange,
+  seat = null,
+  onSeatChange,
   onPay,
 }: {
   order: Order | null;
   course: number;
   onCourseChange: (course: number) => void;
+  /** FR-POS-004 — the seat new lines are put on; null is shared. */
+  seat?: number | null;
+  onSeatChange?: (seat: number | null) => void;
   onPay: () => void;
 }) {
   const { t, tx, fmt } = useI18n();
@@ -112,6 +131,21 @@ export function PosOrderPane({
   const balance = balanceOf(order);
   const inclusive = pack.pricingMode === "tax_inclusive";
   const settled = order.state === "completed";
+  const dineIn = order.orderType === "dine_in";
+
+  // What the kitchen holds for this order: held courses (FR-POS-037) and
+  // lines that went out as an addition (FR-POS-038).
+  const orderTickets = state.ticketIds
+    .map((id) => state.tickets[id]!)
+    .filter((ticket) => ticket && ticket.orderId === order.id && ticket.state !== "cancelled");
+  const heldCourses = [...new Set(orderTickets.filter((ticket) => ticket.held).map((ticket) => ticket.course))].sort(
+    (a, b) => a - b,
+  );
+  const additionLineIds = new Set(
+    orderTickets.filter((ticket) => ticket.amendment).flatMap((ticket) => ticket.lines.map((line) => line.id)),
+  );
+  const alreadySent = orderTickets.length > 0;
+  const blockedByTable = dineIn && !order.tableId;
 
   // Stacked on a phone the bill would grow with the order and squeeze the menu
   // to nothing, so it is capped at half the viewport there; the lines list
@@ -133,6 +167,21 @@ export function PosOrderPane({
           </div>
           <Badge tone={ORDER_STATE[order.state].tone}>{tx(ORDER_STATE[order.state].label)}</Badge>
         </div>
+
+        {/* FR-CRM-004 — who the order is for, and a way to find out. */}
+        <button
+          type="button"
+          onClick={() => setSheet({ kind: "customer" })}
+          disabled={settled && !order.customerId}
+          className="border-line hover:bg-sunken mt-2 flex w-full items-center gap-2 rounded-lg border border-dashed px-2.5 py-1.5 text-start text-xs transition-colors disabled:opacity-50"
+        >
+          <UserRound size={13} className="text-fg-subtle shrink-0" aria-hidden />
+          {order.customerName ? (
+            <span className="text-fg min-w-0 flex-1 truncate font-medium">{tx(order.customerName)}</span>
+          ) : (
+            <span className="text-fg-subtle flex-1">{t("pos.attachCustomer")}</span>
+          )}
+        </button>
 
         {order.orderType === "dine_in" && !order.tableId ? (
           <div className="mt-2">
@@ -164,6 +213,7 @@ export function PosOrderPane({
                         line={line}
                         onSheet={setSheet}
                         settled={settled}
+                        addition={additionLineIds.has(line.id)}
                       />
                     ))}
                 </ul>
@@ -193,6 +243,54 @@ export function PosOrderPane({
           >
             {t("pos.moveTable")}
           </Button>
+        </div>
+      ) : null}
+
+      {/* FR-POS-004 — which seat new lines go to. */}
+      {!settled && dineIn && onSeatChange ? (
+        <div className="border-line flex shrink-0 items-center gap-2 overflow-x-auto border-t px-3 py-2">
+          <span className="text-fg-subtle shrink-0 text-xs">{t("pos.seat")}</span>
+          <SegmentedControl
+            value={seat === null ? "shared" : String(seat)}
+            onChange={(v) => onSeatChange(v === "shared" ? null : Number(v))}
+            options={[
+              { value: "shared", label: t("pos.shared") },
+              ...Array.from({ length: seatCount(order, seat) }, (_, index) => ({
+                value: String(index + 1),
+                label: String(index + 1),
+              })),
+            ]}
+            label={t("pos.seat")}
+          />
+          <button
+            type="button"
+            onClick={() => onSeatChange(seatCount(order, seat) + 1)}
+            className="border-line text-fg-muted hover:text-fg shrink-0 rounded-lg border px-2 py-1 text-xs"
+            aria-label={t("pos.addSeat")}
+          >
+            +
+          </button>
+        </div>
+      ) : null}
+
+      {/* FR-POS-037 — courses the kitchen has but may not start. */}
+      {!settled && heldCourses.length > 0 ? (
+        <div className="border-line bg-warn-soft/60 flex shrink-0 flex-wrap items-center gap-2 border-t px-3 py-2">
+          <Hand size={13} className="text-warn" aria-hidden />
+          <span className="text-warn flex-1 text-xs font-medium">
+            {t("pos.heldCourses").replace("{courses}", heldCourses.join(", "))}
+          </span>
+          {heldCourses.map((held) => (
+            <Button
+              key={held}
+              size="sm"
+              variant="primary"
+              icon={<Play size={12} />}
+              onClick={() => dispatch({ type: "ORDER_RELEASE_HOLD", orderId: order.id, course: held })}
+            >
+              {t("pos.releaseCourse").replace("{n}", String(held))}
+            </Button>
+          ))}
         </div>
       ) : null}
 
@@ -261,17 +359,17 @@ export function PosOrderPane({
             <Button
               variant="primary"
               icon={<Send size={14} />}
-              disabled={
-                pending.length === 0 ||
-                (order.orderType === "dine_in" && !order.tableId)
-              }
+              disabled={pending.length === 0 || blockedByTable}
               onClick={() =>
                 dispatch({ type: "ORDER_FIRE", orderId: order.id, course: nextCourse })
               }
+              title={alreadySent && pending.length > 0 ? t("pos.sendsAsAddition") : undefined}
             >
               {courses.length > 1 && nextCourse !== null
                 ? t("pos.fireCourse").replace("{n}", String(nextCourse))
-                : t("pos.fire")}
+                : alreadySent && pending.length > 0
+                  ? t("pos.fireAddition")
+                  : t("pos.fire")}
             </Button>
             <Button
               variant="primary"
@@ -294,6 +392,20 @@ export function PosOrderPane({
               onClick={() => dispatch({ type: "ORDER_PARK", orderId: order.id })}
             >
               {t("pos.park")}
+            </Button>
+            <Button
+              size="sm"
+              className="col-span-2"
+              icon={<Hand size={13} />}
+              disabled={pending.length === 0 || blockedByTable}
+              onClick={() =>
+                dispatch({ type: "ORDER_FIRE", orderId: order.id, course: nextCourse, hold: true })
+              }
+              title={t("pos.holdFireHint")}
+            >
+              {nextCourse !== null && courses.length > 1
+                ? t("pos.holdFireCourse").replace("{n}", String(nextCourse))
+                : t("pos.holdFire")}
             </Button>
             <Button
               size="sm"
@@ -326,7 +438,266 @@ export function PosOrderPane({
       {sheet?.kind === "move" ? (
         <MoveTableSheet order={order} onClose={() => setSheet(null)} />
       ) : null}
+      {sheet?.kind === "seat" ? (
+        <SeatSheet
+          order={order}
+          line={sheet.line}
+          count={seatCount(order, sheet.line.seatNumber)}
+          onClose={() => setSheet(null)}
+        />
+      ) : null}
+      {sheet?.kind === "customer" ? (
+        <CustomerSheet order={order} onClose={() => setSheet(null)} />
+      ) : null}
     </aside>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Seats — FR-POS-004
+// ---------------------------------------------------------------------------
+
+function SeatSheet({
+  order,
+  line,
+  count,
+  onClose,
+}: {
+  order: Order;
+  line: OrderLine;
+  count: number;
+  onClose: () => void;
+}) {
+  const { t, tx } = useI18n();
+  const { dispatch } = useLive();
+
+  const choose = (seat: number | null) => {
+    dispatch({ type: "LINE_SEAT", orderId: order.id, lineId: line.id, seat });
+    onClose();
+  };
+
+  const options: (number | null)[] = [null, ...Array.from({ length: count + 1 }, (_, index) => index + 1)];
+
+  return (
+    <Modal open onClose={onClose} title={t("pos.assignSeat").replace("{item}", tx(line.itemNameSnapshot))}>
+      <p className="text-fg-muted mb-3 text-xs">{t("pos.assignSeatHint")}</p>
+      <div className="grid grid-cols-4 gap-2">
+        {options.map((option) => (
+          <button
+            key={option ?? "shared"}
+            type="button"
+            onClick={() => choose(option)}
+            className={cx(
+              "min-h-14 rounded-xl border text-sm font-semibold transition-colors",
+              line.seatNumber === option
+                ? "border-accent bg-accent-soft text-accent"
+                : "border-line bg-raised text-fg hover:bg-sunken",
+            )}
+          >
+            {option === null ? t("pos.shared") : `${t("pos.seat")} ${option}`}
+          </button>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Customer — FR-CRM-002, FR-CRM-003, FR-CRM-004
+// ---------------------------------------------------------------------------
+
+/**
+ * Find a customer by phone, or create one in two fields, and attach them.
+ *
+ * Attached, the order carries the customer for loyalty and history; the
+ * sheet shows what the POS may know about them — visits, spend, the last
+ * order, a block — and their orders on this till.
+ */
+function CustomerSheet({ order, onClose }: { order: Order; onClose: () => void }) {
+  const { t, tx, fmt } = useI18n();
+  const { state, dispatch } = useLive();
+  const action = useAction();
+  const [phone, setPhone] = useState("");
+  const [found, setFound] = useState<Customer | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  const [current, setCurrent] = useState<Customer | null>(null);
+
+  // The attached customer's record, for the summary.
+  useEffect(() => {
+    if (!order.customerId) {
+      setCurrent(null);
+      return;
+    }
+    let live = true;
+    void services.crm.customers
+      .get(order.customerId)
+      .then((row) => {
+        if (live) setCurrent(row);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [order.customerId]);
+
+  const shown = found ?? current;
+
+  async function lookUp() {
+    const normalised = normalisePhone(phone);
+    if (normalised.length < 8) return;
+    setMissing(false);
+    await action.run(() => services.crm.customers.findByPhone(normalised), {
+      onSuccess: (row) => {
+        setFound(row);
+        setMissing(row === null);
+      },
+    });
+  }
+
+  function attach(customer: Customer) {
+    dispatch({
+      type: "ORDER_SET_CUSTOMER",
+      orderId: order.id,
+      customerId: customer.id,
+      customerName: customer.name,
+    });
+    onClose();
+  }
+
+  const history = shown
+    ? state.orderIds
+        .map((id) => state.orders[id]!)
+        .filter((row) => row && row.customerId === shown.id && row.id !== order.id)
+        .slice(0, 5)
+    : [];
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t("pos.customerTitle")}
+      footer={
+        <>
+          {order.customerId ? (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                dispatch({ type: "ORDER_SET_CUSTOMER", orderId: order.id, customerId: null, customerName: null });
+                onClose();
+              }}
+            >
+              {t("pos.detachCustomer")}
+            </Button>
+          ) : null}
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.close")}
+          </Button>
+          {found && found.id !== order.customerId ? (
+            <Button variant="primary" disabled={found.blocked && order.orderType === "delivery"} onClick={() => attach(found)}>
+              {t("pos.attach")}
+            </Button>
+          ) : null}
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        {order.state !== "completed" ? (
+          <div className="flex gap-2">
+            <Input
+              dir="ltr"
+              inputMode="tel"
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void lookUp();
+                }
+              }}
+              placeholder={t("pos.customerPhone")}
+              aria-label={t("pos.customerPhone")}
+              className="text-base"
+              data-autofocus
+            />
+            <Button loading={action.pending} onClick={() => void lookUp()} disabled={normalisePhone(phone).length < 8}>
+              {t("common.search")}
+            </Button>
+          </div>
+        ) : null}
+
+        {missing ? (
+          <Callout tone="muted">
+            {t("pos.customerNotFound")}{" "}
+            <button type="button" className="font-medium underline" onClick={() => setCreating(true)}>
+              {t("pos.createCustomer")}
+            </button>
+          </Callout>
+        ) : null}
+
+        {shown ? (
+          <div className="border-line rounded-lg border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-fg text-base font-semibold">{tx(shown.name)}</p>
+              <span className="text-fg-muted font-mono text-xs" dir="ltr">
+                {shown.phone}
+              </span>
+            </div>
+            {shown.blocked ? (
+              <Callout tone="bad" className="mt-2">
+                {t("pos.customerBlocked")}
+                {shown.blockedReason ? ` — ${shown.blockedReason}` : ""}
+              </Callout>
+            ) : null}
+            <DescList>
+              <DescRow label={t("crm.orders")} mono>
+                {shown.orderCount}
+              </DescRow>
+              <DescRow label={t("crm.totalSpend")} mono>
+                {formatMoney(shown.totalSpend, fmt)}
+              </DescRow>
+              <DescRow label={t("crm.lastOrder")}>
+                {shown.lastOrderAt ? formatTime(shown.lastOrderAt, fmt) : "—"}
+              </DescRow>
+              {shown.favouriteItem ? (
+                <DescRow label={t("pos.usualOrder")}>{tx(shown.favouriteItem)}</DescRow>
+              ) : null}
+              <DescRow label={t("pos.loyalty")} mono>
+                {shown.loyaltyPoints}
+                {shown.loyaltyTier ? ` · ${shown.loyaltyTier}` : ""}
+              </DescRow>
+            </DescList>
+            {history.length > 0 ? (
+              <div className="mt-3">
+                <p className="text-fg-subtle mb-1 text-[0.68rem] tracking-wide uppercase">{t("pos.onThisTill")}</p>
+                <ul className="space-y-1 text-xs">
+                  {history.map((row) => (
+                    <li key={row.id} className="flex justify-between gap-2">
+                      <span className="font-mono">{row.orderNumber}</span>
+                      <span className="text-fg-muted">{formatTime(row.openedAt, fmt)}</span>
+                      <span className="font-mono tabular-nums">{formatMoney(row.grandTotal, fmt)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <CustomerQuickCreate
+        open={creating}
+        compact
+        onClose={() => setCreating(false)}
+        onCreated={(customer) => {
+          setCreating(false);
+          attach(customer);
+        }}
+      />
+    </Modal>
   );
 }
 
@@ -337,11 +708,14 @@ function LineRow({
   line,
   onSheet,
   settled,
+  addition,
 }: {
   order: Order;
   line: OrderLine;
   onSheet: (sheet: Sheet) => void;
   settled: boolean;
+  /** FR-POS-038 — went to the kitchen as an addition to a course already sent. */
+  addition: boolean;
 }) {
   const { t, tx, fmt } = useI18n();
   const { dispatch } = useLive();
@@ -383,11 +757,29 @@ function LineRow({
             <p className="text-fg-subtle mt-0.5 text-xs italic">“{line.notes}”</p>
           ) : null}
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            {order.orderType === "dine_in" && !voided ? (
+              <button
+                type="button"
+                disabled={settled}
+                onClick={() => onSheet({ kind: "seat", line })}
+                className={cx(
+                  "rounded-full border px-1.5 py-0.5 text-[0.68rem] font-medium transition-colors disabled:opacity-60",
+                  line.seatNumber === null
+                    ? "border-line text-fg-subtle border-dashed"
+                    : "border-accent/40 bg-accent-soft text-accent",
+                )}
+                aria-label={t("pos.assignSeat").replace("{item}", tx(line.itemNameSnapshot))}
+              >
+                {line.seatNumber === null ? t("pos.shared") : `${t("pos.seat")} ${line.seatNumber}`}
+              </button>
+            ) : null}
             {line.state !== "pending" ? (
               <Badge tone={ORDER_LINE_STATE[line.state].tone}>
                 {tx(ORDER_LINE_STATE[line.state].label)}
               </Badge>
             ) : null}
+            {line.held && line.state === "fired" ? <Badge tone="warn">{t("pos.held")}</Badge> : null}
+            {addition ? <Badge tone="accent">{t("pos.addition")}</Badge> : null}
             {line.isComp ? <Badge tone="warn">{t("pos.comp")}</Badge> : null}
             {line.lineDiscount.amount > 0 ? (
               <Badge tone="bad">−{formatMoney(line.lineDiscount, fmt, true)}</Badge>

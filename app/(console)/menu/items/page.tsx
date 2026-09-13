@@ -16,8 +16,12 @@
  */
 
 import { useMemo, useState } from "react";
-import { Ban, CheckCircle2, Plus } from "lucide-react";
-import type { MenuCategory, MenuItem, MenuItemVariant } from "@/lib/console/types";
+import { Ban, CheckCircle2, Pencil, Plus } from "lucide-react";
+import { withProfile } from "@/lib/console/services/menu-profiles";
+import { allergenLabel } from "@/lib/console/allergens";
+import { DietaryBadges, MenuItemEditor } from "@/components/console/menu-item-editor";
+import { LinkGroupWithOverrides } from "@/components/console/modifier-group-editor";
+import type { MenuCategory, MenuItem, MenuItemVariant, Localised } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
@@ -43,6 +47,7 @@ import {
   Toast,
   cx,
 } from "@/components/console/ui";
+import { LocalisedField, EMPTY_LOCALISED, hasLocalisedText, trimLocalised } from "@/components/console/fields";
 
 export default function MenuItemsPage() {
   return (
@@ -348,6 +353,7 @@ function ItemDrawer({
   const canManage = usePermission("menu.item.manage");
   const action = useAction();
   const [addingVariant, setAddingVariant] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   /**
    * The list row carries no variants — `GET /catalogue/items` returns none,
@@ -355,7 +361,14 @@ function ItemDrawer({
    * out, so the drawer refetches rather than rendering the list's stub.
    */
   const detail = useAsync(
-    async () => (item ? services.catalogue.items.get(item.id) : null),
+    async () => {
+      if (!item) return null;
+      const [row, profile] = await Promise.all([
+        services.catalogue.items.get(item.id),
+        services.menuProfiles.get(item.id).catch(() => null),
+      ]);
+      return row ? withProfile(row, profile) : null;
+    },
     [item?.id],
   );
 
@@ -391,7 +404,15 @@ function ItemDrawer({
       title={`${current.imageEmoji} ${tx(current.name)}`}
       subtitle={tx(current.description) || undefined}
       footer={
-        canToggle ? (
+        <div className="flex w-full flex-wrap justify-between gap-2">
+          {canManage ? (
+            <Button icon={<Pencil size={14} />} onClick={() => setEditing(true)}>
+              {t("mie.edit")}
+            </Button>
+          ) : (
+            <span />
+          )}
+        {canToggle ? (
           current.available ? (
             <Button variant="danger" icon={<Ban size={14} />} onClick={() => onRequest86(item)}>
               {t("menu.toggle86")}
@@ -405,7 +426,8 @@ function ItemDrawer({
               {t("menu.toggleAvailable")}
             </Button>
           )
-        ) : null
+        ) : null}
+        </div>
       }
     >
       <div className="space-y-5">
@@ -417,9 +439,26 @@ function ItemDrawer({
           </Callout>
         ) : null}
 
+        {current.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={current.imageUrl} alt="" className="h-28 w-28 rounded-xl object-cover" />
+        ) : null}
+
         <DescList>
+          <DescRow label={t("mie.posName")}>{tx(current.posName ?? current.name)}</DescRow>
           <DescRow label={t("menu.kitchenName")}>{tx(current.kitchenName)}</DescRow>
           <DescRow label={t("menu.receiptName")}>{tx(current.receiptName)}</DescRow>
+          <DescRow label={t("mie.aggregatorName")}>{tx(current.aggregatorName ?? current.name)}</DescRow>
+          {current.barcodePlu ? (
+            <DescRow label={t("mie.plu")} mono>
+              <span dir="ltr">{current.barcodePlu}</span>
+            </DescRow>
+          ) : null}
+          {current.revenueAccountCode ? (
+            <DescRow label={t("mie.revenueAccount")} mono>
+              {current.revenueAccountCode}
+            </DescRow>
+          ) : null}
           <DescRow label={t("menu.station")}>
             <Badge tone={station.tone}>{tx(station.label)}</Badge>
           </DescRow>
@@ -501,11 +540,9 @@ function ItemDrawer({
           )}
         </section>
 
-        <ModifierGroupLinker
-          itemId={current.id}
-          canManage={canManage}
-          onLinked={() => onChanged(t("menu.groupLinked"))}
-        />
+        {canManage ? (
+          <LinkGroupWithOverrides itemId={current.id} onLinked={() => onChanged(t("menu.groupLinked"))} />
+        ) : null}
 
         <NewVariantDrawer
           open={addingVariant}
@@ -525,11 +562,25 @@ function ItemDrawer({
             <div className="flex flex-wrap gap-1.5">
               {current.allergens.map((allergen) => (
                 <Badge key={allergen} tone="warn">
-                  {allergen}
+                  {tx(allergenLabel(allergen))}
                 </Badge>
               ))}
             </div>
           </section>
+        ) : null}
+
+        <DietaryBadges tags={current.dietaryTags ?? []} />
+
+        {editing ? (
+          <MenuItemEditor
+            item={current}
+            onClose={() => setEditing(false)}
+            onSaved={(note) => {
+              setEditing(false);
+              detail.reload();
+              onChanged(note);
+            }}
+          />
         ) : null}
 
         <div className="flex flex-wrap gap-1.5">
@@ -603,75 +654,6 @@ function Eighty6Modal({
  * to attach. So this lists the tenant's groups and confirms the attachment,
  * rather than claiming to show current state it cannot see.
  */
-function ModifierGroupLinker({
-  itemId,
-  canManage,
-  onLinked,
-}: {
-  itemId: string;
-  canManage: boolean;
-  onLinked: () => void;
-}) {
-  const { t, tx } = useI18n();
-  const action = useAction();
-  const [groupId, setGroupId] = useState("");
-
-  const groups = useAsync(() => services.catalogue.modifierGroups.list({ limit: 200 }), []);
-
-  if (!canManage) return null;
-
-  async function link() {
-    if (!groupId) return;
-    await action.run(() => services.catalogue.linkModifierGroup(itemId, groupId), {
-      onSuccess: () => {
-        setGroupId("");
-        onLinked();
-      },
-    });
-  }
-
-  return (
-    <section>
-      <h3 className="text-fg mb-2 text-sm font-semibold">{t("menu.modifierGroups")}</h3>
-      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
-
-      <AsyncPanel state={groups} isEmpty={(page) => page.rows.length === 0}>
-        {(page) => (
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-              <Field label={t("menu.attachGroup")} hint={t("menu.attachGroupHint")}>
-                <Select
-                  value={groupId}
-                  onChange={(event) => setGroupId(event.target.value)}
-                  disabled={action.pending}
-                >
-                  <option value="">—</option>
-                  {page.rows.map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {tx(group.name)}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </div>
-            <Button
-              variant="secondary"
-              disabled={!groupId || action.pending}
-              loading={action.pending}
-              onClick={link}
-            >
-              {t("common.add")}
-            </Button>
-          </div>
-        )}
-      </AsyncPanel>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
-/** FR-MNU-006 — a sellable size or portion of an item. */
 function NewVariantDrawer({
   open,
   itemId,
@@ -687,17 +669,17 @@ function NewVariantDrawer({
 }) {
   const { t } = useI18n();
   const action = useAction();
-  const [name, setName] = useState("");
+  const [name, setName] = useState<Localised>({ ...EMPTY_LOCALISED });
   const [barcode, setBarcode] = useState("");
 
   if (!open) return null;
 
   async function create() {
-    if (!name.trim()) return;
+    if (!hasLocalisedText(name)) return;
     await action.run(
       () =>
         services.catalogue.addVariant(itemId, {
-          name: { en: name.trim(), ar: name.trim() },
+          name: trimLocalised(name),
           barcode: barcode.trim() || null,
           basePrice: { amount: 0, currency },
         }),
@@ -715,7 +697,7 @@ function NewVariantDrawer({
           <Button
             variant="primary"
             loading={action.pending}
-            disabled={!name.trim()}
+            disabled={!hasLocalisedText(name)}
             onClick={create}
           >
             {t("common.create")}
@@ -731,9 +713,7 @@ function NewVariantDrawer({
 
         <Callout tone="muted">{t("menu.variantPriceNote")}</Callout>
 
-        <Field label={t("common.name")} required>
-          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
-        </Field>
+        <LocalisedField label={t("common.name")} value={name} onChange={setName} required maxLength={120} />
 
         <Field label={t("menu.barcode")}>
           <Input
@@ -764,20 +744,19 @@ function NewItemDrawer({
 }) {
   const { t, tx } = useI18n();
   const action = useAction();
-  const [name, setName] = useState("");
-  const [kitchenName, setKitchenName] = useState("");
+  const [name, setName] = useState<Localised>({ ...EMPTY_LOCALISED });
+  const [kitchenName, setKitchenName] = useState<Localised>({ ...EMPTY_LOCALISED });
   const [categoryId, setCategoryId] = useState("");
 
   if (!open) return null;
 
   async function create() {
-    if (!name.trim()) return;
+    if (!hasLocalisedText(name)) return;
     await action.run(
       async () => {
         const created = await services.catalogue.items.create({
-          name: { en: name.trim(), ar: name.trim() },
-          kitchenName: kitchenName.trim()
-            ? { en: kitchenName.trim(), ar: kitchenName.trim() }
+          name: trimLocalised(name),
+          kitchenName: hasLocalisedText(kitchenName) ? trimLocalised(kitchenName)
             : undefined,
         });
         // C-02 — an item is only reachable on a menu once it is placed in a
@@ -799,7 +778,7 @@ function NewItemDrawer({
           <Button
             variant="primary"
             loading={action.pending}
-            disabled={!name.trim()}
+            disabled={!hasLocalisedText(name)}
             onClick={create}
           >
             {t("common.create")}
@@ -813,17 +792,9 @@ function NewItemDrawer({
       <div className="space-y-4">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
 
-        <Field label={t("common.name")} required>
-          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
-        </Field>
+        <LocalisedField label={t("common.name")} value={name} onChange={setName} required maxLength={120} />
 
-        <Field label={t("menu.kitchenName")} hint={t("menu.kitchenNameHint")}>
-          <Input
-            value={kitchenName}
-            onChange={(event) => setKitchenName(event.target.value)}
-            maxLength={120}
-          />
-        </Field>
+        <LocalisedField label={t("menu.kitchenName")} hint={t("menu.kitchenNameHint")} value={kitchenName} onChange={setKitchenName} maxLength={120} />
 
         <Field label={t("menu.category")} hint={t("menu.placementHint")}>
           <Select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>

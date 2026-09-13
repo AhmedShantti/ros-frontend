@@ -16,19 +16,15 @@
 
 import { useMemo, useState } from "react";
 import { ShieldAlert, ShieldCheck, UserCog } from "lucide-react";
-import type { RoleAssignment, User } from "@/lib/console/types";
+import type { Role, RoleAssignment, User } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { effectivePermissions, userSodFindings, type UserSodFinding } from "@/lib/console/access";
+import { AssignmentsSection } from "@/components/console/assignment-editor";
 import { useI18n, useSession } from "@/lib/console/providers";
-import { formatDate, formatDateTime, formatRelative } from "@/lib/console/format";
+import { formatDateTime, formatRelative } from "@/lib/console/format";
 import { SCOPE_LEVEL, USER_STATUS, labelOf } from "@/lib/console/labels";
-import {
-  ROLE_DEFINITIONS,
-  findSodConflicts,
-  permissionsForRole,
-  roleRequiresMfa,
-  type RoleKey,
-} from "@/lib/console/permissions";
+import { roleRequiresMfa } from "@/lib/console/permissions";
 import { roleById } from "@/lib/console/mock/governance";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader } from "@/components/console/page";
@@ -179,7 +175,15 @@ function UsersScreen() {
         />
       </PageBody>
 
-      <UserDrawer user={selected} onClose={() => setSelected(null)} />
+      <UserDrawer
+        user={selected}
+        onClose={() => setSelected(null)}
+        onChanged={(user, note) => {
+          setSelected(user);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
       <UserFormDrawer
         user={null}
         open={creating}
@@ -252,30 +256,32 @@ function MfaCell({ user }: { user: User }) {
 // Detail
 // ---------------------------------------------------------------------------
 
-function UserDrawer({ user, onClose }: { user: User | null; onClose: () => void }) {
+function UserDrawer({
+  user,
+  onClose,
+  onChanged,
+}: {
+  user: User | null;
+  onClose: () => void;
+  onChanged: (user: User, message: string) => void;
+}) {
   const { t, tx, fmt } = useI18n();
+  const roles = useAsync(
+    () => services.security.roles.list({ limit: 500 }).then((page) => page.rows).catch(() => [] as Role[]),
+    [],
+  );
+  const rolesById = useMemo(() => new Map((roles.data ?? []).map((role) => [role.id, role])), [roles.data]);
 
-  // Effective permissions are the union across assignments, and the
-  // segregation-of-duties check runs against that union rather than against
-  // any single role — FR-SEC-004 and FR-SEC-017.
-  const { permissionCount, conflicts, roleKeys } = useMemo(() => {
-    if (!user) return { permissionCount: 0, conflicts: [], roleKeys: [] as RoleKey[] };
-
-    const keys = user.assignments
-      .map((a) => roleById.get(a.roleId)?.key)
-      .filter((k): k is RoleKey => Boolean(k));
-
-    const union = new Set<string>();
-    for (const key of keys) {
-      for (const permission of permissionsForRole(key)) union.add(permission);
-    }
-
+  // Effective permissions are the union across the assignments in force
+  // today, and the segregation-of-duties check runs against that union rather
+  // than against any single role — FR-SEC-004, FR-SEC-005 and FR-SEC-017.
+  const { permissionCount, findings } = useMemo(() => {
+    if (!user) return { permissionCount: 0, findings: [] as UserSodFinding[] };
     return {
-      permissionCount: union.size,
-      conflicts: findSodConflicts(union as Set<never>),
-      roleKeys: keys,
+      permissionCount: effectivePermissions(user.assignments, rolesById).size,
+      findings: userSodFindings(user, rolesById),
     };
-  }, [user]);
+  }, [user, rolesById]);
 
   if (!user) return null;
 
@@ -288,7 +294,9 @@ function UserDrawer({ user, onClose }: { user: User | null; onClose: () => void 
       title={tx(user.name)}
       subtitle={<span dir="ltr">{user.email}</span>}
       footer={
-        <Button variant="danger" onClick={onClose}>
+        // FR-SEC-027 — there is no endpoint to end another user's sessions;
+        // the button says so rather than pretending.
+        <Button variant="danger" disabled title={t("usr.forceLogoutUnavailable")}>
           {t("usr.forceLogout")}
         </Button>
       }
@@ -326,27 +334,21 @@ function UserDrawer({ user, onClose }: { user: User | null; onClose: () => void 
           </DescRow>
         </DescList>
 
-        <section>
-          <h3 className="text-fg mb-2 text-sm font-semibold">{t("usr.assignments")}</h3>
-          <ul className="divide-line divide-y">
-            {user.assignments.map((assignment, index) => (
-              <AssignmentRow key={`${assignment.roleId}-${index}`} assignment={assignment} />
-            ))}
-          </ul>
-        </section>
+        <AssignmentsSection user={user} roles={roles.data ?? []} onSaved={onChanged} />
 
-        {conflicts.length > 0 ? (
+        {findings.length > 0 ? (
           <section>
             <h3 className="text-fg mb-2 text-sm font-semibold">{t("role.sodTitle")}</h3>
             <div className="space-y-2">
-              {conflicts.map((pair) => (
-                <Callout key={`${pair.a}-${pair.b}`} tone={pair.blocking ? "bad" : "warn"}>
-                  <p className="font-medium">{tx(pair.risk)}</p>
+              {findings.map((finding) => (
+                <Callout key={`${finding.pair.a}-${finding.pair.b}`} tone={finding.pair.blocking ? "bad" : "warn"}>
+                  <p className="font-medium">{tx(finding.pair.risk)}</p>
                   <p className="mt-1 flex flex-wrap gap-1.5 font-mono text-[0.68rem]" dir="ltr">
-                    <span>{pair.a}</span>
+                    <span>{finding.pair.a}</span>
                     <span aria-hidden>+</span>
-                    <span>{pair.b}</span>
+                    <span>{finding.pair.b}</span>
                   </p>
+                  {finding.acrossRoles ? <p className="mt-1 text-[0.68rem]">{t("sod.combinedHint")}</p> : null}
                 </Callout>
               ))}
             </div>
@@ -355,55 +357,8 @@ function UserDrawer({ user, onClose }: { user: User | null; onClose: () => void 
           <Callout tone="good">{t("role.noConflicts")}</Callout>
         )}
 
-        {roleKeys.length > 0 ? (
-          <Callout tone="muted">
-            {t("usr.scopeNote")}{" "}
-            <span className="font-mono text-[0.68rem]" dir="ltr">
-              {roleKeys.map((k) => ROLE_DEFINITIONS[k].key).join(" · ")}
-            </span>
-          </Callout>
-        ) : null}
+        <Callout tone="muted">{t("usr.scopeNote")}</Callout>
       </div>
     </Drawer>
-  );
-}
-
-function AssignmentRow({ assignment }: { assignment: RoleAssignment }) {
-  const { t, tx, fmt } = useI18n();
-  const role = roleById.get(assignment.roleId);
-  const level = labelOf(SCOPE_LEVEL, assignment.scopeLevel);
-
-  // A validity window is what makes an elevation temporary rather than
-  // permanent, and permanent elevation is how a permission model rots.
-  const temporary = Boolean(assignment.validTo);
-
-  return (
-    <li className="py-2.5">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-fg text-sm font-medium">
-          {role ? tx(role.name) : assignment.roleId}
-        </span>
-        <Badge tone="muted">{tx(level.label)}</Badge>
-        {temporary ? <Badge tone="warn">{t("usr.temporary")}</Badge> : null}
-      </div>
-
-      <p className="text-fg-subtle mt-1 text-xs">
-        {assignment.scopeIds.length === 0 ? (
-          t("usr.scopeAll")
-        ) : (
-          <span className="font-mono" dir="ltr">
-            {assignment.scopeIds.join(" · ")}
-          </span>
-        )}
-      </p>
-
-      {assignment.validFrom || assignment.validTo ? (
-        <p className="text-fg-subtle mt-0.5 text-xs">
-          {t("usr.validity")}:{" "}
-          {assignment.validFrom ? formatDate(assignment.validFrom, fmt) : "—"} →{" "}
-          {assignment.validTo ? formatDate(assignment.validTo, fmt) : "—"}
-        </p>
-      ) : null}
-    </li>
   );
 }

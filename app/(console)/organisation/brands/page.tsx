@@ -34,6 +34,8 @@ import {
   Toast,
 } from "@/components/console/ui";
 import { RecordDrawer } from "@/components/console/record-drawer";
+import { trimLocalised } from "@/components/console/fields";
+import { DATA_MODE } from "@/lib/api/config";
 
 export default function BrandsPage() {
   return (
@@ -104,6 +106,9 @@ function BrandsScreen() {
     [t, tx, fmt],
   );
 
+  // FR-LOC-006 — the server keeps one name for this; say which one is sent.
+  const singleNameHint = DATA_MODE === "http" ? t("loc.singleOnServer") : undefined;
+
   return (
     <>
       <PageHeader
@@ -162,14 +167,14 @@ function BrandsScreen() {
         open={creating}
         title={t("org.newBrand")}
         fields={[
-          { name: "name", label: t("common.name"), required: true, maxLength: 120 },
+          { name: "name", label: t("common.name"), kind: "localised", required: true, maxLength: 120, hint: singleNameHint },
           { name: "code", label: t("common.code"), maxLength: 8, ltr: true },
           { name: "colour", label: t("org.colour"), placeholder: "#0f6f7a", ltr: true },
         ]}
         onClose={() => setCreating(false)}
-        onSubmit={(values) =>
+        onSubmit={(values, localised) =>
           services.organisation.brands.create({
-            name: { en: values.name.trim(), ar: values.name.trim() },
+            name: trimLocalised(localised.name!),
             code: values.code.trim() || undefined,
             colour: values.colour.trim() || undefined,
           })

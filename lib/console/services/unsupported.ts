@@ -110,6 +110,8 @@ export const unsupportedWorkforce: WorkforceService = {
   roleAssignments: () => notImplemented("Employee role assignments"),
   assignEmployeeRole: () => notImplemented("Employee role assignments"),
   removeEmployeeRoleAssignment: () => notImplemented("Employee role assignments"),
+  clockIn: () => notImplemented("Clocking in"),
+  clockOut: () => notImplemented("Clocking out"),
 };
 
 /**
@@ -137,6 +139,7 @@ export const unsupportedFinance: FinanceService = {
 export const unsupportedGovernance: GovernanceService = {
   approvals: absentReadonly("Approval requests"),
   audit: absentReadonly("The audit trail"),
+  auditExport: () => notImplemented("Exporting the audit trail"),
   anomalies: absentReadonly("Anomaly flags"),
   sodConflicts: () => notImplemented("Segregation-of-duties analysis"),
   decide: () => notImplemented("Deciding an approval"),

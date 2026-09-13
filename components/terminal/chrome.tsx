@@ -22,6 +22,7 @@ import {
   ScanLine,
   Wifi,
   WifiOff,
+  Clock4,
 } from "lucide-react";
 import { branches, terminals } from "@/lib/console/mock/org";
 import { useI18n, useSession } from "@/lib/console/providers";
@@ -31,12 +32,15 @@ import { DATA_MODE } from "@/lib/api/config";
 import {
   getOpenCashSession,
   getPosEmployee,
+  getTerminalId,
   getTerminalName,
   isSignedIn,
   onSessionChange,
   type PosEmployee,
 } from "@/lib/api/session";
 import { signOffTerminal } from "@/lib/api/auth";
+import { ClockButton } from "@/components/terminal/clock";
+import { TillIdleSignOff } from "@/components/terminal/till-idle";
 import { formatMoney, formatNumber, formatTime, tx as pick } from "@/lib/console/format";
 import { useLive } from "@/lib/console/live/store";
 import {
@@ -57,6 +61,7 @@ import {
 } from "@/components/console/ui";
 import { LanguageToggle, ThemeToggle } from "@/components/console/switchers";
 import { useEffect, useRef, useState } from "react";
+import { SETTING_BY_KEY, resolveSetting } from "@/lib/console/settings";
 
 const TRIGGER =
   "border-line bg-raised text-fg hover:bg-sunken inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors";
@@ -86,6 +91,7 @@ export function TerminalBar() {
   );
 
   return (
+    <>
     <header className="border-line bg-raised flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
       <div className="flex items-center gap-2">
         <span className="bg-accent text-accent-fg grid h-7 w-7 place-items-center rounded-lg text-xs font-bold">
@@ -203,6 +209,57 @@ export function TerminalBar() {
         <p className="text-fg-subtle mt-2 text-xs leading-relaxed">{t("term.resetNote")}</p>
       </Modal>
     </header>
+    <ClockSkewBanner deviceId={live ? getTerminalId() : state.terminalId} />
+    </>
+  );
+}
+
+/**
+ * FR-OFF-042 — this device's clock is off from the server's by more than
+ * the threshold. Sales still record with the device's own time kept beside
+ * the corrected one; the banner is so the manager fixes the clock rather
+ * than finding out from a report where Tuesday's lunch happened at 3am.
+ */
+function ClockSkewBanner({ deviceId }: { deviceId: string | null }) {
+  const { t, fmt } = useI18n();
+  const { tenant } = useSession();
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setTick((n) => n + 1), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const data = useAsync(
+    async () => {
+      const [observations, overrides] = await Promise.all([
+        services.conflicts.skew(),
+        services.settings.overrides().catch(() => []),
+      ]);
+      return { observations, overrides };
+    },
+    [tick, deviceId],
+  );
+  if (!deviceId || !data.data) return null;
+  const latest = data.data.observations.find((row) => row.deviceId === deviceId);
+  if (!latest) return null;
+  const threshold = Number(
+    resolveSetting(SETTING_BY_KEY.get("sync.clockSkewMinutes")!, data.data.overrides, {
+      countryCode: tenant.countryCode,
+      tenantId: tenant.id,
+      brandId: null,
+      branchId: null,
+      terminalId: deviceId,
+    }).value,
+  );
+  const minutes = latest.skewMs / 60_000;
+  if (Math.abs(minutes) <= threshold) return null;
+  return (
+    <div className="border-warn/40 bg-warn-soft text-warn flex shrink-0 items-center gap-2 border-b px-3 py-1.5 text-xs">
+      <Clock4 size={13} aria-hidden />
+      <span>
+        {(minutes > 0 ? t("skew.ahead") : t("skew.behind"))
+          .replace("{n}", formatNumber(Math.abs(minutes), fmt, 1))}
+      </span>
+    </div>
   );
 }
 
@@ -256,6 +313,9 @@ function SignedOnCashier() {
 
   return (
     <>
+      {/* FR-HRM-020 — the PIN session is exactly who the clock endpoints act on. */}
+      <ClockButton employeeKey={cashier.code} employeeName={cashier.name} />
+      <TillIdleSignOff onExpire={() => void signOff()} />
       <button
         type="button"
         onClick={() => setConfirming(true)}
@@ -383,7 +443,29 @@ function ConnectivityBadge() {
   const state = useConnectivityStore((s) => s.state);
   const hydrated = useConnectivityStore((s) => s.hydrated);
   const pending = useConnectivityStore(pendingCount);
+  const queue = useConnectivityStore((s) => s.queue);
   const [open, setOpen] = useState(false);
+
+  // FR-OFF-043 — a write the server refused is a conflict a manager has to
+  // see, so every one lands in the register (idempotently, by queue id).
+  useEffect(() => {
+    const refused = queue.filter((entry) => entry.status === "conflict");
+    for (const entry of refused) {
+      void services.conflicts
+        .recordFromQueue({
+          queueId: entry.id,
+          label: entry.label,
+          entityType: entry.kind,
+          device:
+            entry.payload && typeof entry.payload === "object"
+              ? (entry.payload as Record<string, unknown>)
+              : { label: entry.label },
+          reason: entry.conflictReason ?? null,
+          deviceName: getTerminalName() ?? getTerminalId() ?? "This device",
+        })
+        .catch(() => undefined);
+    }
+  }, [queue]);
 
   // Before rehydration the queue length is unknown; showing a count that then
   // corrects itself is worse than showing none for a frame.
@@ -393,6 +475,7 @@ function ConnectivityBadge() {
     online: { icon: <Wifi size={13} />, label: t("sync.online"), tone: "text-fg-subtle" },
     degraded: { icon: <Wifi size={13} />, label: t("sync.degraded"), tone: "text-warn" },
     offline: { icon: <WifiOff size={13} />, label: t("sync.offline"), tone: "text-bad" },
+    isolated: { icon: <WifiOff size={13} />, label: t("sync.isolated"), tone: "text-bad" },
     syncing: {
       icon: <RefreshCw size={13} className="animate-spin" />,
       label: t("sync.syncing"),
@@ -415,7 +498,13 @@ function ConnectivityBadge() {
           "hidden items-center gap-1.5 text-xs sm:inline-flex",
           look.tone,
         )}
-        title={state === "offline" ? t("sync.offlineNote") : undefined}
+        title={
+          state === "offline"
+            ? t("sync.offlineNote")
+            : state === "isolated"
+              ? t("sync.isolatedNote")
+              : undefined
+        }
       >
         {look.icon}
         {look.label}

@@ -60,6 +60,7 @@ import {
 import { RecordDrawer } from "@/components/console/record-drawer";
 import { RecipeEditor } from "@/components/console/recipe-editor";
 import { useConfirm } from "@/components/console/confirm";
+import { trimLocalised } from "@/components/console/fields";
 
 export default function MenuRecipesPage() {
   return (
@@ -305,7 +306,7 @@ function RecipesScreen() {
         title={t("recipes.newRecipe")}
         note={t("recipes.newRecipeNote")}
         fields={[
-          { name: "name", label: t("common.name"), required: true, maxLength: 120 },
+          { name: "name", label: t("common.name"), kind: "localised", required: true, maxLength: 120 },
           {
             name: "recipeType",
             label: t("recipes.type"),
@@ -319,9 +320,9 @@ function RecipesScreen() {
           },
         ]}
         onClose={() => setCreating(false)}
-        onSubmit={(values) =>
+        onSubmit={(values, localised) =>
           services.catalogue.recipes.create({
-            name: { en: values.name.trim(), ar: values.name.trim() },
+            name: trimLocalised(localised.name!),
             recipeType: values.recipeType as never,
           })
         }

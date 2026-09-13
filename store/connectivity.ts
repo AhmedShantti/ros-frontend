@@ -8,16 +8,23 @@
  * Writes are appended to a local queue and acknowledged immediately; the
  * queue drains when the link returns. The cashier sees a count, not a modal.
  *
- * The six states in the UI are the six a real terminal actually passes
+ * The states in the UI are the ones a real terminal actually passes
  * through, and they are distinguishable without colour — each carries its own
- * icon and its own label.
+ * icon and its own label. The first four are SRS §21.2's operating modes:
  *
- *   online     link healthy, queue empty
- *   degraded   round-trips slow enough to matter; still writing through
- *   offline    no link; everything queues
+ *   online     server reachable, round-trips under 500 ms
+ *   degraded   server reachable but slow or intermittent; still writing through
+ *   offline    server unreachable, local network still up; everything queues
+ *   isolated   no network at all; shared state frozen at last-known values
  *   syncing    link returned, queue draining
  *   conflict   the server rejected a queued write; needs a human
  *   synced     transient, shown for a beat after the queue empties
+ *
+ * The browser can tell "no network" (`navigator.onLine` false) from "network
+ * but no server" only by asking the server, so in live mode a health probe
+ * runs every 30 seconds and its latency and failures pick between online,
+ * degraded and offline. With no backend configured there is no server to
+ * probe, and the only honest distinction left is online versus isolated.
  */
 
 import { useEffect } from "react";
@@ -28,6 +35,7 @@ export type ConnectivityState =
   | "online"
   | "degraded"
   | "offline"
+  | "isolated"
   | "syncing"
   | "conflict"
   | "synced";
@@ -101,7 +109,8 @@ export const useConnectivityStore = create<ConnectivityStore>()(
       simulate: (state) =>
         set({
           state,
-          simulated: state === "offline" || state === "degraded" || state === "conflict",
+          simulated:
+            state === "offline" || state === "isolated" || state === "degraded" || state === "conflict",
         }),
 
       enqueue: (kind, label, opts) => {
@@ -237,27 +246,65 @@ export const conflictCount = (s: ConnectivityStore) =>
  * A simulated state set from the dev tools wins: someone demonstrating the
  * offline path should not have it corrected out from under them.
  */
+/** SRS §21.2 — "server reachable, latency < 500 ms" is online; above is degraded. */
+const DEGRADED_MS = 500;
+const PROBE_EVERY_MS = 30_000;
+
 export function useBrowserConnectivity(): void {
   const setState = useConnectivityStore((s) => s.setState);
   const drain = useConnectivityStore((s) => s.drain);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const reachable = () => {
+      // Coming back with work queued means draining, not "online" —
+      // `drain()` moves it on and lands on online when the queue empties.
+      if (useConnectivityStore.getState().queue.length > 0) drain();
+      else setState("online");
+    };
+
+    /** Live only: ask the server, and time the answer. */
+    const probe = async () => {
+      if (cancelled || useConnectivityStore.getState().simulated || !navigator.onLine) return;
+      const { DATA_MODE } = await import("@/lib/api/config");
+      if (DATA_MODE !== "http") return;
+      const { api } = await import("@/lib/api/endpoints");
+      const started = performance.now();
+      try {
+        await api.health.check();
+        if (cancelled || useConnectivityStore.getState().simulated) return;
+        const elapsed = performance.now() - started;
+        const current = useConnectivityStore.getState().state;
+        if (elapsed > DEGRADED_MS) {
+          if (current !== "syncing" && current !== "conflict") setState("degraded");
+        } else if (current === "degraded" || current === "offline") {
+          reachable();
+        }
+      } catch {
+        // The interface is up and the server did not answer: offline, with
+        // the local network still there for the kitchen (SRS §21.2).
+        if (!cancelled && !useConnectivityStore.getState().simulated) setState("offline");
+      }
+    };
+
     const apply = () => {
       if (useConnectivityStore.getState().simulated) return;
       if (navigator.onLine) {
-        // Coming back with work queued means draining, not "online" —
-        // `drain()` moves it on and lands on online when the queue empties.
-        if (useConnectivityStore.getState().queue.length > 0) drain();
-        else setState("online");
+        reachable();
+        void probe();
       } else {
-        setState("offline");
+        setState("isolated");
       }
     };
 
     apply();
+    const timer = window.setInterval(() => void probe(), PROBE_EVERY_MS);
     window.addEventListener("online", apply);
     window.addEventListener("offline", apply);
     return () => {
+      cancelled = true;
+      window.clearInterval(timer);
       window.removeEventListener("online", apply);
       window.removeEventListener("offline", apply);
     };
