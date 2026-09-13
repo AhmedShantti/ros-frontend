@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 146 paths, 106 request DTOs.
+ * `api/openapi.json`. 147 paths, 106 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -1586,6 +1586,24 @@ export type TreasuryController_openCashSessionResponse = {
 };
 
 export type TreasuryController_openCashSessionBody = OpenCashSessionDto;
+
+/** `GET /cash-sessions/current` — Resume-on-reload lookup for the POS bootstrap — the employee's currently open cash session, if any, so the client never has to guess whether `POST /cash-sessions` would open a second drawer on top of one that survived a deploy, hard reload, or local-state loss. Branch is derived from the caller's own terminal and employee from the authenticated PIN session, the same trust boundary `POST /cash-sessions` and `GET /cash-sessions/drawers` already use. Gated on `cash.session.open`. — The authenticated PIN employee's already-open cash session for this terminal's branch, or null if none is open. */
+export type TreasuryController_getCurrentSessionResponse = {
+  cashSession: {
+    branchId: string;
+    closedAt: string | null;
+    /** ISO 4217 currency code. */
+    currency: string;
+    drawerId: string;
+    employeeId: string;
+    id: string;
+    openedAt: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    openingFloat: string;
+    shiftId: string;
+    status: "open" | "closing" | "closed";
+  } | null;
+};
 
 /** `GET /cash-sessions/drawers` — DEMO-OPS-HOTFIX-3 — the real drawers a Cashier may open a shift over, for the POS Open-Shift drawer selector. Resolves the branch from the CALLER'S OWN terminal (`DrawersService.listForTerminal`), never a caller-supplied branchId — a cashier cannot browse another branch's drawers by asking for one. Gated on `cash.session.open`, the SAME permission `POST /cash-sessions` already requires, deliberately NOT `settings.branch.manage` — this is a read of what a Cashier may already act on, not a drawer-administration grant (that lives on the separate `DrawersController`). — The caller's own terminal-bound branch's drawers. */
 export type TreasuryController_listSessionDrawersResponse = ({
@@ -6004,6 +6022,7 @@ export const ROUTES = {
   DrawersController_listDrawers: { method: "GET", path: "/branches/{branchId}/drawers" },
   DrawersController_createDrawer: { method: "POST", path: "/branches/{branchId}/drawers" },
   TreasuryController_openCashSession: { method: "POST", path: "/cash-sessions" },
+  TreasuryController_getCurrentSession: { method: "GET", path: "/cash-sessions/current" },
   TreasuryController_listSessionDrawers: { method: "GET", path: "/cash-sessions/drawers" },
   TreasuryController_declareClose: { method: "POST", path: "/cash-sessions/{sessionId}/close" },
   TreasuryController_getCloseContext: { method: "GET", path: "/cash-sessions/{sessionId}/close-context" },

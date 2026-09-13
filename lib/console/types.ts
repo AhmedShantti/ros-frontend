@@ -469,7 +469,8 @@ export interface PriceList {
   scopeId: Id | null;
   orderTypes: OrderType[];
   priority: number;
-  validFrom: IsoDate;
+  /** Nullable on the wire (`GET /catalogue/price-lists`) — an open start. */
+  validFrom: IsoDate | null;
   validTo: IsoDate | null;
   /** FR-MNU-022 — recurring windows such as weekdays 15:00–18:00. */
   recurrence: string | null;

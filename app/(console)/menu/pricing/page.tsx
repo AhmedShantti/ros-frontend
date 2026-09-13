@@ -21,7 +21,16 @@ import { getDefaultCurrency, services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
-import { formatDate, formatMoney, formatNumber, formatPercent } from "@/lib/console/format";
+import {
+  currencyExponent,
+  formatDate,
+  formatMoney,
+  formatNumber,
+  formatPercent,
+  minorFromInput,
+  numberFromInput,
+  toMajorUnits,
+} from "@/lib/console/format";
 import { ORDER_TYPE, PRICE_LIST_SCOPE, labelOf } from "@/lib/console/labels";
 import { CellStack, CollectionTable, DataTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
@@ -108,7 +117,7 @@ function PricingScreen() {
         secondary: true,
         render: (row) => (
           <span className="whitespace-nowrap" dir="ltr">
-            {formatDate(row.validFrom, fmt)} →{" "}
+            {row.validFrom ? formatDate(row.validFrom, fmt) : "—"} →{" "}
             {row.validTo ? formatDate(row.validTo, fmt) : "∞"}
           </span>
         ),
@@ -345,7 +354,7 @@ function PriceListDrawer({
           </DescRow>
           <DescRow label={t("menu.validity")} mono>
             <span dir="ltr">
-              {formatDate(list.validFrom, fmt)} →{" "}
+              {list.validFrom ? formatDate(list.validFrom, fmt) : "—"} →{" "}
               {list.validTo ? formatDate(list.validTo, fmt) : "∞"}
             </span>
           </DescRow>
@@ -416,13 +425,21 @@ function PriceListDrawer({
 
 // ---------------------------------------------------------------------------
 
+/** True once a typed amount carries more fractional digits than the currency allows. */
+function excessPrecision(raw: string, exponent: number): boolean {
+  const dot = raw.trim().indexOf(".");
+  if (dot === -1) return false;
+  return raw.trim().length - dot - 1 > exponent;
+}
+
 /**
  * FR-MNU-023/024 — set one variant's price within one list.
  *
  * The endpoint is an upsert ("set", not "update"), so the same form serves a
  * new price and a correction. The amount is typed in major units because
- * that is what a person reads off a menu; it is converted to the exact minor
- * integer the API wants before it leaves.
+ * that is what a person reads off a menu; `minorFromInput` — the same
+ * decimal-safe shelf-price parser the terminal uses for cash counts — turns
+ * it into the exact minor integer the API wants before it leaves.
  */
 function PriceEditor({
   priceListId,
@@ -440,20 +457,23 @@ function PriceEditor({
   const [amount, setAmount] = useState("");
 
   useEffect(() => {
-    if (entry) setAmount((entry.price.amount / 100).toFixed(2));
+    if (entry) {
+      setAmount(toMajorUnits(entry.price).toFixed(currencyExponent(entry.price.currency)));
+    }
   }, [entry]);
 
   if (!entry) return null;
 
-  const parsed = Number(amount);
-  const valid = Number.isFinite(parsed) && parsed >= 0 && amount.trim() !== "";
+  const exponent = currencyExponent(entry.price.currency);
+  const parsedMajor = numberFromInput(amount);
+  const valid = parsedMajor !== null && parsedMajor >= 0 && !excessPrecision(amount, exponent);
 
   async function save() {
     if (!entry || !valid) return;
     await action.run(
       () =>
         services.catalogue.setPrice(priceListId, entry.variantId, {
-          amount: Math.round(parsed * 100),
+          amount: minorFromInput(amount) ?? 0,
           currency: entry.price.currency,
         }),
       { onSuccess: onSaved },
@@ -643,20 +663,21 @@ function NewPriceEntryDrawer({
 
   if (!open) return null;
 
-  const parsed = Number(amount);
+  const exponent = currencyExponent(currency);
+  const parsedMajor = numberFromInput(amount);
   const valid =
     Boolean(itemId) &&
     Boolean(variantId) &&
-    amount.trim() !== "" &&
-    Number.isFinite(parsed) &&
-    parsed >= 0;
+    parsedMajor !== null &&
+    parsedMajor >= 0 &&
+    !excessPrecision(amount, exponent);
 
   async function create() {
     if (!valid) return;
     await action.run(
       () =>
         services.catalogue.setPrice(priceListId, variantId, {
-          amount: Math.round(parsed * 100),
+          amount: minorFromInput(amount) ?? 0,
           currency,
         }),
       {
