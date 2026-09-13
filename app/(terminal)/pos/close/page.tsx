@@ -166,6 +166,7 @@ function CloseSessionScreen() {
           <DrawerSheet
             open
             cashSessionId={sessionId}
+            cashierName={employeeName || undefined}
             onClose={() => {
               // Never leave the manager signed on to a shared till, whether
               // this ends in a close or a cancel — the next person to walk

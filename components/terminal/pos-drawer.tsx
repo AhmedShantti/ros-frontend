@@ -63,17 +63,20 @@ import {
 export function DrawerSheet({
   open,
   cashSessionId,
+  cashierName,
   onClose,
   onMessage,
   onClosed,
 }: {
   open: boolean;
   cashSessionId: string;
+  /** Named in the closing confirmation, when the caller knows who is closing it. */
+  cashierName?: string;
   onClose: () => void;
   onMessage: (message: string) => void;
   onClosed: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, fmt } = useI18n();
   const [nonce, setNonce] = useState(0);
   const [declaration, setDeclaration] = useState<CashCloseDeclaration | null>(null);
 
@@ -87,6 +90,18 @@ export function DrawerSheet({
   // A freeze survives a re-read: the server reports `closing` whether or not
   // this tab is the one that declared the count.
   const frozen = declaration?.approvalRequired === true || context.data?.frozen === true;
+
+  /**
+   * The confirmation names who closed it and what the server settled on —
+   * counted and variance — rather than a bare "it's closed", so the cashier
+   * sees the same figures the close was decided against.
+   */
+  function closedMessage(base: string, counted: Money, variance: Money): string {
+    const figures = t("shift.closedSummary")
+      .replace("{counted}", formatMoney(counted, fmt))
+      .replace("{variance}", formatMoney(variance, fmt));
+    return cashierName ? `${base} ${cashierName} — ${figures}` : `${base} ${figures}`;
+  }
 
   return (
     <Drawer open onClose={onClose} title={t("shift.drawerOps")}>
@@ -111,9 +126,13 @@ export function DrawerSheet({
             cashSessionId={cashSessionId}
             declaration={declaration}
             context={context.data ?? null}
-            onOutcome={(outcome) => {
+            onOutcome={(outcome, figures) => {
               if (outcome === "closed") {
-                onMessage(t("shift.approvedOutcome"));
+                onMessage(
+                  figures?.countedCash && figures.variance
+                    ? closedMessage(t("shift.approvedOutcome"), figures.countedCash, figures.variance)
+                    : t("shift.approvedOutcome"),
+                );
                 onClosed();
               } else {
                 onMessage(t("shift.rejectedOutcome"));
@@ -128,7 +147,7 @@ export function DrawerSheet({
             onDeclared={(result) => {
               setDeclaration(result);
               if (result.status === "closed") {
-                onMessage(t("shift.closedWithin"));
+                onMessage(closedMessage(t("shift.closedWithin"), result.countedCash, result.variance));
                 onClosed();
               } else {
                 onMessage(t("shift.declared"));
@@ -439,7 +458,10 @@ function FinalizeCloseForm({
   cashSessionId: string;
   declaration: CashCloseDeclaration | null;
   context: CashCloseContext | null;
-  onOutcome: (outcome: "closed" | "rejected") => void;
+  onOutcome: (
+    outcome: "closed" | "rejected",
+    figures?: { countedCash: Money | null; variance: Money | null },
+  ) => void;
 }) {
   const { t } = useI18n();
   const action = useAction();
@@ -471,7 +493,7 @@ function FinalizeCloseForm({
         onSuccess: (result) => {
           // Never leave a manager's PIN sitting in a field on a shared till.
           setManagerPin("");
-          onOutcome(result.outcome);
+          onOutcome(result.outcome, { countedCash: counted, variance });
         },
       },
     );

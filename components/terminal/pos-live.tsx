@@ -50,27 +50,43 @@ import {
 
 import type { MenuItem, Order } from "@/lib/console/types";
 import { services, ServiceError, type Scope } from "@/lib/console/services";
+import { api } from "@/lib/api/endpoints";
+import {
+  toPosMenu,
+  type PosMenuItem,
+  type PosMenuModifierGroup,
+  type PosMenuVariant,
+} from "@/lib/console/services/pos-menu";
 import { useAsync, type AsyncState } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
+import type { ConsoleKey } from "@/locales";
 import { formatDateTime, formatMoney } from "@/lib/console/format";
 import { ORDER_LINE_STATE, ORDER_TYPE, TENDER_TYPE, labelOf } from "@/lib/console/labels";
 import {
-  getCashSessionId,
+  clearTerminalIdentity,
+  getOpenCashSession,
   getPendingCashOpen,
   getTerminalId,
-  setCashSessionId as persistCashSessionId,
+  isSignedIn,
+  onSessionChange,
+  setOpenCashSession,
   setPendingCashOpen,
   getPosEmployee,
-  setPosEmployee,
   getDeviceTenantId,
+  type OpenCashSession,
   type PosEmployee,
 } from "@/lib/api/session";
-import { api } from "@/lib/api/endpoints";
-import { signInWithPin } from "@/lib/api/auth";
+import { signInWithPin, signOffTerminal } from "@/lib/api/auth";
 import { deviceId } from "@/lib/api/ids";
-import { AsyncPanel } from "@/components/console/states";
-import { CashClosePolicyCard, DrawerSheet } from "@/components/terminal/pos-drawer";
+import {
+  isAlreadyOpenConflict,
+  isMine,
+  reconcileWithServer,
+  sameEmployee,
+} from "@/lib/console/cash-session-reconcile";
+import { AsyncPanel, ErrorPanel } from "@/components/console/states";
+import { DrawerSheet } from "@/components/terminal/pos-drawer";
 import {
   Badge,
   Button,
@@ -100,7 +116,8 @@ export function LivePos() {
   const { t } = useI18n();
   const { scope } = useSession();
 
-  const [cashSessionId, setSessionId] = useState<string | null>(null);
+  /** The drawer record this till is holding, whoever it belongs to. */
+  const [held, setHeld] = useState<OpenCashSession | null>(null);
   const [cashier, setCashier] = useState<PosEmployee | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -114,39 +131,144 @@ export function LivePos() {
    */
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
-    // The drawer the till had open before this reload. Without this the
-    // screen offers to open a second one, and the first becomes
-    // unreachable: the backend serves no cash-session index to find it in.
-    setSessionId(getCashSessionId());
-    setCashier(getPosEmployee());
+    const sync = () => {
+      // The drawer the till had open before this reload. Without this the
+      // screen offers to open a second one, and the first becomes
+      // unreachable: the backend serves no cash-session index to find it in.
+      setHeld(getOpenCashSession());
+
+      /*
+       * POS-CUSTODY — the TOKEN is what decides whether anyone is signed on,
+       * and `posEmployee` only names them.
+       *
+       * This gate used to be `getPosEmployee()` alone, and that is the whole
+       * bug: `posEmployee` is a display record that nothing ever cleared, so
+       * a till that still remembered the last cashier's NAME skipped the
+       * sign-on screen entirely — and then ran every request on whatever
+       * token was still in the terminal slot, which was that same previous
+       * cashier's. Nobody was asked to authenticate, so nobody could be. Ask
+       * the credential, not the caption.
+       */
+      setCashier(isSignedIn() ? getPosEmployee() : null);
+    };
+
+    sync();
     setMounted(true);
+    // Signing on, signing off and opening a drawer all announce, so this
+    // screen follows the till's real state rather than a copy of it taken
+    // once at mount — including when the sign-off button in the bar above
+    // is what changed it.
+    return onSessionChange(sync);
   }, []);
 
-  /** Write through, so the drawer survives the next reload too. */
-  const setCashSessionId = (next: string | null) => {
-    persistCashSessionId(next);
-    setSessionId(next);
-  };
+  /**
+   * PROD-POS-SESSION-RECOVERY-P0 — `cashier` was only ever read from storage
+   * once, above, on mount. A dead refresh token (an expired PIN session
+   * nobody renewed) makes `client.ts`'s `refreshSession()` call
+   * `clearSession()`, which correctly wipes the terminal token AND
+   * `posEmployee` from storage together — but this already-mounted tree
+   * never re-read that, so it kept rendering the stale cashier name and the
+   * Open Drawer screen, both now backed by nothing, while every request
+   * 401'd underneath them. Mirrors `lib/console/providers.tsx`'s own
+   * `onSessionChange` listener for the console surface: react to storage
+   * disappearing, not just read it once. `held` is dropped too — an
+   * employee identity that just evaporated cannot still vouch for a drawer.
+   */
+  useEffect(() => {
+    return onSessionChange(() => {
+      if (!isSignedIn()) {
+        setCashier(null);
+        setHeld(null);
+      }
+    });
+  }, []);
 
   const terminalId = mounted ? getTerminalId() : null;
 
-  /*
-   * The terminal this device is bound to, as the server describes it.
-   *
-   * Two things on this screen need it. `drawerId` must be a UUID the server
-   * will accept, and a till has exactly one drawer, so the terminal's own id
-   * is it — a cashier typing "DRAWER-1" was never going to pass validation.
-   * And the cash-close policy is published per branch, which on a POS is
-   * whichever branch the terminal belongs to, not a console-side selection
-   * the cashier may never have made.
-   */
-  const bound = useAsync(async () => {
-    if (!terminalId) return null;
-    const registered = await api.terminals.list().catch(() => []);
-    return registered.find((row) => row.id === terminalId) ?? null;
-  }, [terminalId]);
+  /** Write through, so the drawer survives the next reload too. */
+  const takeCashSession = (next: string | null) => {
+    if (next === null || !cashier || !terminalId) {
+      setOpenCashSession(null);
+      setHeld(null);
+      return;
+    }
 
-  const branchId = scope.branchId ?? bound.data?.branchId ?? null;
+    const record: OpenCashSession = {
+      cashSessionId: next,
+      employeeCode: cashier.code,
+      terminalId,
+    };
+
+    setOpenCashSession(record);
+    setHeld(record);
+  };
+
+  /*
+   * POS-CUSTODY — whether the drawer this till is holding is THIS cashier's.
+   *
+   * A LOCAL-ONLY check, and deliberately so: it has to run before the server
+   * call below ever fires, because that call is scoped to whoever is signed
+   * on NOW and can only ever answer for them — it has no way to say "yes,
+   * but it's someone else's" the way `held`'s own employee code can. This is
+   * also why a foreign `held` record must never be reconciled away just
+   * because the SIGNED-ON cashier's own server session comes back empty.
+   */
+  const mine = isMine(held, cashier, terminalId);
+  const blockedByForeignDrawer = held !== null && !mine;
+
+  /*
+   * The signed-on cashier's own open session, as the server describes it.
+   *
+   * Server truth wins over whatever storage remembered, including clearing
+   * a stale cash-session id the server no longer knows about — but only
+   * ever for THIS cashier's own record. Never asked while a foreign drawer
+   * is held: that request would only ever answer for the new cashier, and
+   * has nothing useful to say about somebody else's drawer.
+   */
+  const currentSession = useAsync(
+    () =>
+      mounted && cashier && !blockedByForeignDrawer
+        ? services.treasury.getCurrentSession()
+        : Promise.resolve(null),
+    [mounted, cashier?.code, blockedByForeignDrawer],
+  );
+
+  /*
+   * Deliberately NOT keyed on `held`/`blockedByForeignDrawer`, or on
+   * `cashier` itself: this runs once per fresh `currentSession` answer,
+   * reconciling whatever `held` was at THAT moment.
+   *
+   * Two things would each replay a STALE server snapshot against state a
+   * later action already moved on from, and both bit in exactly the same
+   * way — wiping a drawer this same render cycle had just opened:
+   *
+   *  - Keying on `held` itself: reruns on every `takeCashSession`, including
+   *    the one this effect just performed.
+   *  - Keying on the `cashier` OBJECT: `getPosEmployee()` (in `sync()` above)
+   *    `JSON.parse`s a NEW object on every call, so a completely unrelated
+   *    `announce()` — such as the one `takeCashSession`'s own
+   *    `setOpenCashSession` fires — hands this a referentially-new-but-
+   *    identical `cashier` and reruns it anyway. `cashier?.code` is the
+   *    stable primitive `useAsync`'s own deps already key on below.
+   *
+   * `takeCashSession`/`onSessionChange` are what react to everything that
+   * happens AFTER this fetch; this effect only ever settles the fetch itself.
+   */
+  useEffect(() => {
+    if (!mounted || !cashier || blockedByForeignDrawer) return;
+    if (currentSession.loading || currentSession.error) return;
+
+    const action = reconcileWithServer({
+      held,
+      serverCashSessionId: currentSession.data ? currentSession.data.cashSessionId : null,
+    });
+
+    if (action.type === "restore") takeCashSession(action.cashSessionId);
+    else if (action.type === "clear") takeCashSession(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, cashier?.code, currentSession.loading, currentSession.error, currentSession.data]);
+
+  const cashSessionId = mine && held ? held.cashSessionId : null;
 
   if (!mounted) {
     return (
@@ -191,13 +313,63 @@ export function LivePos() {
         <div className="mx-auto w-full max-w-md p-4">
           <CashierSignOn
             terminalId={terminalId}
-            onSignedOn={(next) => {
-              setCashier(next);
-              setMessage(t("shift.signedOn"));
+            // `onSessionChange` above already re-reads who is on the till,
+            // so there is nothing to hand back but the confirmation.
+            onSignedOn={() => setMessage(t("shift.signedOn"))}
+          />
+          <Toast message={message} />
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * POS-CUSTODY — a drawer is open here, and it is not this cashier's.
+   *
+   * The old code had no such state: it read the bare id and used it, so this
+   * cashier would have been put straight into someone else's shift. Neither
+   * silent option is right. Adopting it books their sales against the other
+   * employee's close report; deleting it strands real money in a real box
+   * with no `GET /cash-sessions` to find it again. So the till says whose it
+   * is and offers the two things a person can actually do about it.
+   */
+  if (blockedByForeignDrawer && held) {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-md p-4">
+          <ForeignDrawer
+            held={held}
+            cashier={cashier}
+            onForget={() => {
+              setOpenCashSession(null);
+              setHeld(null);
+              setMessage(t("shift.foreignForgotten"));
             }}
           />
           <Toast message={message} />
         </div>
+      </div>
+    );
+  }
+
+  if (currentSession.loading && currentSession.data === null) {
+    return (
+      <div className="text-fg-muted flex flex-1 items-center justify-center gap-2 p-8 text-sm">
+        <Spinner /> {t("shift.checkingSession")}
+      </div>
+    );
+  }
+
+  if (currentSession.error) {
+    // A 401 already ran its own recovery in `client.ts` — a session that is
+    // genuinely gone clears `cashier` via the `onSessionChange` listener
+    // above, which sends this render back to `CashierSignOn` before it ever
+    // reaches here. What lands here is a real, recoverable failure (403,
+    // 5xx, offline) — FR-CASH-RECOVERY item F: never silently treated as
+    // "no session open", always a retryable error.
+    return (
+      <div className="mx-auto min-h-0 w-full max-w-md flex-1 overflow-y-auto p-4">
+        <ErrorPanel error={currentSession.error} onRetry={currentSession.reload} />
       </div>
     );
   }
@@ -208,9 +380,16 @@ export function LivePos() {
      * layout is `h-dvh overflow-hidden` — a POS must never scroll the page
      * out from under a cashier mid-service. So the pane scrolls, not the
      * document. Without `min-h-0` the flex child refuses to shrink below its
-     * content and the overflow never engages, which is what put the policy
-     * card's Publish button off the bottom of the screen with no way to
-     * reach it.
+     * content and the overflow never engages.
+     *
+     * No cash-close policy card here (GOLDEN-PATH-FINAL-INTEGRATION): the
+     * endpoint it published through is a dashboard/back-office route that
+     * `JwtAuthGuard` refuses for every PIN-issued session by construction
+     * (FR-SEC-021, `typ: 'pos'`) — a cashier signed onto this till could
+     * never actually publish through it, only see a form that 403s. The
+     * real surface is the Owner/authorized-manager admin page at
+     * Finance -> Cash-close policy, gated on `settings.branch.manage` and
+     * unreachable from a PIN session.
      */
     return (
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -218,15 +397,16 @@ export function LivePos() {
           <OpenDrawer
             cashier={cashier}
             onNeedsSignOn={() => {
-              // The token stopped identifying an employee — a refresh can
-              // re-scope it back to the console user. Ask again rather than
-              // leaving a dead button behind a stale name.
-              setPosEmployee(null);
-              setCashier(null);
+              // The token stopped identifying an employee — a refresh replays
+              // the tenant and terminal scope but never the PIN, so it comes
+              // back as a plain user token. Clear the whole terminal identity
+              // rather than just the name: a token that cannot take custody
+              // of a drawer is not a till session, and leaving it in place is
+              // what let the next person inherit one.
+              clearTerminalIdentity();
             }}
-            onOpened={setCashSessionId}
+            onOpened={takeCashSession}
           />
-          <CashClosePolicyCard branchId={branchId} onMessage={setMessage} />
           <Toast message={message} />
         </div>
       </div>
@@ -265,13 +445,14 @@ export function LivePos() {
       <DrawerSheet
         open={drawer}
         cashSessionId={cashSessionId}
+        cashierName={cashier.name}
         onClose={() => setDrawer(false)}
         onMessage={setMessage}
         onClosed={() => {
           // The session is gone; so is anything that referenced it, and so
           // is the stored id — a closed drawer must not come back on reload.
           setDrawer(false);
-          setCashSessionId(null);
+          takeCashSession(null);
           setOrder(null);
         }}
       />
@@ -297,7 +478,7 @@ function CashierSignOn({
   onSignedOn,
 }: {
   terminalId: string;
-  onSignedOn: (employee: PosEmployee) => void;
+  onSignedOn: () => void;
 }) {
   const { t } = useI18n();
   const action = useAction();
@@ -311,15 +492,12 @@ function CashierSignOn({
     if (!valid || !tenantId) return;
     const code = employeeCode.trim();
     await action.run(
-      async () => {
-        await signInWithPin({ tenantId, terminalId, employeeCode: code, pin });
-        return getPosEmployee() ?? { code, name: code };
-      },
+      () => signInWithPin({ tenantId, terminalId, employeeCode: code, pin }),
       {
-        onSuccess: (employee) => {
+        onSuccess: () => {
           // Never leave a PIN sitting in a field on a shared till.
           setPin("");
-          onSignedOn(employee);
+          onSignedOn();
         },
       },
     );
@@ -365,6 +543,81 @@ function CashierSignOn({
         >
           {t("shift.signOn")}
         </Button>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * POS-CUSTODY — the drawer open at this till belongs to somebody else.
+ *
+ * Reached when the stored session's employee code is not the one signed on
+ * (or is missing entirely, from a record written before custody was tracked).
+ * The two ways out are both deliberate, and neither is "carry on":
+ *
+ *  - Sign off, so the employee who owns it can sign on and close it. This is
+ *    the normal path and the one the copy leads with — the drawer is theirs,
+ *    the count is theirs, the variance goes against their name.
+ *  - Forget it here, for the case where it is genuinely stale: closed from
+ *    another device, or from a shift that ended days ago. Named honestly,
+ *    because it does not close anything — it only stops this till pointing
+ *    at it.
+ */
+function ForeignDrawer({
+  held,
+  cashier,
+  onForget,
+}: {
+  held: OpenCashSession;
+  cashier: PosEmployee;
+  onForget: () => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction();
+
+  return (
+    <Card>
+      <CardHeader title={t("shift.foreignTitle")} spec="FR-FIN-002" />
+
+      <Callout tone="warn">
+        {held.employeeCode
+          ? t("shift.foreignNote").replace("{code}", held.employeeCode)
+          : t("shift.foreignUnknownNote")}
+      </Callout>
+
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+      <div className="mt-4">
+        <DescList>
+          <DescRow label={t("shift.foreignOwner")}>
+            {held.employeeCode || t("shift.foreignOwnerUnknown")}
+          </DescRow>
+          <DescRow label={t("shift.foreignSignedOn")}>{cashier.name}</DescRow>
+          <DescRow label={t("shift.foreignSession")} mono>
+            <span dir="ltr">{held.cashSessionId}</span>
+          </DescRow>
+        </DescList>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        <Button
+          variant="primary"
+          className="w-full"
+          loading={action.pending}
+          onClick={() => {
+            // `signOffTerminal` announces, so the screen behind this one
+            // re-reads and lands on the sign-on card by itself.
+            void action.run(() => signOffTerminal());
+          }}
+        >
+          {t("shift.signOff")}
+        </Button>
+        <Button className="w-full" onClick={onForget}>
+          {t("shift.foreignForget")}
+        </Button>
+        <p className="text-fg-subtle text-xs leading-relaxed">
+          {t("shift.foreignForgetNote")}
+        </p>
       </div>
     </Card>
   );
@@ -429,15 +682,55 @@ function OpenDrawer({
      * an open of a genuinely different drawer or float.
      */
     const previous = getPendingCashOpen();
-    const ids =
-      previous && previous.drawerId === drawer && previous.openingFloat === openingFloat
-        ? { cashSessionId: previous.cashSessionId, shiftId: previous.shiftId }
-        : { cashSessionId: deviceId(), shiftId: deviceId() };
+    const resumable =
+      previous !== null &&
+      previous.drawerId === drawer &&
+      previous.openingFloat === openingFloat &&
+      // POS-CUSTODY — and it was THIS cashier who started it. Someone else's
+      // unanswered attempt is not ours to finish: replaying their ids would
+      // claim their half-open drawer, at their float, under our token.
+      sameEmployee(previous.employeeCode, cashier.code);
 
-    setPendingCashOpen({ ...ids, drawerId: drawer, openingFloat });
+    const ids = resumable
+      ? { cashSessionId: previous.cashSessionId, shiftId: previous.shiftId }
+      : { cashSessionId: deviceId(), shiftId: deviceId() };
+
+    setPendingCashOpen({
+      ...ids,
+      drawerId: drawer,
+      openingFloat,
+      employeeCode: cashier.code,
+    });
 
     await action.run(
-      () => services.treasury.openCashSession({ drawerId: drawer, openingFloat, ids }),
+      async () => {
+        try {
+          return await services.treasury.openCashSession({ drawerId: drawer, openingFloat, ids });
+        } catch (caught) {
+          /*
+           * BUG-2 — "you already have an open shift" is not a dead end.
+           *
+           * It means this cashier's own session is open on the backend even
+           * though this till's local storage lost track of it (a different
+           * device closed it and reopened one, storage was cleared, or a
+           * previous open genuinely landed under ids this attempt did not
+           * replay). Fetching the authoritative current session and
+           * resuming it — as a normal success, not a workaround — is the
+           * recovery: never leaving the cashier stuck behind a raw 409, and
+           * never opening a second drawer over the one that already exists.
+           */
+          if (caught instanceof ServiceError && isAlreadyOpenConflict(caught)) {
+            const current = await services.treasury.getCurrentSession();
+            if (current) {
+              return { cashSessionId: current.cashSessionId, shiftId: current.shiftId, created: false };
+            }
+            // No current session despite the conflict is a genuine race
+            // (closed between the 409 and this read) — fall through to the
+            // real error so a retry is what the cashier sees, not a hang.
+          }
+          throw caught;
+        }
+      },
       {
         onSuccess: (result) => {
           // Answered, so there is nothing left to resume.
@@ -449,7 +742,11 @@ function OpenDrawer({
           // re-scope it back to the console user. Nothing was opened, so
           // the pending record would only replay a request that cannot
           // succeed until someone signs on again.
-          if (/employee/i.test(failure.message) || failure.code === "UNAUTHENTICATED") {
+          if (
+            /employee/i.test(failure.message) ||
+            failure.code === "UNAUTHENTICATED" ||
+            failure.code === "SESSION_EXPIRED"
+          ) {
             setPendingCashOpen(null);
             onNeedsSignOn();
           }
@@ -482,7 +779,9 @@ function OpenDrawer({
             // `drawers.error` is checked first, always.
             <Callout tone="bad">
               {drawers.error instanceof ServiceError &&
-              (drawers.error.code === "UNAUTHENTICATED" || drawers.error.code === "FORBIDDEN")
+              (drawers.error.code === "UNAUTHENTICATED" ||
+                drawers.error.code === "FORBIDDEN" ||
+                drawers.error.code === "SESSION_EXPIRED")
                 ? t("shift.drawerAuthError")
                 : drawers.error.message || t("common.actionFailed")}
             </Callout>
@@ -661,7 +960,19 @@ function NewOrderPane({
 
 // ---------------------------------------------------------------------------
 
-/** The sellable catalogue: items, their variants, and the prices in force. */
+/**
+ * The sellable catalogue for this order — DEMO-POS-MENU-FRONTEND-INTEGRATION-P0.
+ *
+ * The ONLY POS-safe menu read is `GET /catalogue/pos-menu`
+ * (DEMO-POS-MENU-BACKEND-P0): it derives the branch from this terminal's own
+ * session and needs no `branchId`, unlike the tenant-wide catalogue admin
+ * reads (`/catalogue/items`, `/catalogue/availability-rules`, price lists)
+ * those require permissions a Cashier session does not hold and this screen
+ * must never call. `orderType` is the one supported optional filter, so the
+ * order this pane belongs to is re-read whenever the order (or its type)
+ * changes — a dine-in menu can legitimately differ from a takeaway one
+ * (FR-MNU-002).
+ */
 function MenuPane({
   order,
   onOrder,
@@ -671,31 +982,40 @@ function MenuPane({
   onOrder: (order: Order) => void;
   onMessage: (message: string) => void;
 }) {
-  const { t, tx, fmt } = useI18n();
+  const { t, tx } = useI18n();
   const action = useAction();
   const [search, setSearch] = useState("");
+  const [categoryId, setCategoryId] = useState<string>("all");
+  const [chosen, setChosen] = useState<PosMenuItem | null>(null);
 
-  const items = useAsync(() => services.catalogue.items.list({ limit: 500 }), []);
+  const menuState = useAsync(
+    () => api.catalogue.getPosMenu({ orderType: order.orderType }).then(toPosMenu),
+    [order.id, order.orderType],
+  );
 
-  const filtered = useMemo(() => {
-    const rows = items.data?.rows ?? [];
-    const needle = search.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter(
-      (row) =>
-        row.name.en.toLowerCase().includes(needle) ||
-        row.name.ar.includes(search.trim()) ||
-        row.kitchenName.en.toLowerCase().includes(needle),
+  async function addSimple(item: PosMenuItem) {
+    // Only reachable once `onTap` has already confirmed `isSellable(item)`,
+    // which requires at least one entry here — this is a defensive
+    // safety net, not the real gate (DEMO-CATALOGUE-POS-ADD-P0: a click
+    // that reaches this function with nothing to add must never do
+    // nothing silently, so it stays a no-op only because the tile that
+    // would have called it is disabled, never because this swallowed it).
+    const variant = sellableVariants(item)[0];
+    if (!variant) return;
+    const defaults = item.modifierGroups.flatMap((group) =>
+      group.modifiers.filter((m) => m.isDefault).map((m) => ({ modifierId: m.id })),
     );
-  }, [items.data, search]);
-
-  async function add(item: MenuItem, variantId: string) {
     await action.run(
       () =>
         services.sales.mutations.addLine(
           order.businessDay,
           order.id,
-          { menuItemId: item.id, variantId, quantity: "1" },
+          {
+            menuItemId: item.id,
+            variantId: variant.id,
+            quantity: "1",
+            modifiers: defaults.length > 0 ? defaults : undefined,
+          },
           { ifMatch: orderVersion(order) },
         ),
       {
@@ -705,6 +1025,19 @@ function MenuPane({
         },
       },
     );
+  }
+
+  function onTap(item: PosMenuItem) {
+    if (!isSellable(item) || action.pending) return;
+    // A single variant with no required choice goes straight onto the
+    // order (NFR-USA-001); anything else opens the picker.
+    const needsChoice =
+      item.variants.length > 1 || item.modifierGroups.some((group) => group.isRequired);
+    if (needsChoice) {
+      setChosen(item);
+      return;
+    }
+    void addSimple(item);
   }
 
   return (
@@ -717,99 +1050,407 @@ function MenuPane({
 
       {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
 
-      <AsyncPanel state={items} isEmpty={() => filtered.length === 0}>
-        {() => (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {filtered.map((item) => (
-              <ItemTile
-                key={item.id}
-                item={item}
-                busy={action.pending}
-                onAdd={(variantId) => add(item, variantId)}
-              />
-            ))}
-          </div>
-        )}
+      <AsyncPanel
+        state={menuState}
+        isEmpty={(menu) => menu.items.length === 0}
+        empty={<Callout tone="muted">{t("pos.noMenuConfigured")}</Callout>}
+      >
+        {(menu) => {
+          const categories = menu.categories.filter((category) =>
+            menu.items.some((item) => category.itemIds.includes(item.id)),
+          );
+          const needle = search.trim().toLowerCase();
+          const filtered = menu.items
+            .filter(
+              (item) =>
+                categoryId === "all" ||
+                (categories.find((c) => c.id === categoryId)?.itemIds.includes(item.id) ?? false),
+            )
+            .filter(
+              (item) =>
+                !needle ||
+                item.name.en.toLowerCase().includes(needle) ||
+                item.name.ar.includes(search.trim()),
+            );
+
+          return (
+            <div className="space-y-3">
+              {menu.warning ? <Callout tone="warn">{menu.warning}</Callout> : null}
+
+              {categories.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  <CategoryChip
+                    active={categoryId === "all"}
+                    colour="var(--c-accent)"
+                    onClick={() => setCategoryId("all")}
+                  >
+                    {t("pos.allCategories")}
+                  </CategoryChip>
+                  {categories.map((category) => (
+                    <CategoryChip
+                      key={category.id}
+                      active={categoryId === category.id}
+                      colour={category.colour ?? "var(--c-accent)"}
+                      onClick={() => setCategoryId(category.id)}
+                    >
+                      {tx(category.name)}
+                    </CategoryChip>
+                  ))}
+                </div>
+              ) : null}
+
+              {filtered.length === 0 ? (
+                <p className="text-fg-subtle p-6 text-center text-sm">{t("pos.noItems")}</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {filtered.map((item) => (
+                    <PosItemTile
+                      key={item.id}
+                      item={item}
+                      disabled={action.pending}
+                      onTap={() => onTap(item)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        }}
       </AsyncPanel>
+
+      {chosen ? (
+        <ItemSheet
+          item={chosen}
+          order={order}
+          onClose={() => setChosen(null)}
+          onAdded={(next) => {
+            setChosen(null);
+            onOrder(next);
+            onMessage(t("pos.lineAdded"));
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
 /**
- * One sellable item.
- *
- * A line references a *variant*, not an item, so an item whose variants have
- * not loaded cannot be rung up — and says so rather than sending a request
- * that is guaranteed to 400.
+ * DEMO-CATALOGUE-POS-ADD-P0 — an item can appear in `pos-menu` and still have
+ * nothing a tap could actually add: no variant at all (created but never
+ * given one), or every variant either 86'd or missing a resolved price
+ * (`price: null` — no PriceListEntry covers it). `isAvailable` alone does
+ * not catch either case, which is exactly how a click used to reach
+ * `addSimple` with no variant to send and silently do nothing. A tile must
+ * read as disabled with a reason instead of swallowing the tap.
  */
-function ItemTile({
-  item,
-  busy,
-  onAdd,
+function sellableVariants(item: PosMenuItem): PosMenuVariant[] {
+  return item.variants.filter((v) => v.isAvailable && v.price !== null);
+}
+
+function isSellable(item: PosMenuItem): boolean {
+  return item.isAvailable && sellableVariants(item).length > 0;
+}
+
+/** Why a tile is disabled, or null when it is not. */
+function unsellableReason(
+  item: PosMenuItem,
+  t: (key: ConsoleKey) => string,
+): string | null {
+  if (!item.isAvailable) return t("pos.eightySixed");
+  if (sellableVariants(item).length === 0) return t("pos.notConfigured");
+  return null;
+}
+
+function CategoryChip({
+  active,
+  colour,
+  onClick,
+  children,
 }: {
-  item: MenuItem;
-  busy: boolean;
-  onAdd: (variantId: string) => void;
+  active: boolean;
+  colour: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cx(
+        "shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors",
+        active ? "text-white" : "border-line bg-raised text-fg-muted hover:text-fg",
+      )}
+      style={active ? { background: colour, borderColor: colour } : undefined}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** One sellable item, priced and resolved for this branch by `pos-menu`. */
+function PosItemTile({
+  item,
+  disabled,
+  onTap,
+}: {
+  item: PosMenuItem;
+  disabled: boolean;
+  onTap: () => void;
 }) {
   const { t, tx, fmt } = useI18n();
-  const [picking, setPicking] = useState(false);
-
-  const detail = useAsync(
-    async () => (picking ? services.catalogue.items.get(item.id) : null),
-    [picking, item.id],
-  );
-
-  const variants = detail.data?.variants ?? [];
+  const variant = sellableVariants(item)[0] ?? item.variants[0] ?? null;
+  const reason = unsellableReason(item, t);
 
   return (
-    <>
-      <button
-        type="button"
-        disabled={busy || !item.available}
-        onClick={() => setPicking(true)}
-        className="border-line bg-raised hover:border-accent focus-visible:border-accent flex min-h-20 flex-col justify-between rounded-lg border p-2.5 text-start transition-colors disabled:opacity-50"
-      >
-        <span className="text-fg line-clamp-2 text-xs font-medium">{tx(item.name)}</span>
-        {!item.available ? (
-          <Badge tone="bad">{t("menu.unavailable")}</Badge>
+    <button
+      type="button"
+      disabled={disabled || reason !== null}
+      onClick={onTap}
+      className="border-line bg-raised hover:border-accent focus-visible:border-accent flex min-h-20 flex-col justify-between rounded-lg border p-2.5 text-start transition-colors disabled:opacity-50"
+    >
+      <span className="text-fg line-clamp-2 text-xs font-medium">{tx(item.name)}</span>
+      <span className="mt-1 flex items-center justify-between gap-1.5">
+        {reason !== null ? (
+          <Badge tone={!item.isAvailable ? "bad" : "warn"}>{reason}</Badge>
         ) : (
-          <span className="text-fg-subtle mt-1 text-xs">{item.imageEmoji}</span>
+          <span className="text-fg-subtle text-xs tabular-nums">
+            {variant?.price ? formatMoney(variant.price, fmt, true) : "—"}
+          </span>
         )}
-      </button>
+        {item.variants.length > 1 ? (
+          <span className="text-fg-subtle text-[0.65rem]">
+            {item.variants.length} {t("pos.variant").toLowerCase()}
+          </span>
+        ) : null}
+      </span>
+    </button>
+  );
+}
 
-      {picking ? (
-        <Drawer open onClose={() => setPicking(false)} title={tx(item.name)}>
-          <AsyncPanel
-            state={detail}
-            isEmpty={() => variants.length === 0}
-            empty={<Callout tone="warn">{t("pos.noSellableVariant")}</Callout>}
+/**
+ * Variant + modifier picker (FR-POS-013/020/021) — opened only for an item
+ * with more than one variant or a required modifier group; everything else
+ * goes straight onto the order from the tile itself.
+ *
+ * The price shown here is `pos-menu`'s own resolved price plus the selected
+ * deltas — a preview only. Sales prices the line for real when the add
+ * actually lands, so nothing here is duplicated pricing logic, just a
+ * client-side echo of the same numbers the server already sent.
+ */
+function ItemSheet({
+  item,
+  order,
+  onClose,
+  onAdded,
+}: {
+  item: PosMenuItem;
+  order: Order;
+  onClose: () => void;
+  onAdded: (order: Order) => void;
+}) {
+  const { t, tx, fmt } = useI18n();
+  const action = useAction();
+
+  const [variantId, setVariantId] = useState(
+    sellableVariants(item)[0]?.id ??
+      item.variants.find((v) => v.isAvailable)?.id ??
+      item.variants[0]?.id ??
+      "",
+  );
+  const [quantity, setQuantity] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(
+    () =>
+      new Set(
+        item.modifierGroups.flatMap((group) =>
+          group.modifiers.filter((m) => m.isDefault).map((m) => m.id),
+        ),
+      ),
+  );
+
+  const variant = item.variants.find((v) => v.id === variantId) ?? null;
+  // DEMO-CATALOGUE-POS-ADD-P0 — a variant with no resolved price is not
+  // addable: Sales would 4xx it, and a picker that lets that submit and
+  // fail is a worse "not silent" than simply not offering it. The badge
+  // beside the variant button (below) says why.
+  const unpriced = variant !== null && variant.price === null;
+
+  // FR-POS-020 — only a REQUIRED group gates the add, and needs at least
+  // one selection even when it declares no explicit minimum.
+  const missing = item.modifierGroups.filter((group) => {
+    if (!group.isRequired) return false;
+    const count = group.modifiers.filter((m) => selected.has(m.id)).length;
+    return count < Math.max(1, group.minSelections);
+  });
+
+  const extra = item.modifierGroups
+    .flatMap((group) => group.modifiers)
+    .filter((m) => selected.has(m.id))
+    .reduce((sum, m) => sum + m.priceDelta.amount, 0);
+
+  function toggle(group: PosMenuModifierGroup, modifierId: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(modifierId)) {
+        next.delete(modifierId);
+        return next;
+      }
+      if (group.maxSelections === 1) {
+        for (const m of group.modifiers) next.delete(m.id);
+      } else {
+        const count = group.modifiers.filter((m) => next.has(m.id)).length;
+        if (count >= group.maxSelections) return current;
+      }
+      next.add(modifierId);
+      return next;
+    });
+  }
+
+  async function submit() {
+    if (!variant || !variant.isAvailable || unpriced || missing.length > 0) return;
+    await action.run(
+      () =>
+        services.sales.mutations.addLine(
+          order.businessDay,
+          order.id,
+          {
+            menuItemId: item.id,
+            variantId: variant.id,
+            quantity: String(quantity),
+            modifiers: selected.size > 0 ? [...selected].map((modifierId) => ({ modifierId })) : undefined,
+          },
+          { ifMatch: orderVersion(order) },
+        ),
+      { onSuccess: onAdded },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={tx(item.name)}
+      footer={
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            loading={action.pending}
+            disabled={!variant || !variant.isAvailable || unpriced || missing.length > 0}
+            onClick={submit}
           >
-            {() => (
-              <ul className="divide-line divide-y">
-                {variants.map((variant) => (
-                  <li key={variant.id}>
-                    <button
-                      type="button"
-                      disabled={!variant.available}
-                      onClick={() => {
-                        setPicking(false);
-                        onAdd(variant.id);
-                      }}
-                      className="hover:bg-sunken flex w-full items-center justify-between gap-3 px-1 py-3 text-start transition-colors disabled:opacity-50"
-                    >
-                      <span className="text-fg text-sm">{tx(variant.name)}</span>
-                      <span className="text-fg font-mono text-sm tabular-nums">
-                        {formatMoney(variant.basePrice, fmt)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+            {t("pos.addToOrder")} ·{" "}
+            {formatMoney(
+              { amount: ((variant?.price?.amount ?? 0) + extra) * quantity, currency: order.currency },
+              fmt,
             )}
-          </AsyncPanel>
-        </Drawer>
-      ) : null}
-    </>
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        {unpriced ? <Callout tone="warn">{t("pos.noPriceConfigured")}</Callout> : null}
+
+        {missing.length > 0 ? (
+          <Callout tone="warn" title={t("pos.required")}>
+            {missing.map((g) => tx(g.name)).join(" · ")}
+          </Callout>
+        ) : null}
+
+        {item.variants.length > 1 ? (
+          <Field label={t("pos.variant")}>
+            <div className="flex flex-wrap gap-1.5">
+              {item.variants.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  disabled={!v.isAvailable}
+                  onClick={() => setVariantId(v.id)}
+                  className={cx(
+                    "rounded-lg border px-3 py-2 text-sm transition-colors disabled:opacity-40",
+                    v.id === variantId
+                      ? "border-accent bg-accent-soft text-accent font-medium"
+                      : "border-line bg-raised text-fg-muted hover:text-fg",
+                  )}
+                >
+                  {tx(v.name)}
+                  {!v.isAvailable ? (
+                    <Badge tone="bad" className="ms-2">
+                      {t("pos.eightySixed")}
+                    </Badge>
+                  ) : v.price === null ? (
+                    <Badge tone="warn" className="ms-2">
+                      {t("pos.notConfigured")}
+                    </Badge>
+                  ) : (
+                    <span className="text-fg-subtle ms-2 text-xs tabular-nums">
+                      {formatMoney(v.price, fmt, true)}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </Field>
+        ) : null}
+
+        {item.modifierGroups.map((group) => (
+          <div key={group.id}>
+            <div className="mb-1.5 flex items-center gap-2">
+              <h3 className="text-fg text-xs font-semibold">{tx(group.name)}</h3>
+              {group.isRequired ? <Badge tone="accent">{t("pos.required")}</Badge> : null}
+              <span className="text-fg-subtle text-xs">
+                {group.maxSelections === 1
+                  ? ""
+                  : t("pos.chooseUpTo").replace("{n}", String(group.maxSelections))}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {group.modifiers.map((m) => {
+                const on = selected.has(m.id);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => toggle(group, m.id)}
+                    className={cx(
+                      "rounded-lg border px-3 py-2 text-sm transition-colors",
+                      on
+                        ? "border-accent bg-accent-soft text-accent font-medium"
+                        : "border-line bg-raised text-fg-muted hover:text-fg",
+                      m.kind === "removal" && on && "border-bad/40 bg-bad-soft text-bad",
+                    )}
+                  >
+                    <span aria-hidden className="me-1 font-mono text-xs">
+                      {m.kind === "removal" ? "−" : m.kind === "addition" ? "+" : "⇄"}
+                    </span>
+                    {tx(m.name)}
+                    {m.priceDelta.amount !== 0 ? (
+                      <span className="text-fg-subtle ms-1.5 text-xs tabular-nums">
+                        {m.priceDelta.amount > 0 ? "+" : ""}
+                        {formatMoney(m.priceDelta, fmt, true)}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        <Field label={t("pos.quantity")}>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => setQuantity((q) => Math.max(1, q - 1))}>−</Button>
+            <span className="text-fg w-10 text-center text-lg font-semibold tabular-nums">
+              {quantity}
+            </span>
+            <Button onClick={() => setQuantity((q) => Math.min(99, q + 1))}>+</Button>
+          </div>
+        </Field>
+      </div>
+    </Drawer>
   );
 }
 
@@ -1162,7 +1803,16 @@ function VoidLineDrawer({
     "wasted",
   );
 
-  const reasons = useAsync(() => services.inventory.reasonCodes(), []);
+  // DEMO-POS-P0-5 — reason codes are for a void, never for rendering the
+  // menu: fetched only once this sheet actually has a line to void, not
+  // unconditionally on every mount. This component stays mounted (with
+  // `lineId` toggling null/non-null) for as long as an order is open, so an
+  // ungated fetch here fired `GET /inventory/reason-codes` on every order,
+  // not on demand.
+  const reasons = useAsync(
+    async () => (lineId ? services.inventory.reasonCodes() : []),
+    [lineId],
+  );
 
   const line = order.lines.find((l) => l.id === lineId) ?? null;
   if (!lineId || !line) return null;
@@ -1496,7 +2146,12 @@ function CompDrawer({
   const action = useAction();
   const [reasonCodeId, setReasonCodeId] = useState("");
 
-  const reasons = useAsync(() => services.inventory.reasonCodes(), []);
+  // DEMO-POS-P0-5 — see the identical note in `VoidLineDrawer`: gated on
+  // `lineId`, not fetched unconditionally on every mount.
+  const reasons = useAsync(
+    async () => (lineId ? services.inventory.reasonCodes() : []),
+    [lineId],
+  );
 
   const line = lineId ? (order.lines.find((l) => l.id === lineId) ?? null) : null;
   if (!lineId || !line) return null;

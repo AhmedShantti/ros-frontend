@@ -23,6 +23,7 @@ export const PERMISSION_GROUPS = [
   "cash",
   "inventory",
   "catalogue",
+  "customers",
   "procurement",
   "costing",
   "workforce",
@@ -161,12 +162,24 @@ export const PERMISSION_CATALOGUE = [
     "See item valuation and cost per unit.", "عرض تقييم الأصناف والتكلفة لكل وحدة."),
 
   // -- Catalogue and recipes -----------------------------------------------
-  def("menu.view", "catalogue", "View menu", "عرض القائمة",
+  //
+  // These six catalogue keys are the real backend permission codes
+  // (DEMO-CATALOGUE-P0) — not the console's own invention, unlike most of
+  // this file. There used to be a seventh, "menu.view", standing in for all
+  // of them at once; the backend has never granted that code, so any screen
+  // gated on it alone locked out every real session, Owner included, the
+  // moment `providers.tsx` trusted the server's own granted set over the
+  // role heuristic. Keep new catalogue permissions to these six real codes.
+  def("menu.item.read", "catalogue", "View menu items", "عرض أصناف القائمة",
     "See categories, items, modifiers and combos.", "الاطلاع على الفئات والأصناف والإضافات والوجبات."),
   def("menu.item.manage", "catalogue", "Manage menu items", "إدارة أصناف القائمة",
     "Create and edit menu items and modifiers.", "إنشاء أصناف القائمة والإضافات وتعديلها."),
+  def("menu.price.read", "catalogue", "View prices", "عرض الأسعار",
+    "See prices and price lists.", "الاطلاع على الأسعار وقوائم الأسعار."),
   def("menu.price.change", "catalogue", "Change prices", "تغيير الأسعار",
     "Change prices and manage price lists.", "تغيير الأسعار وإدارة قوائم الأسعار.", true),
+  def("menu.availability.read", "catalogue", "View availability", "عرض التوفر",
+    "See which items and variants are marked unavailable (86).", "الاطلاع على الأصناف والخيارات غير المتاحة."),
   def("menu.availability.toggle", "catalogue", "Toggle availability", "تبديل التوفر",
     "Mark an item unavailable (86) and restore it.", "وضع صنف كغير متوفر وإعادته."),
   def("recipe.view", "catalogue", "View recipes", "عرض الوصفات",
@@ -267,6 +280,28 @@ export const PERMISSION_CATALOGUE = [
     "Cross-tenant administration from the platform console.", "إدارة عابرة للمستأجرين من وحدة تحكم المنصة.", true),
   def("platform.countrypack.manage", "platform", "Manage country packs", "إدارة حزم الدول",
     "Publish and version country packs.", "نشر حزم الدول وإصدار نسخها.", true),
+
+  // -- Customers and loyalty — SRS ch.18 -----------------------------------
+  def("crm.customer.view", "customers", "View customers", "عرض العملاء",
+    "See the customer list, a customer's detail and their order history.", "الاطلاع على قائمة العملاء وتفاصيلهم وسجل طلباتهم."),
+  def("crm.customer.manage", "customers", "Manage customers", "إدارة العملاء",
+    "Create and edit customer records, addresses and tags.", "إنشاء سجلات العملاء وعناوينهم ووسومهم وتعديلها."),
+  def("crm.customer.block", "customers", "Block customers", "حظر العملاء",
+    "Prevent on-account sales or delivery to a customer.", "منع البيع بالآجل أو التوصيل لعميل معيّن.", true),
+  def("crm.customer.erase", "customers", "Erase customer data", "محو بيانات العميل",
+    "Anonymise a customer on request. The financial record is retained as the law requires.", "إخفاء هوية العميل عند الطلب مع الاحتفاظ بالسجل المالي كما يقتضي القانون.", true),
+  def("crm.customer.export", "customers", "Export customer data", "تصدير بيانات العملاء",
+    "Export a customer's data, or a marketing segment subject to consent.", "تصدير بيانات عميل أو شريحة تسويقية وفق الموافقات المسجَّلة.", true),
+  def("crm.loyalty.view", "customers", "View loyalty", "عرض الولاء",
+    "See loyalty balances, tiers and the points ledger.", "الاطلاع على أرصدة الولاء والمستويات وسجل النقاط."),
+  def("crm.loyalty.manage", "customers", "Manage loyalty programme", "إدارة برنامج الولاء",
+    "Configure earn and redemption rates, tiers and expiry.", "ضبط معدلات الكسب والاستبدال والمستويات وانتهاء الصلاحية.", true),
+  def("crm.loyalty.adjust", "customers", "Adjust points", "تعديل النقاط",
+    "Add or remove points from a customer's balance by hand.", "إضافة نقاط إلى رصيد عميل أو خصمها يدويًا.", true),
+  def("crm.promotion.view", "customers", "View promotions", "عرض العروض",
+    "See promotions, coupons and their performance.", "الاطلاع على العروض والكوبونات وأدائها."),
+  def("crm.promotion.manage", "customers", "Manage promotions", "إدارة العروض",
+    "Create and edit promotions, and generate coupon codes.", "إنشاء العروض وتعديلها وتوليد أكواد الكوبونات.", true),
 ] as const satisfies readonly PermissionDefinition[];
 
 export type PermissionKey = (typeof PERMISSION_CATALOGUE)[number]["key"];
@@ -391,6 +426,10 @@ const READ_ONLY: PermissionKey[] = ALL_PERMISSIONS.filter(
   (k) =>
     !k.startsWith("platform.") &&
     (k.includes(".view") ||
+      // The three real catalogue read codes (menu.item.read,
+      // menu.price.read, menu.availability.read) use ".read", not the
+      // console's own ".view" convention — see the note above their def().
+      k.endsWith(".read") ||
       k.startsWith("report.view") ||
       k === "audit.view" ||
       k === "kds.operate"),
@@ -425,7 +464,8 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "inventory.view", "inventory.item.manage", "inventory.count.post",
       "inventory.approve_high_variance", "inventory.adjust", "inventory.transfer.create",
       "inventory.transfer.receive", "inventory.waste.approve", "inventory.cost.view",
-      "menu.view", "menu.item.manage", "menu.price.change", "menu.availability.toggle",
+      "menu.item.read", "menu.item.manage", "menu.price.read", "menu.price.change",
+      "menu.availability.read", "menu.availability.toggle",
       "recipe.view", "recipe.edit", "recipe.publish",
       "purchase.view", "purchase.order.create", "purchase.order.approve_tier_1",
       "purchase.order.approve_tier_2", "purchase.invoice.record", "supplier.manage",
@@ -449,7 +489,8 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "pos.order.view",
       "kds.operate", "ops.live.view", "ops.terminal.view",
       "inventory.view", "inventory.cost.view",
-      "menu.view", "menu.item.manage", "menu.price.change", "menu.availability.toggle",
+      "menu.item.read", "menu.item.manage", "menu.price.read", "menu.price.change",
+      "menu.availability.read", "menu.availability.toggle",
       "recipe.view", "recipe.edit", "recipe.publish",
       "purchase.view",
       "costing.view", "costing.variance.view", "costing.margin.view",
@@ -479,7 +520,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "inventory.view", "inventory.count.perform", "inventory.count.post",
       "inventory.adjust", "inventory.transfer.create", "inventory.transfer.receive",
       "inventory.waste.record", "inventory.waste.approve", "inventory.cost.view",
-      "menu.view", "menu.availability.toggle", "recipe.view",
+      "menu.item.read", "menu.availability.read", "menu.availability.toggle", "recipe.view",
       "purchase.view", "purchase.requisition.create", "purchase.order.create",
       "purchase.order.approve_tier_1", "purchase.receipt.post",
       "costing.view", "costing.variance.view", "costing.margin.view",
@@ -509,7 +550,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "cash.session.close_other", "cash.drawer.open_no_sale",
       "cash.payin", "cash.payout", "cash.safedrop",
       "inventory.view", "inventory.count.perform", "inventory.waste.record",
-      "menu.view", "menu.availability.toggle", "recipe.view",
+      "menu.item.read", "menu.availability.read", "menu.availability.toggle", "recipe.view",
       "hr.employee.view", "hr.attendance.correct",
       "report.view.sales", "report.view.kitchen",
       "approval.act",
@@ -529,7 +570,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "pos.discount.apply", "pos.reprint.receipt",
       "cash.session.open", "cash.session.close", "cash.payin", "cash.payout",
       "ops.live.view",
-      "menu.view",
+      "menu.item.read", "menu.price.read", "menu.availability.read",
     ],
   },
 
@@ -545,7 +586,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "pos.order.view", "pos.order.create", "pos.order.void_line_prefire",
       "pos.order.transfer",
       "ops.live.view", "kds.operate",
-      "menu.view",
+      "menu.item.read", "menu.availability.read",
     ],
   },
 
@@ -559,7 +600,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
     defaultScope: "branch",
     permissions: [
       "kds.operate",
-      "menu.view", "menu.availability.toggle",
+      "menu.item.read", "menu.availability.read", "menu.availability.toggle",
       "recipe.view",
       "inventory.waste.record",
     ],
@@ -578,7 +619,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "kds.operate", "kds.station.manage", "ops.live.view",
       "inventory.view", "inventory.count.perform", "inventory.waste.record",
       "inventory.cost.view",
-      "menu.view", "menu.availability.toggle",
+      "menu.item.read", "menu.availability.read", "menu.availability.toggle",
       "recipe.view", "recipe.edit", "recipe.publish",
       "purchase.view", "purchase.requisition.create",
       "costing.view", "costing.variance.view", "costing.margin.view",
@@ -600,7 +641,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "inventory.transfer.create", "inventory.transfer.receive",
       "inventory.waste.record", "inventory.cost.view",
       "purchase.view", "purchase.requisition.create", "purchase.receipt.post",
-      "menu.view", "recipe.view",
+      "menu.item.read", "recipe.view",
       "report.view.inventory",
     ],
   },
@@ -618,7 +659,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "purchase.view", "purchase.requisition.create", "purchase.order.create",
       "purchase.order.approve_tier_1", "purchase.receipt.post",
       "purchase.invoice.record", "supplier.manage",
-      "menu.view", "recipe.view",
+      "menu.item.read", "recipe.view",
       "costing.view",
       "report.view.inventory", "report.export",
       "approval.act",
@@ -639,7 +680,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "inventory.count.post", "inventory.adjust",
       "inventory.transfer.create", "inventory.transfer.receive",
       "inventory.waste.record", "inventory.waste.approve", "inventory.cost.view",
-      "menu.view", "recipe.view", "recipe.edit", "recipe.publish",
+      "menu.item.read", "recipe.view", "recipe.edit", "recipe.publish",
       "purchase.view", "purchase.requisition.create", "purchase.receipt.post",
       "costing.view", "costing.variance.view",
       "hr.employee.view", "hr.schedule.manage",
@@ -662,7 +703,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "finance.tax.view",
       "inventory.view", "inventory.cost.view",
       "purchase.view", "purchase.invoice.record", "purchase.invoice.approve_payment",
-      "menu.view", "recipe.view",
+      "menu.item.read", "recipe.view",
       "costing.view", "costing.variance.view", "costing.margin.view",
       "report.view.sales", "report.view.financial", "report.view.inventory", "report.export",
       "audit.view",
@@ -713,7 +754,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "finance.tax.view",
       "inventory.view", "inventory.count.post", "inventory.approve_high_variance",
       "inventory.waste.approve", "inventory.cost.view",
-      "menu.view", "menu.availability.toggle", "recipe.view",
+      "menu.item.read", "menu.availability.read", "menu.availability.toggle", "recipe.view",
       "purchase.view", "purchase.order.create", "purchase.order.approve_tier_1",
       "purchase.order.approve_tier_2", "purchase.invoice.record",
       "costing.view", "costing.variance.view", "costing.margin.view",
@@ -778,7 +819,7 @@ export type Surface = "console" | "pos" | "kds";
 const CONSOLE_PERMISSIONS: PermissionKey[] = [
   "report.view.sales", "report.view.inventory", "report.view.kitchen",
   "report.view.financial", "report.view.workforce", "report.view.governance",
-  "inventory.view", "menu.view", "purchase.view", "costing.view",
+  "inventory.view", "menu.item.read", "purchase.view", "costing.view",
   "hr.employee.view", "cash.session.view", "audit.view", "org.manage",
   "security.user.manage", "settings.tenant.manage", "settings.branch.manage",
   "platform.tenant.manage",

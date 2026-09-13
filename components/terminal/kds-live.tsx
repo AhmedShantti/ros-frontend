@@ -32,7 +32,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChefHat, Check, RotateCcw, Timer, Utensils } from "lucide-react";
+import { Ban, ChefHat, Check, RotateCcw, Timer, Utensils } from "lucide-react";
 
 import type { Id, KitchenTicket, TicketUrgency } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
@@ -445,6 +445,19 @@ function LiveTicketCard({
 }) {
   const { t, tx } = useI18n();
 
+  /*
+   * A cancelled ticket is a different card, not a variant of this one —
+   * mirrors the demo KDS's own `CancelledCard`. It carries no timers and no
+   * line controls, because there is nothing left here for a cook to start or
+   * bump: every line was voided at the till. Unlike the demo, there is no
+   * dismiss action — the backend offers no endpoint to acknowledge or clear
+   * a cancellation (`kds.unsupportedCancelReason`), so this never pretends
+   * to perform one; the card simply stays until the queue itself drops it.
+   */
+  if (ticket.state === "cancelled") {
+    return <CancelledLiveTicketCard ticket={ticket} />;
+  }
+
   const elapsed = elapsedSince(ticket.firedAt, now) ?? ticket.elapsedSeconds;
   const urgency = urgencyFor(elapsed, ticket.targetSeconds);
 
@@ -621,6 +634,57 @@ function LiveTicketCard({
       <div className="flex gap-1.5">
         <HoldToBump disabled={outstanding.length === 0 || pending} onBump={onBumpAll} />
       </div>
+    </article>
+  );
+}
+
+/**
+ * A cancelled order, on the live backend.
+ *
+ * `ticket.cancelReason` is always `null` here — `map.ts`'s `toKitchenTicket`
+ * documents the gap: the KDS routes carry no cancellation reason on a ticket
+ * or its lines. Rather than a card that silently omits the reason (which
+ * reads as "there was none"), `kds.unsupportedCancelReason` says plainly that
+ * the backend does not disclose one.
+ */
+function CancelledLiveTicketCard({ ticket }: { ticket: KitchenTicket }) {
+  const { t, tx } = useI18n();
+
+  return (
+    <article className="border-bad bg-bad-soft ring-bad/40 flex flex-col rounded-xl border-2 p-3 ring-2">
+      <header className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-fg font-mono text-lg leading-none font-bold">{ticket.orderNumber}</p>
+          <p className="text-fg-muted mt-1 text-xs">
+            {tx(ORDER_TYPE[ticket.orderType].label)}
+            {ticket.tableLabel ? ` · ${ticket.tableLabel}` : ""}
+          </p>
+        </div>
+        <Ban size={28} className="text-bad shrink-0" aria-hidden />
+      </header>
+
+      <p className="text-bad mt-3 text-xl leading-none font-extrabold tracking-wide">
+        {t("kds.orderCancelled")}
+      </p>
+      <p className="text-fg mt-1.5 text-sm font-medium">{t("kds.stopMaking")}</p>
+
+      {ticket.cancelReason ? (
+        <p className="text-fg-muted mt-2 text-xs">
+          <span className="text-fg-subtle">{t("kds.cancelReason")}: </span>
+          <span className="italic">“{ticket.cancelReason}”</span>
+        </p>
+      ) : (
+        <p className="text-fg-subtle mt-2 text-xs italic">{t("kds.unsupportedCancelReason")}</p>
+      )}
+
+      <ul className="text-fg-muted my-3 flex-1 space-y-1 text-sm">
+        {ticket.lines.map((line) => (
+          <li key={line.id} className="flex gap-2 line-through">
+            <span className="font-bold">{line.quantity}</span>
+            <span className="min-w-0 flex-1">{tx(line.name)}</span>
+          </li>
+        ))}
+      </ul>
     </article>
   );
 }
