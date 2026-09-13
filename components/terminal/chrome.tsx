@@ -28,7 +28,17 @@ import { useI18n, useSession } from "@/lib/console/providers";
 import { services } from "@/lib/console/services";
 import { useAsync } from "@/lib/console/hooks";
 import { DATA_MODE } from "@/lib/api/config";
-import { getTerminalName } from "@/lib/api/session";
+import {
+  getOpenCashSession,
+  getPosEmployee,
+  getTerminalId,
+  getTerminalName,
+  isSignedIn,
+  onSessionChange,
+  type PosEmployee,
+} from "@/lib/api/session";
+
+import { signOffTerminal } from "@/lib/api/auth";
 import { formatMoney, formatNumber, formatTime, tx as pick } from "@/lib/console/format";
 import { useLive } from "@/lib/console/live/store";
 import {
