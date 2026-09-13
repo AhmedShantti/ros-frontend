@@ -183,6 +183,14 @@ interface MenuSeed {
   allergens?: string[];
   /** Deliberately left without a recipe — BR-MNU-012. */
   incomplete?: boolean;
+  /**
+   * DEMO-TAX-CLASS-TEMPORARY-UNBLOCK — deliberately ships with no tax class
+   * at all (`taxClassId: null`), the same "genuinely unset" state FR-MNU-004
+   * refuses to sell. `withDemoZeroTaxClass` below is what makes it sellable
+   * again, by assigning the demo "Test — Zero Tax" class — never this flag
+   * itself, and never a runtime default.
+   */
+  demoNoTaxClass?: boolean;
 }
 
 const MENU_SEEDS: MenuSeed[] = [
@@ -726,6 +734,14 @@ const MENU_SEEDS: MenuSeed[] = [
     allergens: ["milk"],
     incomplete: true,
   },
+
+  // ---- DEMO-TAX-CLASS-TEMPORARY-UNBLOCK ----
+  {
+    brand: "CRK", cat: "cold_drinks", en: "Tax test item (demo)", ar: "صنف اختبار الضريبة (تجريبي)",
+    kitchenEn: "TAX TEST", kitchenAr: "اختبار ضريبة", station: "cold", prep: 60,
+    variants: [{ en: "Regular", ar: "عادي", price: 20 }],
+    demoNoTaxClass: true,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -734,7 +750,39 @@ const MENU_SEEDS: MenuSeed[] = [
 
 const brandByCode = new Map(brands.map((b) => [b.code, b]));
 
-export const menuItems: MenuItem[] = MENU_SEEDS.map((seed, i) => {
+/**
+ * DEMO-TAX-CLASS-TEMPORARY-UNBLOCK — "Test — Zero Tax".
+ *
+ * FR-MNU-004 refuses to sell a Menu Item with no tax class, and that stays
+ * true here (see the `LINE_ADD` guard in `lib/console/live/reducer.ts`). To
+ * unblock POS testing without weakening that, demo items that ship with
+ * `taxClassId: null` get this one explicit, zero-rate class instead — never
+ * a runtime "missing → zero" default. It reuses the "zero" `TaxClassCode`
+ * every active Country Pack already defines at a real 0% rate
+ * (`lib/console/mock/platform.ts`), so no production tax semantics change
+ * and no new rate is invented.
+ */
+export const DEMO_ZERO_TAX_CLASS_CODE: TaxClassCode = "zero";
+export const DEMO_ZERO_TAX_CLASS_LABEL: Localised = {
+  en: "Test — Zero Tax",
+  ar: "اختبار — ضريبة صفرية",
+};
+
+/**
+ * Assigns the demo zero-rate class to items with no tax class at all, and
+ * leaves every other item — including one already on `DEMO_ZERO_TAX_CLASS_CODE`
+ * — exactly as it was. Pure over the seed array, so re-running it (e.g. a hot
+ * reload rebuilding this module) can never duplicate or drift the
+ * assignment: an item is only ever touched once, the first time it has
+ * nothing.
+ */
+export function withDemoZeroTaxClass(items: MenuItem[]): MenuItem[] {
+  return items.map((item) =>
+    item.taxClassId === null ? { ...item, taxClassId: DEMO_ZERO_TAX_CLASS_CODE } : item,
+  );
+}
+
+const menuItemsSeeded: MenuItem[] = MENU_SEEDS.map((seed, i) => {
   const variants: MenuItemVariant[] = seed.variants.map((v, vi) => ({
     id: `${seqId("mit", i + 1)}_v${vi + 1}`,
     name: { en: v.en, ar: v.ar },
@@ -757,7 +805,7 @@ export const menuItems: MenuItem[] = MENU_SEEDS.map((seed, i) => {
       en: `${seed.en} — prepared to the ${brandByCode.get(seed.brand)?.name.en ?? ""} standard.`,
       ar: `${seed.ar} — محضّر وفق معيار ${brandByCode.get(seed.brand)?.name.ar ?? ""}.`,
     },
-    taxClassId: seed.tax ?? "standard",
+    taxClassId: seed.demoNoTaxClass ? null : (seed.tax ?? "standard"),
     stationType: seed.station,
     prepTimeSeconds: seed.prep,
     variants,
@@ -773,6 +821,8 @@ export const menuItems: MenuItem[] = MENU_SEEDS.map((seed, i) => {
     imageEmoji: "",
   };
 });
+
+export const menuItems: MenuItem[] = withDemoZeroTaxClass(menuItemsSeeded);
 
 export const menuItemById = new Map(menuItems.map((m) => [m.id, m]));
 

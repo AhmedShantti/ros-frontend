@@ -1339,6 +1339,9 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       if (!order || !item) return state;
       const variant = item.variants.find((v) => v.id === action.variantId);
       if (!variant) return state;
+      // FR-MNU-004 — a Menu Item with no tax class is not sellable. Fails
+      // closed the same way the order/item/variant lookups above do.
+      if (item.taxClassId === null) return state;
 
       const branch = branchById.get(state.branchId)!;
       const minuteOfDay = minuteOfDayFrom(action.at);
