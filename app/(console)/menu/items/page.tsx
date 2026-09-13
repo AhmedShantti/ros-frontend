@@ -399,7 +399,7 @@ function TaxClassField({
 
 // ---------------------------------------------------------------------------
 
-function ItemDrawer({
+export function ItemDrawer({
   item,
   canToggle,
   categories,
@@ -846,7 +846,7 @@ function NewVariantDrawer({
 // ---------------------------------------------------------------------------
 
 /** `POST /catalogue/items`, then `POST /items/{id}/placements` for its category. */
-function NewItemDrawer({
+export function NewItemDrawer({
   open,
   categories,
   onClose,
