@@ -164,6 +164,10 @@ export const terminals = {
 // ---------------------------------------------------------------------------
 
 export const treasury = {
+  /** `GET /branches/{branchId}/cash-close-policy` — The currently-effective cash-close policy for a branch, wrapped as `{ policy: ... | null }` — GOLDEN-PATH-BACKEND-CLOSURE (2026-09-07). `policy` is `null` when none has ever been configured; a bare top-level `null` body is deliberately avoided (Express sends an empty body for a handler returning `null`, which is indistinguishable on the wire from "no response content" — a wrapper object keeps `null` an unambiguous, inspectable JSON value). Not FR-PLT-027's settings inspector (see class docblock) — a single resolved value, not a level-by-level override trace. — `policy` is null if the branch has none configured yet. */
+  getPolicy: (branchId: string) =>
+    http.get<S.CashClosePolicyController_getPolicyResponse>("/branches/{branchId}/cash-close-policy", { params: { branchId } }),
+
   /** `POST /branches/{branchId}/cash-close-policy` — Create a new immutable cash-close policy version for a branch — R-1(a), R-4(a), R-5. `Idempotency-Key` is MANDATORY (FR-API-020): a retry over a flaky link must not produce a second version. — The newly created cash-close policy version. */
   createPolicy: (branchId: string, body: S.CreateCashClosePolicyDto) =>
     http.post<S.CashClosePolicyController_createPolicyResponse>("/branches/{branchId}/cash-close-policy", { params: { branchId }, body, idempotent: true }),
@@ -187,6 +191,10 @@ export const treasury = {
   /** `POST /cash-sessions` — Open a cashier shift and its cash session — FR-POS-090, FR-FIN-001/002. ONE command for the cashier, two records for the model. FR-POS-090 describes a single action ("open a shift, declaring an opening float"), and the cashier should not have to know that a shift is a Workforce concept and a session a Treasury one. They stay distinct in the schema (carried item P1D-A); only the command is unified, and both are written in one transaction. `Idempotency-Key` is MANDATORY (FR-API-020): opening a drawer is a financially significant act, and a retry over a flaky link must not produce a second shift or a second session. The two client ULIDs are independent duplicate protection beneath it. — The opened cash session and its shift, plus whether this call created them (false on an idempotent replay of an already-open pair). */
   openCashSession: (body: S.OpenCashSessionDto) =>
     http.post<S.TreasuryController_openCashSessionResponse>("/cash-sessions", { body, idempotent: true }),
+
+  /** `GET /cash-sessions/current` — Resume-on-reload lookup for the POS bootstrap — the employee's currently open cash session, if any, so the client never has to guess whether `POST /cash-sessions` would open a second drawer on top of one that survived a deploy, hard reload, or local-state loss. Branch is derived from the caller's own terminal and employee from the authenticated PIN session, the same trust boundary `POST /cash-sessions` and `GET /cash-sessions/drawers` already use. Gated on `cash.session.open`. — The authenticated PIN employee's already-open cash session for this terminal's branch, or null if none is open. */
+  getCurrentSession: () =>
+    http.get<S.TreasuryController_getCurrentSessionResponse>("/cash-sessions/current"),
 
   /** `GET /cash-sessions/drawers` — DEMO-OPS-HOTFIX-3 — the real drawers a Cashier may open a shift over, for the POS Open-Shift drawer selector. Resolves the branch from the CALLER'S OWN terminal (`DrawersService.listForTerminal`), never a caller-supplied branchId — a cashier cannot browse another branch's drawers by asking for one. Gated on `cash.session.open`, the SAME permission `POST /cash-sessions` already requires, deliberately NOT `settings.branch.manage` — this is a read of what a Cashier may already act on, not a drawer-administration grant (that lives on the separate `DrawersController`). — The caller's own terminal-bound branch's drawers. */
   listSessionDrawers: () =>
@@ -350,6 +358,10 @@ export const catalogue = {
   /** `POST /catalogue/modifier-groups/{groupId}/modifiers` — The newly created modifier. */
   addModifier: (groupId: string, body: S.CreateModifierDto) =>
     http.post<S.CatalogueController_addModifierResponse>("/catalogue/modifier-groups/{groupId}/modifiers", { params: { groupId }, body }),
+
+  /** `GET /catalogue/pos-menu` — The caller's own branch sellable menu — items, variants, resolved prices, availability and modifier groups. — The sellable menu at the POS session's own branch. */
+  getPosMenu: (options: { orderType?: string } = {}) =>
+    http.get<S.CatalogueController_getPosMenuResponse>("/catalogue/pos-menu", { query: { orderType: options.orderType } }),
 
   /** `GET /catalogue/price-lists` — All price lists for this tenant, priority descending. */
   listPriceLists: () =>

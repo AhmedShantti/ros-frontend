@@ -16,12 +16,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import type { PriceList, PriceListEntry } from "@/lib/console/types";
-import { services } from "@/lib/console/services";
+import type { Currency, PriceList, PriceListEntry } from "@/lib/console/types";
+import { getDefaultCurrency, services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
-import { useI18n, useSession } from "@/lib/console/providers";
-import { formatDate, formatMoney, formatNumber, formatPercent } from "@/lib/console/format";
+import { useI18n, usePermission, useSession } from "@/lib/console/providers";
+import {
+  currencyExponent,
+  formatDate,
+  formatMoney,
+  formatNumber,
+  formatPercent,
+  minorFromInput,
+  numberFromInput,
+  toMajorUnits,
+} from "@/lib/console/format";
 import { ORDER_TYPE, PRICE_LIST_SCOPE, labelOf } from "@/lib/console/labels";
 import { CellStack, CollectionTable, DataTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
@@ -43,7 +52,7 @@ import {
 
 export default function MenuPricingPage() {
   return (
-    <Gate permissions={["menu.view"]}>
+    <Gate permissions={["menu.price.read"]}>
       <PricingScreen />
     </Gate>
   );
@@ -108,7 +117,7 @@ function PricingScreen() {
         secondary: true,
         render: (row) => (
           <span className="whitespace-nowrap" dir="ltr">
-            {formatDate(row.validFrom, fmt)} →{" "}
+            {row.validFrom ? formatDate(row.validFrom, fmt) : "—"} →{" "}
             {row.validTo ? formatDate(row.validTo, fmt) : "∞"}
           </span>
         ),
@@ -244,7 +253,9 @@ function PriceListDrawer({
   onChanged: () => void;
 }) {
   const { t, tx, fmt } = useI18n();
+  const canChange = usePermission("menu.price.change");
   const [editing, setEditing] = useState<PriceListEntry | null>(null);
+  const [addingEntry, setAddingEntry] = useState(false);
 
   /**
    * Entries are fetched, not read off the list row.
@@ -343,7 +354,7 @@ function PriceListDrawer({
           </DescRow>
           <DescRow label={t("menu.validity")} mono>
             <span dir="ltr">
-              {formatDate(list.validFrom, fmt)} →{" "}
+              {list.validFrom ? formatDate(list.validFrom, fmt) : "—"} →{" "}
               {list.validTo ? formatDate(list.validTo, fmt) : "∞"}
             </span>
           </DescRow>
@@ -356,7 +367,18 @@ function PriceListDrawer({
         </DescList>
 
         <section>
-          <h3 className="text-fg mb-2 text-sm font-semibold">{t("menu.entries")}</h3>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="text-fg text-sm font-semibold">{t("menu.entries")}</h3>
+            {canChange ? (
+              <Button
+                variant="ghost"
+                icon={<Plus size={13} />}
+                onClick={() => setAddingEntry(true)}
+              >
+                {t("menu.newPriceEntry")}
+              </Button>
+            ) : null}
+          </div>
           <AsyncPanel
             state={entries}
             isEmpty={(rows) => rows.length === 0}
@@ -385,6 +407,17 @@ function PriceListDrawer({
             onChanged();
           }}
         />
+
+        <NewPriceEntryDrawer
+          priceListId={list.id}
+          open={addingEntry}
+          onClose={() => setAddingEntry(false)}
+          onCreated={() => {
+            setAddingEntry(false);
+            entries.reload();
+            onChanged();
+          }}
+        />
       </div>
     </Drawer>
   );
@@ -392,13 +425,21 @@ function PriceListDrawer({
 
 // ---------------------------------------------------------------------------
 
+/** True once a typed amount carries more fractional digits than the currency allows. */
+function excessPrecision(raw: string, exponent: number): boolean {
+  const dot = raw.trim().indexOf(".");
+  if (dot === -1) return false;
+  return raw.trim().length - dot - 1 > exponent;
+}
+
 /**
  * FR-MNU-023/024 — set one variant's price within one list.
  *
  * The endpoint is an upsert ("set", not "update"), so the same form serves a
  * new price and a correction. The amount is typed in major units because
- * that is what a person reads off a menu; it is converted to the exact minor
- * integer the API wants before it leaves.
+ * that is what a person reads off a menu; `minorFromInput` — the same
+ * decimal-safe shelf-price parser the terminal uses for cash counts — turns
+ * it into the exact minor integer the API wants before it leaves.
  */
 function PriceEditor({
   priceListId,
@@ -416,20 +457,23 @@ function PriceEditor({
   const [amount, setAmount] = useState("");
 
   useEffect(() => {
-    if (entry) setAmount((entry.price.amount / 100).toFixed(2));
+    if (entry) {
+      setAmount(toMajorUnits(entry.price).toFixed(currencyExponent(entry.price.currency)));
+    }
   }, [entry]);
 
   if (!entry) return null;
 
-  const parsed = Number(amount);
-  const valid = Number.isFinite(parsed) && parsed >= 0 && amount.trim() !== "";
+  const exponent = currencyExponent(entry.price.currency);
+  const parsedMajor = numberFromInput(amount);
+  const valid = parsedMajor !== null && parsedMajor >= 0 && !excessPrecision(amount, exponent);
 
   async function save() {
     if (!entry || !valid) return;
     await action.run(
       () =>
         services.catalogue.setPrice(priceListId, entry.variantId, {
-          amount: Math.round(parsed * 100),
+          amount: minorFromInput(amount) ?? 0,
           currency: entry.price.currency,
         }),
       { onSuccess: onSaved },
@@ -561,6 +605,149 @@ function NewPriceListDrawer({
             dir="ltr"
             value={priority}
             onChange={(event) => setPriority(event.target.value)}
+          />
+        </Field>
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * DEMO-CATALOGUE-POS-ADD-P0 — the only way to reach `PriceEditor` was to
+ * click an existing entry in the table above, which means a variant that
+ * has never had a price could never get its first one through this screen:
+ * there was no row to click. `setPrice` is a "set" — create or overwrite
+ * (FR-MNU-023/024) — so this calls the exact same
+ * `services.catalogue.setPrice` that `PriceEditor` does; it is only reached
+ * differently, by picking the item and variant instead of a table row.
+ *
+ * Variants do not come back on `GET /catalogue/items` (`ItemDrawer` in
+ * `/menu/items` notes the same thing) — they hang off `/items/{id}/variants`
+ * — so the variant picker only fills in once an item is chosen.
+ */
+function NewPriceEntryDrawer({
+  priceListId,
+  open,
+  onClose,
+  onCreated,
+}: {
+  priceListId: string;
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const currency: Currency = getDefaultCurrency();
+  const [itemId, setItemId] = useState("");
+  const [variantId, setVariantId] = useState("");
+  const [amount, setAmount] = useState("");
+
+  const items = useAsync(
+    async () => (open ? services.catalogue.items.list({ limit: 500 }) : null),
+    [open],
+  );
+  const itemRows = items.data?.rows ?? [];
+
+  const detail = useAsync(
+    async () => (itemId ? services.catalogue.items.get(itemId) : null),
+    [itemId],
+  );
+  const variants = detail.data?.variants ?? [];
+
+  useEffect(() => {
+    setVariantId("");
+  }, [itemId]);
+
+  if (!open) return null;
+
+  const exponent = currencyExponent(currency);
+  const parsedMajor = numberFromInput(amount);
+  const valid =
+    Boolean(itemId) &&
+    Boolean(variantId) &&
+    parsedMajor !== null &&
+    parsedMajor >= 0 &&
+    !excessPrecision(amount, exponent);
+
+  async function create() {
+    if (!valid) return;
+    await action.run(
+      () =>
+        services.catalogue.setPrice(priceListId, variantId, {
+          amount: minorFromInput(amount) ?? 0,
+          currency,
+        }),
+      {
+        onSuccess: () => {
+          setItemId("");
+          setVariantId("");
+          setAmount("");
+          onCreated();
+        },
+      },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={t("menu.newPriceEntry")}
+      footer={
+        <div className="flex gap-2">
+          <Button variant="primary" loading={action.pending} disabled={!valid} onClick={create}>
+            {t("common.create")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Callout tone="muted">{t("menu.newPriceEntryHint")}</Callout>
+
+        <Field label={t("menu.itemName")} required>
+          <Select
+            value={itemId}
+            disabled={items.loading}
+            onChange={(event) => setItemId(event.target.value)}
+          >
+            <option value="">—</option>
+            {itemRows.map((row) => (
+              <option key={row.id} value={row.id}>
+                {tx(row.name)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field label={t("menu.variants")} required>
+          <Select
+            value={variantId}
+            disabled={!itemId || detail.loading}
+            onChange={(event) => setVariantId(event.target.value)}
+          >
+            <option value="">—</option>
+            {variants.map((variant) => (
+              <option key={variant.id} value={variant.id}>
+                {tx(variant.name)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field label={t("menu.price")} hint={`${currency} · ${t("menu.priceHint")}`} required>
+          <Input
+            inputMode="decimal"
+            dir="ltr"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
           />
         </Field>
       </div>

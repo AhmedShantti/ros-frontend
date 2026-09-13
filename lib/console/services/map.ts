@@ -22,7 +22,7 @@
  *     such spot is marked `// gap:` and listed in BACKEND_INTEGRATION.md.
  */
 
-import type { ModifierRecipeEffect } from "./types";
+import type { ModifierRecipeEffect, Receipt } from "./types";
 
 import type {
   ActorType,
@@ -223,6 +223,18 @@ export function toDecimal(value: Money | number, exponent = 2): string {
   const whole = digits.slice(0, digits.length - exponent);
   const fraction = digits.slice(digits.length - exponent);
   return `${negative ? "-" : ""}${whole}.${fraction}`;
+}
+
+/**
+ * Back the other way for request bodies that want a *minor-unit* integer
+ * string (`SetPriceEntryDto.price` and its kind — `^-?\d{1,18}$`, never a
+ * decimal point, never a JSON number). `Money.amount` is already an integer
+ * count of minor units, so this is a plain stringify, not a scale — reach
+ * for `toDecimal` instead when the wire field is actually a shelf decimal.
+ */
+export function toMinorUnitString(value: Money | number): string {
+  const amount = typeof value === "number" ? value : value.amount;
+  return String(Math.round(amount));
 }
 
 // ---------------------------------------------------------------------------
@@ -711,7 +723,10 @@ export function toPriceEntry(
     menuItemId,
     variantId: row.menuItemVariantId,
     itemName,
-    price: money(row.price, row.currency),
+    // `price` is a minor-unit integer string ("1250" = 12.50), same
+    // contract as `/catalogue/pos-menu` — `money()` reads a *decimal*
+    // string and would read this 100x too large.
+    price: minorMoney(row.price, row.currency),
     previousPrice: null, // gap: no price history on the API.
   };
 }
@@ -730,7 +745,7 @@ export function toPriceList(
     scopeId: row.scopeId,
     orderTypes,
     priority: row.priority,
-    validFrom: (row.validFrom ?? "").slice(0, 10),
+    validFrom: row.validFrom ? row.validFrom.slice(0, 10) : null,
     validTo: row.validTo ? row.validTo.slice(0, 10) : null,
     recurrence: row.recurrenceRule ? JSON.stringify(row.recurrenceRule) : null,
     entryCount: entries.length,
@@ -1136,7 +1151,13 @@ export interface OrderContext {
 
 export function toOrder(row: WireOrder, context: OrderContext): Order {
   const currency = currencyOf(row.currency);
-  const lines = row.lines.map((line) => toOrderLine(line, currency));
+  // gap: `GET /orders` list rows carry headers only — line snapshots are
+  // populated on a single-order fetch (`GET /orders/{businessDay}/{id}`),
+  // not here. `orders.list()` casts a list row into this same wire type, so
+  // `lines` is `undefined` on it at runtime despite the generated type
+  // calling it required; an absent line list is exactly the `[]` this
+  // endpoint means, not a value to index into.
+  const lines = (row.lines ?? []).map((line) => toOrderLine(line, currency));
 
   const cogsTotal = lines.reduce(
     (total, line) => total + line.unitCostSnapshot.amount * line.quantity,
@@ -1189,6 +1210,57 @@ export function toOrder(row: WireOrder, context: OrderContext): Order {
     aggregatorRef: null,
     notes: row.notes,
     version: row.version,
+  };
+}
+
+type WireReceipt = S.OrdersController_receiptResponse;
+
+/** FR-FIN-020 — the itemized, non-fiscal receipt of a completed order. */
+export function toReceipt(row: WireReceipt): Receipt {
+  const currency = currencyOf(row.order.currency);
+  return {
+    orderNumber: row.order.orderNumber,
+    orderType: row.order.orderType,
+    currency,
+    completedAt: row.order.completedAt,
+    lines: row.lines.map((line) => ({
+      menuItemId: line.menuItemId,
+      name: localised(line.itemNameSnapshot),
+      quantity: numberOf(line.quantity),
+      unitPrice: money(line.unitPrice, currency),
+      modifiers: line.modifiers.map((modifier) => ({
+        modifierId: modifier.modifierId,
+        name: localised(modifier.nameSnapshot),
+        priceDelta: money(modifier.priceDelta, currency),
+        quantity: modifier.quantity,
+      })),
+      modifierTotal: money(line.modifierTotal, currency),
+      lineDiscount: money(line.lineDiscount, currency),
+      lineSubtotal: money(line.lineSubtotal, currency),
+      taxAmount: money(line.taxAmount, currency),
+      lineTotal: money(line.lineTotal, currency),
+    })),
+    payments: row.payments.map((payment) => ({
+      id: payment.id,
+      tender: payment.tender,
+      amount: money(payment.amount, currency),
+      processedAt: payment.processedAt,
+      cardLast4: payment.cardLast4,
+      changeGiven: payment.changeGiven !== null ? money(payment.changeGiven, currency) : null,
+      tenderedAmount:
+        payment.tenderedAmount !== null ? money(payment.tenderedAmount, currency) : null,
+    })),
+    totals: {
+      subtotal: money(row.totals.subtotal, currency),
+      discountTotal: money(row.totals.discountTotal, currency),
+      taxTotal: money(row.totals.taxTotal, currency),
+      serviceChargeTotal: money(row.totals.serviceChargeTotal, currency),
+      tipTotal: money(row.totals.tipTotal, currency),
+      cashRoundingAdjustment: money(row.totals.cashRoundingAdjustment, currency),
+      grandTotal: money(row.totals.grandTotal, currency),
+      paidTotal: money(row.totals.paidTotal, currency),
+    },
+    taxPresentation: row.taxPresentation,
   };
 }
 

@@ -43,7 +43,7 @@ import {
 
 export default function MenusPage() {
   return (
-    <Gate permissions={["menu.view"]}>
+    <Gate permissions={["menu.item.read"]}>
       <MenusScreen />
     </Gate>
   );
@@ -52,7 +52,7 @@ export default function MenusPage() {
 function MenusScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope, availableBranches } = useSession();
-  const canManage = usePermission("menu.manage");
+  const canManage = usePermission("menu.item.manage");
 
   const [selected, setSelected] = useState<Menu | null>(null);
   const [creating, setCreating] = useState(false);

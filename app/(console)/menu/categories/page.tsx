@@ -30,7 +30,7 @@ import { RecordDrawer } from "@/components/console/record-drawer";
 
 export default function MenuCategoriesPage() {
   return (
-    <Gate permissions={["menu.view"]}>
+    <Gate permissions={["menu.item.read"]}>
       <CategoriesScreen />
     </Gate>
   );

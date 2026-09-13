@@ -46,7 +46,7 @@ import {
 
 export default function MenuItemsPage() {
   return (
-    <Gate permissions={["menu.view"]}>
+    <Gate permissions={["menu.item.read"]}>
       <MenuItemsScreen />
     </Gate>
   );
@@ -345,7 +345,7 @@ function ItemDrawer({
   onChanged: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
-  const canManage = usePermission("menu.manage");
+  const canManage = usePermission("menu.item.manage");
   const action = useAction();
   const [addingVariant, setAddingVariant] = useState(false);
 
