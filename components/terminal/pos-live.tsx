@@ -65,18 +65,22 @@ import { formatDateTime, formatMoney } from "@/lib/console/format";
 import { ORDER_LINE_STATE, ORDER_TYPE, TENDER_TYPE, labelOf } from "@/lib/console/labels";
 import {
   clearTerminalIdentity,
+  getCashSessionId,
+  getDeviceTenantId,
   getOpenCashSession,
   getPendingCashOpen,
+  getPosEmployee,
   getTerminalId,
   isSignedIn,
   onSessionChange,
+  setCashSessionId,
   setOpenCashSession,
   setPendingCashOpen,
-  getPosEmployee,
-  getDeviceTenantId,
+  setSessionId,
+  type OpenCashSession,
   type PosEmployee,
 } from "@/lib/api/session";
-import { signInWithPin } from "@/lib/api/auth";
+import { signInWithPin, signOffTerminal } from "@/lib/api/auth";
 import { deviceId } from "@/lib/api/ids";
 import { AsyncPanel, ErrorPanel } from "@/components/console/states";
 import { DrawerSheet } from "@/components/terminal/pos-drawer";
