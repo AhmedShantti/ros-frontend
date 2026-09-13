@@ -74,8 +74,6 @@ import {
   setPendingCashOpen,
   getPosEmployee,
   getDeviceTenantId,
-  isSignedIn,
-  onSessionChange,
   type PosEmployee,
 } from "@/lib/api/session";
 import { signInWithPin } from "@/lib/api/auth";
