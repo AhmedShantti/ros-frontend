@@ -29,7 +29,7 @@ import {
   clearSession,
   clearTerminalIdentity,
   getTenantId,
-  peekTerminalAccessToken,
+  peekTerminalAccessTokens,
   setPosEmployee,
   setTenantId,
   setTokens,
@@ -49,30 +49,40 @@ export interface SignInResult {
 }
 
 /**
- * POS-CUSTODY — ends whatever PIN session this device was left holding.
+ * POS-CUSTODY — ends whatever PIN session(s) this device was left holding.
  *
  * Called on the way IN to a sign-in as well as on the way out, because a
  * till is not always left tidily: a tab closed mid-shift, a browser crash, a
  * cashier who simply walked away. Whatever the reason, a different person
- * authenticating is the end of the previous one's session, and the token
- * they left behind must not still be sitting where `/pos` reads it.
+ * authenticating is the end of the previous one's session(s), and the
+ * token(s) they left behind must not still be sitting where `/pos`/`/kds`
+ * reads them.
  *
- * Revoking it server-side is best-effort and explicitly credentialled: the
- * token being revoked is NOT the active surface's, so it is passed as an
+ * POS-KDS-SESSION-ISOLATION-P0 — a console user reclaiming the device does
+ * not know, and must not guess, whether a stray till session was POS's or
+ * KDS's (or both) — so this ends both independently, never assuming one
+ * implies the other.
+ *
+ * Revoking server-side is best-effort and explicitly credentialled: neither
+ * token being revoked is the active surface's, so each is passed as an
  * explicit bearer rather than by switching the active surface out from under
  * whatever else is in flight. A failure here is not a reason to block a
- * sign-in — the local copy is gone either way, which is what closes the leak
- * on this device.
+ * sign-in — the local copies are gone either way, which is what closes the
+ * leak on this device.
  */
 async function endTerminalSession(): Promise<void> {
-  const token = peekTerminalAccessToken();
+  const { pos, kds } = peekTerminalAccessTokens();
   clearTerminalIdentity();
-  if (!token) return;
-  try {
-    await http.post("/auth/logout", { anonymous: true, bearer: token });
-  } catch {
-    // Already expired, already revoked, or offline. Nothing to recover.
-  }
+  await Promise.all(
+    [pos, kds].map(async (token) => {
+      if (!token) return;
+      try {
+        await http.post("/auth/logout", { anonymous: true, bearer: token });
+      } catch {
+        // Already expired, already revoked, or offline. Nothing to recover.
+      }
+    }),
+  );
 }
 
 /**
@@ -156,18 +166,21 @@ export async function signInWithPin(input: {
   pin: string;
   sessionType: "pos" | "kds";
 }): Promise<void> {
-  // The employee on this device is being replaced, so nothing of the
+  // The employee on THIS surface is being replaced, so nothing of the
   // previous one may survive into the new session — including a
   // half-finished drawer open, which would otherwise be replayed under the
-  // new employee's name.
-  clearTerminalIdentity();
+  // new employee's name. `clearSession()`, not `clearTerminalIdentity()`:
+  // this must clear only the surface being signed into (POS-KDS-SESSION-
+  // ISOLATION-P0) — signing on to KDS must never touch a POS session still
+  // open on the same device, and vice versa. `activeSurface` already
+  // matches `input.sessionType` here, since only `/pos`'s own sign-on calls
+  // this with `"pos"` and only `/kds`'s own calls it with `"kds"`.
+  clearSession();
 
   const session = await api.auth.loginWithPin(input);
   setTokens(session);
   setTenantId(input.tenantId);
-  // The till/display shows who is on it, and knows to ask when nobody is —
-  // and, since POS and KDS share this one device-level slot, which kind of
-  // session it actually is.
+  // The till/display shows who is on it, and knows to ask when nobody is.
   setPosEmployee({
     code: input.employeeCode,
     name: session.user?.displayName || input.employeeCode,
@@ -189,12 +202,18 @@ export async function signOut(): Promise<void> {
 }
 
 /**
- * FR-SEC-020 — the cashier signing OFF the till.
+ * FR-SEC-020 — the cashier (or KDS employee) signing OFF the till.
  *
  * The counterpart the terminal never had: `clearSession()` existed but no
  * screen called it, so a PIN session ended only when someone cleared site
- * data. Runs on the terminal surface, where `api.auth.logout()` already
- * carries the right token.
+ * data. Runs on whichever terminal surface is active — POS or KDS — where
+ * `api.auth.logout()` already carries that surface's own token.
+ *
+ * `clearSession()`, not `clearTerminalIdentity()`: this is called from
+ * `TerminalBar` (POS-KDS-SESSION-ISOLATION-P0 — shared chrome rendered on
+ * BOTH `/pos` and `/kds`), so it must end only the surface it was clicked
+ * on. Ending the other one too would mean signing off the kitchen display
+ * silently signed the till out as well.
  *
  * Deliberately does not touch the open cash session. Signing off with a
  * drawer open is a normal thing to do — a break, a handover, the end of a
@@ -208,7 +227,7 @@ export async function signOffTerminal(): Promise<void> {
   } catch {
     // Same as above: an unrevokable token is still one we are done with.
   } finally {
-    clearTerminalIdentity();
+    clearSession();
   }
 }
 

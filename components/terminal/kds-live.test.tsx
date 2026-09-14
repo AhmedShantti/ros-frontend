@@ -79,7 +79,7 @@ const STATION = {
 };
 
 function seedDevice() {
-  Session.setActiveSurface("terminal");
+  Session.setActiveSurface("kds");
   Session.setActiveBranchId(BRANCH_ID);
   Session.setTenantId(TENANT_ID);
 }
@@ -149,7 +149,7 @@ afterEach(() => {
 describe("LiveKds — PIN sign-on contract (FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0)", () => {
   it("shows the branch-selection prompt, never a Terminal one, when no branch is selected", async () => {
     window.localStorage.clear();
-    Session.setActiveSurface("terminal");
+    Session.setActiveSurface("kds");
     Session.setTenantId(TENANT_ID);
 
     render(<LiveKds />);

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearSession,
   clearTerminalIdentity,
+  getAccessToken,
   getActiveBranchId,
   getOpenCashSession,
   getPendingCashOpen,
@@ -19,7 +20,7 @@ import {
 
 beforeEach(() => {
   window.localStorage.clear();
-  setActiveSurface("terminal");
+  setActiveSurface("pos");
 });
 
 describe("isSignedIn", () => {
@@ -51,7 +52,7 @@ describe("PosEmployee.sessionType — FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0", 
 
   it("defaults an unmarked record to \"pos\" — the only kind that existed before KDS had its own sign-on", () => {
     window.localStorage.setItem(
-      "ros.api.posEmployee",
+      "ros.pos.employee",
       JSON.stringify({ code: "EMP01", name: "Amina" }),
     );
     expect(getPosEmployee()).toEqual({ code: "EMP01", name: "Amina", sessionType: "pos" });
@@ -161,8 +162,8 @@ describe("onSessionChange", () => {
 
 describe("clearSession (console surface sign-out)", () => {
   it("only clears the CURRENT surface, never the other one", () => {
-    setActiveSurface("terminal");
-    setTokens({ accessToken: "terminal-tok", refreshToken: "ref", expiresIn: 900 });
+    setActiveSurface("pos");
+    setTokens({ accessToken: "pos-tok", refreshToken: "ref", expiresIn: 900 });
     setPosEmployee({ code: "EMP01", name: "Amina" });
 
     setActiveSurface("console");
@@ -173,9 +174,108 @@ describe("clearSession (console surface sign-out)", () => {
     clearSession();
     expect(isSignedIn()).toBe(false); // console surface, just cleared
 
-    setActiveSurface("terminal");
-    expect(isSignedIn()).toBe(true); // terminal surface, untouched
+    setActiveSurface("pos");
+    expect(isSignedIn()).toBe(true); // pos surface, untouched
     expect(getPosEmployee()).toEqual({ code: "EMP01", name: "Amina", sessionType: "pos" });
+  });
+});
+
+describe("POS-KDS-SESSION-ISOLATION-P0 — POS and KDS are independent surfaces", () => {
+  it("POS and KDS tokens/employees persist independently, including across a simulated reload", () => {
+    setActiveSurface("pos");
+    setTokens({ accessToken: "pos-tok", refreshToken: "pos-ref", expiresIn: 900 });
+    setPosEmployee({ code: "C1", name: "Cashier", sessionType: "pos" });
+
+    setActiveSurface("kds");
+    setTokens({ accessToken: "kds-tok", refreshToken: "kds-ref", expiresIn: 900 });
+    setPosEmployee({ code: "K1", name: "Cook", sessionType: "kds" });
+
+    // A reload re-derives `activeSurface` from the route and re-reads
+    // storage fresh — simulated here by simply switching the surface back
+    // and re-reading, since storage itself never changed underneath it.
+    setActiveSurface("pos");
+    expect(getAccessToken()).toBe("pos-tok");
+    expect(getPosEmployee()).toEqual({ code: "C1", name: "Cashier", sessionType: "pos" });
+
+    setActiveSurface("kds");
+    expect(getAccessToken()).toBe("kds-tok");
+    expect(getPosEmployee()).toEqual({ code: "K1", name: "Cook", sessionType: "kds" });
+  });
+
+  it("clearSession on POS never signs out a concurrent KDS session", () => {
+    setActiveSurface("pos");
+    setTokens({ accessToken: "pos-tok", refreshToken: "ref", expiresIn: 900 });
+    setActiveSurface("kds");
+    setTokens({ accessToken: "kds-tok", refreshToken: "ref", expiresIn: 900 });
+
+    setActiveSurface("pos");
+    clearSession();
+    expect(isSignedIn()).toBe(false);
+
+    setActiveSurface("kds");
+    expect(isSignedIn()).toBe(true);
+    expect(getAccessToken()).toBe("kds-tok");
+  });
+
+  it("clearSession on KDS never signs out a concurrent POS session", () => {
+    setActiveSurface("kds");
+    setTokens({ accessToken: "kds-tok", refreshToken: "ref", expiresIn: 900 });
+    setActiveSurface("pos");
+    setTokens({ accessToken: "pos-tok", refreshToken: "ref", expiresIn: 900 });
+
+    setActiveSurface("kds");
+    clearSession();
+    expect(isSignedIn()).toBe(false);
+
+    setActiveSurface("pos");
+    expect(isSignedIn()).toBe(true);
+    expect(getAccessToken()).toBe("pos-tok");
+  });
+
+  it("POS restores safely (signed out) when only a KDS session exists", () => {
+    setActiveSurface("kds");
+    setTokens({ accessToken: "kds-tok", refreshToken: "ref", expiresIn: 900 });
+    setPosEmployee({ code: "K1", name: "Cook", sessionType: "kds" });
+
+    setActiveSurface("pos");
+    expect(isSignedIn()).toBe(false);
+    expect(getAccessToken()).toBeNull();
+    expect(getPosEmployee()).toBeNull();
+  });
+
+  it("KDS restores safely (signed out) when only a POS session exists", () => {
+    setActiveSurface("pos");
+    setTokens({ accessToken: "pos-tok", refreshToken: "ref", expiresIn: 900 });
+    setPosEmployee({ code: "C1", name: "Cashier", sessionType: "pos" });
+
+    setActiveSurface("kds");
+    expect(isSignedIn()).toBe(false);
+    expect(getAccessToken()).toBeNull();
+    expect(getPosEmployee()).toBeNull();
+  });
+
+  it("clearTerminalIdentity (console reclaiming the device) ends BOTH, since it cannot know which one was left signed in", () => {
+    setActiveSurface("pos");
+    setTokens({ accessToken: "pos-tok", refreshToken: "ref", expiresIn: 900 });
+    setActiveSurface("kds");
+    setTokens({ accessToken: "kds-tok", refreshToken: "ref", expiresIn: 900 });
+
+    clearTerminalIdentity();
+
+    setActiveSurface("pos");
+    expect(isSignedIn()).toBe(false);
+    setActiveSurface("kds");
+    expect(isSignedIn()).toBe(false);
+  });
+
+  it("stores no terminalId/device-binding key for either surface", () => {
+    setActiveSurface("pos");
+    setTokens({ accessToken: "pos-tok", refreshToken: "ref", expiresIn: 900 });
+    setActiveSurface("kds");
+    setTokens({ accessToken: "kds-tok", refreshToken: "ref", expiresIn: 900 });
+
+    const keys = Object.keys(window.localStorage).join(" ").toLowerCase();
+    expect(keys).not.toContain("terminalid");
   });
 });
 

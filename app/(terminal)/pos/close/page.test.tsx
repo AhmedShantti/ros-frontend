@@ -56,7 +56,7 @@ function setSearchParams(params: Record<string, string>) {
 }
 
 function seedDevice() {
-  Session.setActiveSurface("terminal");
+  Session.setActiveSurface("pos");
   Session.setActiveBranchId(BRANCH_ID);
   Session.setTenantId(TENANT_ID);
 }

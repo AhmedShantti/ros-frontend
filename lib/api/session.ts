@@ -12,22 +12,37 @@
  * authority on every request (FR-SEC-045).
  *
  * DEMO-SESSION-ISOLATION-HOTFIX — the identity fields (access/refresh token,
- * its expiry, the selected tenant) are kept in TWO INDEPENDENT storage slots,
- * one per "surface": `console` (password login, `(console)`/`(auth)` route
- * groups — the dashboard) and `terminal` (PIN login, `(terminal)` route
- * group — POS/KDS; the surface name predates, and is unrelated to, the ROS
- * Terminal device concept decoupled below). Before this, `signInWithPin`
- * overwrote the SAME `ros.api.*` keys a signed-in Owner's dashboard session
- * was reading, so a cashier PIN login on the same browser silently replaced
- * the Owner's own token — every `/dashboard` call afterwards 403'd,
- * authenticated as the Cashier instead. `setActiveSurface`, called once by
- * each route group's own root layout (module scope, before any child can
- * fire a request), picks which slot every one of the functions below reads
- * and writes — every existing call site (`lib/api/auth.ts`,
- * `lib/api/client.ts`, `lib/console/services/http.ts`'s ~50 `getTenantId()`
- * reads, `components/terminal/pos-live.tsx`) keeps calling the SAME function
- * names unchanged, and is automatically correct for whichever surface it
- * runs on.
+ * its expiry, the selected tenant) are kept in INDEPENDENT storage slots, one
+ * per "surface": `console` (password login, `(console)`/`(auth)` route
+ * groups — the dashboard), `pos` and `kds` (PIN login, `(terminal)` route
+ * group; the surface name predates, and is unrelated to, the ROS Terminal
+ * device concept decoupled below). Before this, `signInWithPin` overwrote the
+ * SAME `ros.api.*` keys a signed-in Owner's dashboard session was reading, so
+ * a cashier PIN login on the same browser silently replaced the Owner's own
+ * token — every `/dashboard` call afterwards 403'd, authenticated as the
+ * Cashier instead. `setActiveSurface`, called once by each route group's own
+ * root layout (module scope, before any child can fire a request), picks
+ * which slot every one of the functions below reads and writes — every
+ * existing call site (`lib/api/auth.ts`, `lib/api/client.ts`,
+ * `lib/console/services/http.ts`'s ~50 `getTenantId()` reads,
+ * `components/terminal/pos-live.tsx`) keeps calling the SAME function names
+ * unchanged, and is automatically correct for whichever surface it runs on.
+ *
+ * POS-KDS-SESSION-ISOLATION-P0 — `pos` and `kds` used to be ONE combined
+ * `terminal` slot, on the reasoning that both live under the same
+ * `(terminal)` route group and neither is the console. That reasoning
+ * conflated "not the console" with "the same session": a KDS PIN sign-on
+ * wrote the exact same `ros.terminal.*` keys and `posEmployee` record a POS
+ * cashier's session was reading, so signing on to the kitchen display on a
+ * shared browser silently replaced the till's own token — `/pos` then sent
+ * the KDS employee's token to an order-line endpoint, which correctly 403'd
+ * it ("PIN (KDS) sessions cannot access dashboard, back-office, or POS
+ * endpoints."). This is the SAME namespacing mechanism, extended to a third,
+ * independent slot rather than a second auth system: `ConsoleProvider`
+ * resolves which of `pos`/`kds` a mount of the shared `(terminal)` layout
+ * actually is from the route itself (`/kds*` vs everything else under
+ * `(terminal)`), exactly as it already resolved `console` vs `terminal` from
+ * which route group mounted it.
  *
  * FRONTEND-POS-KDS-TERMINAL-DECOUPLING-P0 — POS and KDS are branch/employee
  * application sessions, not registered Terminal/device ones: `POST /auth/pin`
@@ -69,7 +84,7 @@
  *   than silently handed it.
  */
 
-type AuthSurface = "console" | "terminal";
+export type AuthSurface = "console" | "pos" | "kds";
 
 /**
  * Defaults to `console`: the safer failure mode for any code that runs
@@ -95,15 +110,28 @@ const CONSOLE_KEYS = {
   tenant: "ros.api.tenantId",
 };
 
-const TERMINAL_KEYS = {
-  access: "ros.terminal.accessToken",
-  refresh: "ros.terminal.refreshToken",
-  expires: "ros.terminal.expiresAt",
-  tenant: "ros.terminal.tenantId",
+/** POS-KDS-SESSION-ISOLATION-P0 — was the one shared `ros.terminal.*` slot. */
+const POS_KEYS = {
+  access: "ros.pos.accessToken",
+  refresh: "ros.pos.refreshToken",
+  expires: "ros.pos.expiresAt",
+  tenant: "ros.pos.tenantId",
 };
 
+const KDS_KEYS = {
+  access: "ros.kds.accessToken",
+  refresh: "ros.kds.refreshToken",
+  expires: "ros.kds.expiresAt",
+  tenant: "ros.kds.tenantId",
+};
+
+function keysFor(surface: AuthSurface) {
+  if (surface === "console") return CONSOLE_KEYS;
+  return surface === "kds" ? KDS_KEYS : POS_KEYS;
+}
+
 function identityKeys() {
-  return activeSurface === "console" ? CONSOLE_KEYS : TERMINAL_KEYS;
+  return keysFor(activeSurface);
 }
 
 /**
@@ -169,7 +197,16 @@ const KEY_ACTIVE_BRANCH = "ros.api.activeBranchId";
 const LEGACY_DEVICE_BRANCH_KEY = "ros.api.deviceBranchId";
 const KEY_CASH_SESSION = "ros.api.cashSessionId";
 const KEY_CASH_OPENING = "ros.api.cashSessionOpening";
-const KEY_POS_EMPLOYEE = "ros.api.posEmployee";
+/**
+ * POS-KDS-SESSION-ISOLATION-P0 — was ONE shared `ros.api.posEmployee` slot
+ * for both surfaces, on the same "they're not the console" reasoning the
+ * token keys had — a KDS sign-on overwrote the display record `/pos` was
+ * reading right alongside its token. Split the same way the tokens were.
+ */
+const POS_EMPLOYEE_KEYS = {
+  pos: "ros.pos.employee",
+  kds: "ros.kds.employee",
+};
 const KEY_KDS_STATION = "ros.api.kdsStationId";
 
 export interface TokenSet {
@@ -261,13 +298,13 @@ export function announceSessionChange(): void {
 }
 
 function clearIdentity(surface: AuthSurface): void {
-  const keys = surface === "console" ? CONSOLE_KEYS : TERMINAL_KEYS;
+  const keys = keysFor(surface);
   write(keys.access, null);
   write(keys.refresh, null);
   write(keys.expires, null);
   write(keys.tenant, null);
-  if (surface === "terminal") {
-    write(KEY_POS_EMPLOYEE, null);
+  if (surface === "pos" || surface === "kds") {
+    write(POS_EMPLOYEE_KEYS[surface], null);
     // A half-finished open is NOT cleared here. It carries the employee code
     // that started it (`PendingCashOpen`) and is replayed only for them, so
     // it defends itself the same way the open session does — and it has to
@@ -278,7 +315,7 @@ function clearIdentity(surface: AuthSurface): void {
 }
 
 /**
- * Clears the CURRENT surface's own identity.
+ * Clears the CURRENT surface's own identity — and ONLY that surface's.
  *
  * POS-CUSTODY — this deliberately does NOT clear the open cash session. It
  * used to, on the reasoning that a drawer belongs to the employee who opened
@@ -288,6 +325,12 @@ function clearIdentity(surface: AuthSurface): void {
  * find it again with. The record now carries the employee code that opened it
  * (`OpenCashSession`), so it defends itself — signing out no longer needs to
  * destroy it.
+ *
+ * POS-KDS-SESSION-ISOLATION-P0 — this is also what `signInWithPin` and
+ * `signOffTerminal` call now (never `clearTerminalIdentity` below): both run
+ * on exactly one of `pos`/`kds` at a time, via `activeSurface`, so clearing
+ * "the current surface" already means "this one, not the other" — a KDS
+ * sign-on/sign-off must never touch POS's token or vice versa.
  */
 export function clearSession(): void {
   clearIdentity(activeSurface);
@@ -295,31 +338,35 @@ export function clearSession(): void {
 }
 
 /**
- * Ends the terminal's PIN session from ANYWHERE, whichever surface is active.
+ * Ends BOTH terminal PIN sessions — POS's and KDS's — regardless of which
+ * surface is active. For a CONSOLE user reclaiming the device, which is the
+ * only kind of caller this has: it does not know, and must not guess, which
+ * of the two a stray till session left behind actually was.
  *
  * POS-CUSTODY — the leak this closes: `clearSession()` only ever touched the
  * surface it was called on, and the only caller is a CONSOLE sign-out. So
- * `ros.terminal.*` was never cleared by anything, by any route, ever. A
+ * neither terminal slot was ever cleared by anything, by any route, ever. A
  * cashier signing in with their own email wrote `ros.api.*` and left the
- * previous employee's terminal token exactly where `/pos` reads it — and
- * `refreshSession()` kept renewing it from the previous employee's refresh
- * token, so it never even lapsed on its own.
+ * previous employee's terminal token exactly where `/pos`/`/kds` reads it —
+ * and `refreshSession()` kept renewing it from the previous employee's
+ * refresh token, so it never even lapsed on its own.
  */
 export function clearTerminalIdentity(): void {
-  clearIdentity("terminal");
+  clearIdentity("pos");
+  clearIdentity("kds");
   announce();
 }
 
 /**
- * The terminal slot's access token, regardless of which surface is active.
+ * Both terminal slots' access tokens, regardless of which surface is active.
  *
- * Only for revoking it: a console sign-in ends whatever PIN session this
- * device was left holding, and revoking it server-side needs the credential
- * itself. Everything else must go through `getAccessToken()`, which answers
- * for the surface it is asked on.
+ * Only for revoking them: a console sign-in ends whatever PIN session(s)
+ * this device was left holding, and revoking server-side needs the
+ * credential itself. Everything else must go through `getAccessToken()`,
+ * which answers for the surface it is asked on.
  */
-export function peekTerminalAccessToken(): string | null {
-  return read(TERMINAL_KEYS.access);
+export function peekTerminalAccessTokens(): { pos: string | null; kds: string | null } {
+  return { pos: read(POS_KEYS.access), kds: read(KDS_KEYS.access) };
 }
 
 export function getAccessToken(): string | null {
@@ -555,9 +602,15 @@ export function setPendingCashOpen(pending: PendingCashOpen | null): void {
  * This is a *display* record, not an authorisation one — the token is what
  * the server checks, and it will refuse regardless of what is stored here.
  * It exists so the till/display can show who is on it and know to ask when
- * nobody is, without decoding a JWT it does not own — `sessionType` is what
- * lets a KDS screen tell "somebody is signed on" apart from "somebody is
- * signed on FOR KDS", since both surfaces share this one device-level slot.
+ * nobody is, without decoding a JWT it does not own.
+ *
+ * POS-KDS-SESSION-ISOLATION-P0 — reads/writes `POS_EMPLOYEE_KEYS[activeSurface]`
+ * (falling back to the `pos` slot for `console`, which never legitimately
+ * calls this): POS and KDS each have their own record now, the same way
+ * they have their own token, so `sessionType` on the stored value is no
+ * longer load-bearing for telling the two apart — kept only because a record
+ * already on a returning browser from before this fix still carries it, and
+ * it costs nothing to keep believing it.
  */
 export interface PosEmployee {
   code: string;
@@ -566,8 +619,12 @@ export interface PosEmployee {
   sessionType?: "pos" | "kds";
 }
 
+function posEmployeeKey(): string {
+  return POS_EMPLOYEE_KEYS[activeSurface === "kds" ? "kds" : "pos"];
+}
+
 export function getPosEmployee(): PosEmployee | null {
-  const raw = read(KEY_POS_EMPLOYEE);
+  const raw = read(posEmployeeKey());
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<PosEmployee>;
@@ -583,6 +640,6 @@ export function getPosEmployee(): PosEmployee | null {
 }
 
 export function setPosEmployee(employee: PosEmployee | null): void {
-  write(KEY_POS_EMPLOYEE, employee === null ? null : JSON.stringify(employee));
+  write(posEmployeeKey(), employee === null ? null : JSON.stringify(employee));
   announce();
 }

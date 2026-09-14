@@ -26,6 +26,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
 import { consoleEn, type ConsoleKey } from "@/content/console/en";
 import { consoleAr } from "@/content/console/ar";
 import type {
@@ -279,7 +280,7 @@ function SessionProvider({
   surface,
 }: {
   children: ReactNode;
-  surface: "console" | "terminal";
+  surface: "console" | "pos" | "kds";
 }) {
   const [roleKey, setRoleKey] = useState<RoleKey>("owner");
   const [authenticated, setAuthenticated] = useState(false);
@@ -327,7 +328,7 @@ function SessionProvider({
    * was never on an older build.
    */
   useEffect(() => {
-    if (surface === "terminal") migrateLegacyPosKdsDeviceState();
+    if (surface !== "console") migrateLegacyPosKdsDeviceState();
   }, [surface]);
 
   const live = DATA_MODE === "http";
@@ -597,8 +598,8 @@ function SessionProvider({
      * console-derived value only for demo mode, or before either fact has
      * ever been resolved.
      */
-    const terminalTenantId = live && surface === "terminal" ? getDeviceTenantId() : null;
-    const terminalBranchId = live && surface === "terminal" ? getActiveBranchId() : null;
+    const terminalTenantId = live && surface !== "console" ? getDeviceTenantId() : null;
+    const terminalBranchId = live && surface !== "console" ? getActiveBranchId() : null;
 
     /*
      * Local-backed services (customers, promotions, rosters, settings
@@ -675,16 +676,27 @@ export function usePermission(permission: PermissionKey): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * DEMO-SESSION-ISOLATION-HOTFIX — `surface` picks which of the two
- * independent `lib/api/session.ts` identity slots every API call made
- * beneath this subtree reads and writes. `ConsoleProvider` is shared by
- * `(console)`, `(auth)` AND `(terminal)` (the same live org-context/session
- * plumbing backs the dashboard and the terminal apps), so the route group
- * that mounts it is the one thing that knows which it actually is — set
- * once here, synchronously, before any child's own effect can fire a
- * request. Defaults to `"console"`: the two callers that omit it
- * (`(console)`, `(auth)`) are exactly the ones that must never be mistaken
- * for a PIN/terminal session.
+ * DEMO-SESSION-ISOLATION-HOTFIX — `surface` picks which of the independent
+ * `lib/api/session.ts` identity slots every API call made beneath this
+ * subtree reads and writes. `ConsoleProvider` is shared by `(console)`,
+ * `(auth)` AND `(terminal)` (the same live org-context/session plumbing
+ * backs the dashboard and the terminal apps), so the route group that mounts
+ * it is the one thing that knows which it actually is — set once here,
+ * synchronously, before any child's own effect can fire a request. Defaults
+ * to `"console"`: the two callers that omit it (`(console)`, `(auth)`) are
+ * exactly the ones that must never be mistaken for a PIN/terminal session.
+ *
+ * POS-KDS-SESSION-ISOLATION-P0 — `(terminal)/layout.tsx` passes the single
+ * `"terminal"` value for BOTH `/pos*` and `/kds*` (one shared layout file),
+ * so it cannot itself tell the two apart; that used to mean POS and KDS PIN
+ * sign-ons wrote the exact same storage slot; a KDS sign-on later got sent
+ * as the bearer token on a POS order-line request, which the backend
+ * correctly rejected. `usePathname()` resolves which of the two a given
+ * mount actually is — `/kds*` is KDS, everything else under `(terminal)` is
+ * POS — the same way this function already resolved `console` vs `terminal`
+ * from which route group mounted it. Reading the pathname during render
+ * (never an effect) keeps `setActiveSurface` synchronous, exactly as the
+ * paragraph above requires.
  */
 export function ConsoleProvider({
   children,
@@ -693,10 +705,13 @@ export function ConsoleProvider({
   children: ReactNode;
   surface?: "console" | "terminal";
 }) {
-  setActiveSurface(surface);
+  const pathname = usePathname();
+  const resolved: "console" | "pos" | "kds" =
+    surface === "console" ? "console" : pathname?.startsWith("/kds") ? "kds" : "pos";
+  setActiveSurface(resolved);
   return (
     <PreferencesProvider>
-      <SessionProvider surface={surface}>
+      <SessionProvider surface={resolved}>
         <ConfirmProvider>{children}</ConfirmProvider>
       </SessionProvider>
     </PreferencesProvider>

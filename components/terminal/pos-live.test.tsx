@@ -78,7 +78,7 @@ const BRANCH_ID = "branch-1";
 const TENANT_ID = "tenant-1";
 
 function seedDevice() {
-  Session.setActiveSurface("terminal");
+  Session.setActiveSurface("pos");
   Session.setActiveBranchId(BRANCH_ID);
   Session.setTenantId(TENANT_ID);
 }
@@ -308,7 +308,7 @@ describe("LivePos — PIN sign-on contract (FRONTEND-POS-KDS-TERMINAL-DECOUPLING
     // A genuinely fresh browser: tenant known (from a console sign-in on it),
     // but no active branch selected yet.
     window.localStorage.clear();
-    Session.setActiveSurface("terminal");
+    Session.setActiveSurface("pos");
     Session.setTenantId(TENANT_ID);
 
     render(<LivePos />);
