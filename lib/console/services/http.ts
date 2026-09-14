@@ -2720,6 +2720,10 @@ async function toTicket(
 }
 
 const kitchen: KitchenService = {
+  async stations() {
+    return (await api.kitchen.listStations()).map(map.toKdsStationOption);
+  },
+
   async queue(stationId) {
     const response = await api.kitchen.getStationQueue(stationId, { sort: "fifo" });
     return {

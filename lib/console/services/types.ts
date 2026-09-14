@@ -156,6 +156,15 @@ export interface StationQueue {
  * a refusal is reported rather than routed around.
  */
 export interface KitchenService {
+  /**
+   * KDS-STATION-DISCOVERY-AUTH-FIX-P0 — the stations at the CALLER'S OWN KDS
+   * session branch, for the station picker. Branch-scoped server-side to the
+   * session itself, never a client-supplied branch/tenant; deliberately not
+   * `OperationsService.stations()` (`GET /org/branches/:branchId/stations`),
+   * which is BRANCH_READ-gated console/admin surface a KDS session cannot
+   * and should not call.
+   */
+  stations(): Promise<Pick<Station, "id" | "name" | "colour">[]>;
   /** FR-KDS-020 — the FIFO queue for one station. */
   queue(stationId: Id): Promise<StationQueue>;
   /**

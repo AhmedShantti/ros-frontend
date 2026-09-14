@@ -2083,6 +2083,9 @@ const finance: FinanceService = {
  * says plainly that this path needs a backend.
  */
 const kitchen: KitchenService = {
+  async stations() {
+    noBackend("Reading the KDS session's own branch stations through the service layer");
+  },
   async queue() {
     noBackend("Reading a station queue through the service layer");
   },

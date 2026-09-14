@@ -37,9 +37,9 @@ import { Ban, ChefHat, Check, RotateCcw, Timer, Utensils } from "lucide-react";
 import type { Id, KitchenTicket, TicketUrgency } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import type { StationQueue } from "@/lib/console/services/types";
-import { useAsync, useStations } from "@/lib/console/hooks";
+import { useAsync, useKdsStations } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
-import { useI18n, useSession } from "@/lib/console/providers";
+import { useI18n } from "@/lib/console/providers";
 import { useNow, elapsedSince } from "@/lib/console/live/store";
 import { formatElapsed } from "@/lib/console/format";
 import { ORDER_TYPE, TICKET_URGENCY } from "@/lib/console/labels";
@@ -111,10 +111,9 @@ const URGENCY_TIMER: Record<TicketUrgency, string> = {
 
 export function LiveKds() {
   const { t, tx } = useI18n();
-  const { scope } = useSession();
   const now = useNow(1000);
 
-  const stations = useStations(scope);
+  const stations = useKdsStations();
 
   /**
    * The stored station is in `localStorage`, which the server render cannot
@@ -163,7 +162,7 @@ export function LiveKds() {
    * device's setting predates the branch's stations being provisioned at
    * all). Only clears on POSITIVE evidence — a non-empty, genuinely fetched
    * `stations` list that does not contain it — never while `stations` is
-   * merely still loading (which `useStations` cannot distinguish from
+   * merely still loading (which `useKdsStations` cannot distinguish from
    * "branch really has none"), so a valid persisted station is never
    * dropped just because the list hasn't arrived yet.
    */
@@ -550,7 +549,7 @@ function StationPicker({
   title,
   note,
 }: {
-  stations: ReturnType<typeof useStations>;
+  stations: ReturnType<typeof useKdsStations>;
   onChoose: (id: Id) => void;
   title: string;
   note: string;

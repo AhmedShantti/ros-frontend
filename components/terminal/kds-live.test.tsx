@@ -15,21 +15,30 @@ import type { KitchenTicket } from "@/lib/console/types";
  * `localStorage`.
  */
 
-const { queue, acknowledgeViewed, startLine, bumpLine, bumpAll, recall, stationsFn } = vi.hoisted(
-  () => ({
-    queue: vi.fn(),
-    acknowledgeViewed: vi.fn(),
-    startLine: vi.fn(),
-    bumpLine: vi.fn(),
-    bumpAll: vi.fn(),
-    recall: vi.fn(),
-    stationsFn: vi.fn(),
-  }),
-);
+const {
+  queue,
+  acknowledgeViewed,
+  startLine,
+  bumpLine,
+  bumpAll,
+  recall,
+  kdsStationsFn,
+  orgStationsFn,
+} = vi.hoisted(() => ({
+  queue: vi.fn(),
+  acknowledgeViewed: vi.fn(),
+  startLine: vi.fn(),
+  bumpLine: vi.fn(),
+  bumpAll: vi.fn(),
+  recall: vi.fn(),
+  kdsStationsFn: vi.fn(),
+  orgStationsFn: vi.fn(),
+}));
 
 vi.mock("@/lib/console/services", () => ({
   services: {
     kitchen: {
+      stations: (...args: unknown[]) => kdsStationsFn(...args),
       queue: (...args: unknown[]) => queue(...args),
       acknowledgeViewed: (...args: unknown[]) => acknowledgeViewed(...args),
       startLine: (...args: unknown[]) => startLine(...args),
@@ -37,8 +46,12 @@ vi.mock("@/lib/console/services", () => ({
       bumpAll: (...args: unknown[]) => bumpAll(...args),
       recall: (...args: unknown[]) => recall(...args),
     },
+    // KDS-STATION-DISCOVERY-AUTH-FIX-P0 — `LiveKds` must never call the
+    // back-office `GET /org/branches/:branchId/stations` surface (a real
+    // KDS PIN session is correctly refused on it); kept mocked here only so
+    // a regression that resurrects the old call site fails loudly.
     operations: {
-      stations: (...args: unknown[]) => stationsFn(...args),
+      stations: (...args: unknown[]) => orgStationsFn(...args),
     },
   },
 }));
@@ -136,7 +149,12 @@ function makeTicket(overrides: Partial<KitchenTicket> = {}): KitchenTicket {
 beforeEach(() => {
   window.localStorage.clear();
   vi.clearAllMocks();
-  stationsFn.mockResolvedValue({ rows: [STATION], total: 1 });
+  // `services.kitchen.stations()` returns a flat, minimal array (id/name/
+  // colour only) — not `operations.stations()`'s `Page<Station>` shape.
+  kdsStationsFn.mockResolvedValue([
+    { id: STATION.id, name: STATION.name, colour: STATION.colour },
+  ]);
+  orgStationsFn.mockResolvedValue({ rows: [STATION], total: 1 });
   queue.mockResolvedValue({ tickets: [], recallWindowSeconds: 300, cancelledLineVisibilitySeconds: null });
   acknowledgeViewed.mockResolvedValue(0);
   seedDevice();
@@ -212,6 +230,40 @@ describe("LiveKds — station context (operational, not device identity)", () =>
 
     expect(await screen.findByText("kds.pickStation")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Grill" })).toBeInTheDocument();
+  });
+
+  it("discovers stations through services.kitchen.stations(), not services.operations.stations() (KDS-STATION-DISCOVERY-AUTH-FIX-P0)", async () => {
+    signOnLocally("EMP02", "Chef");
+
+    render(<LiveKds />);
+
+    await screen.findByRole("button", { name: "Grill" });
+    expect(kdsStationsFn).toHaveBeenCalledTimes(1);
+    expect(orgStationsFn).not.toHaveBeenCalled();
+  });
+
+  it("selecting a discovered station loads its queue", async () => {
+    signOnLocally("EMP02", "Chef");
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+
+    render(<LiveKds />);
+
+    await user.click(await screen.findByRole("button", { name: "Grill" }));
+
+    await waitFor(() => expect(queue).toHaveBeenCalledWith(STATION.id));
+  });
+
+  it("falls back to an empty picker, rather than throwing, when KDS station discovery fails", async () => {
+    // Mirrors `useKdsStations`'s own `.catch(() => [])` — a discovery
+    // failure (e.g. a stale/expired session) must not crash the screen.
+    kdsStationsFn.mockRejectedValue(new Error("403"));
+    signOnLocally("EMP02", "Chef");
+
+    render(<LiveKds />);
+
+    expect(await screen.findByText("kds.pickStation")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Grill" })).not.toBeInTheDocument();
   });
 
   it("includes stationId when starting a ticket line", async () => {

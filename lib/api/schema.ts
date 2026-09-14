@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 150 paths, 107 request DTOs.
+ * `api/openapi.json`. 151 paths, 107 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -5360,6 +5360,13 @@ export type HealthController_checkResponse = {
   service: string;
 };
 
+/** `GET /kds/stations` — The caller's own branch's kitchen stations, for the KDS station picker. — Stations at this KDS session's own branch. */
+export type KdsStationsController_listStationsResponse = ({
+  displayColour: string | null;
+  id: string;
+  name: string;
+})[];
+
 /** `GET /kds/stations/{stationId}/queue` — Read a KDS station queue (FIFO, read-only). — The station queue and branch KDS config facts. */
 export type KitchenController_getStationQueueResponse = {
   tickets: ({
@@ -6217,6 +6224,7 @@ export const ROUTES = {
   InventoryController_expiring: { method: "GET", path: "/inventory/expiring" },
   InventoryController_lowStock: { method: "GET", path: "/inventory/low-stock" },
   HealthController_check: { method: "GET", path: "/health" },
+  KdsStationsController_listStations: { method: "GET", path: "/kds/stations" },
   KitchenController_getStationQueue: { method: "GET", path: "/kds/stations/{stationId}/queue" },
   KitchenController_acknowledgeViewed: { method: "POST", path: "/kds/stations/{stationId}/tickets/view" },
   KitchenController_startLine: { method: "POST", path: "/kds/tickets/{ticketId}/lines/{lineId}/start" },

@@ -881,6 +881,10 @@ export const health = {
 // ---------------------------------------------------------------------------
 
 export const kitchen = {
+  /** `GET /kds/stations` — The caller's own branch's kitchen stations, for the KDS station picker. — Stations at this KDS session's own branch. */
+  listStations: () =>
+    http.get<S.KdsStationsController_listStationsResponse>("/kds/stations"),
+
   /** `GET /kds/stations/{stationId}/queue` — Read a KDS station queue (FIFO, read-only). — The station queue and branch KDS config facts. */
   getStationQueue: (stationId: string, options: { sort?: "fifo" } = {}) =>
     http.get<S.KitchenController_getStationQueueResponse>("/kds/stations/{stationId}/queue", { params: { stationId }, query: { sort: options.sort } }),

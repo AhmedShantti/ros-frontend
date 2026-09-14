@@ -307,6 +307,23 @@ export function useStations(scope?: Scope): Station[] {
   return stations.data ?? [];
 }
 
+/**
+ * KDS-STATION-DISCOVERY-AUTH-FIX-P0 — the stations for the `/kds` station
+ * picker, scoped SERVER-SIDE to the signed-on KDS session's own branch
+ * (`GET /kds/stations`). Deliberately not `useStations`: that hook calls
+ * `GET /org/branches/:branchId/stations`, a back-office endpoint a KDS PIN
+ * session is correctly refused on — Operations → Stations (management)
+ * keeps using `useStations`; only the KDS picker uses this one.
+ */
+export function useKdsStations(): Pick<Station, "id" | "name" | "colour">[] {
+  const stations = useAsync(
+    () => services.kitchen.stations().catch(() => [] as Pick<Station, "id" | "name" | "colour">[]),
+    [],
+  );
+
+  return stations.data ?? [];
+}
+
 /** A transient confirmation message — "Saved", "Approved", "Copied". */
 export function useTransientMessage(durationMs = 2600) {
   const [message, setMessage] = useState<string | null>(null);

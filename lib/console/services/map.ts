@@ -492,6 +492,23 @@ export function toStation(row: WireStation): Station {
   };
 }
 
+type WireKdsStation = S.KdsStationsController_listStationsResponse[number];
+
+/**
+ * KDS-STATION-DISCOVERY-AUTH-FIX-P0 — `GET /kds/stations`'s deliberately
+ * minimal picker shape ({id, name, displayColour}), not `toStation`'s full
+ * management row: there is no `branchId`/`capacityConfig` to read here
+ * (the caller's own branch is never echoed back), and none is needed — the
+ * picker only ever renders id, name and colour.
+ */
+export function toKdsStationOption(row: WireKdsStation): Pick<Station, "id" | "name" | "colour"> {
+  return {
+    id: row.id,
+    name: localised(row.name),
+    colour: colourOf(row.displayColour),
+  };
+}
+
 type WireDrawer = S.DrawersController_createDrawerResponse;
 
 export function toDrawer(row: WireDrawer): Drawer {
