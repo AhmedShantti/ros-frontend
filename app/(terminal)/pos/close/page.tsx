@@ -13,18 +13,32 @@
  * keeps this device's identity in a storage slot the Console never touches —
  * see `lib/api/session.ts`'s `DEMO-SESSION-ISOLATION-HOTFIX` block).
  *
- * `ManagerSignOn` below always asks for a PIN, even if this till already has
- * someone signed on: a stray Cashier session left open on a shared terminal
- * must never be reused to close a drawer that is not theirs, and a manager
- * closing someone else's shift is a deliberate act, not an ambient one.
- * Neither the sessionId nor the branch/employee names carried in the URL are
- * ever treated as authority — `DrawerSheet` re-reads the session fresh from
- * `close-context` under whichever PIN identity just signed on, and the
- * server is what actually decides whether that identity may act on it
- * (`cash.session.close_other`, `cash.variance.approve` on finalize). This
+ * `ManagerSignOn` always asks for a PIN the first time this screen is
+ * reached for a given session: a stray Cashier session left open on a shared
+ * terminal must never be reused to close a drawer that is not theirs, and a
+ * manager closing someone else's shift is a deliberate act, not an ambient
+ * one. Neither the sessionId nor the branch/employee names carried in the
+ * URL are ever treated as authority — `DrawerSheet` re-reads the session
+ * fresh from `close-context` under whichever PIN identity just signed on,
+ * and the server is what actually decides whether that identity may act on
+ * it (`cash.session.close_other`, `cash.variance.approve` on finalize). This
  * screen reuses `DrawerSheet` unmodified — the count, the blind-reveal, the
  * variance display and the manager-PIN approval are the SAME implementation
  * an employee closing their own shift gets, never a second one.
+ *
+ * DEMO-CASH-AUTH-FINAL-GAP-P0 — `manager` used to be a bare `useState(null)`
+ * with nothing ever rehydrating it, so a reload or a Back-navigation to this
+ * exact URL (the manager's tokens and `posEmployee` still perfectly intact
+ * in storage) dropped straight back to the PIN form — indistinguishable from
+ * being signed out, and easy to mistake for a `close-context` 403 clearing
+ * the session (it does not; see `lib/api/client.ts` — only a 401/refresh
+ * failure ever calls `clearSession()`). `readCloseSignOn`/`writeCloseSignOn`
+ * below remember, per tab and per sessionId (`sessionStorage`, not
+ * `localStorage`: it must survive a reload or Back within this tab but never
+ * silently answer for a DIFFERENT tab or a later, unrelated visit), that
+ * THIS screen already completed its own deliberate sign-on for THIS session
+ * — so a reload/Back resumes it, while a fresh visit still always prompts,
+ * preserving the paragraph above.
  */
 
 import { Suspense, useEffect, useState } from "react";
@@ -35,6 +49,8 @@ import {
   getActiveBranchId,
   getDeviceTenantId,
   getPosEmployee,
+  isSignedIn,
+  onSessionChange,
   setPosEmployee,
   type PosEmployee,
 } from "@/lib/api/session";
@@ -53,6 +69,31 @@ import {
   Spinner,
   Toast,
 } from "@/components/console/ui";
+
+const CLOSE_SIGN_ON_KEY = "ros.pos.closeSignOn";
+
+/** This tab already completed its own deliberate manager sign-on for `sessionId`. */
+function readCloseSignOn(sessionId: string): PosEmployee | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(CLOSE_SIGN_ON_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { sessionId: string; employee: PosEmployee };
+    return parsed.sessionId === sessionId ? parsed.employee : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCloseSignOn(sessionId: string, employee: PosEmployee | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (employee === null) window.sessionStorage.removeItem(CLOSE_SIGN_ON_KEY);
+    else window.sessionStorage.setItem(CLOSE_SIGN_ON_KEY, JSON.stringify({ sessionId, employee }));
+  } catch {
+    // Private mode: worst case, the next reload re-prompts for a PIN.
+  }
+}
 
 export default function CloseSessionPage() {
   return (
@@ -88,11 +129,33 @@ function CloseSessionScreen() {
   const [mounted, setMounted] = useState(false);
 
   // Both the active operating branch and any previously-signed-on identity
-  // live in `localStorage`, invisible to the server render — nothing is
-  // decided until after mount, same as `LivePos`.
+  // live in storage, invisible to the server render — nothing is decided
+  // until after mount, same as `LivePos`.
+  //
+  // DEMO-CASH-AUTH-FINAL-GAP-P0 — resume THIS tab's own already-completed
+  // sign-on for THIS sessionId (see `readCloseSignOn`'s docblock above) so a
+  // reload or Back does not masquerade as a sign-out; a fresh visit (no
+  // matching marker) still always falls through to `ManagerSignOn`. Mirrors
+  // `LivePos`'s own mount-sync / `onSessionChange` pair.
   useEffect(() => {
+    const sync = () => {
+      const remembered = readCloseSignOn(sessionId);
+      const current = isSignedIn() ? getPosEmployee() : null;
+      // The token must still belong to the SAME employee this tab remembered
+      // signing on as — if a different employee has since signed onto this
+      // terminal (e.g. from `/pos`), that is a genuinely new identity, not a
+      // resumption, and the stale marker is dropped rather than honoured.
+      if (current && remembered && current.code === remembered.code) {
+        setManager(current);
+      } else {
+        setManager(null);
+        if (remembered) writeCloseSignOn(sessionId, null);
+      }
+    };
+    sync();
     setMounted(true);
-  }, []);
+    return onSessionChange(sync);
+  }, [sessionId]);
 
   if (!sessionId) {
     return (
@@ -154,6 +217,7 @@ function CloseSessionScreen() {
               variant="ghost"
               onClick={() => {
                 setPosEmployee(null);
+                writeCloseSignOn(sessionId, null);
                 setManager(null);
               }}
             >
@@ -172,11 +236,13 @@ function CloseSessionScreen() {
               // this ends in a close or a cancel — the next person to walk
               // up gets a sign-on screen, not this manager's identity.
               setPosEmployee(null);
+              writeCloseSignOn(sessionId, null);
               router.push("/operations/cash-sessions");
             }}
             onMessage={setMessage}
             onClosed={() => {
               setPosEmployee(null);
+              writeCloseSignOn(sessionId, null);
               router.push("/operations/cash-sessions");
             }}
           />
@@ -184,6 +250,7 @@ function CloseSessionScreen() {
           <ManagerSignOn
             branchId={activeBranchId}
             onSignedOn={(employee) => {
+              writeCloseSignOn(sessionId, employee);
               setManager(employee);
               setMessage(t("shift.signedOn"));
             }}
