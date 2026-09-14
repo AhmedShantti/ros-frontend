@@ -39,7 +39,7 @@ export default function StationsPage() {
   );
 }
 
-function StationsScreen() {
+export function StationsScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope, branch, availableBranches } = useSession();
   const [branchId, setBranchId] = useState("");
@@ -106,6 +106,12 @@ function StationsScreen() {
           </Field>
         ) : null}
 
+        <FallbackStationSection
+          branchId={branchId}
+          stations={stations}
+          stationsLoading={stationsQuery.loading}
+        />
+
         <Section
           title={t("stations.listTitle")}
           action={
@@ -161,6 +167,92 @@ function StationsScreen() {
       ) : null}
       <Toast message={message} />
     </>
+  );
+}
+
+/**
+ * KDS-BRANCH-FALLBACK-STATION-P0 — kitchen-routing tier 5 (FR-KDS-010): the
+ * one station an otherwise-unrouted fired item goes to. Explicit routing
+ * rules (line/modifier/menu-item/category) always win over this; it only
+ * matters for an item with none of those. Deliberately never defaults to
+ * `stations[0]` — the empty "No fallback" option is the honest starting
+ * state whenever nothing has been configured yet, matching what the
+ * backend itself returns (`fallbackStationId: null`) before anyone sets one.
+ */
+function FallbackStationSection({
+  branchId,
+  stations,
+  stationsLoading,
+}: {
+  branchId: string;
+  stations: Station[];
+  stationsLoading: boolean;
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const [message, setMessage] = useTransientMessageLocal();
+
+  const configQuery = useAsync(
+    () =>
+      branchId
+        ? services.operations.getBranchKdsConfig(branchId)
+        : Promise.resolve({ fallbackStationId: null }),
+    [branchId],
+  );
+
+  const [selected, setSelected] = useState("");
+
+  // Follows the loaded value, not a one-time initializer: `branchId`
+  // switching (or a reload after save) must replace an in-progress
+  // selection, never leave the previous branch's choice showing.
+  useEffect(() => {
+    setSelected(configQuery.data?.fallbackStationId ?? "");
+  }, [configQuery.data]);
+
+  const dirty = selected !== (configQuery.data?.fallbackStationId ?? "");
+
+  async function save() {
+    if (!branchId) return;
+    await action.run(
+      () => services.operations.setBranchKdsConfig(branchId, selected || null),
+      {
+        onSuccess: () => {
+          setMessage(t("stations.fallbackSaved"));
+          configQuery.reload();
+        },
+      },
+    );
+  }
+
+  return (
+    <Section title={t("stations.fallbackTitle")} hint={t("stations.fallbackHint")}>
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label={t("stations.fallbackLabel")}>
+          <Select
+            value={selected}
+            onChange={(event) => setSelected(event.target.value)}
+            disabled={!branchId || configQuery.loading || stationsLoading}
+          >
+            <option value="">{t("stations.fallbackNone")}</option>
+            {stations.map((station) => (
+              <option key={station.id} value={station.id}>
+                {tx(station.name)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Button
+          variant="primary"
+          loading={action.pending}
+          disabled={!branchId || !dirty}
+          onClick={save}
+        >
+          {t("common.save")}
+        </Button>
+      </div>
+      <Toast message={message} />
+    </Section>
   );
 }
 

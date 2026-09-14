@@ -351,6 +351,14 @@ export const organisation = {
   createStationRoutingRule: (branchId: string, body: S.CreateStationRoutingRuleDto) =>
     http.post<S.OrganisationController_createStationRoutingRuleResponse>("/org/branches/{branchId}/station-routing-rules", { params: { branchId }, body }),
 
+  /** `GET /org/branches/{branchId}/kds-config` — The branch's KDS routing fallback configuration. `fallbackStationId` is null until explicitly set. */
+  getBranchKdsConfig: (branchId: string) =>
+    http.get<S.OrganisationController_getBranchKdsConfigResponse>("/org/branches/{branchId}/kds-config", { params: { branchId } }),
+
+  /** `PATCH /org/branches/{branchId}/kds-config` — The updated KDS routing fallback configuration. `fallbackStationId: null` clears it — kitchen routing tiers 1-4 (line override, modifier, menu item, category) are never affected and still take precedence. */
+  setBranchKdsConfig: (branchId: string, body: S.SetBranchKdsConfigDto) =>
+    http.patch<S.OrganisationController_setBranchKdsConfigResponse>("/org/branches/{branchId}/kds-config", { params: { branchId }, body }),
+
 };
 
 // ---------------------------------------------------------------------------

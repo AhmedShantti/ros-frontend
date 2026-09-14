@@ -411,6 +411,12 @@ export const consoleEn = {
   "stations.capacityPerHourLabel": "Capacity per hour",
   "stations.capacityPerHourHint": "Optional — leave blank if not tracked.",
   "stations.capacityPerHourPrefix": "Capacity: ",
+  "stations.fallbackTitle": "Fallback kitchen station",
+  "stations.fallbackHint":
+    "Where a fired item with no matching routing rule goes. Explicit routing rules always win over this.",
+  "stations.fallbackLabel": "Fallback kitchen station",
+  "stations.fallbackNone": "No fallback",
+  "stations.fallbackSaved": "Fallback station saved.",
   "drawers.title": "Drawers",
   "drawers.subtitle": "Physical cash containers a shift's cash session opens over.",
   "drawers.listTitle": "Branch drawers",

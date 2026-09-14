@@ -706,6 +706,11 @@ const stationsCollection: CollectionService<Station> = makeCollection<Station>({
   sorters: { name: (s) => s.name.en, capacityPerHour: (s) => s.capacityPerHour },
 });
 
+// KDS-BRANCH-FALLBACK-STATION-P0 — one row per branch, exactly like the real
+// `kitchen.branch_kds_config` table (`@id branchId`); absent means null,
+// never a synthesized default.
+const branchKdsConfigByBranch = new Map<Id, Id | null>();
+
 const operations: OperationsService = {
   openOrders: (q) => openOrdersCollection.list(q),
   tables: (q) => tablesCollection.list(q),
@@ -723,6 +728,14 @@ const operations: OperationsService = {
   updateTable: (tableId, patch) => tablesCollection.update(tableId, patch),
   createStation: (branchId, input) => stationsCollection.create({ ...input, branchId }),
   updateStation: (stationId, patch) => stationsCollection.update(stationId, patch),
+
+  async getBranchKdsConfig(branchId) {
+    return { fallbackStationId: branchKdsConfigByBranch.get(branchId) ?? null };
+  },
+  async setBranchKdsConfig(branchId, fallbackStationId) {
+    branchKdsConfigByBranch.set(branchId, fallbackStationId);
+    return { fallbackStationId };
+  },
 };
 
 // ---------------------------------------------------------------------------

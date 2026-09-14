@@ -217,6 +217,16 @@ export interface Station {
   active: boolean;
 }
 
+/**
+ * KDS-BRANCH-FALLBACK-STATION-P0 — kitchen-routing tier 5 (FR-KDS-010): where
+ * an otherwise-unrouted fired item goes. `null` means none is configured,
+ * which fails Fire closed for any item with no line/modifier/menu-item/
+ * category rule — explicit rules always take precedence over this.
+ */
+export interface BranchKdsConfig {
+  fallbackStationId: Id | null;
+}
+
 /** FR-FIN-001 — the physical cash container a shift's CashSession opens over. */
 export interface Drawer {
   id: Id;

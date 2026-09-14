@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 149 paths, 106 request DTOs.
+ * `api/openapi.json`. 150 paths, 107 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -865,6 +865,10 @@ export interface ErrorResponse {
   message: string | string[];
   /** HTTP reason phrase or domain error class name. Not always present. */
   error?: string;
+}
+
+export interface SetBranchKdsConfigDto {
+  fallbackStationId: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -6011,6 +6015,18 @@ export type CatalogueController_listBranchTaxClassesResponse = ({
   names: Record<string, unknown>;
 })[];
 
+/** `GET /org/branches/{branchId}/kds-config` — The branch's KDS routing fallback configuration. `fallbackStationId` is null until explicitly set. */
+export type OrganisationController_getBranchKdsConfigResponse = {
+  fallbackStationId: string | null;
+};
+
+/** `PATCH /org/branches/{branchId}/kds-config` — The updated KDS routing fallback configuration. `fallbackStationId: null` clears it — kitchen routing tiers 1-4 (line override, modifier, menu item, category) are never affected and still take precedence. */
+export type OrganisationController_setBranchKdsConfigResponse = {
+  fallbackStationId: string | null;
+};
+
+export type OrganisationController_setBranchKdsConfigBody = SetBranchKdsConfigDto;
+
 // ---------------------------------------------------------------------------
 // Route table
 // ---------------------------------------------------------------------------
@@ -6213,6 +6229,8 @@ export const ROUTES = {
   SyncRecoveryController_issueGrant_v1: { method: "POST", path: "/v1/sync/recovery/grants" },
   SyncRecoveryController_uploadRecoveryBatch_v1: { method: "POST", path: "/v1/sync/recovery/{grantId}/batch" },
   CatalogueController_listBranchTaxClasses: { method: "GET", path: "/catalogue/branches/{branchId}/tax-classes" },
+  OrganisationController_getBranchKdsConfig: { method: "GET", path: "/org/branches/{branchId}/kds-config" },
+  OrganisationController_setBranchKdsConfig: { method: "PATCH", path: "/org/branches/{branchId}/kds-config" },
 } as const;
 
 /** Every operation the document describes. */

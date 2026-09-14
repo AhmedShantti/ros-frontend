@@ -199,6 +199,8 @@ export const API_COVERAGE = {
     "operations.setTerminalStatus",
     "operations.createTable",
     "operations.createStation",
+    "operations.getBranchKdsConfig",
+    "operations.setBranchKdsConfig",
     "security.roles",
     "security.memberships",
     "security.assignRole",
@@ -2652,6 +2654,16 @@ const operations: OperationsService = {
         patch.capacityPerHour === undefined ? undefined : { perHour: patch.capacityPerHour },
     });
     return map.toStation(row);
+  },
+
+  async getBranchKdsConfig(branchId) {
+    const row = await api.organisation.getBranchKdsConfig(branchId);
+    return { fallbackStationId: row.fallbackStationId };
+  },
+
+  async setBranchKdsConfig(branchId, fallbackStationId) {
+    const row = await api.organisation.setBranchKdsConfig(branchId, { fallbackStationId });
+    return { fallbackStationId: row.fallbackStationId };
   },
 };
 

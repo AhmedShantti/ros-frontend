@@ -18,6 +18,7 @@ import type {
   AuditEntry,
   Batch,
   Branch,
+  BranchKdsConfig,
   BranchTaxClass,
   CatalogueCompleteness,
   Brand,
@@ -209,6 +210,17 @@ export interface OperationsService {
   /** Create a station on a branch, and edit an existing one. */
   createStation(branchId: Id, input: Partial<Station>): Promise<Station>;
   updateStation(stationId: Id, patch: Partial<Station>): Promise<Station>;
+  /**
+   * KDS-BRANCH-FALLBACK-STATION-P0 — the branch's kitchen-routing tier-5
+   * fallback: which station an otherwise-unrouted fired item goes to. `null`
+   * means none is configured (routing then fails closed for that item).
+   */
+  getBranchKdsConfig(branchId: Id): Promise<BranchKdsConfig>;
+  /** `fallbackStationId: null` explicitly clears the fallback. */
+  setBranchKdsConfig(
+    branchId: Id,
+    fallbackStationId: Id | null,
+  ): Promise<BranchKdsConfig>;
 }
 
 export interface CostingService {

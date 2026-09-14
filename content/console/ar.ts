@@ -408,6 +408,12 @@ export const consoleAr: ConsoleCopy = {
   "stations.capacityPerHourLabel": "الطاقة الاستيعابية في الساعة",
   "stations.capacityPerHourHint": "اختياري — اتركه فارغًا إذا لم يكن يُتتبع.",
   "stations.capacityPerHourPrefix": "الطاقة: ",
+  "stations.fallbackTitle": "محطة المطبخ الاحتياطية",
+  "stations.fallbackHint":
+    "الوجهة الافتراضية لصنف تم إرساله دون قاعدة توجيه مطابقة. قواعد التوجيه الصريحة تفوز دائمًا على هذا الإعداد.",
+  "stations.fallbackLabel": "محطة المطبخ الاحتياطية",
+  "stations.fallbackNone": "بلا محطة احتياطية",
+  "stations.fallbackSaved": "تم حفظ المحطة الاحتياطية.",
   "drawers.title": "الأدراج",
   "drawers.subtitle": "الحاويات النقدية الفعلية التي تُفتح عليها جلسة الوردية.",
   "drawers.listTitle": "أدراج الفرع",
