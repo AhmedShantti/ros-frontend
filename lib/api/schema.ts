@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 148 paths, 106 request DTOs.
+ * `api/openapi.json`. 149 paths, 106 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -369,39 +369,39 @@ export interface UpdateCategoryDto {
 }
 
 export interface CreateMenuItemDto {
-  names: Record<string, unknown>;
-  kitchenNames?: Record<string, unknown>;
   aggregatorNames?: Record<string, unknown>;
-  description?: Record<string, unknown>;
-  /** C-04: recorded only. Fiscal is out of scope, so this is never resolved. */
-  taxClassId?: string;
-  revenueAccountCode?: string;
-  barcodePlu?: string;
   allergens?: string[];
-  dietaryTags?: string[];
-  sortOrder?: number;
+  barcodePlu?: string;
   colour?: string;
+  description?: Record<string, unknown>;
+  dietaryTags?: string[];
   isCombo?: boolean;
   isOpenPrice?: boolean;
   isWeighed?: boolean;
+  kitchenNames?: Record<string, unknown>;
+  names: Record<string, unknown>;
+  revenueAccountCode?: string;
+  sortOrder?: number;
+  /** C-04 AMENDMENT: must name an ACTIVE `fiscal.tax_classes` identity this tenant already holds — see `GET /catalogue/branches/:branchId/tax-classes` for how to discover a valid value. Rejected at write time if it does not (DEMO-TAX-CLASS-BACKEND-P0); the rate itself is never stored here, only resolved by Sales from the active country pack at sale time. */
+  taxClassId?: string;
 }
 
 export interface UpdateMenuItemDto {
-  names: Record<string, unknown>;
-  kitchenNames?: Record<string, unknown>;
   aggregatorNames?: Record<string, unknown>;
-  description?: Record<string, unknown>;
-  /** C-04: recorded only. Fiscal is out of scope, so this is never resolved. */
-  taxClassId?: string;
-  revenueAccountCode?: string;
-  barcodePlu?: string;
   allergens?: string[];
-  dietaryTags?: string[];
-  sortOrder?: number;
+  barcodePlu?: string;
   colour?: string;
+  description?: Record<string, unknown>;
+  dietaryTags?: string[];
   isCombo?: boolean;
   isOpenPrice?: boolean;
   isWeighed?: boolean;
+  kitchenNames?: Record<string, unknown>;
+  names: Record<string, unknown>;
+  revenueAccountCode?: string;
+  sortOrder?: number;
+  /** C-04 AMENDMENT: must name an ACTIVE `fiscal.tax_classes` identity this tenant already holds — see `GET /catalogue/branches/:branchId/tax-classes` for how to discover a valid value. Rejected at write time if it does not (DEMO-TAX-CLASS-BACKEND-P0); the rate itself is never stored here, only resolved by Sales from the active country pack at sale time. */
+  taxClassId?: string;
 }
 
 export interface PlaceMenuItemDto {
@@ -6001,6 +6001,16 @@ export type SyncRecoveryController_uploadRecoveryBatch_v1Response = {
 
 export type SyncRecoveryController_uploadRecoveryBatch_v1Body = SyncBatchDto;
 
+/** `GET /catalogue/branches/{branchId}/tax-classes` — Tax classes valid for MenuItem.taxClassId, sellable at this branch's active country pack. — Active tax class identities for this branch. */
+export type CatalogueController_listBranchTaxClassesResponse = ({
+  /** Immutable semantic key, e.g. 'standard', 'zero', 'exempt'. */
+  code: string;
+  /** The value to send back as MenuItem.taxClassId. */
+  id: string;
+  /** Localised text, e.g. {"ar": "...", "en": "..."}. */
+  names: Record<string, unknown>;
+})[];
+
 // ---------------------------------------------------------------------------
 // Route table
 // ---------------------------------------------------------------------------
@@ -6202,6 +6212,7 @@ export const ROUTES = {
   SyncController_uploadBatch_v1: { method: "POST", path: "/v1/sync/batch" },
   SyncRecoveryController_issueGrant_v1: { method: "POST", path: "/v1/sync/recovery/grants" },
   SyncRecoveryController_uploadRecoveryBatch_v1: { method: "POST", path: "/v1/sync/recovery/{grantId}/batch" },
+  CatalogueController_listBranchTaxClasses: { method: "GET", path: "/catalogue/branches/{branchId}/tax-classes" },
 } as const;
 
 /** Every operation the document describes. */

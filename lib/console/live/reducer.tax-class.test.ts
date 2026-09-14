@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { liveReducer } from "./reducer";
 import { initialLiveState } from "./state";
-import { menuItems, menuItemById, DEMO_ZERO_TAX_CLASS_CODE } from "../mock/catalogue";
+import { menuItems, menuItemById } from "../mock/catalogue";
+import { DEMO_ZERO_TAX_CLASS_ID, taxClassIdForCode } from "../mock/tax-classes";
 import { activeEmployees } from "../mock/workforce";
 import type { MenuItem } from "../types";
 
@@ -56,13 +57,13 @@ describe("DEMO-TAX-CLASS-TEMPORARY-UNBLOCK", () => {
   it("assigns the demo zero-rate class only to demo items that had no tax class", () => {
     const demoItem = menuItems.find((m) => m.name.en === "Tax test item (demo)");
     expect(demoItem).toBeDefined();
-    expect(demoItem!.taxClassId).toBe(DEMO_ZERO_TAX_CLASS_CODE);
+    expect(demoItem!.taxClassId).toBe(DEMO_ZERO_TAX_CLASS_ID);
   });
 
   it("leaves an item that already has a real tax class untouched", () => {
     const realItem = menuItems.find((m) => m.name.en === "Chicken shawarma sandwich");
     expect(realItem).toBeDefined();
-    expect(realItem!.taxClassId).toBe("standard");
+    expect(realItem!.taxClassId).toBe(taxClassIdForCode("standard"));
   });
 
   it("a demo item formerly missing a tax class is sellable: order add succeeds and tax computes as 0", () => {

@@ -62,6 +62,7 @@ import { crmService } from "./crm";
 
 import { branchById, branches, brands, centralKitchens, stations, stockLocations, tables, tenants, terminals, warehouses } from "../mock/org";
 import { combos, menuCategories, menuItems, modifierGroups, priceLists, recipes } from "../mock/catalogue";
+import { sellableTaxClassesForBranch } from "../mock/branch-tax-classes";
 import { stockItems } from "../mock/stock-items";
 import { batches, countSessions, stockAdjustments, stockLevels, stockMovements, transfers, wasteRecords } from "../mock/inventory";
 import { goodsReceipts, purchaseOrders, requisitions, supplierInvoices, suppliers } from "../mock/purchasing";
@@ -1014,6 +1015,14 @@ const catalogue: CatalogueService = {
   },
 
   // -- Item composition ------------------------------------------------------
+
+  async listTaxClassesForBranch(branchId) {
+    return transport(() => {
+      const rows = sellableTaxClassesForBranch(branchId);
+      if (rows === null) throw new ServiceError("NOT_FOUND", "That branch no longer exists.", 404);
+      return rows;
+    });
+  },
 
   async placeItem(itemId, categoryId) {
     return transport(() => {

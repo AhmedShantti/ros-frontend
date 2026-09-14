@@ -32,6 +32,7 @@ import { ACTIVE_TENANT_ID, brands } from "./org";
 import { item, stockItems } from "./stock-items";
 import { chance, createRng, int, pick, seqId } from "./rng";
 import { dateAgo } from "./clock";
+import { DEMO_ZERO_TAX_CLASS_ID, taxClassIdForCode } from "./tax-classes";
 
 const rng = createRng(0x5a1e);
 
@@ -757,12 +758,16 @@ const brandByCode = new Map(brands.map((b) => [b.code, b]));
  * true here (see the `LINE_ADD` guard in `lib/console/live/reducer.ts`). To
  * unblock POS testing without weakening that, demo items that ship with
  * `taxClassId: null` get this one explicit, zero-rate class instead — never
- * a runtime "missing → zero" default. It reuses the "zero" `TaxClassCode`
- * every active Country Pack already defines at a real 0% rate
- * (`lib/console/mock/platform.ts`), so no production tax semantics change
- * and no new rate is invented.
+ * a runtime "missing → zero" default.
+ *
+ * FRONTEND-TAX-CONTRACT-ROOT-FIX-P0: `MenuItem.taxClassId` is a registry
+ * `id` (`GET /catalogue/branches/{branchId}/tax-classes`), never the bare
+ * `TaxClassCode` string. `DEMO_ZERO_TAX_CLASS_ID` (`./tax-classes.ts`)
+ * mirrors that — the same "zero" identity every active Country Pack defines
+ * at a real 0% rate, resolved to the id the mock registry would actually
+ * hand back, so no production tax semantics change and no new rate is
+ * invented.
  */
-export const DEMO_ZERO_TAX_CLASS_CODE: TaxClassCode = "zero";
 export const DEMO_ZERO_TAX_CLASS_LABEL: Localised = {
   en: "Test — Zero Tax",
   ar: "اختبار — ضريبة صفرية",
@@ -770,7 +775,7 @@ export const DEMO_ZERO_TAX_CLASS_LABEL: Localised = {
 
 /**
  * Assigns the demo zero-rate class to items with no tax class at all, and
- * leaves every other item — including one already on `DEMO_ZERO_TAX_CLASS_CODE`
+ * leaves every other item — including one already on `DEMO_ZERO_TAX_CLASS_ID`
  * — exactly as it was. Pure over the seed array, so re-running it (e.g. a hot
  * reload rebuilding this module) can never duplicate or drift the
  * assignment: an item is only ever touched once, the first time it has
@@ -778,7 +783,7 @@ export const DEMO_ZERO_TAX_CLASS_LABEL: Localised = {
  */
 export function withDemoZeroTaxClass(items: MenuItem[]): MenuItem[] {
   return items.map((item) =>
-    item.taxClassId === null ? { ...item, taxClassId: DEMO_ZERO_TAX_CLASS_CODE } : item,
+    item.taxClassId === null ? { ...item, taxClassId: DEMO_ZERO_TAX_CLASS_ID } : item,
   );
 }
 
@@ -805,7 +810,9 @@ const menuItemsSeeded: MenuItem[] = MENU_SEEDS.map((seed, i) => {
       en: `${seed.en} — prepared to the ${brandByCode.get(seed.brand)?.name.en ?? ""} standard.`,
       ar: `${seed.ar} — محضّر وفق معيار ${brandByCode.get(seed.brand)?.name.ar ?? ""}.`,
     },
-    taxClassId: seed.demoNoTaxClass ? null : (seed.tax ?? "standard"),
+    // FRONTEND-TAX-CONTRACT-ROOT-FIX-P0 — a registry id, never the bare
+    // `TaxClassCode` `seed.tax` names; see `./tax-classes.ts`.
+    taxClassId: seed.demoNoTaxClass ? null : taxClassIdForCode(seed.tax ?? "standard"),
     stationType: seed.station,
     prepTimeSeconds: seed.prep,
     variants,

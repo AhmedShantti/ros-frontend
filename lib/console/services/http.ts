@@ -145,6 +145,7 @@ export const API_COVERAGE = {
     "catalogue.toggleAvailability",
     "catalogue.assignMenuToBranch",
     "catalogue.resolveBranchMenus",
+    "catalogue.listTaxClassesForBranch",
     "catalogue.placeItem",
     "catalogue.addVariant",
     "catalogue.setVariantActive",
@@ -1353,6 +1354,11 @@ const catalogue: CatalogueService = {
   },
 
   // -- Item composition ------------------------------------------------------
+
+  async listTaxClassesForBranch(branchId) {
+    const rows = await api.catalogue.listBranchTaxClasses(branchId);
+    return rows.map((row) => ({ id: row.id, code: row.code, names: map.localised(row.names) }));
+  },
 
   async placeItem(itemId, categoryId) {
     await api.catalogue.placeItem(itemId, { categoryId });

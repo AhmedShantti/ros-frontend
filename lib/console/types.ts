@@ -321,6 +321,22 @@ export interface MenuCategory {
 export type TaxClassCode = "standard" | "reduced" | "zero" | "exempt";
 
 /**
+ * DEMO-TAX-CLASS-BACKEND-P0 — one row of `GET
+ * /catalogue/branches/{branchId}/tax-classes`: an ACTIVE `fiscal.tax_classes`
+ * identity this tenant holds, sellable at this branch's currently-effective
+ * country pack. `id` is the only value the backend accepts back as
+ * `MenuItem.taxClassId` — never `code`, which is an immutable semantic key
+ * for display/lookup only, and never a `TaxClassDefinition` (that describes
+ * a country pack's own rate configuration, not a tenant's provisioned
+ * identities — the two are not interchangeable).
+ */
+export interface BranchTaxClass {
+  id: Id;
+  code: TaxClassCode | (string & {});
+  names: Localised;
+}
+
+/**
  * A menu — FR-MNU-001/002/003.
  *
  * A branch may have several assigned (breakfast, all-day, delivery) and the

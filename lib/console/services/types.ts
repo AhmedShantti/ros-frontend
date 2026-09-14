@@ -18,6 +18,7 @@ import type {
   AuditEntry,
   Batch,
   Branch,
+  BranchTaxClass,
   CatalogueCompleteness,
   Brand,
   CashSession,
@@ -390,6 +391,14 @@ export interface CatalogueService {
   setMenuActive(menuId: Id, active: boolean): Promise<Menu>;
 
   // -- Item composition ------------------------------------------------------
+  /**
+   * DEMO-TAX-CLASS-BACKEND-P0 — every ACTIVE tax class identity sellable at
+   * this branch's currently-effective country pack. The one legitimate
+   * source of options for `MenuItem.taxClassId` — never a Country Pack's own
+   * `taxClasses[]` (`CountryPack` describes rate configuration, not the
+   * tenant's provisioned identities).
+   */
+  listTaxClassesForBranch(branchId: Id): Promise<BranchTaxClass[]>;
   /** C-02 — place an item into a category. An item may sit in several. */
   placeItem(itemId: Id, categoryId: Id): Promise<void>;
   unplaceItem(itemId: Id, categoryId: Id): Promise<void>;

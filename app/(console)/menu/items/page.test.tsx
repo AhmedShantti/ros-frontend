@@ -1,32 +1,40 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CountryPack, MenuItem } from "@/lib/console/types";
+import type { MenuItem } from "@/lib/console/types";
 
 /*
- * FRONTEND-ITEM-TAX-CLASS-EDITOR-P0
+ * FRONTEND-TAX-CONTRACT-ROOT-FIX-P0
  *
- * The ticket that asked for this asserted a `GET
- * /catalogue/branches/{branchId}/tax-classes` endpoint returning `{id, code,
- * names}` and a PATCH that expects a tax-class UUID. Neither exists: the
- * committed `api/openapi.json` (148 real paths) has no tax-related path at
- * all, and `UpdateMenuItemDto.taxClassId`/`CreateMenuItemDto.taxClassId` are
- * documented "recorded only... never resolved" (C-04) — there is no backend
- * UUID registry to validate against. `TaxClassField` (./page.tsx) already
- * reflects that: it sources options from the active Country Pack's
- * `taxClasses` (code-keyed: standard/reduced/zero/exempt, no UUID) and saves
- * that code as `taxClassId`, never a fabricated fallback. These tests prove
- * that contract, not the ticket's unverified one.
+ * Root-cause fix over the previous session's DEMO-TAX-CLASS-CONTRACT-P0
+ * work: the checked-in OpenAPI contract was stale — the real, canonical
+ * backend (`ros-worktrees/lane-d/kitchen-kit/backend`, confirmed against its
+ * committed `docs/api/openapi.json` and `catalogue.controller.ts`) exposes
+ *
+ *   GET /catalogue/branches/{branchId}/tax-classes -> [{ id, code, names }]
+ *   PATCH /catalogue/items/{itemId} { taxClassId: "<id>" }
+ *
+ * `id` — a real `fiscal.tax_classes` UUID this tenant holds — is the only
+ * value the backend accepts back as `MenuItem.taxClassId`. `TaxClassField`
+ * (./page.tsx) now sources options from `services.catalogue
+ * .listTaxClassesForBranch(branchId)`, never `services.platform
+ * .countryPacks` (a Country Pack describes rate configuration, not a
+ * tenant's provisioned identities — it carries no `id` at all). These tests
+ * prove that: `services.platform` is deliberately absent from the service
+ * mock below, so any lingering Country Pack read would throw, not silently
+ * pass.
  *
  * Mocked only at the transport boundary: `@/lib/console/services` and
  * `@/lib/console/providers`. `ItemDrawer`/`NewItemDrawer` are the real
- * components.
+ * components; `branchId` is passed the same way `MenuItemsScreen` passes it
+ * — from `useSession().scope.branchId`, as a prop — so these tests drive it
+ * directly rather than through a mocked session.
  */
 
 const itemsGet = vi.fn();
 const itemsUpdate = vi.fn();
 const itemsCreate = vi.fn();
-const countryPacksList = vi.fn();
+const listTaxClassesForBranch = vi.fn();
 const modifierGroupsList = vi.fn();
 
 vi.mock("@/lib/console/services", () => ({
@@ -44,12 +52,10 @@ vi.mock("@/lib/console/services", () => ({
       modifierGroups: {
         list: (...args: unknown[]) => modifierGroupsList(...args),
       },
+      listTaxClassesForBranch: (...args: unknown[]) => listTaxClassesForBranch(...args),
     },
-    platform: {
-      countryPacks: {
-        list: (...args: unknown[]) => countryPacksList(...args),
-      },
-    },
+    // Deliberately no `platform` — a Country Pack fallback would throw
+    // "Cannot read properties of undefined", not silently supply options.
   },
 }));
 
@@ -68,32 +74,20 @@ vi.mock("@/lib/console/providers", () => ({
 
 import { ItemDrawer, NewItemDrawer } from "./page";
 
-const TAX_STANDARD = { code: "standard" as const, rate: 14, label: { en: "Standard", ar: "قياسي" } };
-const TAX_ZERO = { code: "zero" as const, rate: 0, label: { en: "Zero", ar: "صفري" } };
+const BRANCH_ID = "branch-cairo-1";
 
-const ACTIVE_PACK: CountryPack = {
-  code: "EG",
-  name: { en: "Egypt", ar: "مصر" },
-  version: "1.0.0",
-  effectiveFrom: "2026-01-01",
-  status: "active",
-  signed: true,
-  currency: "EGP",
-  currencyExponent: 2,
-  taxEngine: "eta",
-  pricingMode: "tax_inclusive",
-  roundingMode: "HALF_UP",
-  computationLevel: "line",
-  taxClasses: [TAX_STANDARD, TAX_ZERO],
-  fiscalProvider: "eta_egypt",
-  fiscalMode: "e_receipt",
-  weekStart: "saturday",
-  weekend: ["friday"],
-  standardWeeklyHours: 48,
-  overtimeMultiplier: 1.35,
-  dataRetentionYears: 5,
-  branchCount: 1,
-  conformancePassed: true,
+// Real backend ids are UUIDs; these are shaped like one but kept readable —
+// the point of the tests is that these exact opaque strings, never "zero"
+// or "standard", are what gets read and written.
+const TAX_STANDARD = {
+  id: "3fa85f64-5717-4562-b3fc-2c963f66aaaa",
+  code: "standard",
+  names: { en: "Standard", ar: "قياسي" },
+};
+const TAX_ZERO = {
+  id: "3fa85f64-5717-4562-b3fc-2c963f66zero",
+  code: "zero",
+  names: { en: "Zero", ar: "صفري" },
 };
 
 const BASE_ITEM: MenuItem = {
@@ -132,10 +126,10 @@ beforeEach(() => {
   itemsGet.mockReset();
   itemsUpdate.mockReset();
   itemsCreate.mockReset();
-  countryPacksList.mockReset();
+  listTaxClassesForBranch.mockReset();
   modifierGroupsList.mockReset();
 
-  countryPacksList.mockResolvedValue({ rows: [ACTIVE_PACK], total: 1 });
+  listTaxClassesForBranch.mockResolvedValue([TAX_STANDARD, TAX_ZERO]);
   modifierGroupsList.mockResolvedValue({ rows: [], total: 0 });
   itemsUpdate.mockResolvedValue(BASE_ITEM);
   itemsCreate.mockResolvedValue(BASE_ITEM);
@@ -146,7 +140,7 @@ afterEach(() => {
 });
 
 describe("ItemDrawer — Tax Class editing", () => {
-  it("is clickable/selectable and lists human-friendly labels loaded from the active country pack, not a hardcoded 'zero'", async () => {
+  it("loads tax classes for the active branch, keyed by the real backend UUID", async () => {
     const item = itemWith({ taxClassId: null });
     itemsGet.mockResolvedValue(item);
     const user = userEvent.setup();
@@ -156,6 +150,7 @@ describe("ItemDrawer — Tax Class editing", () => {
         item={item}
         canToggle={false}
         categories={[]}
+        branchId={BRANCH_ID}
         onClose={vi.fn()}
         onRestore={vi.fn()}
         onRequest86={vi.fn()}
@@ -163,17 +158,17 @@ describe("ItemDrawer — Tax Class editing", () => {
       />,
     );
 
-    await waitFor(() => expect(countryPacksList).toHaveBeenCalled());
+    await waitFor(() => expect(listTaxClassesForBranch).toHaveBeenCalledWith(BRANCH_ID));
     await openTaxClassOptions(user);
 
     expect(screen.getByRole("option", { name: /Standard/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Zero/ })).toBeInTheDocument();
-    // Not just a single hardcoded "zero" entry — every pack tax class is offered.
+    // Every branch tax class is offered — not just a single hardcoded "zero".
     expect(screen.queryAllByRole("option")).toHaveLength(3); // placeholder + standard + zero
   });
 
-  it("preselects the item's existing taxClassId on open", async () => {
-    const item = itemWith({ taxClassId: "standard" });
+  it("preselects the item's existing taxClassId UUID on open", async () => {
+    const item = itemWith({ taxClassId: TAX_STANDARD.id });
     itemsGet.mockResolvedValue(item);
 
     render(
@@ -181,6 +176,7 @@ describe("ItemDrawer — Tax Class editing", () => {
         item={item}
         canToggle={false}
         categories={[]}
+        branchId={BRANCH_ID}
         onClose={vi.fn()}
         onRestore={vi.fn()}
         onRequest86={vi.fn()}
@@ -193,8 +189,8 @@ describe("ItemDrawer — Tax Class editing", () => {
     );
   });
 
-  it("selecting Zero sends its code as taxClassId, not the display label", async () => {
-    const item = itemWith({ taxClassId: "standard" });
+  it("selecting Zero sends the backend UUID as taxClassId — never the code \"zero\"", async () => {
+    const item = itemWith({ taxClassId: TAX_STANDARD.id });
     itemsGet.mockResolvedValue(item);
     const user = userEvent.setup();
 
@@ -203,6 +199,7 @@ describe("ItemDrawer — Tax Class editing", () => {
         item={item}
         canToggle={false}
         categories={[]}
+        branchId={BRANCH_ID}
         onClose={vi.fn()}
         onRestore={vi.fn()}
         onRequest86={vi.fn()}
@@ -210,20 +207,20 @@ describe("ItemDrawer — Tax Class editing", () => {
       />,
     );
 
-    await waitFor(() => expect(countryPacksList).toHaveBeenCalled());
+    await waitFor(() => expect(listTaxClassesForBranch).toHaveBeenCalled());
     await openTaxClassOptions(user);
     await user.click(screen.getByRole("option", { name: /Zero/ }));
 
     await waitFor(() => expect(itemsUpdate).toHaveBeenCalledTimes(1));
     const [id, patch] = itemsUpdate.mock.calls[0];
     expect(id).toBe(item.id);
-    expect(patch.taxClassId).toBe("zero");
+    expect(patch.taxClassId).toBe(TAX_ZERO.id);
+    expect(patch.taxClassId).not.toBe("zero");
     expect(patch.taxClassId).not.toBe("Zero");
-    expect(patch.taxClassId).not.toMatch(/—/);
   });
 
-  it("saving a tax class change sends only { taxClassId }, never unrelated item fields", async () => {
-    const item = itemWith({ taxClassId: "standard", name: { en: "Untouched name", ar: "اسم" } });
+  it("save sends only { taxClassId: <uuid> }, never unrelated item fields", async () => {
+    const item = itemWith({ taxClassId: TAX_STANDARD.id, name: { en: "Untouched name", ar: "اسم" } });
     itemsGet.mockResolvedValue(item);
     const user = userEvent.setup();
 
@@ -232,6 +229,7 @@ describe("ItemDrawer — Tax Class editing", () => {
         item={item}
         canToggle={false}
         categories={[]}
+        branchId={BRANCH_ID}
         onClose={vi.fn()}
         onRestore={vi.fn()}
         onRequest86={vi.fn()}
@@ -239,7 +237,7 @@ describe("ItemDrawer — Tax Class editing", () => {
       />,
     );
 
-    await waitFor(() => expect(countryPacksList).toHaveBeenCalled());
+    await waitFor(() => expect(listTaxClassesForBranch).toHaveBeenCalled());
     await openTaxClassOptions(user);
     await user.click(screen.getByRole("option", { name: /Zero/ }));
 
@@ -248,6 +246,33 @@ describe("ItemDrawer — Tax Class editing", () => {
     expect(Object.keys(patch)).toEqual(["taxClassId"]);
     expect(patch).not.toHaveProperty("name");
     expect(patch).not.toHaveProperty("categoryId");
+  });
+
+  it("never falls back to a Country Pack — services.platform is not on the mocked registry at all", async () => {
+    const item = itemWith({ taxClassId: TAX_STANDARD.id });
+    itemsGet.mockResolvedValue(item);
+    const user = userEvent.setup();
+
+    render(
+      <ItemDrawer
+        item={item}
+        canToggle={false}
+        categories={[]}
+        branchId={BRANCH_ID}
+        onClose={vi.fn()}
+        onRestore={vi.fn()}
+        onRequest86={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    // If any code path still reached for `services.platform.countryPacks`,
+    // this render (or the click below) would throw — it never does.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^menu\.taxClass / })).toHaveTextContent(/Standard/),
+    );
+    await openTaxClassOptions(user);
+    expect(screen.getByRole("option", { name: /Zero/ })).toBeInTheDocument();
   });
 
   it("an item with no tax class is shown as unclassified and never auto-saves a fallback", async () => {
@@ -259,6 +284,7 @@ describe("ItemDrawer — Tax Class editing", () => {
         item={item}
         canToggle={false}
         categories={[]}
+        branchId={BRANCH_ID}
         onClose={vi.fn()}
         onRestore={vi.fn()}
         onRequest86={vi.fn()}
@@ -266,16 +292,35 @@ describe("ItemDrawer — Tax Class editing", () => {
       />,
     );
 
-    await waitFor(() => expect(countryPacksList).toHaveBeenCalled());
+    await waitFor(() => expect(listTaxClassesForBranch).toHaveBeenCalled());
     expect(screen.getByText("menu.taxClassNotConfigured")).toBeInTheDocument();
     expect(itemsUpdate).not.toHaveBeenCalled();
   });
 
-  it("shows the unavailable callout instead of crashing when the pack has no tax classes", async () => {
-    countryPacksList.mockResolvedValue({
-      rows: [{ ...ACTIVE_PACK, taxClasses: [] }],
-      total: 1,
-    });
+  it("with no active branch selected, shows that state and does not fetch", async () => {
+    const item = itemWith({ taxClassId: TAX_STANDARD.id });
+    itemsGet.mockResolvedValue(item);
+
+    render(
+      <ItemDrawer
+        item={item}
+        canToggle={false}
+        categories={[]}
+        branchId={null}
+        onClose={vi.fn()}
+        onRestore={vi.fn()}
+        onRequest86={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("menu.taxClassNoBranch")).toBeInTheDocument();
+    expect(listTaxClassesForBranch).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /^menu\.taxClass / })).not.toBeInTheDocument();
+  });
+
+  it("shows the unavailable callout instead of crashing when the branch has no tax classes provisioned", async () => {
+    listTaxClassesForBranch.mockResolvedValue([]);
     const item = itemWith({ taxClassId: null });
     itemsGet.mockResolvedValue(item);
 
@@ -284,6 +329,7 @@ describe("ItemDrawer — Tax Class editing", () => {
         item={item}
         canToggle={false}
         categories={[]}
+        branchId={BRANCH_ID}
         onClose={vi.fn()}
         onRestore={vi.fn()}
         onRequest86={vi.fn()}
@@ -291,13 +337,13 @@ describe("ItemDrawer — Tax Class editing", () => {
       />,
     );
 
-    await waitFor(() => expect(countryPacksList).toHaveBeenCalled());
+    await waitFor(() => expect(listTaxClassesForBranch).toHaveBeenCalled());
     expect(screen.getByText("menu.taxClassUnavailable")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^menu\.taxClass / })).not.toBeInTheDocument();
   });
 
   it("surfaces a backend validation error on save without crashing the editor", async () => {
-    const item = itemWith({ taxClassId: "standard" });
+    const item = itemWith({ taxClassId: TAX_STANDARD.id });
     itemsGet.mockResolvedValue(item);
     itemsUpdate.mockRejectedValueOnce(new Error("tax class rejected"));
     const user = userEvent.setup();
@@ -307,6 +353,7 @@ describe("ItemDrawer — Tax Class editing", () => {
         item={item}
         canToggle={false}
         categories={[]}
+        branchId={BRANCH_ID}
         onClose={vi.fn()}
         onRestore={vi.fn()}
         onRequest86={vi.fn()}
@@ -314,29 +361,32 @@ describe("ItemDrawer — Tax Class editing", () => {
       />,
     );
 
-    await waitFor(() => expect(countryPacksList).toHaveBeenCalled());
+    await waitFor(() => expect(listTaxClassesForBranch).toHaveBeenCalled());
     await openTaxClassOptions(user);
     await user.click(screen.getByRole("option", { name: /Zero/ }));
 
     await waitFor(() => expect(screen.getByText("tax class rejected")).toBeInTheDocument());
-    // Drawer stays up and usable — one failed save doesn't crash the editor.
     expect(screen.getByRole("button", { name: /^menu\.taxClass / })).toBeInTheDocument();
   });
 });
 
 describe("NewItemDrawer — Tax Class on create", () => {
-  it("exposes the same Tax Class selector on the create form", async () => {
+  it("exposes the same branch-scoped Tax Class selector on the create form", async () => {
     const user = userEvent.setup();
-    render(<NewItemDrawer open categories={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
+    render(
+      <NewItemDrawer open categories={[]} branchId={BRANCH_ID} onClose={vi.fn()} onCreated={vi.fn()} />,
+    );
 
-    await waitFor(() => expect(countryPacksList).toHaveBeenCalled());
+    await waitFor(() => expect(listTaxClassesForBranch).toHaveBeenCalledWith(BRANCH_ID));
     await openTaxClassOptions(user);
     expect(screen.getByRole("option", { name: /Zero/ })).toBeInTheDocument();
   });
 
-  it("creating without picking a tax class omits taxClassId — no automatic zero default", async () => {
+  it("creating without picking a tax class omits taxClassId — null stays possible", async () => {
     const user = userEvent.setup();
-    render(<NewItemDrawer open categories={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
+    render(
+      <NewItemDrawer open categories={[]} branchId={BRANCH_ID} onClose={vi.fn()} onCreated={vi.fn()} />,
+    );
 
     await user.type(screen.getByLabelText(/common\.name/), "Test maqloba");
     await user.click(screen.getByRole("button", { name: "common.create" }));
@@ -347,12 +397,14 @@ describe("NewItemDrawer — Tax Class on create", () => {
     expect(payload.taxClassId).not.toBe("zero");
   });
 
-  it("picking Zero on create sends its code in the create payload", async () => {
+  it("picking Zero on create sends the backend UUID in the create payload", async () => {
     const user = userEvent.setup();
-    render(<NewItemDrawer open categories={[]} onClose={vi.fn()} onCreated={vi.fn()} />);
+    render(
+      <NewItemDrawer open categories={[]} branchId={BRANCH_ID} onClose={vi.fn()} onCreated={vi.fn()} />,
+    );
 
     await user.type(screen.getByLabelText(/common\.name/), "Test maqloba");
-    await waitFor(() => expect(countryPacksList).toHaveBeenCalled());
+    await waitFor(() => expect(listTaxClassesForBranch).toHaveBeenCalled());
     await openTaxClassOptions(user);
     await user.click(screen.getByRole("option", { name: /Zero/ }));
 
@@ -360,6 +412,16 @@ describe("NewItemDrawer — Tax Class on create", () => {
 
     await waitFor(() => expect(itemsCreate).toHaveBeenCalledTimes(1));
     const payload = itemsCreate.mock.calls[0][0];
-    expect(payload.taxClassId).toBe("zero");
+    expect(payload.taxClassId).toBe(TAX_ZERO.id);
+    expect(payload.taxClassId).not.toBe("zero");
+  });
+
+  it("with no active branch selected, shows that state and never calls create with a guessed tax class", async () => {
+    render(
+      <NewItemDrawer open categories={[]} branchId={null} onClose={vi.fn()} onCreated={vi.fn()} />,
+    );
+
+    expect(await screen.findByText("menu.taxClassNoBranch")).toBeInTheDocument();
+    expect(listTaxClassesForBranch).not.toHaveBeenCalled();
   });
 });

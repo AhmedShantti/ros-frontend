@@ -32631,6 +32631,103 @@
           "sync"
         ]
       }
+    },
+    "/catalogue/branches/{branchId}/tax-classes": {
+      "get": {
+        "operationId": "CatalogueController_listBranchTaxClasses",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "code": {
+                        "description": "Immutable semantic key, e.g. 'standard', 'zero', 'exempt'.",
+                        "type": "string"
+                      },
+                      "id": {
+                        "description": "The value to send back as MenuItem.taxClassId.",
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "names": {
+                        "description": "Localised text, e.g. {\"ar\": \"...\", \"en\": \"...\"}.",
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Active tax class identities for this branch."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The named branch is not visible in this tenant \u2014 unknown, or another tenant's. Byte-identical for both."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No activated country pack covers this branch's jurisdiction, or its currency disagrees with the branch's."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Tax classes valid for MenuItem.taxClassId, sellable at this branch's active country pack.",
+        "tags": [
+          "catalogue"
+        ]
+      }
     }
   },
   "info": {
@@ -33859,59 +33956,36 @@
         }
       },
       "CreateMenuItemDto": {
-        "type": "object",
         "properties": {
-          "names": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "kitchenNames": {
-            "type": "object",
-            "additionalProperties": true
-          },
           "aggregatorNames": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "description": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "taxClassId": {
-            "type": "string",
-            "description": "C-04: recorded only. Fiscal is out of scope, so this is never resolved."
-          },
-          "revenueAccountCode": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 32
-          },
-          "barcodePlu": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 32
+            "additionalProperties": true,
+            "type": "object"
           },
           "allergens": {
-            "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "type": "array"
           },
-          "dietaryTags": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "sortOrder": {
-            "type": "number",
-            "minimum": -32768,
-            "maximum": 32767
+          "barcodePlu": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
           },
           "colour": {
-            "type": "string",
+            "maxLength": 9,
             "minLength": 1,
-            "maxLength": 9
+            "type": "string"
+          },
+          "description": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "dietaryTags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "isCombo": {
             "type": "boolean"
@@ -33921,66 +33995,66 @@
           },
           "isWeighed": {
             "type": "boolean"
+          },
+          "kitchenNames": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "names": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "revenueAccountCode": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sortOrder": {
+            "maximum": 32767,
+            "minimum": -32768,
+            "type": "number"
+          },
+          "taxClassId": {
+            "description": "C-04 AMENDMENT: must name an ACTIVE `fiscal.tax_classes` identity this\ntenant already holds \u2014 see `GET /catalogue/branches/:branchId/tax-classes`\nfor how to discover a valid value. Rejected at write time if it does not\n(DEMO-TAX-CLASS-BACKEND-P0); the rate itself is never stored here, only\nresolved by Sales from the active country pack at sale time.",
+            "type": "string"
           }
         },
         "required": [
           "names"
-        ]
+        ],
+        "type": "object"
       },
       "UpdateMenuItemDto": {
-        "type": "object",
         "properties": {
-          "names": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "kitchenNames": {
-            "type": "object",
-            "additionalProperties": true
-          },
           "aggregatorNames": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "description": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "taxClassId": {
-            "type": "string",
-            "description": "C-04: recorded only. Fiscal is out of scope, so this is never resolved."
-          },
-          "revenueAccountCode": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 32
-          },
-          "barcodePlu": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 32
+            "additionalProperties": true,
+            "type": "object"
           },
           "allergens": {
-            "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "type": "array"
           },
-          "dietaryTags": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "sortOrder": {
-            "type": "number",
-            "minimum": -32768,
-            "maximum": 32767
+          "barcodePlu": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
           },
           "colour": {
-            "type": "string",
+            "maxLength": 9,
             "minLength": 1,
-            "maxLength": 9
+            "type": "string"
+          },
+          "description": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "dietaryTags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "isCombo": {
             "type": "boolean"
@@ -33990,11 +34064,34 @@
           },
           "isWeighed": {
             "type": "boolean"
+          },
+          "kitchenNames": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "names": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "revenueAccountCode": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sortOrder": {
+            "maximum": 32767,
+            "minimum": -32768,
+            "type": "number"
+          },
+          "taxClassId": {
+            "description": "C-04 AMENDMENT: must name an ACTIVE `fiscal.tax_classes` identity this\ntenant already holds \u2014 see `GET /catalogue/branches/:branchId/tax-classes`\nfor how to discover a valid value. Rejected at write time if it does not\n(DEMO-TAX-CLASS-BACKEND-P0); the rate itself is never stored here, only\nresolved by Sales from the active country pack at sale time.",
+            "type": "string"
           }
         },
         "required": [
           "names"
-        ]
+        ],
+        "type": "object"
       },
       "PlaceMenuItemDto": {
         "type": "object",

@@ -529,6 +529,10 @@ export const catalogue = {
   completenessReport: () =>
     http.get<S.CatalogueController_completenessReportResponse>("/catalogue/completeness"),
 
+  /** `GET /catalogue/branches/{branchId}/tax-classes` — Tax classes valid for MenuItem.taxClassId, sellable at this branch's active country pack. — Active tax class identities for this branch. */
+  listBranchTaxClasses: (branchId: string) =>
+    http.get<S.CatalogueController_listBranchTaxClassesResponse>("/catalogue/branches/{branchId}/tax-classes", { params: { branchId } }),
+
 };
 
 // ---------------------------------------------------------------------------

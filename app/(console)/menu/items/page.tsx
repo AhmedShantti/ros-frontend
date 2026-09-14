@@ -22,8 +22,8 @@ import { services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
-import { formatDuration, formatMoney, formatNumber, formatPercent } from "@/lib/console/format";
-import { STATION_TYPE, TAX_CLASS, labelOf } from "@/lib/console/labels";
+import { formatDuration, formatMoney, formatNumber } from "@/lib/console/format";
+import { STATION_TYPE, labelOf } from "@/lib/console/labels";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
@@ -79,6 +79,8 @@ function MenuItemsScreen() {
     (query) => services.catalogue.items.list(query),
     { scope, initialSort: "name", pageSize: 25 },
   );
+
+  const taxClasses = useTaxClasses(scope.branchId);
 
   const totals = useMemo(() => {
     const rows = collection.rows;
@@ -247,9 +249,9 @@ function MenuItemsScreen() {
             {
               key: "taxClass",
               label: t("menu.taxClass"),
-              options: Object.entries(TAX_CLASS).map(([value, entry]) => ({
-                value,
-                label: tx(entry.label),
+              options: taxClasses.taxClasses.map((taxClass) => ({
+                value: taxClass.id,
+                label: tx(taxClass.names) || taxClass.code,
               })),
             },
           ]}
@@ -270,6 +272,7 @@ function MenuItemsScreen() {
         item={selected}
         canToggle={canToggle}
         categories={categories}
+        branchId={scope.branchId}
         onClose={() => setSelected(null)}
         onRestore={(item) => setAvailability(item, true)}
         onRequest86={(item) => setPending86(item)}
@@ -282,6 +285,7 @@ function MenuItemsScreen() {
       <NewItemDrawer
         open={creating}
         categories={categories}
+        branchId={scope.branchId}
         onClose={() => setCreating(false)}
         onCreated={() => {
           setCreating(false);
@@ -328,47 +332,61 @@ function VariantPrice({ item }: { item: MenuItem }) {
 // ---------------------------------------------------------------------------
 
 /**
- * FR-MNU-004 / DEMO-TAX-CLASS-CONTRACT-P0 — `MenuItem.taxClassId` is an
- * opaque id the backend "records only" (CreateMenuItemDto: "Fiscal is out
- * of scope, so this is never resolved" — C-04); no endpoint enumerates valid
- * ids. The one real source of tax-class *options* this console models is the
- * active country pack, so that is what this reads — never a hardcoded
- * "Standard" or a fabricated list. Where no pack is reachable (the platform
- * catalogue has no live endpoint yet — see `unsupported.ts`), this says so
- * instead of inventing a fallback.
+ * FR-MNU-004 / DEMO-TAX-CLASS-BACKEND-P0 — `MenuItem.taxClassId` names an
+ * ACTIVE `fiscal.tax_classes` row this tenant holds, discovered through
+ * `GET /catalogue/branches/{branchId}/tax-classes` — the one endpoint that
+ * enumerates valid ids, resolved against whichever country pack is
+ * currently effective for a branch. Never a Country Pack's own
+ * `taxClasses[]` codes (`CountryPack` describes rate configuration, not a
+ * tenant's provisioned identities — those carry no `id` at all), and never
+ * a hardcoded "Standard" or a fabricated list. With no active branch there
+ * is nothing to resolve a pack from, so this does not fetch.
  */
-function useTaxClasses() {
-  const packs = useAsync(() => services.platform.countryPacks.list({ limit: 25 }), []);
-  const activePack = useMemo(() => {
-    const rows = packs.data?.rows ?? [];
-    return rows.find((row) => row.status === "active") ?? rows[0] ?? null;
-  }, [packs.data]);
-  return { loading: packs.loading, taxClasses: activePack?.taxClasses ?? [] };
+function useTaxClasses(branchId: string | null) {
+  const result = useAsync(
+    () => (branchId ? services.catalogue.listTaxClassesForBranch(branchId) : Promise.resolve(null)),
+    [branchId],
+  );
+  return {
+    loading: branchId !== null && result.loading,
+    noBranch: branchId === null,
+    taxClasses: result.data ?? [],
+  };
 }
 
-/** Resolves a persisted `taxClassId` against the active pack, honestly. */
-function useTaxClassLabel(taxClassId: string | null) {
+/** Resolves a persisted `taxClassId` against the branch's registry, honestly. */
+function useTaxClassLabel(taxClassId: string | null, branchId: string | null) {
   const { t, tx } = useI18n();
-  const { loading, taxClasses } = useTaxClasses();
+  const { loading, taxClasses } = useTaxClasses(branchId);
   if (!taxClassId) return { text: t("menu.taxClassNotConfigured"), tone: "bad" as const };
   if (loading) return { text: taxClassId, tone: "muted" as const };
-  const definition = taxClasses.find((tc) => tc.code === taxClassId);
+  const definition = taxClasses.find((tc) => tc.id === taxClassId);
   return definition
-    ? { text: tx(definition.label), tone: "good" as const }
+    ? { text: tx(definition.names) || definition.code, tone: "good" as const }
     : { text: taxClassId, tone: "muted" as const };
 }
 
 function TaxClassField({
+  branchId,
   value,
   disabled,
   onChange,
 }: {
+  branchId: string | null;
   value: string;
   disabled?: boolean;
   onChange: (taxClassId: string) => void;
 }) {
-  const { t, tx, fmt } = useI18n();
-  const { loading, taxClasses } = useTaxClasses();
+  const { t, tx } = useI18n();
+  const { loading, noBranch, taxClasses } = useTaxClasses(branchId);
+
+  if (noBranch) {
+    return (
+      <Field label={t("menu.taxClass")}>
+        <Callout tone="muted">{t("menu.taxClassNoBranch")}</Callout>
+      </Field>
+    );
+  }
 
   if (!loading && taxClasses.length === 0) {
     return (
@@ -387,9 +405,8 @@ function TaxClassField({
       >
         <option value="">{t("menu.taxClassPlaceholder")}</option>
         {taxClasses.map((taxClass) => (
-          <option key={taxClass.code} value={taxClass.code}>
-            {tx(taxClass.label)}
-            {taxClass.rate !== null ? ` — ${formatPercent(taxClass.rate, fmt, 0)}` : ""}
+          <option key={taxClass.id} value={taxClass.id}>
+            {tx(taxClass.names) || taxClass.code}
           </option>
         ))}
       </Select>
@@ -403,6 +420,7 @@ export function ItemDrawer({
   item,
   canToggle,
   categories,
+  branchId,
   onClose,
   onRestore,
   onRequest86,
@@ -411,6 +429,7 @@ export function ItemDrawer({
   item: MenuItem | null;
   canToggle: boolean;
   categories: MenuCategory[];
+  branchId: string | null;
   onClose: () => void;
   onRestore: (item: MenuItem) => void;
   onRequest86: (item: MenuItem) => void;
@@ -432,7 +451,7 @@ export function ItemDrawer({
   );
   // Called unconditionally — the item-drawer early return below is not
   // reached until after every hook has run this render.
-  const taxLabel = useTaxClassLabel((detail.data ?? item)?.taxClassId ?? null);
+  const taxLabel = useTaxClassLabel((detail.data ?? item)?.taxClassId ?? null, branchId);
 
   if (!item) return null;
 
@@ -545,6 +564,7 @@ export function ItemDrawer({
 
         {canManage ? (
           <TaxClassField
+            branchId={branchId}
             value={current.taxClassId ?? ""}
             disabled={action.pending}
             onChange={saveTaxClass}
@@ -849,11 +869,13 @@ function NewVariantDrawer({
 export function NewItemDrawer({
   open,
   categories,
+  branchId,
   onClose,
   onCreated,
 }: {
   open: boolean;
   categories: MenuCategory[];
+  branchId: string | null;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -937,6 +959,7 @@ export function NewItemDrawer({
         </Field>
 
         <TaxClassField
+          branchId={branchId}
           value={taxClassId}
           disabled={action.pending}
           onChange={setTaxClassId}
