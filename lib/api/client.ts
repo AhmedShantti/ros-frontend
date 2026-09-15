@@ -29,6 +29,9 @@ import {
   getRefreshToken,
   getTenantId,
   isAccessTokenStale,
+  isSessionOverHardLimit,
+  msUntilAccessTokenStale,
+  onSessionChange,
   setTokens,
 } from "./session";
 
@@ -125,7 +128,18 @@ function unreachable(detail: string): ServiceError {
 // Token rotation
 // ---------------------------------------------------------------------------
 
-let refreshInFlight: Promise<boolean> | null = null;
+/**
+ * `"refreshed"` — a new token is in place. `"expired"` — the session is
+ * genuinely over (no refresh token, it was rejected, or the hard lifetime
+ * cap was reached); callers must send the operator back to the PIN/sign-in
+ * screen. `"unreachable"` — the refresh attempt itself never got a real
+ * answer (offline, timeout, a 5xx); the OLD token/session is left exactly as
+ * it was, because a Wi-Fi hiccup is not "this shift is over" and must not
+ * force a PIN re-entry — see POS-KDS-SESSION-LIFETIME-POLICY-P0.
+ */
+type RefreshOutcome = "refreshed" | "expired" | "unreachable";
+
+let refreshInFlight: Promise<RefreshOutcome> | null = null;
 
 interface TokenResponse {
   accessToken: string;
@@ -133,31 +147,53 @@ interface TokenResponse {
   expiresIn: number;
 }
 
+/** A clean rejection of the refresh token itself, not a transport failure. */
+function isAuthRejection(error: unknown): boolean {
+  return error instanceof ServiceError && (error.status === 401 || error.status === 403);
+}
+
 /**
  * Rotates the refresh token, then replays whatever scope the old access token
- * carried. Returns false when the session is genuinely over.
+ * carried.
  */
-async function refreshSession(): Promise<boolean> {
+async function refreshSession(): Promise<RefreshOutcome> {
   if (!refreshInFlight) {
-    refreshInFlight = (async () => {
+    refreshInFlight = (async (): Promise<RefreshOutcome> => {
       const refreshToken = getRefreshToken();
-      if (!refreshToken) return false;
+      if (!refreshToken) return "expired";
 
+      // POS-KDS-SESSION-LIFETIME-POLICY-P0 — a shift ends even if the
+      // refresh token would still be honoured. Checked here, ahead of the
+      // network call, so it applies to every path that refreshes: the
+      // request-time retry below AND the proactive timer.
+      if (isSessionOverHardLimit()) {
+        clearSession();
+        return "expired";
+      }
+
+      let rotated: TokenResponse;
       try {
-        const rotated = await send<TokenResponse>("POST", "/auth/refresh", {
+        rotated = await send<TokenResponse>("POST", "/auth/refresh", {
           body: { refreshToken },
           anonymous: true,
         });
-        // Silent: this is the BASE, tenant-less token — announcing it would
-        // let a listener (`useLiveOrgContext`) re-fetch the org context
-        // using it before the tenant/terminal replay below has restored
-        // scope, which reliably fails and looked exactly like a real
-        // session's data vanishing.
-        setTokens(rotated, { silent: true });
-      } catch {
-        clearSession();
-        return false;
+      } catch (caught) {
+        if (isAuthRejection(caught)) {
+          clearSession();
+          return "expired";
+        }
+        // Transient — offline till, a dropped LAN, a backend restart. The
+        // stored token/session is untouched; the caller retries (the
+        // proactive timer backs off and tries again; a request-time caller
+        // surfaces a retryable network error instead of forcing sign-on).
+        return "unreachable";
       }
+      // Silent: this is the BASE, tenant-less token — announcing it would
+      // let a listener (`useLiveOrgContext`) re-fetch the org context
+      // using it before the tenant/terminal replay below has restored
+      // scope, which reliably fails and looked exactly like a real
+      // session's data vanishing.
+      setTokens(rotated, { silent: true });
 
       // The rotated token is tenant-less; put the scope back onto it.
       const tenantId = getTenantId();
@@ -184,15 +220,70 @@ async function refreshSession(): Promise<boolean> {
 
       // One announce, now that the replay (base, then tenant) has settled —
       // whatever a listener re-fetches with is the final, fully-scoped
-      // token, never an intermediate one.
+      // token, never an intermediate one. This is also what re-arms the
+      // proactive refresh timer (`scheduleProactiveRefresh` below is itself
+      // an `onSessionChange` listener) for the token's new expiry.
       announceSessionChange();
-      return true;
+      return "refreshed";
     })().finally(() => {
       refreshInFlight = null;
     });
   }
 
   return refreshInFlight;
+}
+
+// ---------------------------------------------------------------------------
+// Proactive refresh
+// ---------------------------------------------------------------------------
+
+/** Backoff between retries after a refresh attempt that never reached the backend. */
+const REFRESH_RETRY_BACKOFF_MS = 30_000;
+
+let proactiveRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearProactiveRefreshTimer(): void {
+  if (proactiveRefreshTimer !== null) {
+    clearTimeout(proactiveRefreshTimer);
+    proactiveRefreshTimer = null;
+  }
+}
+
+async function proactiveRefreshTick(): Promise<void> {
+  const outcome = await refreshSession();
+  if (outcome === "unreachable") {
+    proactiveRefreshTimer = setTimeout(() => void proactiveRefreshTick(), REFRESH_RETRY_BACKOFF_MS);
+  }
+  // "refreshed" re-arms itself: `refreshSession()`'s `announceSessionChange()`
+  // fires this module's own `onSessionChange` listener below, for the new
+  // expiry. "expired" also re-arms (as a no-op — `getAccessToken()` is gone)
+  // via `clearSession()`'s own `announce()`.
+}
+
+/**
+ * Keeps a signed-on POS/KDS/console screen's token alive on a timer, rather
+ * than only when the next outbound request happens to notice it went stale.
+ * Without this, a KDS rail sitting idle between tickets — or any screen with
+ * nobody touching it — never sends a request during the ~14 minutes before
+ * expiry, so nothing refreshes; the FIRST thing to touch the network after
+ * that is whatever the operator does next, and if THAT refresh attempt hits
+ * even a transient hiccup the previous reactive-only design had no fallback
+ * — see POS-KDS-SESSION-LIFETIME-POLICY-P0. Re-armed on every session change
+ * (sign-in, PIN sign-on, a completed refresh, sign-out) via `onSessionChange`
+ * below, and once explicitly on mount by `SessionProvider` for the one case
+ * that fires no such change: a tab reloading while already signed in.
+ */
+export function scheduleProactiveRefresh(): void {
+  clearProactiveRefreshTimer();
+  if (typeof window === "undefined") return;
+  if (!getAccessToken() || !getRefreshToken()) return;
+
+  const delay = Math.max(0, msUntilAccessTokenStale());
+  proactiveRefreshTimer = setTimeout(() => void proactiveRefreshTick(), delay);
+}
+
+if (typeof window !== "undefined") {
+  onSessionChange(scheduleProactiveRefresh);
 }
 
 // ---------------------------------------------------------------------------
@@ -360,16 +451,22 @@ export async function request<T>(
     const is401 = caught instanceof ServiceError && caught.status === 401;
     if (!is401 || options.anonymous) throw caught;
 
-    const recovered = await refreshSession();
-    if (!recovered) {
-      throw new ServiceError(
-        "SESSION_EXPIRED",
-        "Your session has ended. Sign in again.",
-        401,
-        `${method} ${path}`,
-      );
+    const outcome = await refreshSession();
+    if (outcome === "refreshed") {
+      return send<T>(method, path, attempt);
     }
-    return send<T>(method, path, attempt);
+    if (outcome === "unreachable") {
+      // The session may well still be good — the refresh attempt just never
+      // reached the backend. Surface a retryable network error rather than
+      // forcing the operator back to the PIN screen over a dropped LAN.
+      throw unreachable("Could not reach the backend to renew the session.");
+    }
+    throw new ServiceError(
+      "SESSION_EXPIRED",
+      "Your session has ended. Sign in again.",
+      401,
+      `${method} ${path}`,
+    );
   }
 }
 

@@ -108,6 +108,7 @@ const CONSOLE_KEYS = {
   refresh: "ros.api.refreshToken",
   expires: "ros.api.expiresAt",
   tenant: "ros.api.tenantId",
+  sessionStart: "ros.api.sessionStartedAt",
 };
 
 /** POS-KDS-SESSION-ISOLATION-P0 — was the one shared `ros.terminal.*` slot. */
@@ -116,6 +117,7 @@ const POS_KEYS = {
   refresh: "ros.pos.refreshToken",
   expires: "ros.pos.expiresAt",
   tenant: "ros.pos.tenantId",
+  sessionStart: "ros.pos.sessionStartedAt",
 };
 
 const KDS_KEYS = {
@@ -123,7 +125,18 @@ const KDS_KEYS = {
   refresh: "ros.kds.refreshToken",
   expires: "ros.kds.expiresAt",
   tenant: "ros.kds.tenantId",
+  sessionStart: "ros.kds.sessionStartedAt",
 };
+
+/**
+ * POS-KDS-SESSION-LIFETIME-POLICY-P0 — the maximum an operational session may
+ * live even under continuous, successful silent refresh: a shift ends, so the
+ * session does too, rather than a rotating refresh token letting a PIN
+ * sign-on outlive the person who made it indefinitely. 12h covers a long
+ * shift (with a close) while still being a real bound. Checked in
+ * `client.ts`'s `refreshSession()` — see `isSessionOverHardLimit` below.
+ */
+export const HARD_SESSION_LIFETIME_MS = 12 * 60 * 60 * 1000;
 
 function keysFor(surface: AuthSurface) {
   if (surface === "console") return CONSOLE_KEYS;
@@ -289,6 +302,13 @@ export function setTokens(
   // A minute of headroom, so a token does not expire in flight.
   const lifetime = (tokens.expiresIn ?? 900) * 1000;
   write(keys.expires, String(Date.now() + lifetime - 60_000));
+  // POS-KDS-SESSION-LIFETIME-POLICY-P0 — `silent` is passed ONLY by a token
+  // refresh replay (`client.ts`'s `refreshSession()`), never by a genuine
+  // sign-in/PIN sign-on. So "not silent" is exactly "a new session started
+  // here" — the one moment the hard-lifetime clock should (re)start. A
+  // refresh rotating the token every ~14 minutes must never touch it, or the
+  // 12h cap would never actually arrive.
+  if (!options?.silent) write(keys.sessionStart, String(Date.now()));
   if (!options?.silent) announce();
 }
 
@@ -303,6 +323,7 @@ function clearIdentity(surface: AuthSurface): void {
   write(keys.refresh, null);
   write(keys.expires, null);
   write(keys.tenant, null);
+  write(keys.sessionStart, null);
   if (surface === "pos" || surface === "kds") {
     write(POS_EMPLOYEE_KEYS[surface], null);
     // A half-finished open is NOT cleared here. It carries the employee code
@@ -381,6 +402,38 @@ export function getRefreshToken(): string | null {
 export function isAccessTokenStale(): boolean {
   const expiresAt = Number(read(identityKeys().expires) ?? 0);
   return expiresAt > 0 && Date.now() >= expiresAt;
+}
+
+/**
+ * Milliseconds until the access token goes stale — negative once it already
+ * has. Used to arm a proactive refresh timer instead of waiting for the next
+ * outbound request to notice (`client.ts`'s `scheduleProactiveRefresh`),
+ * which is what keeps an idle-but-signed-on screen — a KDS rail nobody is
+ * touching between tickets — from ever hitting a stale token in the first
+ * place.
+ */
+export function msUntilAccessTokenStale(): number {
+  const expiresAt = Number(read(identityKeys().expires) ?? 0);
+  if (expiresAt <= 0) return 0;
+  return expiresAt - Date.now();
+}
+
+/**
+ * POS-KDS-SESSION-LIFETIME-POLICY-P0 — whether this surface's session has run
+ * longer than `HARD_SESSION_LIFETIME_MS`, independent of whether its refresh
+ * token is still good. Self-healing for a session that predates this check
+ * (or a `console` session, which never wrote `sessionStart` before this
+ * fix landed): rather than treat an already-open session as instantly over
+ * the limit the moment this ships, the clock starts on the first read.
+ */
+export function isSessionOverHardLimit(): boolean {
+  const keys = identityKeys();
+  const startedRaw = read(keys.sessionStart);
+  if (!startedRaw) {
+    write(keys.sessionStart, String(Date.now()));
+    return false;
+  }
+  return Date.now() - Number(startedRaw) >= HARD_SESSION_LIFETIME_MS;
 }
 
 export function isSignedIn(): boolean {

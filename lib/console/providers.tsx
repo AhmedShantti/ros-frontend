@@ -52,6 +52,7 @@ import { tx } from "./format";
 import type { Scope } from "./services";
 import { DATA_MODE } from "@/lib/api/config";
 import { signOut as apiSignOut } from "@/lib/api/auth";
+import { scheduleProactiveRefresh } from "@/lib/api/client";
 import {
   clearTerminalIdentity,
   getActiveBranchId,
@@ -355,6 +356,19 @@ function SessionProvider({
       }
     });
   }, [live, authenticated]);
+
+  /**
+   * POS-KDS-SESSION-LIFETIME-POLICY-P0 — arms the proactive refresh timer for
+   * a tab that mounts already signed in (a reload mid-shift, a KDS screen
+   * left open overnight): every LATER token change re-arms it on its own
+   * (`scheduleProactiveRefresh` is itself an `onSessionChange` listener,
+   * registered once in `client.ts`), but nothing fires that event on mount
+   * for a session that was already sitting in storage before this render.
+   */
+  useEffect(() => {
+    if (!live) return;
+    scheduleProactiveRefresh();
+  }, [live]);
 
   const session = useMemo(
     () => (authenticated ? buildSession(roleKey, mfaSatisfied) : null),
