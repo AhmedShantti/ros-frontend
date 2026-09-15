@@ -49,8 +49,12 @@ export default function SelectBranchPage() {
   }, [branch, availableBranches]);
 
   function confirm(chosen: { id: string; name: { en: string; ar: string } }) {
-    // A local write only — there is nothing to register this against.
-    setActiveBranchId(chosen.id);
+    // A local write only — there is nothing to register this against. The
+    // name is cached alongside the id so POS/KDS terminal chrome can show a
+    // branch name without ever calling the org-admin single-branch read
+    // (POS-SESSION-RESILIENCE-P1) — this screen is the one place it is
+    // already known, from this console-authenticated `org` read.
+    setActiveBranchId(chosen.id, chosen.name);
     setSelected({ id: chosen.id, name: tx(chosen.name) });
   }
 

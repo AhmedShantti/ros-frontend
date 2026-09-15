@@ -5,6 +5,7 @@ import {
   clearTerminalIdentity,
   getAccessToken,
   getActiveBranchId,
+  getActiveBranchName,
   getOpenCashSession,
   getPendingCashOpen,
   getPosEmployee,
@@ -141,6 +142,31 @@ describe("active operating branch vs. cashier identity — FRONTEND-REMOVE-DEVIC
       openingFloat: "50000",
       employeeCode: "EMP01",
     });
+  });
+});
+
+describe("getActiveBranchName — POS-SESSION-RESILIENCE-P1", () => {
+  it("round-trips the name cached alongside the branch id", () => {
+    setActiveBranchId("branch-1", { en: "Downtown", ar: "وسط البلد" });
+    expect(getActiveBranchName()).toEqual({ en: "Downtown", ar: "وسط البلد" });
+  });
+
+  it("is null when no name was ever cached for the current branch", () => {
+    setActiveBranchId("branch-1");
+    expect(getActiveBranchName()).toBeNull();
+  });
+
+  it("clears the cached name when the branch id changes without a new name — never leaves a stale name attached to a DIFFERENT branch", () => {
+    setActiveBranchId("branch-1", { en: "Downtown", ar: "وسط البلد" });
+    setActiveBranchId("branch-2");
+    expect(getActiveBranchName()).toBeNull();
+    expect(getActiveBranchId()).toBe("branch-2");
+  });
+
+  it("clears the cached name when the selection is cleared", () => {
+    setActiveBranchId("branch-1", { en: "Downtown", ar: "وسط البلد" });
+    setActiveBranchId(null);
+    expect(getActiveBranchName()).toBeNull();
   });
 });
 

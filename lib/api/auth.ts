@@ -28,6 +28,10 @@ import { setDefaultCurrency } from "../console/services/map";
 import {
   clearSession,
   clearTerminalIdentity,
+  getActiveBranchId,
+  getActiveSurface,
+  getDeviceTenantId,
+  getPosEmployee,
   getTenantId,
   peekTerminalAccessTokens,
   setPosEmployee,
@@ -185,6 +189,62 @@ export async function signInWithPin(input: {
     code: input.employeeCode,
     name: session.user?.displayName || input.employeeCode,
     sessionType: input.sessionType,
+  });
+}
+
+/**
+ * POS-SESSION-RESILIENCE-P1 — re-authenticate the CURRENTLY signed-on
+ * employee with their PIN again, for the narrow case of a
+ * `STALE_AUTHORIZATION_SNAPSHOT` recovery (`client.ts`'s
+ * `setStaleSnapshotReauthHandler`). Deliberately NOT `signInWithPin`:
+ *
+ *   - `signInWithPin` calls `clearSession()` FIRST, before the network call
+ *     even resolves — right for a genuine fresh sign-on (replacing whoever
+ *     was on the till), catastrophic here: a mistyped PIN would wipe the
+ *     still-otherwise-good session out from under an operator who was mid-
+ *     order, for a recovery that only needed to rotate a token.
+ *   - This only ever touches stored session state on a CONFIRMED successful
+ *     PIN. Any failure — wrong PIN, network error, still-denied after
+ *     re-auth — leaves the existing session exactly as it was: stale, but
+ *     intact, so the caller (`PosReauthPrompt`) can let the operator retry
+ *     or cancel without anything having been lost.
+ *   - Uses the SAME device/employee context already on this surface
+ *     (`getDeviceTenantId()`, `getActiveBranchId()`, the signed-on
+ *     `PosEmployee`) — never asks the operator to re-identify themselves,
+ *     only to re-prove it.
+ *
+ * The PIN itself is a parameter, never stored — this function's own stack
+ * frame is the only place it ever exists on the client.
+ */
+export async function reauthenticateWithPin(pin: string): Promise<void> {
+  const surface = getActiveSurface();
+  const tenantId = getDeviceTenantId();
+  const branchId = getActiveBranchId();
+  const employee = getPosEmployee();
+  if ((surface !== "pos" && surface !== "kds") || !tenantId || !branchId || !employee) {
+    throw new ServiceError(
+      "SESSION_EXPIRED",
+      "Your session has ended. Sign in again.",
+      401,
+      "reauthenticateWithPin: no POS/KDS device or employee context to re-authenticate against",
+    );
+  }
+
+  const session = await api.auth.loginWithPin({
+    tenantId,
+    branchId,
+    employeeCode: employee.code,
+    pin,
+    sessionType: surface,
+  });
+
+  // Only now, with the PIN confirmed, replace the session atomically.
+  setTokens(session);
+  setTenantId(tenantId);
+  setPosEmployee({
+    code: employee.code,
+    name: session.user?.displayName || employee.code,
+    sessionType: surface,
   });
 }
 

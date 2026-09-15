@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { ConsoleProvider, ConsoleRoot } from "@/lib/console/providers";
 import { ConsoleThemeScript } from "@/components/console/theme-script";
 import { LiveProvider } from "@/lib/console/live/store";
+import { PosReauthPrompt } from "@/components/terminal/pos-reauth-prompt";
+import { DATA_MODE } from "@/lib/api/config";
 
 export const metadata: Metadata = {
   title: "TRENDOW — Terminal",
@@ -25,6 +27,9 @@ export default function TerminalLayout({ children }: { children: React.ReactNode
         <LiveProvider>
           <ConsoleRoot className="bg-surface flex h-dvh flex-col overflow-hidden">
             {children}
+            {/* POS-SESSION-RESILIENCE-P1 — one mount for both /pos and /kds;
+                only registers a recovery handler against the real backend. */}
+            {DATA_MODE === "http" ? <PosReauthPrompt /> : null}
           </ConsoleRoot>
         </LiveProvider>
       </ConsoleProvider>

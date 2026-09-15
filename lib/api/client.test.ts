@@ -25,7 +25,7 @@ vi.mock("./config", () => ({
   apiUrl: (path: string) => `http://test.local${path}`,
 }));
 
-import { http } from "./client";
+import { http, setStaleSnapshotReauthHandler } from "./client";
 import * as Session from "./session";
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -44,6 +44,7 @@ afterEach(() => {
   // Also collapses whatever `scheduleProactiveRefresh` armed for the test's
   // session, via its own `onSessionChange` listener — see client.ts.
   Session.clearSession();
+  setStaleSnapshotReauthHandler(null);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -119,5 +120,131 @@ describe("refreshSession resilience", () => {
     // before the call, not learned from a rejection.
     const refreshCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/refresh"));
     expect(refreshCalls).toHaveLength(0);
+  });
+});
+
+/*
+ * POS-SESSION-RESILIENCE-P1
+ *
+ * `STALE_AUTHORIZATION_SNAPSHOT` is a distinct backend code (`error:
+ * "StaleAuthorizationSnapshot"`, via `codeFrom()`'s own label-to-code
+ * convention) for a 403 that is NEVER a real denial — the caller's already-
+ * open session's live authorization picture moved underneath it. These
+ * tests exercise `request()`'s handling of it directly, with a fake
+ * `setStaleSnapshotReauthHandler` standing in for the real UI
+ * (`PosReauthPrompt`, covered separately, at the component level).
+ */
+function staleSnapshotResponse(): Response {
+  return jsonResponse(403, {
+    statusCode: 403,
+    message: "Authorization snapshot is stale; obtain a new access token.",
+    error: "StaleAuthorizationSnapshot",
+  });
+}
+
+function genericForbiddenResponse(): Response {
+  return jsonResponse(403, {
+    statusCode: 403,
+    message: "Insufficient permission for this scope.",
+    error: "Forbidden",
+  });
+}
+
+describe("STALE_AUTHORIZATION_SNAPSHOT recovery", () => {
+  it("a stale-snapshot 403 triggers the registered handler, and a successful outcome retries ONLY that request, exactly once", async () => {
+    Session.setTokens({ accessToken: "old-access", refreshToken: "ref", expiresIn: 900 });
+
+    let fooCalls = 0;
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      if (String(url).includes("/foo")) {
+        fooCalls += 1;
+        if (fooCalls === 1) return staleSnapshotResponse();
+        return jsonResponse(200, { ok: true, attempt: fooCalls });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const handler = vi.fn(async () => true);
+    setStaleSnapshotReauthHandler(handler);
+
+    await expect(http.get("/foo")).resolves.toEqual({ ok: true, attempt: 2 });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(fooCalls).toBe(2); // the original attempt + exactly one retry
+  });
+
+  it("never invokes the handler for a generic FORBIDDEN — a real denial stays a denial, with no recovery of any kind", async () => {
+    Session.setTokens({ accessToken: "old-access", refreshToken: "ref", expiresIn: 900 });
+
+    const fetchMock = vi.fn(async () => genericForbiddenResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const handler = vi.fn(async () => true);
+    setStaleSnapshotReauthHandler(handler);
+
+    await expect(http.get("/foo")).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      message: "Insufficient permission for this scope.",
+    });
+    expect(handler).not.toHaveBeenCalled();
+    // Never retried either — a real denial gets no automatic retry.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed re-authentication surfaces the ORIGINAL stale-snapshot error and does not retry — no loop", async () => {
+    Session.setTokens({ accessToken: "old-access", refreshToken: "ref", expiresIn: 900 });
+
+    const fetchMock = vi.fn(async () => staleSnapshotResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const handler = vi.fn(async () => false); // operator cancelled, or the PIN never worked
+    setStaleSnapshotReauthHandler(handler);
+
+    await expect(http.get("/foo")).rejects.toMatchObject({
+      code: "STALE_AUTHORIZATION_SNAPSHOT",
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+    // Exactly the one original attempt — a failed recovery is never retried.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("a burst of concurrent stale-snapshot failures shares ONE recovery attempt, and each request retries only itself", async () => {
+    Session.setTokens({ accessToken: "old-access", refreshToken: "ref", expiresIn: 900 });
+
+    const attempts: Record<string, number> = { foo: 0, bar: 0 };
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const key = String(url).includes("/foo") ? "foo" : "bar";
+      attempts[key] += 1;
+      if (attempts[key] === 1) return staleSnapshotResponse();
+      return jsonResponse(200, { ok: true, path: key });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const handler = vi.fn(
+      () => new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 10)),
+    );
+    setStaleSnapshotReauthHandler(handler);
+
+    const [foo, bar] = await Promise.all([http.get("/foo"), http.get("/bar")]);
+    expect(foo).toEqual({ ok: true, path: "foo" });
+    expect(bar).toEqual({ ok: true, path: "bar" });
+    // One shared recovery, not one per failing request.
+    expect(handler).toHaveBeenCalledTimes(1);
+    // Each request retried only ITSELF, once — never the other's.
+    expect(attempts.foo).toBe(2);
+    expect(attempts.bar).toBe(2);
+  });
+
+  it("no handler registered (e.g. outside the terminal tree) surfaces the stale-snapshot error as-is, with no retry", async () => {
+    Session.setTokens({ accessToken: "old-access", refreshToken: "ref", expiresIn: 900 });
+
+    const fetchMock = vi.fn(async () => staleSnapshotResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    // Deliberately no setStaleSnapshotReauthHandler(...) call.
+
+    await expect(http.get("/foo")).rejects.toMatchObject({
+      code: "STALE_AUTHORIZATION_SNAPSHOT",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

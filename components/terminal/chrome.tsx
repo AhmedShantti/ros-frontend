@@ -24,11 +24,11 @@ import {
   WifiOff,
 } from "lucide-react";
 import { branches, terminals } from "@/lib/console/mock/org";
-import { useI18n, useSession } from "@/lib/console/providers";
-import { services } from "@/lib/console/services";
-import { useAsync } from "@/lib/console/hooks";
+import { useI18n } from "@/lib/console/providers";
+import type { Localised } from "@/lib/console/types";
 import { DATA_MODE } from "@/lib/api/config";
 import {
+  getActiveBranchName,
   getOpenCashSession,
   getPosEmployee,
   isSignedIn,
@@ -299,28 +299,42 @@ function SignedOnCashier() {
  * this used to also show a bound Terminal's name, cached locally from
  * `POST /auth/terminal`'s bind response, and later a "device branch". Both
  * concepts are gone: POS and KDS need no device identity or setup at all, so
- * there is no terminal name (or id) to show here any more — only the branch,
- * read from the server via `scope.branchId` (which resolves to
- * `getActiveBranchId()`, the branch selected once at `/select-branch`).
- * While the branch read is loading, the slot stays empty rather than naming
- * a branch that might not be this one.
+ * there is no terminal name (or id) to show here any more — only the branch.
+ *
+ * POS-SESSION-RESILIENCE-P1 — reads the name `/select-branch` already cached
+ * alongside `activeBranchId` (`getActiveBranchName()`), NEVER
+ * `GET /org/branches/{id}`: that route requires `settings.branch.read`, an
+ * org-admin permission the Cashier role is deliberately never granted (see
+ * `canonical-role-templates.ts`), so calling it from here 403'd on every
+ * live POS/KDS load for every PIN session regardless of the cashier's own
+ * permissions. `scope.branchId` is already sourced purely from local state
+ * (`getActiveBranchId()`, no network) for this surface — this mirrors that:
+ * a safe, already-known local read, not a request. No cached name (an older
+ * device, or a branch selected before this cache existed) means the slot
+ * stays empty, same as the prior loading state — never a fallback to the
+ * privileged read.
  */
-function BoundIdentity() {
+/** `lib/api/session.ts` stores the cached name as a bare `Record<string,string>` (that layer never imports console-side types) — narrow it here, at the one place it's rendered. */
+function toLocalised(value: Record<string, string> | null): Localised | null {
+  if (!value || typeof value.en !== "string" || typeof value.ar !== "string") return null;
+  return { en: value.en, ar: value.ar };
+}
+
+export function BoundIdentity() {
   const { tx } = useI18n();
-  const { scope } = useSession();
 
-  const bound = useAsync(async () => {
-    const branch = scope.branchId
-      ? await services.organisation.branches.get(scope.branchId).catch(() => null)
-      : null;
-    return { branchName: branch?.name ?? null };
-  }, [scope.branchId]);
+  const [branchName, setBranchName] = useState<Localised | null>(null);
+  useEffect(() => {
+    const read = () => setBranchName(toLocalised(getActiveBranchName()));
+    read();
+    return onSessionChange(read);
+  }, []);
 
-  if (!bound.data?.branchName) return null;
+  if (!branchName) return null;
 
   return (
     <span className={TRIGGER}>
-      <span className="max-w-40 truncate">{tx(bound.data.branchName)}</span>
+      <span className="max-w-40 truncate">{tx(branchName)}</span>
     </span>
   );
 }

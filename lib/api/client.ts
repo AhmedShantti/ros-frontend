@@ -422,6 +422,57 @@ async function send<T>(method: string, path: string, options: SendOptions = {}):
  * The call every endpoint wrapper makes. Refreshes ahead of a known-stale
  * token, and once more if the server disagrees about that.
  */
+// ---------------------------------------------------------------------------
+// Stale authorization snapshot — scoped PIN re-authentication
+// ---------------------------------------------------------------------------
+
+/** The distinct code `TenantContextService`'s `staleSnapshotException()` produces — see its own docblock. */
+const STALE_SNAPSHOT_CODE = "STALE_AUTHORIZATION_SNAPSHOT";
+
+/**
+ * A caller-supplied "prompt for the PIN again and replace the session on
+ * success" implementation. Registered by a component mounted only inside the
+ * POS/KDS terminal tree (`PosReauthPrompt`) — `client.ts` itself has no UI,
+ * and MUST NOT decide what re-authentication looks like; it only decides
+ * WHEN to ask for it. Unregistered (console context, or before that
+ * component has mounted) means there is nothing to recover with, and a
+ * stale-snapshot 403 is surfaced exactly like any other error.
+ */
+type StaleSnapshotReauthHandler = () => Promise<boolean>;
+let staleSnapshotReauthHandler: StaleSnapshotReauthHandler | null = null;
+
+/** Registers (or clears, passing `null`) the handler above. At most one at a time — the terminal tree mounts exactly one `PosReauthPrompt`. */
+export function setStaleSnapshotReauthHandler(
+  handler: StaleSnapshotReauthHandler | null,
+): void {
+  staleSnapshotReauthHandler = handler;
+}
+
+let staleSnapshotReauthInFlight: Promise<boolean> | null = null;
+
+/**
+ * Dedup, exactly like `refreshSession()`'s own `refreshInFlight`: several
+ * requests can hit a stale snapshot around the same moment (a burst of POS
+ * calls on mount, say) — this ensures only ONE PIN prompt ever opens for
+ * them, and every caller shares its single outcome, rather than each one
+ * independently deciding to replay unrelated in-flight mutations.
+ */
+async function recoverFromStaleSnapshot(): Promise<boolean> {
+  if (!staleSnapshotReauthInFlight) {
+    staleSnapshotReauthInFlight = (async () => {
+      if (!staleSnapshotReauthHandler) return false;
+      try {
+        return await staleSnapshotReauthHandler();
+      } catch {
+        return false;
+      }
+    })().finally(() => {
+      staleSnapshotReauthInFlight = null;
+    });
+  }
+  return staleSnapshotReauthInFlight;
+}
+
 export async function request<T>(
   method: string,
   path: string,
@@ -448,6 +499,27 @@ export async function request<T>(
   try {
     return await send<T>(method, path, attempt);
   } catch (caught) {
+    // POS-SESSION-RESILIENCE-P1 — a STALE_AUTHORIZATION_SNAPSHOT 403 is
+    // NEVER a real denial (see `staleSnapshotException()`'s own docblock on
+    // the backend): the caller's live-open session's authorization picture
+    // moved while it was open. Deliberately checked by CODE, never by
+    // status alone — this must not fire for a genuine, generic 403/FORBIDDEN,
+    // which gets no automatic recovery of any kind (a real denial stays a
+    // denial). Exactly one retry of THIS request, win or lose — never a
+    // second stale-snapshot recovery attempt on the retry's own result, so
+    // this can never loop.
+    const isStaleSnapshot =
+      caught instanceof ServiceError &&
+      caught.status === 403 &&
+      caught.code === STALE_SNAPSHOT_CODE;
+    if (isStaleSnapshot && !options.anonymous) {
+      const recovered = await recoverFromStaleSnapshot();
+      if (recovered) {
+        return send<T>(method, path, attempt);
+      }
+      throw caught;
+    }
+
     const is401 = caught instanceof ServiceError && caught.status === 401;
     if (!is401 || options.anonymous) throw caught;
 

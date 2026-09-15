@@ -206,6 +206,19 @@ const KEY_DEVICE_TENANT = "ros.api.deviceTenantId";
  * move off the immediate predecessor key.
  */
 const KEY_ACTIVE_BRANCH = "ros.api.activeBranchId";
+/**
+ * POS-SESSION-RESILIENCE-P1 — the SAME branch's display name, cached
+ * alongside its id at the one moment it is legitimately known: `/select-branch`
+ * already holds it (from the console-authenticated `org` read that built its
+ * picker) at the instant it writes `KEY_ACTIVE_BRANCH`. Existing purely so
+ * POS/KDS terminal chrome can show a branch name without ever calling
+ * `GET /org/branches/{id}` — an org-admin read `settings.branch.read` a
+ * Cashier is deliberately never granted (see `BoundIdentity`,
+ * `components/terminal/chrome.tsx`). Absent (or stale, e.g. the branch was
+ * renamed since) simply means the chrome shows no name — never a reason to
+ * fall back to the privileged read.
+ */
+const KEY_ACTIVE_BRANCH_NAME = "ros.api.activeBranchName";
 /** The immediately preceding name for `KEY_ACTIVE_BRANCH` — see `migrateLegacyPosKdsDeviceState`. */
 const LEGACY_DEVICE_BRANCH_KEY = "ros.api.deviceBranchId";
 const KEY_CASH_SESSION = "ros.api.cashSessionId";
@@ -469,8 +482,39 @@ export function getActiveBranchId(): string | null {
   return read(KEY_ACTIVE_BRANCH);
 }
 
-export function setActiveBranchId(branchId: string | null): void {
+/**
+ * The active branch's display name, cached at selection time — see
+ * `KEY_ACTIVE_BRANCH_NAME`. `null` means no name was ever cached for the
+ * current `activeBranchId` (an older device, or a branch selected before
+ * this cache existed) — the caller's job, never this function's, to decide
+ * what to show instead.
+ */
+export function getActiveBranchName(): Record<string, string> | null {
+  const raw = read(KEY_ACTIVE_BRANCH_NAME);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const entries = Object.entries(parsed).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    );
+    return entries.length ? Object.fromEntries(entries) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `name` is optional so a caller that only knows the id (clearing the
+ * selection, say) does not have to fabricate one — omitting it clears
+ * whatever name was cached, rather than leaving a stale one attached to a
+ * DIFFERENT branch id.
+ */
+export function setActiveBranchId(
+  branchId: string | null,
+  name?: Record<string, string> | null,
+): void {
   write(KEY_ACTIVE_BRANCH, branchId);
+  write(KEY_ACTIVE_BRANCH_NAME, branchId && name ? JSON.stringify(name) : null);
   announce();
 }
 
