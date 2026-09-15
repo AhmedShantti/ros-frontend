@@ -2279,6 +2279,7 @@ const treasury: import("./types").TreasuryService = {
       cashSessionId: cashSession.id,
       shiftId: cashSession.shiftId,
       drawerId: cashSession.drawerId,
+      status: cashSession.status,
     };
   },
 

@@ -1091,8 +1091,21 @@ export interface TreasuryService {
    * device that lost its local state, instead of asking to open a second
    * drawer over one that never closed. `null` means genuinely no open
    * session — server truth, not a guess from local storage.
+   *
+   * CASH-SESSION-RESUME-AND-CLOSE-P0 — `status` is carried through (the wire
+   * response already has it — see `TreasuryController_getCurrentSessionResponse`)
+   * so a resumed session that is `"closing"` (declared, over tolerance,
+   * awaiting a manager's finalize decision) can be routed straight back to
+   * the close flow instead of the ordinary order-taking screen. In practice
+   * this is only ever `"open"` or `"closing"`: the backend's own contract is
+   * that a genuinely `"closed"` session is never returned as "current".
    */
-  getCurrentSession(): Promise<{ cashSessionId: Id; shiftId: Id; drawerId: Id } | null>;
+  getCurrentSession(): Promise<{
+    cashSessionId: Id;
+    shiftId: Id;
+    drawerId: Id;
+    status: "open" | "closing" | "closed";
+  } | null>;
 
   /**
    * Opens a cashier shift and its cash session in one transaction.

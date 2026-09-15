@@ -268,6 +268,29 @@ export function LivePos() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted, cashier?.code, currentSession.loading, currentSession.error, currentSession.data]);
 
+  /**
+   * CASH-SESSION-RESUME-AND-CLOSE-P0 — a resumed session that is mid-close
+   * (declared over tolerance, awaiting a manager's finalize decision) sends
+   * the cashier straight into the existing close flow, not the ordinary
+   * order screen: ringing up a new sale against a session the server is
+   * about to finalize is exactly what the drawer's own freeze already
+   * exists to prevent (see `DrawerSheet`'s `frozen`), so the till should
+   * never even present the option. `getCurrentSession()` only ever answers
+   * for THIS employee's own session (never "someone else's, closing"), so
+   * this needs no additional custody check beyond the reconcile above.
+   *
+   * Same trigger, same "once per fresh answer" shape as the reconcile
+   * effect immediately above — deliberately NOT reactive to `drawer` itself,
+   * so a cashier who dismisses the sheet to check something is not yanked
+   * straight back into it on every unrelated render.
+   */
+  useEffect(() => {
+    if (!mounted || !cashier || blockedByForeignDrawer) return;
+    if (currentSession.loading || currentSession.error) return;
+    if (currentSession.data?.status === "closing") setDrawer(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, cashier?.code, currentSession.loading, currentSession.error, currentSession.data]);
+
   const cashSessionId = mine && held ? held.cashSessionId : null;
 
   if (!mounted) {

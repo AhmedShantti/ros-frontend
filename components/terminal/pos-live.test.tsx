@@ -14,7 +14,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
  * is what is under test — never a re-implementation of it in the mock.
  */
 
-const { MockServiceError, getCurrentSession, openCashSession, listSessionDrawers, tables } =
+const { MockServiceError, getCurrentSession, openCashSession, listSessionDrawers, closeContext, tables } =
   vi.hoisted(() => {
     class MockServiceError extends Error {
       code: string;
@@ -33,6 +33,7 @@ const { MockServiceError, getCurrentSession, openCashSession, listSessionDrawers
       getCurrentSession: vi.fn(),
       openCashSession: vi.fn(),
       listSessionDrawers: vi.fn(),
+      closeContext: vi.fn(),
       tables: vi.fn(),
     };
   });
@@ -43,6 +44,7 @@ vi.mock("@/lib/console/services", () => ({
       getCurrentSession: (...args: unknown[]) => getCurrentSession(...args),
       openCashSession: (...args: unknown[]) => openCashSession(...args),
       listSessionDrawers: (...args: unknown[]) => listSessionDrawers(...args),
+      closeContext: (...args: unknown[]) => closeContext(...args),
     },
     operations: {
       tables: (...args: unknown[]) => tables(...args),
@@ -243,6 +245,55 @@ describe("LivePos — sign-on and session recovery", () => {
     expect(Session.getOpenCashSession()).toEqual({
       cashSessionId: "cs-existing",
       employeeCode: "EMP01",
+      branchId: BRANCH_ID,
+    });
+  });
+
+  it("CASH-SESSION-RESUME-AND-CLOSE-P0 — resuming a session mid-close (status \"closing\") routes straight to the close flow, never the order screen", async () => {
+    // Declared over tolerance on another terminal (or a previous visit to
+    // this one) and now frozen, awaiting a manager's finalize decision. A
+    // fresh PIN sign-on must never drop the cashier onto ordinary POS over
+    // a session the server is about to finalize — see `DrawerSheet`'s own
+    // `frozen` gate, which this mirrors from the other side of a resume.
+    getCurrentSession.mockResolvedValue({
+      cashSessionId: "cs-frozen",
+      shiftId: "sh-frozen",
+      drawerId: "drawer-1",
+      status: "closing",
+    });
+    closeContext.mockResolvedValue({
+      cashSessionId: "cs-frozen",
+      status: "closing",
+      countMode: "blind",
+      currency: "EGP",
+      openingFloat: { amount: 50000, currency: "EGP" },
+      tolerance: { amount: 2000, currency: "EGP" },
+      expectedCash: { amount: 123400, currency: "EGP" },
+      countedCash: { amount: 130000, currency: "EGP" },
+      variance: { amount: 6600, currency: "EGP" },
+      approvalRequired: true,
+      closedAt: null,
+      frozen: true,
+    });
+
+    const cashierCode = signOnAs("EMP01", "Amina");
+    Session.setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
+    Session.setPosEmployee({ code: cashierCode, name: "Amina" });
+
+    render(<LivePos />);
+
+    // The manager-approval form only renders once the drawer sheet has both
+    // opened AND resolved the session as frozen — the unambiguous marker
+    // that this landed in the close flow, not merely that the badge (which
+    // also reads "frozenTitle") happened to be present. Regex, not an exact
+    // string: `Field`'s `required` marker appends a literal "*" to the label.
+    await waitFor(() => expect(screen.getByLabelText(/shift\.managerPin/)).toBeInTheDocument());
+    // The session was still resumed (not a fresh open) — same id, no
+    // duplicate open-session call.
+    expect(openCashSession).not.toHaveBeenCalled();
+    expect(Session.getOpenCashSession()).toEqual({
+      cashSessionId: "cs-frozen",
+      employeeCode: cashierCode,
       branchId: BRANCH_ID,
     });
   });
