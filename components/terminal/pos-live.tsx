@@ -1823,20 +1823,30 @@ function VoidLineDrawer({
     "wasted",
   );
 
+  const line = order.lines.find((l) => l.id === lineId) ?? null;
+  const preFire = line?.state === "pending";
+
   // DEMO-POS-P0-5 — reason codes are for a void, never for rendering the
   // menu: fetched only once this sheet actually has a line to void, not
   // unconditionally on every mount. This component stays mounted (with
   // `lineId` toggling null/non-null) for as long as an order is open, so an
-  // ungated fetch here fired `GET /inventory/reason-codes` on every order,
-  // not on demand.
+  // ungated fetch here fired on every order, not on demand.
+  //
+  // LIVE-01-PREFIRE-LINE-VOID-P0 — `services.sales.reasonCodes`, NEVER
+  // `services.inventory.reasonCodes()`: the latter is
+  // `GET /inventory/reason-codes`, a back-office-only route with no
+  // `@AllowPosSession()` — a PIN(POS) session is refused outright
+  // ("PIN (POS) sessions cannot access dashboard or back-office
+  // endpoints."), which is exactly the live bug this fixes. `purpose`
+  // tracks `preFire` so a postfire void reads the postfire-scoped reasons
+  // (`pos.order.void_line_postfire`), not the prefire ones.
   const reasons = useAsync(
-    async () => (lineId ? services.inventory.reasonCodes() : []),
-    [lineId],
+    async () =>
+      lineId ? services.sales.reasonCodes(preFire ? "void_prefire" : "void_postfire") : [],
+    [lineId, preFire],
   );
 
-  const line = order.lines.find((l) => l.id === lineId) ?? null;
   if (!lineId || !line) return null;
-  const preFire = line.state === "pending";
 
   async function submit() {
     if (!reasonCodeId) return;

@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 151 paths, 107 request DTOs.
+ * `api/openapi.json`. 152 paths, 107 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -1056,6 +1056,15 @@ export type OrdersController_createResponse = {
 };
 
 export type OrdersController_createBody = CreateOrderDto;
+
+/** `GET /orders/reason-codes` — Reason codes valid for a POS action (purpose-scoped, action-permission-authorised). — Reason codes usable for the given purpose. */
+export type OrdersController_listReasonCodesResponse = ({
+  code: string;
+  /** The value to send back as reasonCodeId. */
+  id: string;
+  /** Opaque localized-label object (locale -> label). */
+  label: Record<string, unknown>;
+})[];
 
 /** `GET /orders/{businessDay}/{id}` — One order, with its persisted line snapshots. — The order, including its lines. */
 export type OrdersController_findOneResponse = {
@@ -6041,6 +6050,7 @@ export type OrganisationController_setBranchKdsConfigBody = SetBranchKdsConfigDt
 export const ROUTES = {
   OrdersController_list: { method: "GET", path: "/orders" },
   OrdersController_create: { method: "POST", path: "/orders" },
+  OrdersController_listReasonCodes: { method: "GET", path: "/orders/reason-codes" },
   OrdersController_findOne: { method: "GET", path: "/orders/{businessDay}/{id}" },
   OrdersController_receipt: { method: "GET", path: "/orders/{businessDay}/{id}/receipt" },
   OrdersController_addLine: { method: "POST", path: "/orders/{businessDay}/{id}/lines" },

@@ -964,6 +964,25 @@ export interface Receipt {
   taxPresentation: "INCLUSIVE" | "EXCLUSIVE" | "NOT_APPLICABLE" | "UNDETERMINED";
 }
 
+/**
+ * LIVE-01-PREFIRE-LINE-VOID-P0 — the six actions `GET /orders/reason-codes`
+ * scopes a read to, one required `purpose` per call.
+ */
+export type PosReasonPurpose =
+  | "void_prefire"
+  | "discount"
+  | "comp"
+  | "void_postfire"
+  | "refund"
+  | "order_cancel";
+
+/** A reason code valid for one specific POS action — see `PosReasonPurpose`. */
+export interface PosReasonCode {
+  id: Id;
+  code: string;
+  label: Localised;
+}
+
 export interface SalesService {
   orders: ReadonlyCollectionService<Order>;
   /** The write half of the order lifecycle. */
@@ -978,6 +997,20 @@ export interface SalesService {
    * also what a refund's payment picker reads from.
    */
   receipt(businessDay: IsoDate, orderId: Id): Promise<Receipt>;
+  /**
+   * LIVE-01-PREFIRE-LINE-VOID-P0 — reason codes valid for one POS action,
+   * scoped server-side to whichever ONE of the five reason-requiring action
+   * permissions matches `purpose`. This is the POS-reachable reason-code
+   * read (`GET /orders/reason-codes`, class-level `@AllowPosSession()` on
+   * `OrdersController`) — NEVER `InventoryService.reasonCodes()`
+   * (`GET /inventory/reason-codes`), a back-office-only route with no
+   * `@AllowPosSession()` at all: a PIN(POS)/PIN(KDS) session is refused
+   * outright by `JwtAuthGuard` before permissions are even checked
+   * ("PIN (POS) sessions cannot access dashboard or back-office
+   * endpoints."), and its codes are for Inventory waste/adjustment
+   * workflows, unrelated to order-line actions.
+   */
+  reasonCodes(purpose: PosReasonPurpose): Promise<PosReasonCode[]>;
 }
 
 /** FR-POS-091 — the three ways cash moves without a sale. */

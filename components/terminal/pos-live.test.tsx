@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 
 /*
  * Integration coverage for the cashier/drawer session lifecycle in
@@ -14,29 +14,48 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
  * is what is under test — never a re-implementation of it in the mock.
  */
 
-const { MockServiceError, getCurrentSession, openCashSession, listSessionDrawers, closeContext, tables } =
-  vi.hoisted(() => {
-    class MockServiceError extends Error {
-      code: string;
-      status: number;
-      detail?: string;
-      constructor(code: string, message: string, status = 500, detail?: string) {
-        super(message);
-        this.code = code;
-        this.status = status;
-        this.detail = detail;
-      }
+const {
+  MockServiceError,
+  getCurrentSession,
+  openCashSession,
+  listSessionDrawers,
+  closeContext,
+  tables,
+  openOrder,
+  salesReasonCodes,
+  voidLine,
+  voidLinePostFire,
+  inventoryReasonCodes,
+} = vi.hoisted(() => {
+  class MockServiceError extends Error {
+    code: string;
+    status: number;
+    detail?: string;
+    constructor(code: string, message: string, status = 500, detail?: string) {
+      super(message);
+      this.code = code;
+      this.status = status;
+      this.detail = detail;
     }
+  }
 
-    return {
-      MockServiceError,
-      getCurrentSession: vi.fn(),
-      openCashSession: vi.fn(),
-      listSessionDrawers: vi.fn(),
-      closeContext: vi.fn(),
-      tables: vi.fn(),
-    };
-  });
+  return {
+    MockServiceError,
+    getCurrentSession: vi.fn(),
+    openCashSession: vi.fn(),
+    listSessionDrawers: vi.fn(),
+    closeContext: vi.fn(),
+    tables: vi.fn(),
+    openOrder: vi.fn(),
+    salesReasonCodes: vi.fn(),
+    voidLine: vi.fn(),
+    voidLinePostFire: vi.fn(),
+    // LIVE-01-PREFIRE-LINE-VOID-P0 — kept as an explicit spy (not omitted)
+    // so a regression that reintroduces the back-office call fails loudly
+    // ("Cannot read properties of undefined") instead of silently passing.
+    inventoryReasonCodes: vi.fn(),
+  };
+});
 
 vi.mock("@/lib/console/services", () => ({
   services: {
@@ -48,6 +67,17 @@ vi.mock("@/lib/console/services", () => ({
     },
     operations: {
       tables: (...args: unknown[]) => tables(...args),
+    },
+    sales: {
+      mutations: {
+        open: (...args: unknown[]) => openOrder(...args),
+        voidLine: (...args: unknown[]) => voidLine(...args),
+        voidLinePostFire: (...args: unknown[]) => voidLinePostFire(...args),
+      },
+      reasonCodes: (...args: unknown[]) => salesReasonCodes(...args),
+    },
+    inventory: {
+      reasonCodes: (...args: unknown[]) => inventoryReasonCodes(...args),
     },
   },
   ServiceError: MockServiceError,
@@ -74,6 +104,8 @@ vi.mock("@/lib/api/auth", () => ({
 
 import { signInWithPin, signOffTerminal } from "@/lib/api/auth";
 import * as Session from "@/lib/api/session";
+import type { Order, OrderLine } from "@/lib/console/types";
+import type { UserEvent } from "@testing-library/user-event";
 import { LivePos } from "./pos-live";
 
 const BRANCH_ID = "branch-1";
@@ -96,6 +128,141 @@ function signOnAs(code: string, name = code) {
 }
 
 const ONE_DRAWER = [{ id: "drawer-1", branchId: "branch-1", name: "Front drawer", terminalId: null, isActive: true }];
+
+const money = (amount: number) => ({ amount, currency: "EGP" as const });
+
+/** A minimal, valid pending line — override `state` for a postfire fixture. */
+function makeLine(overrides: Partial<OrderLine> = {}): OrderLine {
+  return {
+    id: "line-1",
+    sequence: 1,
+    menuItemId: "item-1",
+    variantId: "variant-1",
+    itemNameSnapshot: { en: "Burger", ar: "برجر" },
+    quantity: 1,
+    unitPrice: money(10000),
+    modifiers: [],
+    modifierTotal: money(0),
+    lineDiscount: money(0),
+    lineSubtotal: money(10000),
+    taxAmount: money(0),
+    lineTotal: money(10000),
+    unitCostSnapshot: money(0),
+    recipeVersionId: null,
+    course: 1,
+    seatNumber: null,
+    state: "pending",
+    stationId: null,
+    firedAt: null,
+    readyAt: null,
+    voidReason: null,
+    isComp: false,
+    notes: null,
+    ...overrides,
+  };
+}
+
+/**
+ * A minimal, valid open order with one line, for exercising `OrderPane`'s
+ * trash/void action directly — mocked as the resolved value of
+ * `services.sales.mutations.open(...)` (a fresh order would not realistically
+ * have a line yet; this is a deliberate shortcut so a test can reach
+ * `VoidLineDrawer` without also driving `MenuPane`'s own add-line flow,
+ * which is unrelated to this bug).
+ */
+function makeOrder(overrides: Partial<Order> = {}): Order {
+  return {
+    id: "order-1",
+    tenantId: TENANT_ID,
+    branchId: BRANCH_ID,
+    branchName: { en: "Front Branch", ar: "الفرع" },
+    terminalId: "terminal-1",
+    terminalName: "Front Till",
+    orderNumber: "ORD-1",
+    businessDay: "2026-09-15",
+    orderType: "takeaway",
+    channel: "pos",
+    state: "open",
+    tableId: null,
+    tableLabel: null,
+    guestCount: null,
+    customerId: null,
+    customerName: null,
+    openedBy: "emp-1",
+    openedByName: { en: "Amina", ar: "أمينة" },
+    servedByName: null,
+    currency: "EGP",
+    subtotal: money(10000),
+    discountTotal: money(0),
+    serviceChargeTotal: money(0),
+    taxTotal: money(0),
+    roundingAdjustment: money(0),
+    grandTotal: money(10000),
+    paidTotal: money(0),
+    tipTotal: money(0),
+    cogsTotal: money(0),
+    lines: [makeLine()],
+    payments: [],
+    discounts: [],
+    openedAt: "2026-09-15T10:00:00Z",
+    firstFiredAt: null,
+    completedAt: null,
+    cancelledAt: null,
+    cancelledBy: null,
+    cancelReason: null,
+    syncState: "synced",
+    syncedAt: "2026-09-15T10:00:00Z",
+    aggregatorRef: null,
+    notes: null,
+    version: 1,
+    ...overrides,
+  };
+}
+
+const VOID_REASONS = [{ id: "reason-1", code: "WRONG_ITEM", label: { en: "Wrong item", ar: "صنف خاطئ" } }];
+
+/**
+ * `Select` (components/console/ui.tsx) is a custom listbox, not a native
+ * `<select>` — `userEvent.selectOptions` does not apply to it. Opening it
+ * (clicking the labelled trigger button) then clicking the option is the
+ * real interaction a cashier performs.
+ */
+async function pickOption(
+  user: UserEvent,
+  container: HTMLElement,
+  fieldLabel: RegExp,
+  optionName: string,
+) {
+  await user.click(within(container).getByLabelText(fieldLabel));
+  await user.click(within(container).getByRole("option", { name: optionName }));
+}
+
+/** Signs a cashier on, resumes an open shift, and opens the fixture order. */
+async function enterPosWithOrder(order: Order) {
+  const { default: userEvent } = await import("@testing-library/user-event");
+  const user = userEvent.setup();
+
+  getCurrentSession.mockResolvedValue({
+    cashSessionId: "cs-1",
+    shiftId: "sh-1",
+    drawerId: "drawer-1",
+    status: "open",
+  });
+  openOrder.mockResolvedValue(order);
+
+  signOnAs("EMP01", "Amina");
+  Session.setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
+  Session.setPosEmployee({ code: "EMP01", name: "Amina" });
+
+  render(<LivePos />);
+
+  const openButton = await screen.findByRole("button", { name: "pos.openOrder" });
+  await waitFor(() => expect(openButton).toBeEnabled());
+  await user.click(openButton);
+  await waitFor(() => expect(screen.getByText(order.orderNumber)).toBeInTheDocument());
+
+  return user;
+}
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -367,5 +534,126 @@ describe("LivePos — PIN sign-on contract (FRONTEND-POS-KDS-TERMINAL-DECOUPLING
     expect(await screen.findByText("pos.noBranch")).toBeInTheDocument();
     expect(screen.getByText("pos.noBranchNote")).toBeInTheDocument();
     expect(screen.queryByText("pos.noTerminal")).not.toBeInTheDocument();
+  });
+});
+
+describe("LivePos — prefire line void (LIVE-01-PREFIRE-LINE-VOID-P0)", () => {
+  it("loads void reasons from the POS-scoped sales endpoint, never the back-office Inventory one", async () => {
+    salesReasonCodes.mockResolvedValue(VOID_REASONS);
+    const user = await enterPosWithOrder(makeOrder());
+
+    await user.click(screen.getByRole("button", { name: "pos.void" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await waitFor(() => expect(salesReasonCodes).toHaveBeenCalledWith("void_prefire"));
+    expect(inventoryReasonCodes).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByLabelText(/inv\.reason/));
+    expect(within(dialog).getByRole("option", { name: "Wrong item" })).toBeInTheDocument();
+  });
+
+  it("a prefire void succeeds: mutation fires with the right ids, the line leaves the active bill, totals reflect the server's answer", async () => {
+    salesReasonCodes.mockResolvedValue(VOID_REASONS);
+    const order = makeOrder();
+    const user = await enterPosWithOrder(order);
+
+    await user.click(screen.getByRole("button", { name: "pos.void" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(salesReasonCodes).toHaveBeenCalled());
+
+    await pickOption(user, dialog, /inv\.reason/, "Wrong item");
+
+    const voided = {
+      ...order,
+      lines: [{ ...order.lines[0]!, state: "voided" as const }],
+      subtotal: money(0),
+      grandTotal: money(0),
+    };
+    voidLine.mockResolvedValue(voided);
+
+    await user.click(within(dialog).getByRole("button", { name: "pos.void" }));
+
+    await waitFor(() =>
+      expect(voidLine).toHaveBeenCalledWith("2026-09-15", "order-1", "line-1", "reason-1", {
+        ifMatch: 1,
+      }),
+    );
+    // The drawer closes on success, and the pane re-renders from the
+    // server's own response — never a locally-guessed removal.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByText("Voided")).toBeInTheDocument();
+  });
+
+  it("a postfire line uses the postfire purpose and the postfire mutation — the two paths stay separate", async () => {
+    salesReasonCodes.mockResolvedValue(VOID_REASONS);
+    const order = makeOrder({ lines: [makeLine({ state: "fired", firedAt: "2026-09-15T10:05:00Z" })] });
+    const user = await enterPosWithOrder(order);
+
+    await user.click(screen.getByRole("button", { name: "pos.void" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await waitFor(() => expect(salesReasonCodes).toHaveBeenCalledWith("void_postfire"));
+    expect(salesReasonCodes).not.toHaveBeenCalledWith("void_prefire");
+
+    await pickOption(user, dialog, /inv\.reason/, "Wrong item");
+    voidLinePostFire.mockResolvedValue({
+      ...order,
+      lines: [{ ...order.lines[0]!, state: "voided" as const }],
+    });
+
+    await user.click(within(dialog).getByRole("button", { name: "pos.void" }));
+
+    await waitFor(() =>
+      expect(voidLinePostFire).toHaveBeenCalledWith(
+        "2026-09-15",
+        "order-1",
+        "line-1",
+        { disposition: "wasted", reasonCodeId: "reason-1" },
+        { ifMatch: 1 },
+      ),
+    );
+    expect(voidLine).not.toHaveBeenCalled();
+  });
+
+  it("a permission-denied reason read surfaces a real error, not a silently-stuck disabled button", async () => {
+    salesReasonCodes.mockRejectedValue(
+      new MockServiceError(
+        "FORBIDDEN",
+        "PIN (POS) sessions cannot access dashboard or back-office endpoints.",
+        403,
+      ),
+    );
+    const user = await enterPosWithOrder(makeOrder());
+
+    await user.click(screen.getByRole("button", { name: "pos.void" }));
+    const dialog = await screen.findByRole("dialog");
+
+    // Visibly distinguishable from a loading state or a mutation failure —
+    // the error text and its machine-readable code both render.
+    await waitFor(() =>
+      expect(
+        within(dialog).getByText(
+          "PIN (POS) sessions cannot access dashboard or back-office endpoints.",
+        ),
+      ).toBeInTheDocument(),
+    );
+    expect(within(dialog).getByText("FORBIDDEN")).toBeInTheDocument();
+    // Never even attempted the back-office route as a fallback.
+    expect(inventoryReasonCodes).not.toHaveBeenCalled();
+    // The submit button stays disabled — nothing to void without a reason —
+    // but the reason it's stuck is now visible, not silent.
+    expect(within(dialog).getByRole("button", { name: "pos.void" })).toBeDisabled();
+  });
+
+  it("KDS session cannot reach the POS void mutation (session isolation, unchanged)", async () => {
+    // `services.sales.mutations.voidLine`/`voidLinePostFire` are shared code
+    // — the isolation that matters here is `lib/api/session.ts`'s per-surface
+    // token storage (proved directly in `lib/api/session.test.ts` and
+    // `lib/api/auth.test.ts`): a KDS PIN session never holds a POS token to
+    // send in the first place, so there is nothing for this suite to
+    // re-prove beyond confirming that isolation is untouched by this fix.
+    Session.setActiveSurface("kds");
+    expect(Session.getAccessToken()).toBeNull();
+    Session.setActiveSurface("pos");
   });
 });

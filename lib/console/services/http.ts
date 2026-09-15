@@ -84,6 +84,7 @@ import type {
   KitchenService,
   OperationsService,
   OrganisationService,
+  PosReasonPurpose,
   ReadonlyCollectionService,
   SalesService,
   Scope,
@@ -2265,7 +2266,16 @@ async function receipt(businessDay: IsoDate, orderId: Id) {
   return map.toReceipt(row);
 }
 
-const sales: SalesService = { orders, mutations: orderMutations, receipt };
+async function reasonCodes(purpose: PosReasonPurpose) {
+  const rows = await api.sales.listReasonCodes({ purpose });
+  return rows.map((row) => ({
+    id: row.id,
+    code: row.code,
+    label: map.localised(row.label, { en: row.code, ar: row.code }),
+  }));
+}
+
+const sales: SalesService = { orders, mutations: orderMutations, receipt, reasonCodes };
 
 // ---------------------------------------------------------------------------
 // Treasury

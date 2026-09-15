@@ -607,6 +607,9 @@ const sales: SalesService = {
   async receipt() {
     noBackend("Reading an order receipt");
   },
+  async reasonCodes() {
+    noBackend("Reading POS reason codes");
+  },
 };
 
 /**

@@ -25,6 +25,10 @@ export const sales = {
   create: (body: S.CreateOrderDto) =>
     http.post<S.OrdersController_createResponse>("/orders", { body, idempotent: true }),
 
+  /** `GET /orders/reason-codes` — Reason codes valid for a POS action (purpose-scoped, action-permission-authorised). — Reason codes usable for the given purpose. */
+  listReasonCodes: (options: { purpose?: "void_prefire" | "discount" | "comp" | "void_postfire" | "refund" | "order_cancel" } = {}) =>
+    http.get<S.OrdersController_listReasonCodesResponse>("/orders/reason-codes", { query: { purpose: options.purpose } }),
+
   /** `GET /orders/{businessDay}/{id}` — One order, with its persisted line snapshots. — The order, including its lines. */
   findOne: (businessDay: string, id: string) =>
     http.get<S.OrdersController_findOneResponse>("/orders/{businessDay}/{id}", { params: { businessDay, id } }),
