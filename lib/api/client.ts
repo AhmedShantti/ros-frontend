@@ -26,6 +26,7 @@ import {
   announceSessionChange,
   clearSession,
   getAccessToken,
+  getActiveSurface,
   getRefreshToken,
   getTenantId,
   isAccessTokenStale,
@@ -153,8 +154,28 @@ function isAuthRejection(error: unknown): boolean {
 }
 
 /**
- * Rotates the refresh token, then replays whatever scope the old access token
- * carried.
+ * Rotates the refresh token. Surface-aware from here down
+ * (POS-KDS-SESSION-CONTINUITY-P0):
+ *
+ * Console replays `/auth/tenant` afterwards to put the tenant scope back —
+ * a console refresh always yields a tenant-less BASE token, exactly as
+ * before this task.
+ *
+ * POS/KDS does NOT call `/auth/tenant`. A POS/KDS refresh yields a token
+ * that ALREADY carries genuine, server-derived `typ`/`emp`/`brc` (and
+ * `tid`/`mid`) directly from `POST /auth/refresh` — the backend now
+ * live-revalidates and restores the session's own trusted identity itself
+ * (`AuthService.refresh()`'s POS/KDS path, POS-KDS-SESSION-CONTINUITY-P0).
+ * Calling `/auth/tenant` here would be not just unnecessary but actively
+ * wrong: it is the exact replay step `POS-SESSION-REFRESH-CONTEXT-P0`
+ * proved silently converted a POS/KDS session into a token indistinguishable
+ * from a console one (missing `typ`/`emp`/`brc`, present `tid`/`mid`/`scp`/
+ * `pbr`/`epo` from an ordinary tenant selection). An actively operating
+ * POS/KDS terminal now silently survives any number of ordinary
+ * access-token rotations (FR-SEC-026); PIN is required only when the
+ * backend actually rejects the refresh (idle-expired, revoked, or the
+ * employee/branch/tenant is no longer valid) — see `isAuthRejection` below,
+ * unchanged from before this task.
  */
 async function refreshSession(): Promise<RefreshOutcome> {
   if (!refreshInFlight) {
@@ -165,7 +186,11 @@ async function refreshSession(): Promise<RefreshOutcome> {
       // POS-KDS-SESSION-LIFETIME-POLICY-P0 — a shift ends even if the
       // refresh token would still be honoured. Checked here, ahead of the
       // network call, so it applies to every path that refreshes: the
-      // request-time retry below AND the proactive timer.
+      // request-time retry below AND the proactive timer. UNCHANGED by
+      // POS-KDS-SESSION-CONTINUITY-P0 — this client-side 12h ceiling is
+      // orthogonal to the backend's FR-SEC-026 idle model (an absolute cap,
+      // not an idle timeout) and is left exactly as-is; see that task's own
+      // report for the follow-up reconciliation this still needs.
       if (isSessionOverHardLimit()) {
         clearSession();
         return "expired";
@@ -179,6 +204,12 @@ async function refreshSession(): Promise<RefreshOutcome> {
         });
       } catch (caught) {
         if (isAuthRejection(caught)) {
+          // The backend's own generic refresh-rejection: idle-expired,
+          // revoked, reused, or (for POS/KDS) the employee/branch/tenant no
+          // longer valid — every cause the SAME 401, by design, on both
+          // sides. `clearSession()` is the canonical clear path for every
+          // surface; the PIN/sign-on screen appears via the existing
+          // `isSignedIn()` -> false wiring, unchanged by this task.
           clearSession();
           return "expired";
         }
@@ -188,26 +219,31 @@ async function refreshSession(): Promise<RefreshOutcome> {
         // surfaces a retryable network error instead of forcing sign-on).
         return "unreachable";
       }
-      // Silent: this is the BASE, tenant-less token — announcing it would
-      // let a listener (`useLiveOrgContext`) re-fetch the org context
-      // using it before the tenant/terminal replay below has restored
-      // scope, which reliably fails and looked exactly like a real
-      // session's data vanishing.
+      // Silent: announcing before the console tenant replay below has
+      // settled would let a listener (`useLiveOrgContext`) re-fetch using
+      // an intermediate token. POS/KDS has no further replay step after
+      // this task — the token `send()` just returned is already final —
+      // but the same silent-then-announce-once shape is kept for both
+      // branches, so callers never observe a partial state either way.
       setTokens(rotated, { silent: true });
 
-      // The rotated token is tenant-less; put the scope back onto it.
-      const tenantId = getTenantId();
-      if (tenantId) {
-        try {
-          const scoped = await send<TokenResponse>("POST", "/auth/tenant", {
-            body: { tenantId },
-            anonymous: true,
-            bearer: getAccessToken(),
-          });
-          setTokens(scoped, { silent: true });
-        } catch {
-          // The membership may have been revoked while we were away. The next
-          // scoped call 403s and the UI sends the user back to tenant pick.
+      if (getActiveSurface() === "console") {
+        // Console alone: the rotated token is tenant-less; put the scope
+        // back onto it. POS/KDS never reaches here — see this function's
+        // own docblock.
+        const tenantId = getTenantId();
+        if (tenantId) {
+          try {
+            const scoped = await send<TokenResponse>("POST", "/auth/tenant", {
+              body: { tenantId },
+              anonymous: true,
+              bearer: getAccessToken(),
+            });
+            setTokens(scoped, { silent: true });
+          } catch {
+            // The membership may have been revoked while we were away. The next
+            // scoped call 403s and the UI sends the user back to tenant pick.
+          }
         }
       }
 
@@ -218,11 +254,12 @@ async function refreshSession(): Promise<RefreshOutcome> {
       // and a token refresh does not change either, so there is nothing left
       // to replay. Do not reintroduce a call to `/auth/terminal` here.
 
-      // One announce, now that the replay (base, then tenant) has settled —
-      // whatever a listener re-fetches with is the final, fully-scoped
-      // token, never an intermediate one. This is also what re-arms the
-      // proactive refresh timer (`scheduleProactiveRefresh` below is itself
-      // an `onSessionChange` listener) for the token's new expiry.
+      // One announce, now that the replay (base, then console-only tenant)
+      // has settled — whatever a listener re-fetches with is the final,
+      // fully-scoped token, never an intermediate one. This is also what
+      // re-arms the proactive refresh timer (`scheduleProactiveRefresh`
+      // below is itself an `onSessionChange` listener) for the token's new
+      // expiry.
       announceSessionChange();
       return "refreshed";
     })().finally(() => {

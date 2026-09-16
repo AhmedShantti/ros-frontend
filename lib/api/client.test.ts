@@ -82,7 +82,8 @@ describe("refreshSession resilience", () => {
     expect(Session.getAccessToken()).toBe("old-access");
   });
 
-  it("a successful refresh replays the tenant and the retried request goes through", async () => {
+  it("a successful CONSOLE refresh replays /auth/tenant and the retried request goes through", async () => {
+    Session.setActiveSurface("console");
     Session.setTokens({ accessToken: "old-access", refreshToken: "refresh-1", expiresIn: 900 });
     Session.setTenantId("tenant-1");
 
@@ -104,7 +105,71 @@ describe("refreshSession resilience", () => {
     await expect(http.get("/foo")).resolves.toEqual({ ok: true });
     expect(Session.getAccessToken()).toBe("scoped-2");
     expect(Session.getRefreshToken()).toBe("refresh-2");
+    const tenantCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/tenant"));
+    expect(tenantCalls).toHaveLength(1);
   });
+
+  /*
+   * POS-KDS-SESSION-CONTINUITY-P0 — POS/KDS accepts a backend-refreshed
+   * token AS-IS: `/auth/refresh` alone now returns a token already carrying
+   * genuine server-derived `typ`/`emp`/`brc`, so the old console-only
+   * "/auth/tenant puts the scope back" replay must never run for these
+   * surfaces (POS-SESSION-REFRESH-CONTEXT-P0 proved that exact replay is
+   * what silently converted a POS/KDS session into a dashboard-shaped one).
+   */
+  for (const surface of ["pos", "kds"] as const) {
+    it(`a successful ${surface.toUpperCase()} refresh does NOT call /auth/tenant and uses the refreshed token as-is`, async () => {
+      Session.setActiveSurface(surface);
+      Session.setTokens({ accessToken: "old-access", refreshToken: "refresh-1", expiresIn: 900 });
+      Session.setTenantId("tenant-1"); // present in storage, per PIN sign-on — must still not trigger a replay
+
+      let requestCount = 0;
+      const fetchMock = vi.fn(async (url: string | URL) => {
+        const path = String(url);
+        if (path.includes("/auth/refresh")) {
+          return jsonResponse(200, {
+            accessToken: "pos-refreshed-2",
+            refreshToken: "refresh-2",
+            expiresIn: 900,
+          });
+        }
+        if (path.includes("/auth/tenant")) {
+          throw new Error("must not be called for a POS/KDS refresh");
+        }
+        requestCount += 1;
+        if (requestCount === 1) return jsonResponse(401, { message: "Unauthenticated" });
+        return jsonResponse(200, { ok: true });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(http.get("/foo")).resolves.toEqual({ ok: true });
+      expect(Session.getAccessToken()).toBe("pos-refreshed-2");
+      expect(Session.getRefreshToken()).toBe("refresh-2");
+      expect(Session.isSignedIn()).toBe(true); // stayed in POS/KDS — no PIN triggered
+      const tenantCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/tenant"));
+      expect(tenantCalls).toHaveLength(0);
+    });
+
+    it(`a rejected ${surface.toUpperCase()} refresh clears the session so the PIN screen is required — never a silent dashboard-shaped fallback`, async () => {
+      Session.setActiveSurface(surface);
+      Session.setTokens({ accessToken: "old-access", refreshToken: "dead-refresh", expiresIn: 900 });
+      Session.setTenantId("tenant-1");
+
+      const fetchMock = vi.fn(async (url: string | URL) => {
+        if (String(url).includes("/auth/refresh")) {
+          return jsonResponse(401, { message: "Invalid refresh token", error: "Unauthorized" });
+        }
+        if (String(url).includes("/auth/tenant")) {
+          throw new Error("must not be called after a rejected POS/KDS refresh");
+        }
+        return jsonResponse(401, { message: "Unauthenticated" });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(http.get("/foo")).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
+      expect(Session.isSignedIn()).toBe(false);
+    });
+  }
 
   it("the hard session lifetime cap ends the session even though the refresh token is still valid", async () => {
     Session.setTokens({ accessToken: "old-access", refreshToken: "still-good-refresh", expiresIn: 900 });
