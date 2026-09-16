@@ -362,6 +362,29 @@ const branchIndex = cached(async () => {
   );
 });
 
+/**
+ * POS-BACKOFFICE-CALLS-P0 — the `branchIndex()` every Sales order read/
+ * mutation resolves `branchName` through, sourced from `accessibleBranchesRaw()`
+ * (`GET /org/access`) instead of `branchesRaw()` (`GET /org/branches`,
+ * tenant-owner-only). Every one of `orderContext()`/`hydrateOrder()`/
+ * `orderMutations.open()`'s callers is reachable from a PIN(POS) session
+ * (opening/adding/firing/voiding/discounting/comping/refunding/paying an
+ * order), which never holds `BRANCH_READ` and 403s on `branchesRaw()` —
+ * the exact call production logs showed firing on nearly every POS action.
+ * Behaviourally identical for a tenant-scoped Console/Owner session (their
+ * accessible set IS every branch, same rows `branchIndex()` already gave),
+ * so Console's own order reads (`feeds.ts`, `reports/engine.ts`) are
+ * unaffected — same DEMO-POS-BRANCH-CONTEXT-HOTFIX precedent `perBranch()`
+ * already applies elsewhere in this file.
+ */
+const accessibleBranchIndex = cached(async () => {
+  const tenantId = getTenantId() ?? "";
+  return indexBy(
+    (await accessibleBranchesRaw()).map((row) => map.toBranch(row, tenantId)),
+    (row) => row.id,
+  );
+});
+
 /** Manual 86s, keyed by the item they take off the menu (FR-MNU-030). */
 const eightySixIndex = cached(async () => {
   const rules = await availabilityRaw();
@@ -1979,7 +2002,7 @@ const inventory: InventoryService = {
 
 async function orderContext() {
   const [branchesById, tenantId] = await Promise.all([
-    branchIndex().catch(() => new Map<Id, Branch>()),
+    accessibleBranchIndex().catch(() => new Map<Id, Branch>()),
     Promise.resolve(getTenantId() ?? ""),
   ]);
   return { branchesById, tenantId };
@@ -2068,7 +2091,7 @@ const orders: ReadonlyCollectionService<Order> = {
 const orderMutations: import("./types").OrderMutationService = {
   async open(input) {
     const tenantId = getTenantId() ?? "";
-    const branchesById = await branchIndex().catch(() => new Map<Id, Branch>());
+    const branchesById = await accessibleBranchIndex().catch(() => new Map<Id, Branch>());
 
     const row = await api.sales.create({
       id: deviceId(),
@@ -2096,7 +2119,7 @@ const orderMutations: import("./types").OrderMutationService = {
     const tenantId = getTenantId() ?? "";
     const [row, branchesById] = await Promise.all([
       api.sales.findOne(businessDay, orderId),
-      branchIndex().catch(() => new Map<Id, Branch>()),
+      accessibleBranchIndex().catch(() => new Map<Id, Branch>()),
     ]);
     return map.toOrder(row, { tenantId, branchName: branchesById.get(row.branchId)?.name });
   },
@@ -2257,7 +2280,7 @@ function discountBody(input: DiscountInput) {
 /** Every mutation answers with an order row; they all need the same joins. */
 async function hydrateOrder(row: Parameters<typeof map.toOrder>[0]): Promise<Order> {
   const tenantId = getTenantId() ?? "";
-  const branchesById = await branchIndex().catch(() => new Map<Id, Branch>());
+  const branchesById = await accessibleBranchIndex().catch(() => new Map<Id, Branch>());
   return map.toOrder(row, { tenantId, branchName: branchesById.get(row.branchId)?.name });
 }
 

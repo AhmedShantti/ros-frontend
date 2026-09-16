@@ -333,6 +333,26 @@ describe("LivePos — sign-on and session recovery", () => {
     await waitFor(() => expect(screen.getByText("pos.newOrder")).toBeInTheDocument());
   });
 
+  it("POS-BACKOFFICE-CALLS-P0 — normal POS bootstrap makes no back-office (would-be-403) calls: no tables request, dine-in simply unavailable", async () => {
+    Session.setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
+    Session.setPosEmployee({ code: "EMP01", name: "Amina" });
+    Session.setOpenCashSession({ cashSessionId: "cs-1", employeeCode: "EMP01", branchId: BRANCH_ID });
+    getCurrentSession.mockResolvedValue({ cashSessionId: "cs-1", shiftId: "sh-1", drawerId: "drawer-1" });
+
+    render(<LivePos />);
+
+    await waitFor(() => expect(screen.getByText("pos.newOrder")).toBeInTheDocument());
+
+    // `GET /org/branches/{branchId}/tables` (OrganisationController#listTables,
+    // BRANCH_READ-gated, no @AllowPosSession) must never be attempted from
+    // the POS "new order" screen — there is no POS-safe tables read yet, so
+    // dine-in stays unavailable rather than firing a doomed request.
+    expect(tables).not.toHaveBeenCalled();
+    // Same class of bug, already fixed in a prior task — kept here as a
+    // combined "zero expected 403s on normal bootstrap" regression guard.
+    expect(inventoryReasonCodes).not.toHaveBeenCalled();
+  });
+
   it("clears a stale local session once the server confirms it is no longer open", async () => {
     Session.setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
     Session.setPosEmployee({ code: "EMP01", name: "Amina" });

@@ -36,7 +36,7 @@
  * a 412 instead of quietly overwriting.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Banknote,
   Flame,
@@ -49,7 +49,7 @@ import {
 } from "lucide-react";
 
 import type { MenuItem, Order } from "@/lib/console/types";
-import { services, ServiceError, type Scope } from "@/lib/console/services";
+import { services, ServiceError } from "@/lib/console/services";
 import { api } from "@/lib/api/endpoints";
 import {
   toPosMenu,
@@ -444,7 +444,6 @@ export function LivePos() {
         ) : (
           <NewOrderPane
             branchId={scope.branchId}
-            scope={scope}
             onOpened={(next) => {
               setOrder(next);
               setMessage(t("pos.orderOpened"));
@@ -850,38 +849,30 @@ function OpenDrawer({
 
 function NewOrderPane({
   branchId,
-  scope,
   onOpened,
 }: {
   branchId: string | null;
-  scope: Scope;
   onOpened: (order: Order) => void;
 }) {
   const { t, tx } = useI18n();
   const action = useAction();
   // Takeaway by default: it needs no table, so a fresh order is always
   // immediately fireable. Dine-in is offered, but FR-POS-003 requires a
-  // real tableId — see `tables` below — so it stays unavailable until one
-  // exists and is picked, rather than 422ing on Fire with none attached.
+  // real tableId, and there is no POS-safe way to list tables today —
+  // `GET /org/branches/{branchId}/tables` (`services.operations.tables`)
+  // is `OrganisationController#listTables`, gated on `BRANCH_READ`, a
+  // tenant/branch-owner permission no PIN(POS) session ever holds
+  // (POS-BACKOFFICE-CALLS-P0). NewOrderPane is mounted ONLY inside the POS
+  // terminal (`LivePos`) — never Console — so this is never reachable via a
+  // console session either way; it must simply not be called from here, not
+  // called-then-handle-the-403. Dine-in therefore stays unavailable until a
+  // POS-safe tables read exists on the backend; takeaway/pickup are
+  // unaffected.
   const [orderType, setOrderType] = useState<"dine_in" | "takeaway" | "pickup">("takeaway");
   const [guestCount, setGuestCount] = useState("2");
-  const [tableId, setTableId] = useState("");
 
-  const tables = useAsync(
-    () => services.operations.tables({ scope, limit: 200 }),
-    [scope.tenantId, scope.branchId],
-  );
-  const tableRows = useMemo(() => tables.data?.rows ?? [], [tables.data]);
-
-  useEffect(() => {
-    if (tableRows.length === 0) return;
-    setTableId((current) =>
-      tableRows.some((row) => row.id === current) ? current : tableRows[0].id,
-    );
-  }, [tableRows]);
-
-  const dineInAvailable = tableRows.length > 0;
-  const canOpen = orderType !== "dine_in" || (dineInAvailable && tableId !== "");
+  const dineInAvailable = false;
+  const canOpen = orderType !== "dine_in";
 
   async function open() {
     if (!canOpen) return;
@@ -891,7 +882,7 @@ function NewOrderPane({
           orderType,
           channel: "pos",
           guestCount: Number(guestCount) || undefined,
-          tableId: orderType === "dine_in" ? tableId : undefined,
+          tableId: undefined,
         }),
       { onSuccess: onOpened },
     );
@@ -923,31 +914,7 @@ function NewOrderPane({
 
           {orderType === "dine_in" ? (
             <Field label={t("pos.selectTable")}>
-              {tables.loading ? (
-                <Input dir="ltr" value={t("state.loading")} readOnly disabled />
-              ) : tables.error ? (
-                // A 401/403 here must never read as "no tables exist" — this
-                // session (e.g. a Cashier without settings.branch.read) simply
-                // cannot list them, which is a different problem than there
-                // being none. Either way dine-in stays disabled: takeaway is
-                // still the real, always-available path.
-                <Callout tone="bad">
-                  {tables.error instanceof ServiceError &&
-                  (tables.error.code === "UNAUTHENTICATED" || tables.error.code === "FORBIDDEN")
-                    ? t("pos.tablesAuthError")
-                    : tables.error.message || t("common.actionFailed")}
-                </Callout>
-              ) : !dineInAvailable ? (
-                <Callout tone="warn">{t("ops.noTables")}</Callout>
-              ) : (
-                <Select value={tableId} onChange={(event) => setTableId(event.target.value)}>
-                  {tableRows.map((row) => (
-                    <option key={row.id} value={row.id}>
-                      {row.label}
-                    </option>
-                  ))}
-                </Select>
-              )}
+              <Callout tone="warn">{t("ops.noTables")}</Callout>
             </Field>
           ) : null}
 
