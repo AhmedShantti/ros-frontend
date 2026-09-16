@@ -2124,12 +2124,12 @@ const orderMutations: import("./types").OrderMutationService = {
     return hydrateOrder(response.order);
   },
 
-  async voidLine(businessDay, orderId, lineId, reasonCodeId, options = {}) {
+  async voidLine(businessDay, orderId, lineId, options = {}) {
     const response = await api.sales.voidLine(
       businessDay,
       orderId,
       lineId,
-      { reasonCodeId },
+      {},
       { ifMatch: options.ifMatch },
     );
     return hydrateOrder(response.order);

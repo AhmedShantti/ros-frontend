@@ -1832,28 +1832,26 @@ function VoidLineDrawer({
   // `lineId` toggling null/non-null) for as long as an order is open, so an
   // ungated fetch here fired on every order, not on demand.
   //
-  // LIVE-01-PREFIRE-LINE-VOID-P0 — `services.sales.reasonCodes`, NEVER
-  // `services.inventory.reasonCodes()`: the latter is
-  // `GET /inventory/reason-codes`, a back-office-only route with no
-  // `@AllowPosSession()` — a PIN(POS) session is refused outright
-  // ("PIN (POS) sessions cannot access dashboard or back-office
-  // endpoints."), which is exactly the live bug this fixes. `purpose`
-  // tracks `preFire` so a postfire void reads the postfire-scoped reasons
-  // (`pos.order.void_line_postfire`), not the prefire ones.
+  // PREFIRE-VOID-NO-REASON-P0 — gated on `!preFire` too: a pre-fire void
+  // takes no reason at all now (see the governance register's "Pre-Fire
+  // Void Reason Removed" entry), so this must never call
+  // `GET /orders/reason-codes?purpose=void_prefire` for one. A POST-fire
+  // void is unaffected — `services.sales.reasonCodes`, NEVER
+  // `services.inventory.reasonCodes()` (LIVE-01-PREFIRE-LINE-VOID-P0: the
+  // latter is a back-office-only route no PIN(POS) session may reach).
   const reasons = useAsync(
-    async () =>
-      lineId ? services.sales.reasonCodes(preFire ? "void_prefire" : "void_postfire") : [],
+    async () => (lineId && !preFire ? services.sales.reasonCodes("void_postfire") : []),
     [lineId, preFire],
   );
 
   if (!lineId || !line) return null;
 
   async function submit() {
-    if (!reasonCodeId) return;
+    if (!preFire && !reasonCodeId) return;
     await action.run(
       () =>
         preFire
-          ? services.sales.mutations.voidLine(order.businessDay, order.id, lineId!, reasonCodeId, {
+          ? services.sales.mutations.voidLine(order.businessDay, order.id, lineId!, {
               ifMatch: orderVersion(order),
             })
           : services.sales.mutations.voidLinePostFire(
@@ -1877,7 +1875,7 @@ function VoidLineDrawer({
           <Button
             variant="danger"
             loading={action.pending}
-            disabled={!reasonCodeId}
+            disabled={!preFire && !reasonCodeId}
             onClick={submit}
           >
             {t("pos.void")}
@@ -1895,27 +1893,29 @@ function VoidLineDrawer({
           {preFire ? t("pos.voidPreFire") : t("pos.voidPostFire")}
         </Callout>
 
-        <AsyncPanel
-          state={reasons}
-          isEmpty={(rows) => rows.length === 0}
-          empty={<Callout tone="warn">{t("pos.noReasonCodes")}</Callout>}
-        >
-          {(rows) => (
-            <Field label={t("inv.reason")} hint={t("pos.voidReasonHint")} required>
-              <Select
-                value={reasonCodeId}
-                onChange={(event) => setReasonCodeId(event.target.value)}
-              >
-                <option value="">—</option>
-                {rows.map((reason) => (
-                  <option key={reason.id} value={reason.id}>
-                    {tx(reason.label)}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          )}
-        </AsyncPanel>
+        {!preFire ? (
+          <AsyncPanel
+            state={reasons}
+            isEmpty={(rows) => rows.length === 0}
+            empty={<Callout tone="warn">{t("pos.noReasonCodes")}</Callout>}
+          >
+            {(rows) => (
+              <Field label={t("inv.reason")} hint={t("pos.voidReasonHint")} required>
+                <Select
+                  value={reasonCodeId}
+                  onChange={(event) => setReasonCodeId(event.target.value)}
+                >
+                  <option value="">—</option>
+                  {rows.map((reason) => (
+                    <option key={reason.id} value={reason.id}>
+                      {tx(reason.label)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+          </AsyncPanel>
+        ) : null}
 
         {!preFire ? (
           <Field label={t("pos.disposition")} hint={t("pos.dispositionNote")} required>

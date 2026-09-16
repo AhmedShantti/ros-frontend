@@ -66,10 +66,8 @@ export interface CapturePaymentDto {
   authorizationCode?: string;
 }
 
-export interface VoidOrderLineDto {
-  /** REQUIRED. FR-POS-013 demands a reason on a void, and the database agrees: `ck_order_line_void_reason` refuses a voided row without one. Making it optional here would only move the failure from a 400 to a 500. The reason catalogue is `inventory.reason_codes`; this references one by id and the service checks it is visible to the tenant. */
-  reasonCodeId: string;
-}
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface VoidOrderLineDto {}
 
 export interface ApplyDiscountDto {
   /** FR-OFF-015 — the ULID the device assigned to this Discount. */

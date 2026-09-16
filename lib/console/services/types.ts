@@ -803,16 +803,17 @@ export interface OrderMutationService {
   ): Promise<Order>;
 
   /**
-   * FR-POS-013 — void a line that has not been fired.
+   * Void a line that has not been fired.
    *
-   * A reason code is required, not optional: the database refuses a voided
-   * row without one, so omitting it would only turn a 400 into a 500.
+   * PREFIRE-VOID-NO-REASON-P0 — no reason is required, accepted, or looked
+   * up for this operation (see the governance register's "Pre-Fire Void
+   * Reason Removed" entry). Nothing has reached the kitchen or inventory
+   * yet, so there is nothing for a reason to classify.
    */
   voidLine(
     businessDay: IsoDate,
     orderId: Id,
     lineId: Id,
-    reasonCodeId: Id,
     options?: { ifMatch?: number },
   ): Promise<Order>;
 

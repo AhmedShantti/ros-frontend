@@ -537,31 +537,30 @@ describe("LivePos — PIN sign-on contract (FRONTEND-POS-KDS-TERMINAL-DECOUPLING
   });
 });
 
-describe("LivePos — prefire line void (LIVE-01-PREFIRE-LINE-VOID-P0)", () => {
-  it("loads void reasons from the POS-scoped sales endpoint, never the back-office Inventory one", async () => {
-    salesReasonCodes.mockResolvedValue(VOID_REASONS);
+describe("LivePos — prefire line void (LIVE-01-PREFIRE-LINE-VOID-P0, PREFIRE-VOID-NO-REASON-P0)", () => {
+  it("PREFIRE-VOID-NO-REASON-P0 — never fetches reason codes for a pre-fire line, and shows no reason selector or blocker", async () => {
     const user = await enterPosWithOrder(makeOrder());
 
     await user.click(screen.getByRole("button", { name: "pos.void" }));
     const dialog = await screen.findByRole("dialog");
 
-    await waitFor(() => expect(salesReasonCodes).toHaveBeenCalledWith("void_prefire"));
+    // The confirmation copy is still shown; there is simply nothing to pick.
+    expect(within(dialog).getByText("pos.voidPreFire")).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText(/inv\.reason/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("pos.noReasonCodes")).not.toBeInTheDocument();
+    expect(salesReasonCodes).not.toHaveBeenCalled();
     expect(inventoryReasonCodes).not.toHaveBeenCalled();
-
-    await user.click(within(dialog).getByLabelText(/inv\.reason/));
-    expect(within(dialog).getByRole("option", { name: "Wrong item" })).toBeInTheDocument();
   });
 
-  it("a prefire void succeeds: mutation fires with the right ids, the line leaves the active bill, totals reflect the server's answer", async () => {
-    salesReasonCodes.mockResolvedValue(VOID_REASONS);
+  it("PREFIRE-VOID-NO-REASON-P0 — a prefire void executes directly after confirmation: submit is enabled with no reason, and the mutation carries none", async () => {
     const order = makeOrder();
     const user = await enterPosWithOrder(order);
 
     await user.click(screen.getByRole("button", { name: "pos.void" }));
     const dialog = await screen.findByRole("dialog");
-    await waitFor(() => expect(salesReasonCodes).toHaveBeenCalled());
 
-    await pickOption(user, dialog, /inv\.reason/, "Wrong item");
+    const submit = within(dialog).getByRole("button", { name: "pos.void" });
+    expect(submit).toBeEnabled();
 
     const voided = {
       ...order,
@@ -571,13 +570,13 @@ describe("LivePos — prefire line void (LIVE-01-PREFIRE-LINE-VOID-P0)", () => {
     };
     voidLine.mockResolvedValue(voided);
 
-    await user.click(within(dialog).getByRole("button", { name: "pos.void" }));
+    await user.click(submit);
 
     await waitFor(() =>
-      expect(voidLine).toHaveBeenCalledWith("2026-09-15", "order-1", "line-1", "reason-1", {
-        ifMatch: 1,
-      }),
+      expect(voidLine).toHaveBeenCalledWith("2026-09-15", "order-1", "line-1", { ifMatch: 1 }),
     );
+    // No reason-shaped fourth argument was ever fabricated or defaulted.
+    expect(voidLine.mock.calls[0]).toHaveLength(4);
     // The drawer closes on success, and the pane re-renders from the
     // server's own response — never a locally-guessed removal.
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -615,7 +614,7 @@ describe("LivePos — prefire line void (LIVE-01-PREFIRE-LINE-VOID-P0)", () => {
     expect(voidLine).not.toHaveBeenCalled();
   });
 
-  it("a permission-denied reason read surfaces a real error, not a silently-stuck disabled button", async () => {
+  it("a permission-denied reason read surfaces a real error, not a silently-stuck disabled button (POST-fire only — pre-fire no longer reads reasons at all)", async () => {
     salesReasonCodes.mockRejectedValue(
       new MockServiceError(
         "FORBIDDEN",
@@ -623,7 +622,8 @@ describe("LivePos — prefire line void (LIVE-01-PREFIRE-LINE-VOID-P0)", () => {
         403,
       ),
     );
-    const user = await enterPosWithOrder(makeOrder());
+    const order = makeOrder({ lines: [makeLine({ state: "fired", firedAt: "2026-09-15T10:05:00Z" })] });
+    const user = await enterPosWithOrder(order);
 
     await user.click(screen.getByRole("button", { name: "pos.void" }));
     const dialog = await screen.findByRole("dialog");
