@@ -27,6 +27,7 @@ import { PageBody, PageHeader, Section, TileGrid, Toolbar } from "@/components/c
 import { CategoryBarChart, MetricTile } from "@/components/console/charts";
 import { AsyncPanel, Gate } from "@/components/console/states";
 import { Meter, SegmentedControl, cx } from "@/components/console/ui";
+import { FoodCostBreakdownSection } from "@/components/console/costing-food-cost-breakdown";
 
 type Grouping = "branch" | "brand" | "category";
 
@@ -72,6 +73,9 @@ function FoodCostScreen() {
         </Toolbar>
 
         <AsyncPanel state={state}>{(rows) => <FoodCostBody rows={rows} />}</AsyncPanel>
+
+        {/* FR-CST-004 — every dimension, over a date range, from order-line snapshots. */}
+        <FoodCostBreakdownSection />
       </PageBody>
     </>
   );

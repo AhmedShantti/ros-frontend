@@ -43,6 +43,7 @@ import { formatMoney, formatPercent, money } from "@/lib/console/format";
 import { useConfirm } from "@/components/console/confirm";
 import {
   LocalisedField,
+  LocalisedText,
   PercentInput,
   QuantityInput,
   SearchSelect,
@@ -463,6 +464,7 @@ export function RecipeEditor({
       </section>
 
       {/* -- Components ----------------------------------------------------- */}
+      {/* FR-MNU-041: each component is a stock item or a sub-recipe, with a quantity and unit. */}
       <section>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-fg text-sm font-semibold">{t("recipes.components")}</h3>
@@ -678,13 +680,34 @@ export function RecipeEditor({
       {/* -- Instructions --------------------------------------------------- */}
       <section>
         <h3 className="text-fg mb-2 text-sm font-semibold">{t("recipes.instructions")}</h3>
-        <LocalisedField
-          label={t("recipes.instructions")}
-          hint={t("recipes.instructionsHint")}
-          multiline
-          value={draft.instructions}
-          onChange={(instructions) => patch({ instructions })}
-        />
+        {version ? (
+          // FR-MNU-049 — instructions and reference images are fixed when a
+          // version is created (`PUT …/lines` does not carry them), so on an
+          // existing draft they are shown, not offered for an edit that
+          // would silently not be saved.
+          <div className="space-y-2">
+            <p className="text-fg-subtle text-xs leading-relaxed">{t("mnr.draft.fixed")}</p>
+            <LocalisedText value={version.instructions} />
+            {(version.referenceImages ?? []).length > 0 ? (
+              <ul className="grid grid-cols-3 gap-2">
+                {(version.referenceImages ?? []).map((image) => (
+                  <li key={image.id}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={image.src} alt={image.caption.en || image.caption.ar || ""} className="h-20 w-full rounded-md object-cover" />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : (
+          <LocalisedField
+            label={t("recipes.instructions")}
+            hint={t("recipes.instructionsHint")}
+            multiline
+            value={draft.instructions}
+            onChange={(instructions) => patch({ instructions })}
+          />
+        )}
       </section>
 
       {/* -- Save ----------------------------------------------------------- */}

@@ -265,8 +265,10 @@ export function Field({
   );
 }
 
+// NFR-USA-008 — the input border uses the `control` token (≥3:1 on every
+// surface) so a field is identifiable without its placeholder.
 const CONTROL_CLASS =
-  "border-line bg-raised text-fg placeholder:text-fg-subtle focus:border-accent w-full rounded-lg border px-3 py-2 text-sm outline-none transition-colors";
+  "border-control bg-raised text-fg placeholder:text-fg-subtle focus:border-accent w-full rounded-lg border px-3 py-2 text-sm outline-none transition-colors";
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cx(CONTROL_CLASS, props.className)} />;
@@ -468,7 +470,7 @@ export function Toggle({
         onClick={() => onChange(!checked)}
         className={cx(
           "relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50",
-          checked ? "bg-accent" : "bg-line-strong",
+          checked ? "bg-accent" : "bg-control", // NFR-USA-008 — 3:1 track
         )}
       >
         <span

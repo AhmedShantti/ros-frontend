@@ -15,10 +15,16 @@
  *
  * Ageing is shown alongside because an unmatched invoice that is also 90 days
  * old is a different problem from one raised this morning.
+ *
+ * From the drawer an invoice within tolerance is approved for payment and one
+ * outside it is resolved out of dispute (FR-PRC-042), credit notes are
+ * applied against it (FR-PRC-043) and payments recorded. A photographed
+ * invoice is keyed and verified from the capture screen (FR-PRC-046).
  */
 
 import { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import Link from "next/link";
+import { Camera, Plus } from "lucide-react";
 import type { SupplierInvoice } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { DATA_MODE } from "@/lib/api/config";
@@ -32,6 +38,7 @@ import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
 import { InvoiceDrawer as InvoiceFormDrawer } from "@/components/console/purchasing-forms";
+import { InvoicePayables } from "@/components/console/purchasing-payables";
 import {
   Badge,
   Button,
@@ -159,13 +166,18 @@ function InvoicesScreen() {
         subtitle={t("pur.invoicesSubtitle")}
         spec="FR-PRC-041"
         actions={
-          <Button
-            variant="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setCreating(true)}
-          >
-            {t("common.new")}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/purchasing/invoices/capture">
+              <Button icon={<Camera size={14} />}>{t("prc.cap.open")}</Button>
+            </Link>
+            <Button
+              variant="primary"
+              icon={<Plus size={14} />}
+              onClick={() => setCreating(true)}
+            >
+              {t("common.new")}
+            </Button>
+          </div>
         }
       />
 
@@ -238,7 +250,15 @@ function InvoicesScreen() {
         />
       </PageBody>
 
-      <InvoiceDrawer invoice={selected} onClose={() => setSelected(null)} />
+      <InvoiceDrawer
+        invoice={selected}
+        onClose={() => setSelected(null)}
+        onChanged={(updated, note) => {
+          if (updated) setSelected(updated);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
       <InvoiceFormDrawer
         open={creating}
         onClose={() => setCreating(false)}
@@ -259,9 +279,11 @@ function InvoicesScreen() {
 function InvoiceDrawer({
   invoice,
   onClose,
+  onChanged,
 }: {
   invoice: SupplierInvoice | null;
   onClose: () => void;
+  onChanged: (invoice: SupplierInvoice | null, message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
   if (!invoice) return null;
@@ -318,6 +340,11 @@ function InvoiceDrawer({
             {formatMoney(invoice.total, fmt)}
           </DescRow>
         </DescList>
+
+        <section>
+          <h3 className="text-fg mb-2 text-sm font-semibold">{t("prc.pay.sectionTitle")}</h3>
+          <InvoicePayables key={`${invoice.id}:${invoice.status}`} invoice={invoice} onChanged={onChanged} />
+        </section>
 
         <Callout tone="muted">{t("pur.threeWayNote")}</Callout>
       </div>

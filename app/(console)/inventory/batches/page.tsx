@@ -25,7 +25,16 @@ import { CellStack, CollectionTable, type Column } from "@/components/console/da
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
-import { Badge, Callout, DescList, DescRow, Drawer, cx } from "@/components/console/ui";
+import { Badge, Callout, DescList, DescRow, Drawer, Field, Input, cx } from "@/components/console/ui";
+import Link from "next/link";
+import { Route } from "lucide-react";
+import {
+  allocateIssue,
+  consumptionOrder,
+  defaultBatchStrategy,
+  strategyNeedsWarning,
+  type BatchStrategy,
+} from "@/lib/console/inventory-batches";
 
 export default function BatchesPage() {
   return (
@@ -263,7 +272,70 @@ function BatchDrawer({ batch, onClose }: { batch: Batch | null; onClose: () => v
         </DescList>
 
         <Callout tone="muted">{t("inv.fefoNote")}</Callout>
+
+        <ConsumptionOrder batch={batch} />
+
+        {/* FR-INV-027 — from here to every order this batch reached. */}
+        <Link href="/inventory/trace" className="text-accent inline-flex items-center gap-1 text-sm hover:underline">
+          <Route size={14} aria-hidden /> {t("invx.batch.trace")}
+        </Link>
       </div>
     </Drawer>
+  );
+}
+
+/**
+ * FR-INV-022 / FR-INV-023 — where this batch sits in the order its item is
+ * consumed at this location, under the item's own strategy (FEFO by default
+ * where expiry is tracked), and what an issue of a given size would draw.
+ */
+function ConsumptionOrder({ batch }: { batch: Batch }) {
+  const { t, fmt } = useI18n();
+  const [issue, setIssue] = useState("");
+  const data = useAsync(async () => {
+    const [siblings, item, profile] = await Promise.all([
+      services.inventory.batches
+        .list({ limit: 500, filters: { locationId: batch.locationId, days: "3650" } })
+        .then((page) => page.rows.filter((row) => row.itemId === batch.itemId && row.locationId === batch.locationId)),
+      services.inventory.items.get(batch.itemId).catch(() => null),
+      services.stockProfiles.get(batch.itemId).catch(() => null),
+    ]);
+    const strategy: BatchStrategy =
+      item?.batchStrategy ?? profile?.batchStrategy ?? defaultBatchStrategy(item?.expiryTracked ?? true);
+    return { siblings: siblings.some((row) => row.id === batch.id) ? siblings : [...siblings, batch], strategy, expiryTracked: item?.expiryTracked ?? true };
+  }, [batch.id]);
+
+  if (!data.data) return null;
+  const ordered = consumptionOrder(data.data.siblings, data.data.strategy);
+  const quantity = Number(issue);
+  const allocation = quantity > 0 ? allocateIssue(ordered, data.data.strategy, quantity) : null;
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-fg text-sm font-semibold">{t("invx.batch.orderTitle")}</h3>
+      <p className="text-fg-subtle text-xs">
+        {t(data.data.strategy === "fefo" ? "invx.batch.fefo" : "invx.batch.fifo")}
+        {strategyNeedsWarning(data.data.strategy, data.data.expiryTracked) ? ` ${t("invx.item.fifoWarning")}` : ""}
+      </p>
+      <ol className="border-line divide-line divide-y rounded-lg border text-xs">
+        {ordered.map((row, index) => {
+          const drawn = allocation?.allocations.find((entry) => entry.batchId === row.id);
+          return (
+            <li key={row.id} className={cx("flex items-center justify-between gap-2 px-3 py-1.5", row.id === batch.id && "bg-accent-soft")}>
+              <span className="font-mono">
+                {index + 1}. {row.batchNumber}
+              </span>
+              <span className="text-fg-muted">
+                {formatDate(row.expiryDate, fmt)} · {formatQuantity(row.quantity, fmt)}
+                {drawn ? <Badge tone="accent" className="ms-2">−{formatNumber(drawn.quantity, fmt, 3)}</Badge> : null}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <Field label={t("invx.batch.simulate")} hint={allocation && allocation.shortfall > 0 ? t("invx.batch.shortfall").replace("{n}", formatNumber(allocation.shortfall, fmt, 3)) : t("invx.batch.simulateHint")}>
+        <Input dir="ltr" inputMode="decimal" value={issue} onChange={(event) => setIssue(event.target.value)} />
+      </Field>
+    </section>
   );
 }

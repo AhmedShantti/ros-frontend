@@ -395,6 +395,8 @@ export interface MenuItem {
   available: boolean;
   /** FR-MNU-030 — an "86" carries a reason and an optional re-enable time. */
   unavailableReason: string | null;
+  /** FR-MNU-030 — when a manual 86 lifts itself. Null or absent means "until restored". */
+  autoReenableAt?: IsoDateTime | null;
   /** FR-MNU-033 — min over ingredients of (stock ÷ per-portion need). */
   remainingSellable: number | null;
   sortOrder: number;
@@ -433,6 +435,24 @@ export interface RecipeDelta {
   quantity?: Quantity;
 }
 
+/**
+ * FR-POS-022 — a modifier's price in a context.
+ *
+ * Each dimension is optional; a null dimension matches anything. "Free for
+ * dine-in, charged for delivery" is two rules on one modifier, one per order
+ * type. When several rules match, the most specific wins — see
+ * `resolveModifierDelta` in `lib/console/live/engine.ts`.
+ */
+export interface ModifierPriceRule {
+  id: Id;
+  modifierId: Id;
+  orderType: OrderType | null;
+  branchId: Id | null;
+  priceListId: Id | null;
+  priceDelta: Money;
+  updatedAt: IsoDateTime;
+}
+
 export interface ModifierGroup {
   id: Id;
   tenantId: Id;
@@ -451,7 +471,15 @@ export interface ComboSlot {
   name: Localised;
   optionItemIds: Id[];
   optionNames: Localised[];
+  /** FR-POS-030 — charged on top when the guest picks one of `premiumItemIds`. */
   priceDelta: Money;
+  /** The options that carry the premium. Absent or empty means none do. */
+  premiumItemIds?: Id[];
+  /**
+   * FR-POS-031 `component_override` — what a component in this slot costs
+   * inside the combo. Null falls back to the option's own list price.
+   */
+  overridePrice?: Money | null;
 }
 
 export type ComboPricingStrategy =
@@ -459,12 +487,20 @@ export type ComboPricingStrategy =
   | "sum_minus_discount"
   | "component_override";
 
+/** FR-POS-032 — how combo revenue is split back across its components. */
+export type ComboAllocationBasis = "equal" | "list_price" | "cost";
+
 export interface Combo {
   id: Id;
   tenantId: Id;
   name: Localised;
+  /** The price of a `fixed` combo. Unused by the other two strategies. */
   price: Money;
   pricingStrategy: ComboPricingStrategy;
+  /** FR-POS-031 `sum_minus_discount` — taken off the components' list prices. */
+  discount?: Money | null;
+  /** FR-POS-032 — defaults to list price when absent. */
+  allocationBasis?: ComboAllocationBasis;
   slots: ComboSlot[];
   active: boolean;
 }
@@ -541,6 +577,10 @@ export interface Recipe {
   /** BR-MNU-012 — an item may be sold before its recipe is complete. */
   complete: boolean;
   instructions: Localised;
+  /** FR-MNU-047 — tenant/brand standard, or a branch's variant of it. Absent means tenant. */
+  scope?: "tenant" | "brand" | "branch";
+  brandId?: Id | null;
+  branchId?: Id | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -570,6 +610,8 @@ export interface StockItem {
   costingMethod: CostingMethod;
   batchTracked: boolean;
   expiryTracked: boolean;
+  /** FR-INV-022/023 — FIFO or FEFO consumption; FEFO by default when expiry is tracked. */
+  batchStrategy?: "fifo" | "fefo";
   storage: StorageRequirement;
   shelfLifeDays: number | null;
   defaultSupplierId: Id | null;
@@ -1190,7 +1232,9 @@ export type OrderState =
   | "completed"
   | "cancelled"
   | "partially_refunded"
-  | "refunded";
+  | "refunded"
+  /** FR-POS-082 — folded into another table's order; its lines live there now. */
+  | "merged";
 
 export type OrderLineState =
   | "pending"
@@ -1206,6 +1250,49 @@ export interface OrderLineModifier {
   name: Localised;
   kind: ModifierKind;
   priceDelta: Money;
+  /**
+   * FR-POS-022 — the context rule that set `priceDelta`, or null when the
+   * modifier's own delta applied. Recorded for the same reason FR-POS-042
+   * records the item's price source: "why was the sauce free?" needs an answer.
+   */
+  priceRuleId?: Id | null;
+}
+
+/** FR-POS-042 — which rule produced a line's unit price. */
+export interface OrderLinePriceSource {
+  rule:
+    | "override"
+    | "promotion"
+    | "time_price_list"
+    | "order_type_price_list"
+    | "branch_price_list"
+    | "brand_price_list"
+    | "base"
+    | "combo";
+  priceListId: Id | null;
+  priceListName: string | null;
+}
+
+/**
+ * FR-POS-030/032 — a line that is one component of a combo.
+ *
+ * A combo is sold as its component lines, so the kitchen routes each dish to
+ * its own station and the stock ledger depletes each recipe — and each line
+ * carries its allocated share of the combo price, which is what lets the
+ * sales report count the burgers that were inside meals.
+ */
+export interface OrderLineCombo {
+  comboId: Id;
+  /** Shared by every line of one combo sold once. */
+  instanceId: Id;
+  name: Localised;
+  slotId: Id;
+  slotName: Localised;
+  strategy: ComboPricingStrategy;
+  /** What this component would have cost on its own. */
+  listPrice: Money;
+  /** The premium charged for this choice, already inside `unitPrice`. */
+  premium: Money;
 }
 
 export interface OrderLine {
@@ -1236,6 +1323,10 @@ export interface OrderLine {
   voidReason: string | null;
   isComp: boolean;
   notes: string | null;
+  /** FR-POS-042 — absent on lines recorded before the source was kept. */
+  priceSource?: OrderLinePriceSource | null;
+  /** FR-POS-030 — set when this line is one component of a combo. */
+  combo?: OrderLineCombo | null;
 }
 
 export type TenderType =
@@ -1265,7 +1356,48 @@ export interface OrderPayment {
   cardLast4: string | null;
   cardScheme: string | null;
   authorisationCode: string | null;
+  /**
+   * FR-POS-066 — the card terminal's own reference for the transaction. With
+   * the last four, scheme and authorisation code this is everything a card
+   * payment may retain; see `lib/console/pci.ts`.
+   */
+  terminalReference?: string | null;
   capturedAt: IsoDateTime;
+}
+
+/** FR-POS-048 — how a manager's approval was given. */
+/**
+ * `offline` — FR-SEC-035: a manager reached by phone reads out their one-time
+ * offline code while the till has no connection. Verified on the till, and
+ * always followed by a retrospective review in the console.
+ */
+export type ApprovalMethod = "pin" | "card" | "remote" | "offline";
+
+/**
+ * FR-POS-048/049 — who approved something, how, and when.
+ *
+ * Carried on every action that needs one, so the reducer can refuse the
+ * action outright when the approval is missing or is the operator approving
+ * themselves (FR-SEC-016), rather than trusting the screen to have asked.
+ */
+export interface ApprovalStamp {
+  approverId: Id;
+  approverName: Localised;
+  method: ApprovalMethod;
+  at: IsoDateTime;
+  /** The remote request this came from, when `method` is `remote`. */
+  requestId: Id | null;
+}
+
+/** FR-POS-049 — the order as it stood when a discount was applied. */
+export interface DiscountContext {
+  orderNumber: string;
+  orderType: OrderType;
+  tableLabel: string | null;
+  /** Billable amount the discount was taken from, minor units. */
+  baseAmount: number;
+  lineCount: number;
+  paymentStarted: boolean;
 }
 
 export interface OrderDiscount {
@@ -1276,6 +1408,32 @@ export interface OrderDiscount {
   appliedBy: Localised;
   approvedBy: Localised | null;
   appliedAt: IsoDateTime;
+  /** FR-POS-045 — set for a line discount; null or absent for the whole order. */
+  lineId?: Id | null;
+  /** FR-POS-049 — the ids behind the two names, for reporting by employee. */
+  appliedById?: Id | null;
+  approvedById?: Id | null;
+  approvalMethod?: ApprovalMethod | null;
+  context?: DiscountContext | null;
+  /** FR-POS-051 — the preset behind the reason, and whether it stacks. */
+  presetId?: string | null;
+  exclusive?: boolean;
+  /**
+   * FR-POS-051 — set when a more favourable exclusive discount replaced this
+   * one, or a manager removed it. The record stays: a discount that was
+   * given and then taken away is still a discount someone gave.
+   */
+  removedAt?: IsoDateTime | null;
+  removedReason?: string | null;
+}
+
+/** FR-POS-006 — who set an order aside, where, and when. */
+export interface OrderParking {
+  at: IsoDateTime;
+  by: Id;
+  byName: Localised;
+  terminalId: Id;
+  terminalName: string;
 }
 
 export type SyncState = "local" | "pending" | "synced" | "conflicted";
@@ -1300,6 +1458,22 @@ export interface Order {
   openedBy: Id;
   openedByName: Localised;
   servedByName: Localised | null;
+  /**
+   * FR-POS-007 — the server, and who closed the order (settled or
+   * cancelled). Optional because the backend's order shape does not carry
+   * them yet; the demo engine always sets them.
+   */
+  servedBy?: Id | null;
+  closedBy?: Id | null;
+  closedByName?: Localised | null;
+  /** FR-POS-006 — present while the order is parked. */
+  parked?: OrderParking | null;
+  /** FR-POS-082 — further tables this order occupies after a merge. */
+  linkedTableIds?: Id[];
+  /** FR-POS-082 — the order this one was folded into, when `state` is `merged`. */
+  mergedIntoOrderId?: Id | null;
+  /** FR-POS-082 — the order a split took these lines from. */
+  splitFromOrderId?: Id | null;
   currency: Currency;
   subtotal: Money;
   discountTotal: Money;
@@ -1366,6 +1540,35 @@ export interface TicketLine {
   cancelledAt: IsoDateTime | null;
   /** FR-POS-004 — which guest it is for, so the runner does not auction plates. */
   seatNumber?: number | null;
+  /** FR-KDS-031 — the menu item, so an icon-and-image display can show its picture. */
+  menuItemId?: Id | null;
+  /** FR-KDS-044 — this item's own target preparation time, seconds. */
+  targetSeconds?: number | null;
+  /** FR-KDS-011 — the other stations this same line is also routed to. */
+  alsoAt?: Localised[];
+  /** FR-KDS-028 — when this line reached the ticket as an amendment, or null if it came with it. */
+  addedAt?: IsoDateTime | null;
+  /** FR-KDS-040 — per-line timestamps. */
+  timeline?: TicketTimeline;
+}
+
+/**
+ * FR-KDS-040 — the moments a ticket (or one line on it) passed through.
+ *
+ * Every field is nullable because a source may not record it: the backend's
+ * queue carries no "created" or "served" moment, and the display says so
+ * rather than inventing one.
+ */
+export interface TicketTimeline {
+  createdAt: IsoDateTime | null;
+  routedAt: IsoDateTime | null;
+  firstViewedAt: IsoDateTime | null;
+  startedAt: IsoDateTime | null;
+  readyAt: IsoDateTime | null;
+  bumpedAt: IsoDateTime | null;
+  servedAt: IsoDateTime | null;
+  /** Every recall, oldest first. */
+  recalledAt: IsoDateTime[];
 }
 
 export interface KitchenTicket {
@@ -1412,6 +1615,12 @@ export interface KitchenTicket {
    * as an addition on its own ticket, never as a reprint of the whole order.
    */
   amendment?: boolean;
+  /** FR-KDS-028 — the ticket this amendment updates; the display folds it into that card. */
+  amendsTicketId?: Id | null;
+  /** FR-KDS-040 — per-ticket timestamps. */
+  timeline?: TicketTimeline;
+  /** FR-KDS-027 — a remake: the ticket came back because the dish had to be made again. */
+  remakeCount?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -1886,6 +2095,11 @@ export interface TaxClassDefinition {
   code: TaxClassCode;
   rate: number | null;
   label: Localised;
+  /**
+   * FR-FIN-033 — where the jurisdiction differentiates by order type, the
+   * pack's rate per order type. Absent means the class rate applies to all.
+   */
+  orderTypeRates?: Partial<Record<OrderType, number>>;
 }
 
 export interface CountryPack {

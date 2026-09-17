@@ -104,6 +104,9 @@ const UNSUPPORTED_KEYS = [
   "pos.unsupportedTable",
   "pos.unsupportedCourse",
   "pos.unsupportedKds",
+  // FR-CRM-027 — the backend has no promotion evaluation or redemption
+  // endpoint, so this till applies none rather than pricing unlike the server.
+  "pos.unsupportedPromotions",
 ] as const;
 
 /**

@@ -18,7 +18,9 @@ import { formatElapsed, formatMoney, formatNumber } from "@/lib/console/format";
 import { TABLE_STATE } from "@/lib/console/labels";
 import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/page";
 import { LiveNotice, TerminalLinks } from "@/components/console/live-panels";
-import { Plus } from "lucide-react";
+import Link from "next/link";
+import { LayoutDashboard, Plus } from "lucide-react";
+import { lastCourseAt } from "@/components/console/floor-canvas";
 import { MetricTile } from "@/components/console/charts";
 import { Badge, Button, Callout, Card, CardHeader, Toast, cx } from "@/components/console/ui";
 import { DataTable } from "@/components/console/data-table";
@@ -66,7 +68,19 @@ export default function TablesPage() {
         title={t("nav.tables")}
         subtitle={t("orders.openOrdersSubtitle")}
         spec="FR-POS-081"
-        actions={<TerminalLinks />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {/* FR-POS-080 — where the plan these tables are drawn on is edited. */}
+            <Link
+              href="/operations/floor-plan"
+              className="border-line bg-raised text-fg-muted hover:bg-sunken hover:text-fg inline-flex min-h-12 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium"
+            >
+              <LayoutDashboard size={14} aria-hidden />
+              {t("floor.title")}
+            </Link>
+            <TerminalLinks />
+          </div>
+        }
       />
 
       <PageBody>
@@ -95,6 +109,10 @@ export default function TablesPage() {
               {list.map((table) => {
                 const seated = table.seatedAt ? elapsedSince(table.seatedAt, now) : null;
                 const order = table.orderId ? state.orders[table.orderId] : null;
+                // FR-POS-083 — pacing: since seated, and since the last course was fired.
+                const lastCourse = lastCourseAt(order);
+                const sinceCourse = lastCourse ? elapsedSince(lastCourse, now) : null;
+                const joinedTo = order && order.tableId && order.tableId !== table.id ? order.tableLabel : null;
                 return (
                   <Card
                     key={table.id}
@@ -108,8 +126,16 @@ export default function TablesPage() {
                     <p className="text-fg-muted mt-1 text-xs">{tx(TABLE_STATE[table.state].label)}</p>
                     {seated !== null ? (
                       <p className="text-fg-subtle mt-1 text-xs tabular-nums">
-                        {formatElapsed(seated)}
+                        {t("floor.sinceSeated")} {formatElapsed(seated)}
                       </p>
+                    ) : null}
+                    {sinceCourse !== null ? (
+                      <p className="text-fg-subtle text-xs tabular-nums">
+                        {t("floor.sinceLastCourse")} {formatElapsed(sinceCourse)}
+                      </p>
+                    ) : null}
+                    {joinedTo ? (
+                      <p className="text-accent text-xs">{t("floor.joinedTo").replace("{table}", joinedTo)}</p>
                     ) : null}
                     {order ? (
                       <p className="text-fg mt-1 font-mono text-[0.68rem]">

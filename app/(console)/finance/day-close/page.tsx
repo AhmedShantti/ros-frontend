@@ -28,6 +28,12 @@ import { Lock } from "lucide-react";
 import type { DayClose, DayCloseResult } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useCollection, useTransientMessage, useBranches } from "@/lib/console/hooks";
+import type { DayCloseAutomation } from "@/lib/console/services/finance-day-close-config";
+import {
+  DayCloseAutomationSection,
+  DayCloseChecklist,
+  useDayCloseAutomation,
+} from "@/components/console/finance-day-close";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatDate, formatDateTime, formatMoney, formatNumber } from "@/lib/console/format";
 import { DAY_CLOSE_STATUS, TENDER_TYPE, labelOf } from "@/lib/console/labels";
@@ -63,6 +69,8 @@ function DayCloseScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const branches = useBranches(scope);
+  // FR-FIN-025/026 — per-branch automation and trigger configuration.
+  const automation = useDayCloseAutomation();
   const [selected, setSelected] = useState<DayClose | null>(null);
   const [message, setMessage] = useTransientMessage();
 
@@ -273,11 +281,14 @@ function DayCloseScreen() {
           activeRowKey={selected?.id ?? null}
           dense
         />
+
+        <DayCloseAutomationSection branches={branches} automation={automation} />
       </PageBody>
 
       <DayCloseDrawer
         day={selected}
         closing={closing}
+        automation={selected ? automation.get(selected.branchId) : null}
         onClose={() => setSelected(null)}
         onCloseDay={closeDay}
       />
@@ -296,11 +307,13 @@ function isBlocked(day: DayClose): boolean {
 function DayCloseDrawer({
   day,
   closing,
+  automation,
   onClose,
   onCloseDay,
 }: {
   day: DayClose | null;
   closing: boolean;
+  automation: DayCloseAutomation | null;
   onClose: () => void;
   onCloseDay: (day: DayClose) => void;
 }) {
@@ -440,6 +453,8 @@ function DayCloseDrawer({
             dense
           />
         </section>
+
+        {automation ? <DayCloseChecklist day={day} automation={automation} /> : null}
 
         <Callout tone="muted">{t("fin.zSequenceNote")}</Callout>
       </div>

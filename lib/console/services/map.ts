@@ -855,6 +855,10 @@ export function toRecipe(row: WireRecipe, context: RecipeContext): Recipe {
     // BR-MNU-012 — a published version with at least one line is complete.
     complete: version?.status === "published" && lines.length > 0,
     instructions: localised(version?.instructions),
+    // FR-MNU-047 — which standard this is, or which branch's variant.
+    scope: row.scope,
+    brandId: row.brandId,
+    branchId: row.branchId,
   };
 }
 
@@ -878,6 +882,7 @@ export function toStockItem(row: WireStockItem, tenantId: Id, category: Localise
     costingMethod: row.costingMethod,
     batchTracked: row.isBatchTracked,
     expiryTracked: row.expiryTracked,
+    batchStrategy: row.batchStrategy,
     // gap: storageRequirements is an opaque blob and not returned on reads.
     storage: "ambient",
     shelfLifeDays: row.shelfLifeDays,
@@ -1354,6 +1359,21 @@ export function toTicketLine(row: WireTicketLine): TicketLine {
     state: ticketLineState(row),
     notes: row.preparationNotes,
     cancelledAt: row.cancelledAt,
+    /*
+     * FR-KDS-040 — the line's own moments, as the server records them. It
+     * has no line creation or served moment (null, and the display says "not
+     * recorded"), a single ready/bumped pair, and only the latest recall.
+     */
+    timeline: {
+      createdAt: null,
+      routedAt: null,
+      firstViewedAt: row.firstViewedAt,
+      startedAt: row.startedAt,
+      readyAt: row.readyAt,
+      bumpedAt: row.bumpedAt,
+      servedAt: null,
+      recalledAt: row.recalledAt ? [row.recalledAt] : [],
+    },
   };
 }
 
@@ -1404,6 +1424,17 @@ export function toKitchenTicket(row: WireTicket, context: TicketContext): Kitche
     // `firedAt` between polls so the clock keeps running.
     elapsedSeconds: row.elapsedSeconds,
     lines,
+    // FR-KDS-040 — no created or served moment on the wire; only the latest recall.
+    timeline: {
+      createdAt: null,
+      routedAt: row.routedAt,
+      firstViewedAt: row.firstViewedAt,
+      startedAt: row.startedAt,
+      readyAt: row.readyAt,
+      bumpedAt: row.bumpedAt,
+      servedAt: null,
+      recalledAt: row.recalledAt ? [row.recalledAt] : [],
+    },
   };
 }
 

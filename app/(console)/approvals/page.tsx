@@ -18,6 +18,12 @@
  * Requests expire. An expired request is not a silent approval — it lapses and
  * has to be raised again, because a discount nobody got round to approving is
  * a discount that was never approved.
+ *
+ * FR-SEC-033 — each decision is also written once, with approver, time,
+ * decision and comment, to the append-only security event log; the History
+ * tab and the drawer read decisions from there. FR-SEC-034 — undecided rows
+ * show where they sit on the tenant's escalation ladder. FR-SEC-035 — offline
+ * approvals granted at a till are listed for retrospective review.
  */
 
 import { useMemo, useState } from "react";
@@ -37,6 +43,16 @@ import { CellStack, CollectionTable, type Column } from "@/components/console/da
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
+import { TillApprovals } from "@/components/console/till-approvals";
+import {
+  DecisionHistory,
+  EscalationCell,
+  OfflineCodeCard,
+  OfflineExceptionReport,
+  useApprovalPolicy,
+} from "@/components/console/security-approvals";
+import { useSecurityLog } from "@/lib/console/security-log";
+import { useNow } from "@/lib/console/live/store";
 import {
   Badge,
   Button,
@@ -45,6 +61,7 @@ import {
   DescRow,
   Drawer,
   Field,
+  Tabs,
   Textarea,
   Toast,
 } from "@/components/console/ui";
@@ -63,6 +80,11 @@ function ApprovalsScreen() {
   const branches = useBranches(scope);
   const [selected, setSelected] = useState<ApprovalRequest | null>(null);
   const [message, setMessage] = useTransientMessage();
+  const [tab, setTab] = useState<"queue" | "history">("queue");
+  const [decisions, setDecisions] = useState(0);
+  const policy = useApprovalPolicy();
+  const now = useNow(30_000);
+  const record = useSecurityLog();
 
   const collection = useCollection<ApprovalRequest>(
     (query) => services.governance.approvals.list(query),
@@ -85,7 +107,31 @@ function ApprovalsScreen() {
 
   async function decide(request: ApprovalRequest, decision: "approved" | "rejected", comment: string) {
     try {
-      await services.governance.decide(request.id, decision, comment || undefined);
+      const decided = await services.governance.decide(request.id, decision, comment || undefined);
+      // FR-SEC-033 — approver, timestamp, decision and comment, written once.
+      const logged = await record({
+        kind: "approval.decided",
+        subjectType: "approval_request",
+        subjectId: request.id,
+        detail: {
+          reference: request.reference,
+          kind: request.kind,
+          decision,
+          comment: comment.trim() || null,
+          approverId: session?.user.id ?? null,
+          decidedAt: decided.decidedAt ?? new Date().toISOString(),
+          requestedBy: request.requestedBy,
+          amountMinor: request.value.amount,
+          currency: request.value.currency,
+        },
+      });
+      setDecisions((n) => n + 1);
+      if (!logged) {
+        setMessage(t("dech.logFailed"));
+        setSelected(null);
+        collection.reload();
+        return;
+      }
       setMessage(decision === "approved" ? t("common.approved") : t("common.rejected"));
       setSelected(null);
       collection.reload();
@@ -138,6 +184,18 @@ function ApprovalsScreen() {
         render: (row) => formatMoney(row.value, fmt),
       },
       {
+        // FR-SEC-034 — where an undecided request sits on the ladder.
+        key: "escalation",
+        header: t("esc.column"),
+        secondary: true,
+        render: (row) =>
+          row.status === "pending" || row.status === "escalated" ? (
+            <EscalationCell requestedAt={row.requestedAt} policy={policy} now={now} />
+          ) : (
+            <span className="text-fg-subtle">—</span>
+          ),
+      },
+      {
         key: "expires",
         header: t("apr.expires"),
         secondary: true,
@@ -156,7 +214,7 @@ function ApprovalsScreen() {
         },
       },
     ],
-    [t, tx, fmt],
+    [t, tx, fmt, policy, now],
   );
 
   return (
@@ -177,6 +235,34 @@ function ApprovalsScreen() {
           />
         </TileGrid>
 
+        {/*
+          FR-POS-048 — the till's remote requests. They are not
+          `governance.approvals` rows: a cashier waiting on a discount is
+          waiting on this terminal's live state, not on a document the server
+          has filed. They sit above the queue because someone is standing at a
+          till with a guest in front of them.
+        */}
+        <TillApprovals onDecided={setMessage} />
+
+        <OfflineExceptionReport policy={policy} refreshKey={decisions} />
+
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          label={t("apr.title")}
+          options={[
+            { value: "queue", label: t("apr.queue") },
+            { value: "history", label: t("apr.history") },
+          ]}
+        />
+
+        {tab === "history" ? (
+          <>
+            <DecisionHistory refreshKey={decisions} />
+            <OfflineCodeCard notify={setMessage} />
+          </>
+        ) : (
+        <>
         <CollectionToolbar
           collection={collection}
           filters={[
@@ -217,6 +303,8 @@ function ApprovalsScreen() {
           emptyTitle={t("apr.queueEmpty")}
           dense
         />
+        </>
+        )}
       </PageBody>
 
       <ApprovalDrawer
@@ -224,6 +312,9 @@ function ApprovalsScreen() {
         currentUserId={session?.user.id ?? null}
         onClose={() => setSelected(null)}
         onDecide={decide}
+        policy={policy}
+        now={now}
+        historyKey={decisions}
       />
       <Toast message={message} />
     </>
@@ -237,9 +328,15 @@ function ApprovalDrawer({
   currentUserId,
   onClose,
   onDecide,
+  policy,
+  now,
+  historyKey,
 }: {
   request: ApprovalRequest | null;
   currentUserId: string | null;
+  policy: ReturnType<typeof useApprovalPolicy>;
+  now: number;
+  historyKey: number;
   onClose: () => void;
   onDecide: (
     request: ApprovalRequest,
@@ -332,8 +429,16 @@ function ApprovalDrawer({
               {request.requiredPermission}
             </span>
           </DescRow>
+          {request.status === "pending" || request.status === "escalated" ? (
+            <DescRow label={t("esc.column")}>
+              <EscalationCell requestedAt={request.requestedAt} policy={policy} now={now} />
+            </DescRow>
+          ) : null}
           {request.decidedBy ? (
             <DescRow label={t("apr.decidedBy")}>{tx(request.decidedBy)}</DescRow>
+          ) : null}
+          {request.decidedAt ? (
+            <DescRow label={t("dech.decidedAt")}>{formatDateTime(request.decidedAt, fmt)}</DescRow>
           ) : null}
         </DescList>
 
@@ -358,6 +463,8 @@ function ApprovalDrawer({
             />
           </Field>
         ) : null}
+
+        <DecisionHistory subjectId={request.id} refreshKey={historyKey} />
 
         <Callout tone="muted">{t("apr.expiryNote")}</Callout>
       </div>

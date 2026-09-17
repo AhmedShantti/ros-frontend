@@ -32,6 +32,7 @@ import { ORDER_TYPE } from "@/lib/console/labels";
 import { useConfirm } from "@/components/console/confirm";
 import { EMPTY_LOCALISED, LocalisedField, MoneyInput, PercentInput } from "@/components/console/fields";
 import { AsyncPanel } from "@/components/console/states";
+import { PromotionUsageSummary } from "@/components/console/crm-promotion-lab";
 import {
   Badge,
   Button,
@@ -701,6 +702,12 @@ export function PromotionDrawer({
         {tab === "limits" ? (
           <div className="space-y-4">
             <Callout tone="muted">{t("promo.limitsNote")}</Callout>
+
+            {/* FR-CRM-026 — limits are enforced by the shared evaluator
+                (`usageRejection` in lib/console/crm-promotion-engine.ts) and
+                re-checked when a redemption is recorded; this is what has
+                been used so far. */}
+            {promotion && !creating ? <PromotionUsageSummary promotion={draft} /> : null}
 
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label={t("promo.totalRedemptions")}>

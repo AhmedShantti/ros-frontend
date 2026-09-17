@@ -25,7 +25,12 @@ import { services } from "@/lib/console/services";
 import { useCollection } from "@/lib/console/hooks";
 import { DATA_MODE } from "@/lib/api/config";
 import { useI18n, useSession } from "@/lib/console/providers";
-import { formatMoney, formatNumber, formatPercent, unitLabel } from "@/lib/console/format";
+import {
+  formatMoney,
+  formatNumber,
+  formatPercent,
+  unitLabel,
+} from "@/lib/console/format";
 import { stockItems } from "@/lib/console/mock/stock-items";
 import {
   CellStack,
@@ -33,7 +38,12 @@ import {
   DeltaCell,
   type Column,
 } from "@/components/console/data-table";
-import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
+import {
+  CollectionToolbar,
+  PageBody,
+  PageHeader,
+  TileGrid,
+} from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
 import {
@@ -42,8 +52,13 @@ import {
   DescList,
   DescRow,
   Drawer,
+  Tabs,
   cx,
 } from "@/components/console/ui";
+import {
+  UsageBuildUp,
+  VarianceTrendView,
+} from "@/components/console/costing-usage";
 
 export default function VariancePage() {
   return (
@@ -57,6 +72,7 @@ function VarianceScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [selected, setSelected] = useState<VarianceRow | null>(null);
+  const [tab, setTab] = useState<"report" | "usage" | "trend">("report");
 
   const collection = useCollection<VarianceRow>(
     (query) => services.costing.variance(query),
@@ -78,7 +94,8 @@ function VarianceScreen() {
         ? collection.rows.map((row) => ({ category: row.category }))
         : stockItems;
     for (const item of source) {
-      if (!seen.has(item.category.en)) seen.set(item.category.en, tx(item.category));
+      if (!seen.has(item.category.en))
+        seen.set(item.category.en, tx(item.category));
     }
     return [...seen.entries()].map(([value, label]) => ({ value, label }));
   }, [tx, collection.rows]);
@@ -90,10 +107,13 @@ function VarianceScreen() {
       loss: rows
         .filter((row) => row.varianceValue.amount < 0)
         .reduce((sum, row) => sum + Math.abs(row.varianceValue.amount), 0),
-      unexplained: rows.filter((row) => Math.abs(row.unexplainedQty) > 0).length,
+      unexplained: rows.filter((row) => Math.abs(row.unexplainedQty) > 0)
+        .length,
       worst: rows.reduce(
         (worst, row) =>
-          Math.abs(row.variancePercent) > Math.abs(worst?.variancePercent ?? 0) ? row : worst,
+          Math.abs(row.variancePercent) > Math.abs(worst?.variancePercent ?? 0)
+            ? row
+            : worst,
         null as VarianceRow | null,
       ),
     };
@@ -122,7 +142,9 @@ function VarianceScreen() {
         render: (row) => (
           <span>
             {formatNumber(row.theoreticalUsage, fmt, 1)}{" "}
-            <span className="text-fg-subtle text-xs">{unitLabel(row.unit, fmt.locale)}</span>
+            <span className="text-fg-subtle text-xs">
+              {unitLabel(row.unit, fmt.locale)}
+            </span>
           </span>
         ),
       },
@@ -134,7 +156,9 @@ function VarianceScreen() {
         render: (row) => (
           <span>
             {formatNumber(row.actualUsage, fmt, 1)}{" "}
-            <span className="text-fg-subtle text-xs">{unitLabel(row.unit, fmt.locale)}</span>
+            <span className="text-fg-subtle text-xs">
+              {unitLabel(row.unit, fmt.locale)}
+            </span>
           </span>
         ),
       },
@@ -207,43 +231,77 @@ function VarianceScreen() {
       />
 
       <PageBody>
-        <TileGrid columns={3}>
-          <MetricTile
-            label={t("cost.varianceLoss")}
-            value={formatMoney({ amount: totals.loss, currency }, fmt, true)}
-            spec="FR-CST-012"
-          />
-          <MetricTile
-            label={t("cost.unexplained")}
-            value={formatNumber(totals.unexplained, fmt)}
-            hint={t("cost.unexplainedHint")}
-          />
-          <MetricTile
-            label={t("cost.worstItem")}
-            value={
-              totals.worst
-                ? formatPercent(totals.worst.variancePercent, fmt, 1)
-                : "—"
-            }
-            footer={totals.worst ? <span>{tx(totals.worst.itemName)}</span> : null}
-          />
-        </TileGrid>
-
-        <CollectionToolbar
-          collection={collection}
-          searchPlaceholder={t("inv.searchPlaceholder")}
-          filters={[{ key: "category", label: t("common.category"), options: categories }]}
+        <Tabs
+          label={t("cost.varianceTitle")}
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "report", label: t("cst.tab.report") },
+            // FR-CST-011 / FR-CST-016 — the period rebuilt from counts and the ledger.
+            { value: "usage", label: t("cst.tab.usage") },
+            // FR-CST-017
+            { value: "trend", label: t("cst.tab.trend") },
+          ]}
         />
 
-        <CollectionTable
-          collection={collection}
-          columns={columns}
-          rowKey={(row) => row.itemId}
-          caption={t("cost.varianceTitle")}
-          onRowClick={setSelected}
-          activeRowKey={selected?.itemId ?? null}
-          dense
-        />
+        {tab === "usage" ? <UsageBuildUp /> : null}
+        {tab === "trend" ? <VarianceTrendView /> : null}
+
+        {tab === "report" ? (
+          <>
+            <TileGrid columns={3}>
+              <MetricTile
+                label={t("cost.varianceLoss")}
+                value={formatMoney(
+                  { amount: totals.loss, currency },
+                  fmt,
+                  true,
+                )}
+                spec="FR-CST-012"
+              />
+              <MetricTile
+                label={t("cost.unexplained")}
+                value={formatNumber(totals.unexplained, fmt)}
+                hint={t("cost.unexplainedHint")}
+              />
+              <MetricTile
+                label={t("cost.worstItem")}
+                value={
+                  totals.worst
+                    ? formatPercent(totals.worst.variancePercent, fmt, 1)
+                    : "—"
+                }
+                footer={
+                  totals.worst ? <span>{tx(totals.worst.itemName)}</span> : null
+                }
+              />
+            </TileGrid>
+
+            <CollectionToolbar
+              collection={collection}
+              searchPlaceholder={t("inv.searchPlaceholder")}
+              filters={[
+                {
+                  key: "category",
+                  label: t("common.category"),
+                  options: categories,
+                },
+              ]}
+            />
+
+            <CollectionTable
+              collection={collection}
+              columns={columns}
+              rowKey={(row) => row.itemId}
+              caption={t("cost.varianceTitle")}
+              onRowClick={setSelected}
+              activeRowKey={selected?.itemId ?? null}
+              dense
+            />
+            {/* FR-CST-013 — recorded waste sits in its own column so explained and unexplained variance read apart. */}
+            <Callout tone="muted">{t("cst.usage.wasteColumnNote")}</Callout>
+          </>
+        ) : null}
       </PageBody>
 
       <VarianceDrawer row={selected} onClose={() => setSelected(null)} />
@@ -253,7 +311,13 @@ function VarianceScreen() {
 
 // ---------------------------------------------------------------------------
 
-function VarianceDrawer({ row, onClose }: { row: VarianceRow | null; onClose: () => void }) {
+function VarianceDrawer({
+  row,
+  onClose,
+}: {
+  row: VarianceRow | null;
+  onClose: () => void;
+}) {
   const { t, tx, fmt } = useI18n();
   if (!row) return null;
 
@@ -308,7 +372,9 @@ function VarianceDrawer({ row, onClose }: { row: VarianceRow | null; onClose: ()
               {t("cost.hypothesis")}
               <Badge tone="warn">{t("cost.hypothesisBadge")}</Badge>
             </h3>
-            <p className="text-fg-muted text-sm leading-relaxed">{tx(row.hypothesis)}</p>
+            <p className="text-fg-muted text-sm leading-relaxed">
+              {tx(row.hypothesis)}
+            </p>
           </section>
         ) : null}
 

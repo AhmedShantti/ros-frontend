@@ -12,10 +12,16 @@
  * the cost has to land on the branch that asked for the goods, not on the
  * office that placed the order — otherwise every branch P&L understates its
  * own consumption and central overhead absorbs the difference.
+ *
+ * Approved requisitions are ticked and consolidated into one order per
+ * supplier with that attribution kept (FR-PRC-016); a submitted requisition
+ * is approved or rejected from its drawer by anyone except the person who
+ * raised it (FR-PRC-019).
  */
 
 import { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import Link from "next/link";
+import { GitMerge, Plus } from "lucide-react";
 import type { Requisition, RequisitionLine } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useCollection, useTransientMessage, useBranches } from "@/lib/console/hooks";
@@ -27,6 +33,8 @@ import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
 import { RequisitionDrawer as RequisitionFormDrawer } from "@/components/console/purchasing-forms";
+import { ConsolidateDrawer, RequisitionDecision } from "@/components/console/purchasing-requisitions";
+import { usePolicy } from "@/components/console/purchasing-shared";
 import {
   Badge,
   Button,
@@ -52,7 +60,20 @@ function RequisitionsScreen() {
   const [selected, setSelected] = useState<Requisition | null>(null);
   const [message, setMessage] = useTransientMessage();
   const [creating, setCreating] = useState(false);
+  // FR-PRC-016 — approved requisitions ticked for consolidation.
+  const [picked, setPicked] = useState<Map<string, Requisition>>(new Map());
+  const [consolidating, setConsolidating] = useState(false);
+  const { policy } = usePolicy();
+  const requisitionsSkipped = policy ? !policy.steps.requisition : false;
 
+  function togglePick(row: Requisition) {
+    setPicked((current) => {
+      const next = new Map(current);
+      if (next.has(row.id)) next.delete(row.id);
+      else next.set(row.id, row);
+      return next;
+    });
+  }
 
   const collection = useCollection<Requisition>(
     (query) => services.purchasing.requisitions.list(query),
@@ -74,6 +95,21 @@ function RequisitionsScreen() {
 
   const columns = useMemo<Column<Requisition>[]>(
     () => [
+      {
+        key: "pick",
+        header: <span className="sr-only">{t("prc.cons.pick")}</span>,
+        width: "2.5rem",
+        render: (row) =>
+          row.status === "approved" ? (
+            <input
+              type="checkbox"
+              aria-label={`${t("prc.cons.pick")} ${row.reference}`}
+              checked={picked.has(row.id)}
+              onClick={(event) => event.stopPropagation()}
+              onChange={() => togglePick(row)}
+            />
+          ) : null,
+      },
       {
         key: "reference",
         header: t("common.reference"),
@@ -129,7 +165,7 @@ function RequisitionsScreen() {
         },
       },
     ],
-    [t, tx, fmt],
+    [t, tx, fmt, picked],
   );
 
   return (
@@ -139,17 +175,32 @@ function RequisitionsScreen() {
         subtitle={t("pur.requisitionsSubtitle")}
         spec="FR-PRC-014"
         actions={
-          <Button
-            variant="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setCreating(true)}
-          >
-            {t("common.new")}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button icon={<GitMerge size={14} />} disabled={picked.size === 0} onClick={() => setConsolidating(true)}>
+              {t("prc.cons.action").replace("{n}", String(picked.size))}
+            </Button>
+            <Button
+              variant="primary"
+              icon={<Plus size={14} />}
+              disabled={requisitionsSkipped}
+              onClick={() => setCreating(true)}
+            >
+              {t("common.new")}
+            </Button>
+          </div>
         }
       />
 
       <PageBody>
+        {requisitionsSkipped ? (
+          <Callout tone="warn" title={t("prc.req.skippedTitle")}>
+            {t("prc.req.skipped")}{" "}
+            <Link href="/purchasing/policy" className="font-medium underline">
+              {t("prc.policy.title")}
+            </Link>
+          </Callout>
+        ) : null}
+        <Callout tone="muted">{t("prc.cons.hint")}</Callout>
         <TileGrid columns={3}>
           <MetricTile
             label={t("pur.awaitingApproval")}
@@ -195,7 +246,27 @@ function RequisitionsScreen() {
         />
       </PageBody>
 
-      <RequisitionDrawer requisition={selected} onClose={() => setSelected(null)} />
+      <RequisitionDrawer
+        requisition={selected}
+        onClose={() => setSelected(null)}
+        onChanged={(updated, note) => {
+          setSelected(updated);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
+      {consolidating ? (
+        <ConsolidateDrawer
+          requisitions={[...picked.values()]}
+          onClose={() => setConsolidating(false)}
+          onDone={(_orders, note) => {
+            setConsolidating(false);
+            setPicked(new Map());
+            setMessage(note);
+            collection.reload();
+          }}
+        />
+      ) : null}
       <RequisitionFormDrawer
         open={creating}
         onClose={() => setCreating(false)}
@@ -216,9 +287,11 @@ function RequisitionsScreen() {
 function RequisitionDrawer({
   requisition,
   onClose,
+  onChanged,
 }: {
   requisition: Requisition | null;
   onClose: () => void;
+  onChanged: (requisition: Requisition, message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
 
@@ -257,6 +330,9 @@ function RequisitionDrawer({
       subtitle={tx(requisition.branchName)}
     >
       <div className="space-y-5">
+        {/* FR-PRC-019 */}
+        <RequisitionDecision key={`${requisition.id}:${requisition.status}`} requisition={requisition} channel="console" onDone={onChanged} />
+
         {requisition.status === "consolidated" ? (
           <Callout tone="accent">{t("pur.consolidatedNote")}</Callout>
         ) : null}

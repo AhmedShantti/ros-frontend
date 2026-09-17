@@ -38,6 +38,7 @@ import {
 import { RecordDrawer } from "@/components/console/record-drawer";
 import { trimLocalised } from "@/components/console/fields";
 import { DATA_MODE } from "@/lib/api/config";
+import { TransferPricingPanel } from "@/components/console/branch-transfer-pricing";
 
 export default function CentralKitchensPage() {
   return (
@@ -173,7 +174,7 @@ function CentralKitchensScreen() {
         <Callout tone="muted">{t("org.productionCostNote")}</Callout>
       </PageBody>
 
-      <KitchenDrawer kitchen={selected} onClose={() => setSelected(null)} />
+      <KitchenDrawer kitchen={selected} onClose={() => setSelected(null)} onSaved={setMessage} />
       <RecordDrawer
         open={creating}
         title={t("org.newKitchen")}
@@ -200,11 +201,14 @@ function CentralKitchensScreen() {
 function KitchenDrawer({
   kitchen,
   onClose,
+  onSaved,
 }: {
   kitchen: CentralKitchen | null;
   onClose: () => void;
+  onSaved: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
+  const canManage = usePermission("org.manage");
   const { availableBranches } = useSession();
   const branchIndex = useMemo(
     () => new Map(availableBranches.map((branch) => [branch.id, branch])),
@@ -260,6 +264,9 @@ function KitchenDrawer({
         ) : null}
 
         <Callout tone="muted">{t("org.productionCostNote")}</Callout>
+
+        {/* FR-BRN-030 — internal transfer pricing to the branches it serves. */}
+        <TransferPricingPanel kitchen={kitchen} canManage={canManage} onSaved={onSaved} />
       </div>
     </Drawer>
   );

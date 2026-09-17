@@ -26,7 +26,8 @@
 import { useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
-import type { Modifier, Recipe, StockItem } from "@/lib/console/types";
+import type { Modifier, Money, Recipe, StockItem } from "@/lib/console/types";
+import { formatMoney } from "@/lib/console/format";
 import type { ModifierRecipeEffect, ModifierRecipeEffectInput } from "@/lib/console/services/types";
 import { services } from "@/lib/console/services";
 import { useAsync } from "@/lib/console/hooks";
@@ -43,6 +44,36 @@ import {
 } from "@/components/console/ui";
 
 /** The read side: what this modifier currently does, in words. */
+/**
+ * FR-MNU-012 — what one selection of this modifier takes out of stock, at cost.
+ *
+ * An `add` against a stock item is quantity × the item's unit cost (the
+ * effect's unit is the item's base unit, see above). A `remove_all` saves
+ * whatever the parent recipe held of that component, which depends on the
+ * item it is attached to, so it is counted but not priced.
+ */
+export function inventoryImpact(effects: ModifierRecipeEffect[], stockItems: StockItem[]) {
+  const byId = new Map(stockItems.map((item) => [item.id, item]));
+  const lines = new Map<string, { unit: string | null; cost: Money | null }>();
+  let total: Money | null = null;
+  let removals = 0;
+  for (const effect of effects) {
+    if (effect.operation === "remove_all") {
+      removals += 1;
+      continue;
+    }
+    const item = effect.stockItemId ? byId.get(effect.stockItemId) : undefined;
+    const quantity = Number(effect.quantity ?? "0");
+    const cost: Money | null =
+      item && Number.isFinite(quantity) && item.unitCost.amount > 0
+        ? { amount: Math.round(quantity * item.unitCost.amount), currency: item.unitCost.currency }
+        : null;
+    lines.set(effect.id, { unit: item?.baseUnit ?? null, cost });
+    if (cost) total = { amount: ((total as Money | null)?.amount ?? 0) + cost.amount, currency: cost.currency };
+  }
+  return { lines, total, removals };
+}
+
 export function ModifierEffects({
   modifier,
   onSaved,
@@ -50,7 +81,7 @@ export function ModifierEffects({
   modifier: Modifier;
   onSaved: (message: string) => void;
 }) {
-  const { t } = useI18n();
+  const { t, fmt } = useI18n();
   const canManage = usePermission("menu.item.manage");
   const [editing, setEditing] = useState(false);
   const [nonce, setNonce] = useState(0);
@@ -70,23 +101,42 @@ export function ModifierEffects({
         isEmpty={(rows) => rows.length === 0}
         empty={<p className="text-fg-subtle text-xs">{t("menu.noRecipeEffects")}</p>}
       >
-        {(rows) => (
-          <ul className="space-y-1">
-            {rows.map((effect) => (
-              <li
-                key={effect.id}
-                className="text-fg-subtle flex flex-wrap items-baseline gap-x-2 text-xs"
-              >
-                <span className="text-fg-muted">{catalogue.nameOf(effect)}</span>
-                <span className="font-mono">
-                  {effect.operation === "remove_all"
-                    ? t("menu.effectRemoveAll")
-                    : `+ ${effect.quantity ?? ""}`}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        {(rows) => {
+          // FR-MNU-012: a modifier linked to a stock item with a consumption
+          // quantity — its inventory impact per selection, computed.
+          const impact = inventoryImpact(rows, catalogue.stockItems);
+          return (
+            <div className="space-y-1">
+              <ul className="space-y-1">
+                {rows.map((effect) => {
+                  const line = impact.lines.get(effect.id);
+                  return (
+                    <li
+                      key={effect.id}
+                      className="text-fg-subtle flex flex-wrap items-baseline gap-x-2 text-xs"
+                    >
+                      <span className="text-fg-muted">{catalogue.nameOf(effect)}</span>
+                      <span className="font-mono">
+                        {effect.operation === "remove_all"
+                          ? t("menu.effectRemoveAll")
+                          : `+ ${effect.quantity ?? ""}${line?.unit ? ` ${line.unit}` : ""}`}
+                      </span>
+                      {line && line.cost !== null ? (
+                        <span className="font-mono">≈ {formatMoney(line.cost, fmt)}</span>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+              {impact.total ? (
+                <p className="text-fg-muted text-xs">
+                  {t("mnr.modifier.impact").replace("{cost}", formatMoney(impact.total, fmt))}
+                  {impact.removals > 0 ? ` · ${t("mnr.modifier.removals").replace("{count}", String(impact.removals))}` : ""}
+                </p>
+              ) : null}
+            </div>
+          );
+        }}
       </AsyncPanel>
 
       {canManage ? (

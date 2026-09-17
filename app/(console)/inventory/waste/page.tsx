@@ -26,6 +26,9 @@ import { Badge, Button, Toast } from "@/components/console/ui";
 import { ExportButton } from "@/components/console/export-button";
 import { InventoryEntryDrawer } from "@/components/console/inventory-entry";
 import { EmptyState } from "@/components/console/fields";
+import Link from "next/link";
+import { BarChart3 } from "lucide-react";
+import { WasteRecordDrawer } from "@/components/console/inventory-waste-record";
 
 /** Total value plus a ranked-item breakdown — reused for item/category/branch/reason. */
 function summarise(records: WasteRecord[], keyOf: (r: WasteRecord) => string, nameOf: (r: WasteRecord) => string) {
@@ -45,6 +48,7 @@ export default function WastePage() {
   const feed = useWasteFeed(scope);
   const canRecord = usePermission("inventory.waste.record");
   const [recording, setRecording] = useState(false);
+  const [viewing, setViewing] = useState<WasteRecord | null>(null);
   const [message, setMessage] = useTransientMessage();
 
   const rows = feed.rows;
@@ -164,6 +168,13 @@ export default function WastePage() {
                 { key: "by", header: t("inv.performedBy"), value: (row) => tx(row.recordedByName) },
               ]}
             />
+            {/* FR-INV-060 — analysis by item, reason, employee, station, shift, day-part, branch. */}
+            <Link
+              href="/inventory/waste/analysis"
+              className="border-line bg-raised text-fg hover:bg-sunken inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium"
+            >
+              <BarChart3 size={12} aria-hidden /> {t("invx.wa.title")}
+            </Link>
             <TerminalLinks />
             {canRecord ? (
               <Button variant="primary" onClick={() => setRecording(true)}>
@@ -200,6 +211,8 @@ export default function WastePage() {
             rows={rows}
             rowKey={(row) => row.id}
             caption={t("inv.wasteTitle")}
+            onRowClick={setViewing}
+            activeRowKey={viewing?.id ?? null}
           />
         )}
 
@@ -255,6 +268,8 @@ export default function WastePage() {
           feed.reload?.();
         }}
       />
+
+      <WasteRecordDrawer record={viewing} onClose={() => setViewing(null)} />
 
       <Toast message={message} />
     </>

@@ -16,6 +16,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { z } from "zod";
 import { CalendarClock, Pencil, Plus, Trash2, TimerOff } from "lucide-react";
 
 import type { Branch, Brand, Role, RoleAssignment, ScopeLevel, User } from "@/lib/console/types";
@@ -31,6 +32,7 @@ import {
   todayIso,
   type AssignmentState,
 } from "@/lib/console/access";
+import { parseAtBoundary } from "@/lib/console/security-policy";
 import { useConfirm } from "@/components/console/confirm";
 import {
   Badge,
@@ -51,6 +53,24 @@ const STATE_TONE: Record<AssignmentState, "good" | "accent" | "warn" | "muted" |
   scheduled: "muted",
   expired: "muted",
 };
+
+/**
+ * FR-SEC-047 — the assignments sent to the service, validated strictly: an
+ * unknown field or a malformed date is refused before it leaves the console.
+ * FR-SEC-003 — any number of assignments, each with its own scope.
+ */
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const assignmentsSchema = z
+  .array(
+    z.strictObject({
+      roleId: z.string().min(1),
+      scopeLevel: z.enum(["tenant", "brand", "branch_set", "branch"]),
+      scopeIds: z.array(z.string().min(1)),
+      validFrom: isoDate.nullable(),
+      validTo: isoDate.nullable(),
+    }),
+  )
+  .max(50);
 
 function yesterday(): string {
   const date = new Date();
@@ -83,9 +103,15 @@ export function AssignmentsSection({
       : tx(availableBranches.find((row) => row.id === id)?.name) || id;
 
   async function persist(next: RoleAssignment[], message: string) {
-    await action.run(() => services.security.users.update(user.id, { assignments: next }), {
-      onSuccess: (saved) => onSaved(saved, message),
-    });
+    await action.run(
+      async () =>
+        services.security.users.update(user.id, {
+          assignments: parseAtBoundary(assignmentsSchema, next, "Role assignments") as RoleAssignment[],
+        }),
+      {
+        onSuccess: (saved) => onSaved(saved, message),
+      },
+    );
   }
 
   async function endNow(index: number) {

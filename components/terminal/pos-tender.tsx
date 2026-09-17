@@ -36,7 +36,13 @@ import {
   X,
 } from "lucide-react";
 
-import type { Money, Order, OrderLine, TenderType } from "@/lib/console/types";
+import type { Customer, Id, LoyaltyProgramme, Money, Order, OrderLine, TenderType } from "@/lib/console/types";
+import { services } from "@/lib/console/services";
+import { useAsync } from "@/lib/console/hooks";
+import { useAction } from "@/lib/console/actions";
+import { useLive } from "@/lib/console/live/store";
+import { redemptionFor } from "@/lib/console/loyalty-earn";
+import { LoyaltyBalanceQr } from "@/components/console/crm-customer-record";
 import { TENDER_TYPE } from "@/lib/console/labels";
 import { useI18n } from "@/lib/console/providers";
 import { formatMoney, minorFromInput, money } from "@/lib/console/format";
@@ -574,7 +580,10 @@ export function TenderReferencePanel({
   loyaltyBalance,
   creditLimitMinor,
   creditUsedMinor,
+  orderId,
 }: {
+  /** The order being paid; defaults to the till's active order. */
+  orderId?: Id | null;
   tender: TenderType;
   currency: string;
   amountMinor: number;
@@ -589,22 +598,10 @@ export function TenderReferencePanel({
   const { t, fmt } = useI18n();
 
   if (tender === "loyalty_points") {
-    const available = loyaltyBalance ?? 0;
-    const needed = amountMinor;
-    const short = available < needed;
-    return (
-      <div className="space-y-3">
-        <DescList>
-          <DescRow label={t("pos.pointsAvailable")} mono>
-            {available}
-          </DescRow>
-          <DescRow label={t("pos.pointsNeeded")} mono>
-            <span className={cx(short && "text-bad font-semibold")}>{needed}</span>
-          </DescRow>
-        </DescList>
-        {short ? <Callout tone="bad">{t("pos.notEnoughPoints")}</Callout> : null}
-      </div>
-    );
+    // FR-CRM-017 — points convert at the programme's rate and are taken by
+    // the panel's own Redeem button, which posts the ledger entry first.
+    void loyaltyBalance;
+    return <LoyaltyTenderPanel orderId={orderId} amountMinor={amountMinor} currency={currency} />;
   }
 
   if (tender === "on_account") {
@@ -673,7 +670,184 @@ export function tenderReady(
   context: { loyaltyBalance?: number | null; headroomMinor?: number; amountMinor: number },
 ): boolean {
   if (NEEDS_REFERENCE.includes(tender)) return reference.trim().length >= 4;
-  if (tender === "loyalty_points") return (context.loyaltyBalance ?? 0) >= context.amountMinor;
+  // FR-CRM-017 — loyalty is taken by `LoyaltyTenderPanel`'s own Redeem button,
+  // which must post the points to the ledger before the payment is recorded;
+  // the generic Take Payment button never settles it.
+  if (tender === "loyalty_points") return false;
   if (tender === "on_account") return (context.headroomMinor ?? 0) >= context.amountMinor;
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Loyalty points as a tender — FR-CRM-017
+// ---------------------------------------------------------------------------
+
+/**
+ * FR-CRM-017 — pay with points, converted to money at the programme's rate.
+ *
+ * The order's attached customer is the one whose points are spent; without
+ * one there is nothing to redeem against, and the panel says to attach the
+ * customer first. Only whole points are taken and never more value than is
+ * owed, so a remainder smaller than a point stays for another tender.
+ *
+ * Ordering matters: the redemption is posted to the loyalty ledger (which
+ * refuses to go below zero) *before* the payment is recorded on the order. A
+ * payment recorded against points the ledger then refuses is a free meal.
+ *
+ * Offline, redemption is capped (FR-CRM-021) and the entry is marked as an
+ * offline capture for reconciliation.
+ *
+ * Afterwards the balance QR (FR-CRM-022) is shown for the customer to scan.
+ */
+function LoyaltyTenderPanel({
+  orderId,
+  amountMinor,
+  currency,
+}: {
+  orderId?: Id | null;
+  amountMinor: number;
+  currency: string;
+}) {
+  const { t, tx, fmt } = useI18n();
+  const { state, dispatch } = useLive();
+  const action = useAction();
+  const order = state.orders[orderId ?? state.activeOrderId ?? ""] ?? null;
+  const customerId = order?.customerId ?? null;
+  const [requested, setRequested] = useState<string>("");
+  const [done, setDone] = useState<{ points: number; valueMinor: number; path: string } | null>(null);
+
+  const data = useAsync<{ customer: Customer | null; programme: LoyaltyProgramme }>(
+    async () => ({
+      customer: customerId ? await services.crm.customers.get(customerId) : null,
+      programme: await services.crm.loyalty.programme(),
+    }),
+    [customerId, done?.points],
+  );
+
+  const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+
+  if (!order) return <Callout tone="muted">{t("pos.loyalty.noOrder")}</Callout>;
+  if (!customerId) return <Callout tone="warn">{t("pos.loyalty.attachCustomer")}</Callout>;
+  if (!data.data) {
+    return data.error ? <Callout tone="bad">{data.error.message}</Callout> : <Loader2 size={16} className="animate-spin" aria-hidden />;
+  }
+
+  const { customer, programme } = data.data;
+  if (!customer) return <Callout tone="bad">{t("pos.loyalty.customerMissing")}</Callout>;
+  if (!programme.enabled || programme.model !== "points") {
+    return <Callout tone="muted">{t("pos.loyalty.programmeOff")}</Callout>;
+  }
+
+  const quote = redemptionFor(
+    {
+      amountMinor,
+      balance: customer.loyaltyPoints,
+      requestedPoints: requested === "" ? null : Number(requested.replace(/\D/g, "")),
+      capMinor: offline ? programme.offlineRedemptionCapMinor : null,
+    },
+    programme,
+  );
+
+  async function redeem() {
+    if (!order || quote.points <= 0) return;
+    await action.run(
+      async () => {
+        await services.crm.loyalty.post({
+          customerId: customer!.id,
+          kind: "redeem",
+          points: quote.points,
+          reason: `Order ${order.orderNumber}`,
+          orderId: order.id,
+          offlineCapture: offline,
+        });
+        dispatch({
+          type: "ORDER_PAY",
+          orderId: order.id,
+          tender: "loyalty_points",
+          amountMinor: quote.valueMinor,
+          tipMinor: 0,
+        });
+        const link = await services.crm.loyalty.balanceLink(customer!.id);
+        return { points: quote.points, valueMinor: quote.valueMinor, path: link.path };
+      },
+      {
+        onSuccess: (result) => {
+          setRequested("");
+          setDone(result);
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      <DescList>
+        <DescRow label={t("pos.loyalty.customer")}>{tx(customer.name)}</DescRow>
+        <DescRow label={t("pos.pointsAvailable")} mono>
+          {customer.loyaltyPoints}
+        </DescRow>
+        <DescRow label={t("pos.loyalty.rate")} mono>
+          {t("pos.loyalty.rateValue").replace("{value}", formatMoney(money(programme.redeemValueMinor, currency as never), fmt))}
+        </DescRow>
+      </DescList>
+
+      {offline ? (
+        <Callout tone="warn">
+          {t("pos.loyalty.offlineCap").replace(
+            "{cap}",
+            formatMoney(money(programme.offlineRedemptionCapMinor, currency as never), fmt),
+          )}
+        </Callout>
+      ) : null}
+
+      {quote.maxPoints <= 0 ? (
+        <Callout tone="bad">{t("pos.notEnoughPoints")}</Callout>
+      ) : (
+        <>
+          <Field label={t("pos.loyalty.pointsToUse")} hint={t("pos.loyalty.max").replace("{n}", String(quote.maxPoints))}>
+            <Input
+              dir="ltr"
+              inputMode="numeric"
+              placeholder={String(quote.maxPoints)}
+              value={requested}
+              onChange={(event) => setRequested(event.target.value.replace(/\D/g, ""))}
+              className="text-end font-mono tabular-nums"
+            />
+          </Field>
+          <DescList>
+            <DescRow label={t("pos.pointsNeeded")} mono>
+              {quote.points}
+            </DescRow>
+            <DescRow label={t("pos.loyalty.pays")} mono>
+              <span className="text-fg font-semibold">{formatMoney(money(quote.valueMinor, currency as never), fmt)}</span>
+            </DescRow>
+            {quote.valueMinor < amountMinor ? (
+              <DescRow label={t("pos.stillOwing")} mono>
+                {formatMoney(money(amountMinor - quote.valueMinor, currency as never), fmt)}
+              </DescRow>
+            ) : null}
+          </DescList>
+          <Button variant="primary" className="w-full" loading={action.pending} disabled={quote.points <= 0} onClick={() => void redeem()}>
+            {t("pos.loyalty.redeem")
+              .replace("{n}", String(quote.points))
+              .replace("{value}", formatMoney(money(quote.valueMinor, currency as never), fmt))}
+          </Button>
+        </>
+      )}
+
+      {done ? (
+        <div className="border-good bg-good/10 flex flex-col items-center gap-2 rounded-xl border p-3 text-center">
+          <p className="text-good flex items-center gap-1.5 text-sm font-semibold">
+            <Check size={14} aria-hidden />
+            {t("pos.loyalty.redeemed")
+              .replace("{n}", String(done.points))
+              .replace("{value}", formatMoney(money(done.valueMinor, currency as never), fmt))}
+          </p>
+          <LoyaltyBalanceQr path={done.path} size="h-28 w-28" />
+          <p className="text-fg-muted text-xs">{t("pos.loyalty.scanBalance")}</p>
+        </div>
+      ) : null}
+    </div>
+  );
 }

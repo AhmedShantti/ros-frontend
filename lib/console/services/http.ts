@@ -93,16 +93,41 @@ import type {
 } from "./types";
 import { ServiceError, auditFiltersOf, type AuditFilters, type ClockEvent } from "./types";
 import { crmService } from "./crm";
+import { workforceHrService } from "./workforce-hr";
 import { settingsService } from "./settings";
 import { deliveryService } from "./delivery";
 import { stockProfileService } from "./stock-profiles";
 import { countReviewService } from "./count-reviews";
+import { transferRequestService } from "./inventory-transfer-requests";
+import { inventoryControlService } from "./inventory-controls";
+import { procurementService } from "./purchasing-local";
+import { localPurchasing } from "./purchasing-documents";
 import { mfaService } from "./mfa";
+import { securityEventService } from "./security-events";
+import { securitySettingsService } from "./security-settings";
+import { dsrService } from "./security-dsr";
+import { tenantLifecycleService } from "./tenant-lifecycle";
 import { conflictService } from "./conflicts";
 import { anomalyReviewService } from "./anomaly-reviews";
+import { operatingExpenseService } from "./costing-opex";
+import { equipmentFaultService } from "./costing-faults";
 import { menuProfileService } from "./menu-profiles";
 import { modifierNestingService } from "./modifier-nesting";
+import { modifierPricingService } from "./modifier-pricing";
+import { menuPricingService } from "./menu-pricing";
+import { menuAvailabilityService } from "./menu-availability";
+import { menuRecipesService } from "./menu-recipes";
 import { receiptTemplateService } from "./receipt-templates";
+import { branchNetworkService } from "./branch-network";
+import { createLocalisationService } from "./localisation";
+import { kdsSetupService } from "./kds-setup";
+import { floorPlanService } from "./floor-plans";
+import { dashboardLayoutService } from "./dashboard-layouts";
+import { fiscalSequenceService } from "./offline-fiscal";
+import { cashAdjustmentService } from "./finance-adjustments";
+import { settlementService } from "./finance-settlements";
+import { dayCloseConfigService } from "./finance-day-close-config";
+import { priceListTaxService } from "./finance-tax-config";
 import { productionService } from "./production";
 import { emptyPage, project } from "./paging";
 import {
@@ -113,7 +138,6 @@ import {
   unsupportedFinance,
   unsupportedGovernance,
   unsupportedPlatform,
-  unsupportedPurchasing,
   unsupportedUsers,
   unsupportedWorkforce,
 } from "./unsupported";
@@ -743,6 +767,17 @@ const organisation: OrganisationService = {
 // Production — recipe versions and substitute groups (SRS ch.17, §26.3)
 // ---------------------------------------------------------------------------
 
+/** FR-MNU-049 — `referenceImages` is opaque JSON; read back only what the console wrote. */
+function referenceImagesOf(raw: Record<string, unknown> | null | undefined): import("./types").RecipeReferenceImage[] {
+  const images = raw && Array.isArray(raw.images) ? (raw.images as unknown[]) : [];
+  return images.flatMap((entry, index) => {
+    if (!entry || typeof entry !== "object") return [];
+    const row = entry as Record<string, unknown>;
+    if (typeof row.src !== "string") return [];
+    return [{ id: typeof row.id === "string" ? row.id : `img_${index}`, src: row.src, caption: map.localised(row.caption as Record<string, unknown> | null) }];
+  });
+}
+
 /** Wire recipe-version rows carry ids only; names are joined in from stock. */
 async function toRecipeVersion(
   row: S.ProductionController_listVersionsResponse[number],
@@ -762,6 +797,7 @@ async function toRecipeVersion(
     effectiveFrom: row.effectiveFrom,
     createdAt: row.createdAt,
     publishedBy: row.publishedBy ?? null,
+    referenceImages: referenceImagesOf(row.referenceImages),
     lines: (row.lines ?? []).map((line) => {
       const item = line.stockItemId ? items.get(line.stockItemId) : undefined;
       return {
@@ -797,6 +833,8 @@ const production: import("./types").ProductionService = {
       yieldPercentage: input.yieldPercentage,
       prepTimeSeconds: input.prepTimeSeconds,
       instructions: input.instructions ? map.toNameMap(input.instructions) : undefined,
+      // FR-MNU-049 — reference photos travel with the version.
+      referenceImages: input.referenceImages?.length ? { images: input.referenceImages } : undefined,
       effectiveFrom: input.effectiveFrom,
       lines: input.lines?.map((line) => ({
         sequence: line.sequence,
@@ -1141,6 +1179,16 @@ const modifierGroups: CollectionService<ModifierGroup> = {
   },
 };
 
+function recurrenceRuleOf(recurrence: string | null | undefined): Record<string, unknown> | undefined {
+  if (!recurrence) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(recurrence);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : { text: recurrence };
+  } catch {
+    return { text: recurrence };
+  }
+}
+
 const priceLists: CollectionService<PriceList> = {
   async list(query = {}) {
     const tenantId = tenantOf(query);
@@ -1182,6 +1230,8 @@ const priceLists: CollectionService<PriceList> = {
       validFrom: input.validFrom ?? undefined,
       validTo: input.validTo ?? undefined,
       orderType: input.orderTypes?.[0],
+      // FR-MNU-020 — the console authors recurrence as JSON; the API stores it opaquely.
+      recurrenceRule: recurrenceRuleOf(input.recurrence),
     });
     return map.toPriceList(row, getTenantId() ?? "");
   },
@@ -1253,7 +1303,10 @@ const recipes: CollectionService<Recipe> = {
 
   async create(input) {
     const row = await api.production.createRecipe({
-      scope: "tenant",
+      // FR-MNU-047 — a branch variant is a branch-scoped recipe for the same target.
+      scope: input.scope ?? "tenant",
+      branchId: input.scope === "branch" ? (input.branchId ?? undefined) : undefined,
+      brandId: input.scope === "brand" ? (input.brandId ?? undefined) : undefined,
       recipeType: input.recipeType ?? "menu_item",
       menuItemVariantId: input.recipeType === "menu_item" ? (input.targetId ?? undefined) : undefined,
       stockItemId: input.recipeType !== "menu_item" ? (input.targetId ?? undefined) : undefined,
@@ -1486,17 +1539,26 @@ const catalogue: CatalogueService = {
   },
 
   /** FR-MNU-030 — an 86 is an availability rule, created or cleared. */
-  async toggleAvailability(itemId, available, reason) {
+  async toggleAvailability(itemId, available, reason, options) {
     const rules = await availabilityRaw();
-    const existing = rules.find((rule) => rule.menuItemId === itemId && rule.isManual86);
+    // FR-MNU-030 — per item, per branch: the rule for this branch (or the
+    // tenant-wide one when no branch is named).
+    const branchId = options?.branchId ?? null;
+    const sameScope = (rule: (typeof rules)[number]) =>
+      rule.menuItemId === itemId && (rule.branchId ?? null) === branchId;
+    const existing =
+      rules.find((rule) => sameScope(rule) && rule.isManual86) ??
+      rules.find((rule) => sameScope(rule) && !rule.channel && rule.dayOfWeek === null && !rule.startsAt && !rule.endsAt);
 
     const ruleId =
       existing?.id ??
-      (await api.catalogue.createAvailabilityRule({ menuItemId: itemId })).id;
+      (await api.catalogue.createAvailabilityRule({ menuItemId: itemId, branchId: branchId ?? undefined })).id;
 
     await api.catalogue.toggle86(ruleId, {
       isManual86: !available,
       reasonText: reason,
+      // FR-MNU-030 — the server lifts the 86 itself at this time.
+      autoReenableAt: !available && options?.autoReenableAt ? options.autoReenableAt : undefined,
     });
 
     invalidateCatalogue();
@@ -1545,6 +1607,8 @@ const stockItems: CollectionService<StockItem> = {
       costingMethod: input.costingMethod,
       isBatchTracked: input.batchTracked,
       expiryTracked: input.expiryTracked,
+      // FR-INV-022/023 — the API carries the consumption strategy per item.
+      batchStrategy: input.batchStrategy,
       shelfLifeDays: input.shelfLifeDays ?? undefined,
       standardCost: input.unitCost ? map.toDecimal(input.unitCost) : undefined,
     });
@@ -1750,7 +1814,9 @@ const transfers: CollectionService<Transfer> = {
     const record = row as unknown as Record<string, unknown>;
     return {
       ...(input as Transfer),
-      id: String(record.id ?? record.transferId ?? ""),
+      // The dispatch answers with `transferReferenceId` — the key the receive
+      // call wants — so that is the transfer's id here.
+      id: String(record.transferReferenceId ?? record.id ?? record.transferId ?? ""),
       tenantId: getTenantId() ?? "",
       status: "dispatched",
       dispatchedAt: new Date().toISOString(),
@@ -1809,9 +1875,15 @@ const waste: CollectionService<WasteRecord> = {
       throw new ServiceError("BAD_REQUEST", "Choose a location and an item.", 400);
     }
 
+    // Callers pass the reason's code (the taxonomy key the forms show); the
+    // API wants its id. A value that is already an id passes through.
+    const reasonRows = await reasonCodesRaw().catch(() => []);
+    const reasonCodeId =
+      reasonRows.find((row) => row.code === input.reasonCode)?.id ?? input.reasonCode ?? "";
+
     await api.inventory.recordWaste({
       locationId: input.locationId,
-      reasonCodeId: input.reasonCode ?? "",
+      reasonCodeId,
       notes: input.notes ?? undefined,
       lines: [{ stockItemId: input.itemId, quantity: input.quantity?.value ?? "0" }],
     });
@@ -1942,6 +2014,32 @@ const inventory: InventoryService = {
     });
     invalidateInventory();
     return { movementId: row.id };
+  },
+
+  // -- Purchasing ------------------------------------------------------------
+
+  /**
+   * FR-PRC-032 / FR-PRC-037 — a real `purchase_receipt` / `purchase_return`
+   * movement. `PostMovementDto` has no batch fields, so no batch record can be
+   * created here: `batchId` is null and the batch number travels in the notes
+   * (the receipt keeps it too), which the screen states rather than hides.
+   */
+  async postPurchaseMovement(input) {
+    const batchNote = input.batch?.batchNumber
+      ? ` · batch ${input.batch.batchNumber}${input.batch.expiryDate ? ` exp ${input.batch.expiryDate}` : ""}`
+      : "";
+    const row = await api.inventory.postMovement({
+      locationId: input.locationId,
+      stockItemId: input.itemId,
+      movementType: input.kind === "return" ? "purchase_return" : "purchase_receipt",
+      quantity: input.kind === "return" ? `-${input.quantity}` : input.quantity,
+      unitCost: input.kind === "receipt" ? input.unitCostMinor : undefined,
+      referenceType: input.referenceType,
+      referenceId: input.referenceId,
+      notes: `${input.notes ?? ""}${batchNote}`.trim() || undefined,
+    });
+    invalidateInventory();
+    return { movementId: row.id, batchId: null };
   },
 
   // -- Reason codes ----------------------------------------------------------
@@ -3724,6 +3822,8 @@ export const httpServices: ServiceRegistry = {
    * satisfy, so connecting it later is a change here and nowhere else.
    */
   crm: crmService,
+  /** FR-HRM-015/016/017/026/027/031 — no endpoints exist; browser-local. */
+  workforceHr: workforceHrService,
 
   /*
    * No settings endpoint either (SRS §6.4). The overrides are browser-local
@@ -3733,12 +3833,35 @@ export const httpServices: ServiceRegistry = {
   delivery: deliveryService,
   stockProfiles: stockProfileService,
   countReviews: countReviewService,
+  transferRequests: transferRequestService,
+  inventoryControls: inventoryControlService,
   mfa: mfaService,
+  securityEvents: securityEventService,
+  securitySettings: securitySettingsService,
+  dataSubjectRequests: dsrService,
+  tenantLifecycle: tenantLifecycleService,
   conflicts: conflictService,
   anomalyReviews: anomalyReviewService,
+  operatingExpenses: operatingExpenseService,
+  equipmentFaults: equipmentFaultService,
   menuProfiles: menuProfileService,
   modifierNesting: modifierNestingService,
+  modifierPricing: modifierPricingService,
+  menuPricing: menuPricingService,
+  menuAvailability: menuAvailabilityService,
+  menuRecipes: menuRecipesService,
   receiptTemplates: receiptTemplateService,
+  branchNetwork: branchNetworkService,
+  // No country pack resource is served live; authored versions start empty.
+  localisation: createLocalisationService(() => []),
+  kdsSetup: kdsSetupService,
+  floorPlans: floorPlanService,
+  dashboardLayouts: dashboardLayoutService,
+  fiscalSequence: fiscalSequenceService,
+  cashAdjustments: cashAdjustmentService,
+  settlements: settlementService,
+  dayCloseConfig: dayCloseConfigService,
+  priceListTax: priceListTaxService,
   centralKitchen: productionService,
 
   // Live — every one of the document's 142 operations is reached from here.
@@ -3759,7 +3882,10 @@ export const httpServices: ServiceRegistry = {
 
   // No endpoint exists anywhere in the document for these. They fail with
   // NOT_IMPLEMENTED rather than serving invented rows. See API_COVERAGE.
-  purchasing: unsupportedPurchasing,
+  // No purchasing endpoints: the documents are browser-local (never seeded),
+  // the stock they move is real — see `./purchasing-documents`.
+  purchasing: localPurchasing,
+  procurement: procurementService,
   costing: unsupportedCosting,
   workforce,
   platform: unsupportedPlatform,

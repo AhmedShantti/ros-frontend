@@ -78,6 +78,13 @@ interface ConnectivityStore {
   /** False until the persisted queue has been read back on the client. */
   hydrated: boolean;
   lastSyncedAt: number | null;
+  /**
+   * FR-OFF-003 — when `state` last changed (epoch ms), so the till can say
+   * how long it has been offline or isolated. Not persisted: a fresh tab
+   * re-detects the link, so the age starts again from that detection — the
+   * age of the oldest queued write is the figure that survives a reload.
+   */
+  stateSince: number | null;
   /** Set by the dev tools; when true the queue never drains on its own. */
   simulated: boolean;
 
@@ -102,6 +109,7 @@ export const useConnectivityStore = create<ConnectivityStore>()(
       queue: [],
       hydrated: false,
       lastSyncedAt: null,
+      stateSince: typeof window === "undefined" ? null : Date.now(),
       simulated: false,
 
       setState: (state) => set({ state }),
@@ -226,6 +234,15 @@ export const useConnectivityStore = create<ConnectivityStore>()(
     },
   ),
 );
+
+/*
+ * FR-OFF-003 — stamp every real change of mode, whichever action caused it
+ * (setState, simulate, enqueue, drain, conflict resolution), in one place
+ * rather than in each setter.
+ */
+useConnectivityStore.subscribe((next, previous) => {
+  if (next.state !== previous.state) useConnectivityStore.setState({ stateSince: Date.now() });
+});
 
 /** Pending-sync count for the terminal badge. */
 export const pendingCount = (s: ConnectivityStore) =>

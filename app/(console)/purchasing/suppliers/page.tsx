@@ -12,16 +12,26 @@
  * fine, nothing raises it. Tracking it as a score makes the drift visible
  * while the contract is still negotiable.
  *
+ * The drawer also carries what the supplier master has no field for: their
+ * compliance documents with expiry alerting (FR-PRC-011), settlement terms
+ * and ordering channels (FR-PRC-021, FR-PRC-045), and a link to their account
+ * statement (FR-PRC-044).
+ *
  * Quality rejection is inverted — low is good — so it is coloured against the
  * opposite scale from the other four. Reading all five with the same "higher
  * is better" instinct is exactly the mistake this note exists to prevent.
  */
 
-import { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { Plus, ScrollText, ShieldAlert, Tags } from "lucide-react";
 import type { Supplier } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import type { ComplianceDocument } from "@/lib/console/services/purchasing-local";
+import { complianceState } from "@/lib/console/purchasing-rules";
+import { todayIso } from "@/lib/console/settings";
+import { useAction } from "@/lib/console/actions";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatMoney, formatNumber, formatPercent } from "@/lib/console/format";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
@@ -29,9 +39,14 @@ import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
 import { SupplierDrawer as SupplierFormDrawer } from "@/components/console/purchasing-forms";
+import { ComplianceSummaryBadges, SupplierComplianceList } from "@/components/console/purchasing-compliance";
+import { usePolicy } from "@/components/console/purchasing-shared";
 import {
   Badge,
   Button,
+  Callout,
+  Field,
+  Input,
   DescList,
   DescRow,
   Drawer,
@@ -74,6 +89,24 @@ function SuppliersScreen() {
     (query) => services.purchasing.suppliers.list(query),
     { scope, initialSort: "name", pageSize: 25 },
   );
+
+  // FR-PRC-011 — compliance documents, alerted ahead of expiry per policy.
+  const { policy } = usePolicy();
+  const alertDays = policy?.complianceAlertDays ?? 30;
+  const docs = useAsync(() => services.procurement.complianceDocs.all(), []);
+  const docsBySupplier = useMemo(() => {
+    const map = new Map<string, ComplianceDocument[]>();
+    for (const doc of docs.data ?? []) map.set(doc.supplierId, [...(map.get(doc.supplierId) ?? []), doc]);
+    return map;
+  }, [docs.data]);
+  const complianceAlerts = useMemo(() => {
+    const today = todayIso();
+    const current = (docs.data ?? []).filter((doc) => !doc.supersededBy);
+    return {
+      expired: current.filter((doc) => complianceState(doc.expiresOn, today, alertDays) === "expired").length,
+      expiring: current.filter((doc) => complianceState(doc.expiresOn, today, alertDays) === "expiring").length,
+    };
+  }, [docs.data, alertDays]);
 
   const totals = useMemo(() => {
     const rows = collection.rows;
@@ -168,6 +201,12 @@ function SuppliersScreen() {
         render: (row) => formatMoney(row.outstandingBalance, fmt),
       },
       {
+        key: "compliance",
+        header: t("prc.doc.sectionTitle"),
+        secondary: true,
+        render: (row) => <ComplianceSummaryBadges documents={docsBySupplier.get(row.id) ?? []} alertDays={alertDays} />,
+      },
+      {
         key: "active",
         header: t("common.status"),
         render: (row) => (
@@ -177,7 +216,7 @@ function SuppliersScreen() {
         ),
       },
     ],
-    [t, tx, fmt],
+    [t, tx, fmt, docsBySupplier, alertDays],
   );
 
   return (
@@ -198,6 +237,21 @@ function SuppliersScreen() {
       />
 
       <PageBody>
+        {complianceAlerts.expired + complianceAlerts.expiring > 0 ? (
+          <Callout
+            tone={complianceAlerts.expired > 0 ? "bad" : "warn"}
+            icon={<ShieldAlert size={14} />}
+            title={t("prc.doc.alertTitle")}
+          >
+            {t("prc.doc.alertBody")
+              .replace("{expired}", String(complianceAlerts.expired))
+              .replace("{expiring}", String(complianceAlerts.expiring))}{" "}
+            <Link href="/purchasing/compliance" className="font-medium underline">
+              {t("prc.doc.openRegister")}
+            </Link>
+          </Callout>
+        ) : null}
+
         <TileGrid columns={3}>
           <MetricTile
             label={t("pur.outstanding")}
@@ -243,6 +297,13 @@ function SuppliersScreen() {
       <SupplierDrawer
         supplier={selected}
         canManage={canManage}
+        documents={docs.data ?? []}
+        alertDays={alertDays}
+        suppliers={collection.rows}
+        onChanged={(note) => {
+          setMessage(note);
+          docs.reload();
+        }}
         onEdit={(supplier) => {
           setSelected(null);
           setEditing(supplier);
@@ -274,11 +335,19 @@ function SuppliersScreen() {
 function SupplierDrawer({
   supplier,
   canManage,
+  documents,
+  alertDays,
+  suppliers,
+  onChanged,
   onEdit,
   onClose,
 }: {
   supplier: Supplier | null;
   canManage: boolean;
+  documents: ComplianceDocument[];
+  alertDays: number;
+  suppliers: Supplier[];
+  onChanged: (message: string) => void;
   onEdit: (supplier: Supplier) => void;
   onClose: () => void;
 }) {
@@ -347,6 +416,30 @@ function SupplierDrawer({
             </div>
           </section>
         ) : null}
+
+        <div className="flex flex-wrap gap-2">
+          {/* FR-PRC-044 / FR-PRC-006 */}
+          <Link href={`/purchasing/statements?supplier=${supplier.id}`}>
+            <Button size="sm" icon={<ScrollText size={12} />}>
+              {t("prc.stmt.open")}
+            </Button>
+          </Link>
+          <Link href="/purchasing/sourcing">
+            <Button size="sm" icon={<Tags size={12} />}>
+              {t("prc.sourcing.tabPrices")}
+            </Button>
+          </Link>
+        </div>
+
+        <SupplierComplianceList
+          documents={documents}
+          alertDays={alertDays}
+          suppliers={suppliers}
+          supplierId={supplier.id}
+          onChanged={onChanged}
+        />
+
+        <SupplierTermsSection supplier={supplier} canManage={canManage} onSaved={onChanged} />
 
         <section>
           <h3 className="text-fg mb-3 text-sm font-semibold">{t("pur.scorecard")}</h3>
@@ -418,5 +511,94 @@ function ScoreRow({
       </div>
       <Meter value={lowerIsBetter ? Math.min(100, value * 10) : value} tone={tone} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FR-PRC-021 / FR-PRC-045 — ordering channels and settlement terms
+// ---------------------------------------------------------------------------
+
+function SupplierTermsSection({
+  supplier,
+  canManage,
+  onSaved,
+}: {
+  supplier: Supplier;
+  canManage: boolean;
+  onSaved: (message: string) => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction();
+  const terms = useAsync(() => services.procurement.supplierTerms.get(supplier.id), [supplier.id]);
+  const [discount, setDiscount] = useState("0");
+  const [days, setDays] = useState("0");
+  const [orderEmail, setOrderEmail] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+
+  useEffect(() => {
+    setDiscount(String(terms.data?.earlyDiscountPercent ?? 0));
+    setDays(String(terms.data?.earlyDiscountDays ?? 0));
+    setOrderEmail(terms.data?.orderEmail || supplier.email);
+    setWhatsapp(terms.data?.whatsapp || supplier.phone);
+  }, [terms.data, supplier.email, supplier.phone]);
+
+  const discountValue = Number(discount);
+  const daysValue = Number(days);
+  // A discount needs a window, and the window cannot outlast the payment terms.
+  const invalid =
+    !(discountValue >= 0 && discountValue < 100) ||
+    !(Number.isInteger(daysValue) && daysValue >= 0) ||
+    (discountValue > 0 && daysValue === 0) ||
+    daysValue > supplier.paymentTermsDays;
+
+  async function save() {
+    if (invalid) return;
+    await action.run(
+      () =>
+        services.procurement.saveSupplierTerms(supplier.id, {
+          earlyDiscountPercent: discountValue,
+          earlyDiscountDays: daysValue,
+          orderEmail: orderEmail.trim(),
+          whatsapp: whatsapp.trim(),
+        }),
+      {
+        onSuccess: () => {
+          terms.reload();
+          onSaved(t("prc.terms.saved"));
+        },
+      },
+    );
+  }
+
+  return (
+    <section>
+      <h3 className="text-fg mb-1 text-sm font-semibold">{t("prc.terms.title")}</h3>
+      <p className="text-fg-subtle mb-2 text-xs">{t("prc.terms.hint")}</p>
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label={t("prc.terms.discount")}>
+          <Input dir="ltr" inputMode="decimal" disabled={!canManage} value={discount} onChange={(event) => setDiscount(event.target.value)} className="text-end font-mono tabular-nums" />
+        </Field>
+        <Field
+          label={t("prc.terms.discountDays")}
+          error={invalid ? t("prc.terms.invalid").replace("{n}", String(supplier.paymentTermsDays)) : undefined}
+        >
+          <Input dir="ltr" inputMode="numeric" disabled={!canManage} value={days} onChange={(event) => setDays(event.target.value)} className="text-end font-mono tabular-nums" />
+        </Field>
+        <Field label={t("prc.terms.orderEmail")}>
+          <Input dir="ltr" inputMode="email" disabled={!canManage} value={orderEmail} onChange={(event) => setOrderEmail(event.target.value)} />
+        </Field>
+        <Field label={t("prc.terms.whatsapp")} hint={t("prc.terms.whatsappHint")}>
+          <Input dir="ltr" inputMode="tel" disabled={!canManage} value={whatsapp} onChange={(event) => setWhatsapp(event.target.value)} />
+        </Field>
+      </div>
+      {canManage ? (
+        <div className="mt-2">
+          <Button size="sm" loading={action.pending} disabled={invalid} onClick={save}>
+            {t("common.save")}
+          </Button>
+        </div>
+      ) : null}
+    </section>
   );
 }

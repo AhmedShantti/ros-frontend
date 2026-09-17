@@ -19,7 +19,13 @@
 
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import type { Branch, Employee, EmployeeDocument, Id, Localised } from "@/lib/console/types";
+import type { Branch, Employee, EmployeeDocument, EmploymentType, Id, Localised } from "@/lib/console/types";
+import {
+  BranchAssignmentField,
+  EmploymentRulesSummary,
+  EmploymentSection,
+  EmploymentTypeSelect,
+} from "@/components/console/workforce-employment";
 import { services } from "@/lib/console/services";
 import { DATA_MODE } from "@/lib/api/config";
 import { useAction } from "@/lib/console/actions";
@@ -249,6 +255,11 @@ function EmployeesScreen() {
         canManage={canManage}
         branches={branches}
         onClose={() => setSelected(null)}
+        onSaved={(note) => {
+          setSelected(null);
+          setMessage(note);
+          collection.reload();
+        }}
       />
       {creating ? (
         <NewEmployeeDrawer
@@ -290,12 +301,14 @@ function EmployeeDrawer({
   canManage,
   branches,
   onClose,
+  onSaved,
 }: {
   employee: Employee | null;
   canSeePay: boolean;
   canManage: boolean;
   branches: Branch[];
   onClose: () => void;
+  onSaved: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
   if (!employee) return null;
@@ -315,6 +328,8 @@ function EmployeeDrawer({
       }
     >
       <div className="space-y-5">
+        {/* FR-HRM-002, FR-HRM-005 — employment type and branch assignment. */}
+        {canManage ? <EmploymentSection employee={employee} branches={branches} onSaved={onSaved} /> : null}
         {canManage ? <AccessRoleSection employeeId={employee.id} branches={branches} /> : null}
         {canManage ? <SetPinSection employeeId={employee.id} /> : null}
         <DescList>
@@ -348,8 +363,19 @@ function EmployeeDrawer({
               <Badge tone="muted">{t("wf.noLogin")}</Badge>
             )}
           </DescRow>
-          <DescRow label={t("wf.permittedBranches")} mono>
-            {formatNumber(employee.permittedBranchIds.length, fmt)}
+          <DescRow label={t("wf.permittedBranches")}>
+            {/* FR-HRM-005 — the branches this person may be rostered at. */}
+            {employee.permittedBranchIds.length === 0 ? (
+              "—"
+            ) : (
+              <span className="flex flex-wrap justify-end gap-1">
+                {employee.permittedBranchIds.map((id) => (
+                  <Badge key={id} tone={id === employee.homeBranchId ? "accent" : "muted"}>
+                    {tx(branches.find((branch) => branch.id === id)?.name) || id}
+                  </Badge>
+                ))}
+              </span>
+            )}
           </DescRow>
         </DescList>
 
@@ -585,23 +611,45 @@ function NewEmployeeDrawer({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const { t, tx } = useI18n();
+  const { t } = useI18n();
   const action = useAction();
   const [name, setName] = useState<Localised>({ ...EMPTY_LOCALISED });
   const [code, setCode] = useState("");
-  const [homeBranchId, setHomeBranchId] = useState(branches[0]?.id ?? "");
-  const [employmentType, setEmploymentType] = useState<keyof typeof EMPLOYMENT_TYPE>("full_time");
+  const [assignment, setAssignment] = useState<{ homeBranchId: Id; permittedBranchIds: Id[] }>({
+    homeBranchId: branches[0]?.id ?? "",
+    permittedBranchIds: [],
+  });
+  const [employmentType, setEmploymentType] = useState<EmploymentType>("full_time");
+  const homeBranchId = assignment.homeBranchId;
 
   async function create() {
     if (!hasLocalisedText(name) || !homeBranchId) return;
     await action.run(
-      () =>
-        services.workforce.employees.create({
+      async () => {
+        // FR-HRM-002 — the type is part of the record from the start.
+        const created = await services.workforce.employees.create({
           name: trimLocalised(name),
           code: code.trim() || undefined,
           homeBranchId,
+          homeBranchName: branches.find((branch) => branch.id === homeBranchId)?.name,
           employmentType,
-        }),
+          permittedBranchIds: [homeBranchId, ...assignment.permittedBranchIds],
+        });
+        // FR-HRM-005 — covering branches, live through the real
+        // `POST /workforce/employees/{id}/branches`, one call per branch.
+        if (assignment.permittedBranchIds.length > 0) {
+          await services.workforceHr.assignEmployment(
+            { ...created, permittedBranchIds: created.permittedBranchIds.filter((id) => id === homeBranchId) },
+            {
+              employmentType,
+              homeBranchId,
+              homeBranchName: created.homeBranchName,
+              permittedBranchIds: assignment.permittedBranchIds,
+            },
+          );
+        }
+        return created;
+      },
       { onSuccess: onCreated },
     );
   }
@@ -641,30 +689,15 @@ function NewEmployeeDrawer({
           />
         </Field>
 
-        <Field label={t("wf.homeBranch")} required>
-          <Select value={homeBranchId} onChange={(event) => setHomeBranchId(event.target.value)}>
-            {branches.map((branch) => (
-              <option key={branch.id} value={branch.id}>
-                {tx(branch.name)}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        <EmploymentTypeSelect value={employmentType} onChange={setEmploymentType} />
+        <EmploymentRulesSummary type={employmentType} />
 
-        <Field label={t("wf.employmentType")} required>
-          <Select
-            value={employmentType}
-            onChange={(event) =>
-              setEmploymentType(event.target.value as keyof typeof EMPLOYMENT_TYPE)
-            }
-          >
-            {Object.entries(EMPLOYMENT_TYPE).map(([value, entry]) => (
-              <option key={value} value={value}>
-                {tx(entry.label)}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        <BranchAssignmentField
+          branches={branches}
+          homeBranchId={assignment.homeBranchId}
+          permittedBranchIds={assignment.permittedBranchIds}
+          onChange={setAssignment}
+        />
       </div>
     </Drawer>
   );

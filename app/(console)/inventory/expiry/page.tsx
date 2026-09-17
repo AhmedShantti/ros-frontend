@@ -38,6 +38,7 @@ import { AsyncPanel } from "@/components/console/states";
 import { MetricTile } from "@/components/console/charts";
 import { PercentInput } from "@/components/console/fields";
 import { Gate } from "@/components/console/states";
+import { ExpiryWriteOffPanel } from "@/components/console/inventory-expiry-writeoff";
 import {
   Badge,
   Button,
@@ -334,6 +335,14 @@ function ExpiryScreen() {
           emptyTitle={t("inv.expiryClear")}
           emptyBody={t("inv.expiryClearBody")}
           dense
+        />
+
+        {/* FR-INV-026 — per-category write-off of expired batches at day close. */}
+        <ExpiryWriteOffPanel
+          onChanged={(note) => {
+            setMessage(note);
+            collection.reload();
+          }}
         />
       </PageBody>
 

@@ -16,6 +16,11 @@
  *   - Temperature (FR-PRC-035). Chilled and frozen goods carry a reading at
  *     the door. Accepting them without one means a later spoilage claim has no
  *     evidence behind it.
+ *
+ * Each receipt's drawer also shows its stock ledger postings with batch
+ * records and per-line retry (FR-PRC-032), the delivery-note photo and scans
+ * captured at the door (FR-PRC-034), and returns to the supplier after
+ * receipt (FR-PRC-037).
  */
 
 import { useMemo, useState } from "react";
@@ -46,6 +51,7 @@ import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
 import { ReceivingDrawer as ReceivingFormDrawer } from "@/components/console/purchasing-forms";
+import { ReceiptAfterPosting } from "@/components/console/purchasing-receipts";
 import {
   Badge,
   Button,
@@ -239,7 +245,7 @@ function ReceivingScreen() {
         />
       </PageBody>
 
-      <ReceiptDrawer receipt={selected} onClose={() => setSelected(null)} />
+      <ReceiptDrawer receipt={selected} onClose={() => setSelected(null)} onChanged={setMessage} />
       <ReceivingFormDrawer
         open={creating}
         onClose={() => setCreating(false)}
@@ -260,9 +266,11 @@ function ReceivingScreen() {
 function ReceiptDrawer({
   receipt,
   onClose,
+  onChanged,
 }: {
   receipt: GoodsReceipt | null;
   onClose: () => void;
+  onChanged: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
 
@@ -418,6 +426,8 @@ function ReceiptDrawer({
             </ul>
           </section>
         ) : null}
+
+        <ReceiptAfterPosting key={receipt.id} receipt={receipt} onChanged={onChanged} />
       </div>
     </Drawer>
   );

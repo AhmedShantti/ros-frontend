@@ -25,6 +25,7 @@ import { Barcode, Delete, Scale, Search, Star, Tag } from "lucide-react";
 import type { Id, MenuItem, MenuItemVariant, TaxClassCode } from "@/lib/console/types";
 import { useI18n } from "@/lib/console/providers";
 import { formatMoney, minorFromInput, money } from "@/lib/console/format";
+import { isPaymentCardSwipe, stripSwipe } from "@/lib/console/pci";
 import { MoneyInput } from "@/components/console/fields";
 import {
   Badge,
@@ -46,14 +47,50 @@ const SCAN_MAX_GAP_MS = 35;
 const SCAN_MIN_LENGTH = 4;
 
 /**
+ * Mark a field as owning its own reader input — the staff-card capture on
+ * the approval prompt. The page-level scanner leaves bursts typed into it
+ * alone rather than also treating them as a product barcode.
+ */
+export const SCANNER_OPT_OUT = { "data-scanner-off": "" } as const;
+
+function scannerOptedOut(element: Element | null): boolean {
+  return Boolean(element?.closest("[data-scanner-off]"));
+}
+
+/**
+ * FR-POS-066 — take a card swipe back out of the field it landed in.
+ *
+ * The reader types into whatever has focus, so by the time the swipe is
+ * recognised its track data is already in the search box or a note. The
+ * native setter plus an `input` event is what tells React the value
+ * changed, so the component's own state is cleaned too, not just the DOM.
+ */
+function scrubFocusedField() {
+  const element = document.activeElement;
+  if (!(element instanceof HTMLInputElement) && !(element instanceof HTMLTextAreaElement)) return;
+  const cleaned = stripSwipe(element.value);
+  if (cleaned === element.value) return;
+  const prototype = element instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+  Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(element, cleaned);
+  element.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/**
  * Listen for a barcode anywhere on the page.
  *
- * Deliberately document-level and deliberately not focus-stealing: a cashier
- * mid-way through typing a note should be able to scan without the code
- * landing in the note, and a scan should work whether or not anything is
- * focused.
+ * Deliberately document-level and deliberately not focus-stealing: a scan
+ * should work whether or not anything is focused.
+ *
+ * The same reader reads payment cards. A swipe is recognised by its track
+ * sentinels and never handed to `onScan` — which would have looked it up
+ * as a barcode and printed the miss, card number and all, in the lookup
+ * bar (FR-POS-066). The caller is told only that it happened.
  */
-export function useBarcodeScanner(onScan: (code: string) => void, enabled = true) {
+export function useBarcodeScanner(
+  onScan: (code: string) => void,
+  enabled = true,
+  onPaymentCard?: () => void,
+) {
   const buffer = useRef("");
   const lastAt = useRef(0);
 
@@ -69,6 +106,15 @@ export function useBarcodeScanner(onScan: (code: string) => void, enabled = true
         const code = buffer.current;
         buffer.current = "";
         if (code.length >= SCAN_MIN_LENGTH) {
+          if (isPaymentCardSwipe(code)) {
+            event.preventDefault();
+            // Deferred a frame so the scrub runs after the reader's last
+            // keystrokes have landed in the field.
+            requestAnimationFrame(scrubFocusedField);
+            onPaymentCard?.();
+            return;
+          }
+          if (scannerOptedOut(document.activeElement)) return;
           // Only swallow the Enter when we are confident this was a scan;
           // otherwise a form submit two components up stops working.
           event.preventDefault();
@@ -86,7 +132,7 @@ export function useBarcodeScanner(onScan: (code: string) => void, enabled = true
 
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [onScan, enabled]);
+  }, [onScan, enabled, onPaymentCard]);
 }
 
 /** Resolve a scanned code to an item and the variant that carries it. */

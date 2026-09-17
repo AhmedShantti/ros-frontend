@@ -33,9 +33,13 @@ import { branches, tables, terminals } from "../mock/org";
 import { stockLevels } from "../mock/inventory";
 import { stockItemById } from "../mock/stock-items";
 import { BUSINESS_DAY, NOW_ISO } from "../mock/clock";
+import type { RemoteApprovalBase } from "./approval";
+import type { LiveAction } from "./reducer";
+import { DEFAULT_KDS_SETUP, normaliseKdsSetup, type KdsSetup } from "./kds";
+import { EMPTY_PROMOTION_BOOK, type OrderPromotionState, type PromotionBook } from "./promotions";
 
 export const LIVE_STORAGE_KEY = "ros.live.v1";
-export const LIVE_STATE_VERSION = 6;
+export const LIVE_STATE_VERSION = 9;
 
 /** Mid-shift drawer operations — FR-POS-091. */
 export interface CashMovementRecord {
@@ -65,9 +69,67 @@ export interface LiveSettings {
   drawerLimitMinor: number;
   /** FR-POS-047 — discount percentage a cashier may apply unapproved. */
   discountApprovalThreshold: number;
+  /** FR-POS-047 — discount amount a cashier may apply unapproved, minor units. 0 is no limit. */
+  discountApprovalAmountMinor: number;
+  /** FR-POS-047 — discounts one employee may give per shift unapproved. 0 is no limit. */
+  maxDiscountsPerShift: number;
+  /** FR-POS-047 — whether a discount may go on unapproved once payment has started. */
+  discountAfterPaymentStarted: boolean;
+  /** FR-POS-051 — whether ordinary discounts combine. Exclusive ones never do. */
+  discountStacking: "stack" | "best_single";
+  /** FR-POS-046/051 — the reasons a discount may be given, and which stack. */
+  discountPresets: DiscountPreset[];
+  /** FR-POS-073 — a refund above this needs a manager, minor units. */
+  refundApprovalMinor: number;
+  /** FR-POS-070/075 — which voids and cancellations need a manager. */
+  voidApproval: "none" | "post_fire" | "all";
+  /** FR-POS-048 — how long a remote approval request stays open, minutes. */
+  remoteApprovalMinutes: number;
+  /** FR-POS-025 — whether a line may carry a free-text kitchen note. */
+  lineNotes: boolean;
+  /** FR-POS-026 — the note chips offered on every line, in order. */
+  noteChips: Localised[];
+  /** FR-POS-084 — whether server sections highlight or restrict the floor. */
+  sectionMode: "off" | "highlight" | "restrict";
   /** FR-KDS-012 — hold short items back so the order finishes together. */
   staggeredRelease: boolean;
 }
+
+/**
+ * FR-POS-046/051 — a reason a discount may be given.
+ *
+ * `kind` and `value` are only the starting point the sheet fills in; the
+ * cashier can still change the figure, and the approval thresholds judge
+ * what was actually entered. `exclusive` is the FR-POS-051 marker: an
+ * exclusive discount never combines with another, and the guest gets the
+ * more favourable of the two.
+ */
+export interface DiscountPreset {
+  id: string;
+  name: Localised;
+  kind: "percent" | "amount";
+  /** A percentage, or an amount in minor units. */
+  value: number;
+  exclusive: boolean;
+}
+
+export const DEFAULT_DISCOUNT_PRESETS: DiscountPreset[] = [
+  { id: "dsp_staff", name: { en: "Staff discount", ar: "خصم موظفين" }, kind: "percent", value: 20, exclusive: true },
+  { id: "dsp_recovery", name: { en: "Service recovery", ar: "تعويض خدمة" }, kind: "percent", value: 10, exclusive: false },
+  { id: "dsp_loyalty", name: { en: "Loyalty tier benefit", ar: "ميزة مستوى الولاء" }, kind: "percent", value: 5, exclusive: false },
+  { id: "dsp_promo", name: { en: "Promotional campaign", ar: "حملة ترويجية" }, kind: "percent", value: 15, exclusive: true },
+  { id: "dsp_goodwill", name: { en: "Manager goodwill", ar: "مجاملة من المدير" }, kind: "amount", value: 2_000, exclusive: false },
+];
+
+/** FR-POS-026 — the chips a new terminal starts with. */
+export const DEFAULT_NOTE_CHIPS: Localised[] = [
+  { en: "No ice", ar: "بدون ثلج" },
+  { en: "Well done", ar: "استواء تام" },
+  { en: "Separate packaging", ar: "تغليف منفصل" },
+  { en: "Serve last", ar: "يُقدَّم أخيرًا" },
+  { en: "Allergy — check with kitchen", ar: "حساسية — راجع المطبخ" },
+  { en: "Sauce on the side", ar: "الصلصة جانبًا" },
+];
 
 export const DEFAULT_SETTINGS: LiveSettings = {
   serviceChargePercent: 12,
@@ -76,8 +138,48 @@ export const DEFAULT_SETTINGS: LiveSettings = {
   blindCount: true,
   drawerLimitMinor: 500_000,
   discountApprovalThreshold: 10,
+  discountApprovalAmountMinor: 10_000,
+  maxDiscountsPerShift: 0,
+  discountAfterPaymentStarted: false,
+  discountStacking: "stack",
+  discountPresets: DEFAULT_DISCOUNT_PRESETS,
+  refundApprovalMinor: 20_000,
+  voidApproval: "post_fire",
+  remoteApprovalMinutes: 10,
+  lineNotes: true,
+  noteChips: DEFAULT_NOTE_CHIPS,
+  sectionMode: "highlight",
   staggeredRelease: true,
 };
+
+/**
+ * FR-POS-084 — a group of tables and the server looking after them.
+ *
+ * Kept per branch in the live state rather than in the catalogue: sections
+ * are drawn up at the start of a service and redrawn when someone calls in
+ * sick, which is an operational decision, not configuration.
+ */
+export interface ServerSection {
+  id: Id;
+  branchId: Id;
+  name: string;
+  colour: string;
+  tableIds: Id[];
+  serverId: Id | null;
+  serverName: Localised | null;
+}
+
+/** FR-POS-048 — a request waiting on a manager, and the action it will run. */
+export interface RemoteApproval extends RemoteApprovalBase {
+  action: LiveAction;
+  /**
+   * Whether the approved action actually went through. The till keeps
+   * trading while it waits, so by the time a manager says yes the order may
+   * have been paid or the discount outbid — an approval that could not be
+   * applied is reported as such rather than looking like it worked.
+   */
+  applied: boolean | null;
+}
 
 /** A void that produced food — FR-POS-071 forces the disposition to be named. */
 export type VoidDisposition = "returned_to_stock" | "wasted" | "staff_meal";
@@ -191,6 +293,32 @@ export interface LiveState {
 
   /** FR-INV-042 — cost layers per `locationId::itemId`, oldest first. */
   costLayers: Record<string, CostLayer[]>;
+
+  /** FR-POS-084 — server sections, for every branch this store has run. */
+  sections: ServerSection[];
+
+  /** FR-POS-048 — remote approvals, newest first, decided or not. */
+  approvals: RemoteApproval[];
+
+  /**
+   * FR-KDS-011/023/044 — the kitchen-display setup, mirrored in from
+   * `services.kdsSetup` so the reducer can route and time lines without
+   * reaching outside itself. The service is the record; this is a copy.
+   */
+  kdsSetup: KdsSetup;
+
+  /** FR-KDS-027 — rush / VIP flags per order, inherited by every ticket it fires. */
+  priorities: Record<Id, KitchenTicket["priority"]>;
+
+  /**
+   * FR-CRM-025/027 — the console's promotions and recorded redemptions,
+   * mirrored in from `services.crm` so the reducer can evaluate them without
+   * reaching outside itself. The service is the record; this is a copy.
+   */
+  promotionBook: PromotionBook;
+
+  /** FR-CRM-026/027/028 — per order: customer profile, coupons, what applied, what was recorded. */
+  orderPromotions: Record<Id, OrderPromotionState>;
 
   settings: LiveSettings;
 }
@@ -356,7 +484,55 @@ export function initialLiveState(branchId: Id = defaultBranchId()): LiveState {
     overrides: [],
     alerts: [],
     costLayers,
+    sections: [],
+    approvals: [],
+    kdsSetup: DEFAULT_KDS_SETUP,
+    priorities: {},
+    promotionBook: EMPTY_PROMOTION_BOOK,
+    orderPromotions: {},
     settings: DEFAULT_SETTINGS,
+  };
+}
+
+/**
+ * Brings a stored state forward to this version, or returns null.
+ *
+ * A version bump used to discard the drawer outright, which on a till that
+ * has been trading means losing the shift. Version 7 only added fields, so
+ * a version-6 store is filled in with their defaults and kept; anything
+ * older, or anything that is not a live state at all, is still refused.
+ */
+export function migrateLiveState(stored: unknown): LiveState | null {
+  if (!stored || typeof stored !== "object") return null;
+  const state = stored as Partial<LiveState> & { version?: number };
+  if (state.version === LIVE_STATE_VERSION) {
+    // Settings are merged over the defaults even at the current version, so
+    // a setting added later reads its default rather than `undefined`.
+    return {
+      ...(state as LiveState),
+      kdsSetup: normaliseKdsSetup(state.kdsSetup),
+      priorities: state.priorities ?? {},
+      promotionBook: state.promotionBook ?? EMPTY_PROMOTION_BOOK,
+      orderPromotions: state.orderPromotions ?? {},
+      settings: { ...DEFAULT_SETTINGS, ...(state.settings ?? {}) },
+    };
+  }
+  // Versions 7 and 8 only added fields, so an older store is filled in with
+  // their defaults and kept rather than costing the till its shift.
+  // Version 9 added the promotion mirror and per-order promotion state; an
+  // order closed before it has no entry, so nothing is redeemed or earned
+  // for it retroactively.
+  if (state.version !== 6 && state.version !== 7 && state.version !== 8) return null;
+  return {
+    ...(state as LiveState),
+    version: LIVE_STATE_VERSION,
+    sections: state.sections ?? [],
+    approvals: state.approvals ?? [],
+    kdsSetup: state.version === 8 ? normaliseKdsSetup(state.kdsSetup) : DEFAULT_KDS_SETUP,
+    priorities: state.priorities ?? {},
+    promotionBook: EMPTY_PROMOTION_BOOK,
+    orderPromotions: {},
+    settings: { ...DEFAULT_SETTINGS, ...(state.settings ?? {}) },
   };
 }
 

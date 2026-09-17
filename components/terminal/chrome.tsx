@@ -62,15 +62,18 @@ import {
 import { LanguageToggle, ThemeToggle } from "@/components/console/switchers";
 import { useEffect, useRef, useState } from "react";
 import { SETTING_BY_KEY, resolveSetting } from "@/lib/console/settings";
+import { CoachHost, TrainingBanner, TrainingButton } from "@/components/terminal/train-coach";
+import { IsolationBanner, IsolationPanel, ModeChangeNotice } from "@/components/terminal/offline-status";
 
 const TRIGGER =
   "border-line bg-raised text-fg hover:bg-sunken inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors";
 
 export function TerminalBar() {
   const { t, tx, locale, fmt } = useI18n();
-  const { state, dispatch, reset } = useLive();
+  const { state, dispatch, reset, training } = useLive();
   const pathname = usePathname();
   const [confirmReset, setConfirmReset] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
 
   /*
    * Against a live deployment the picker, the shift badge and the reset are
@@ -82,7 +85,8 @@ export function TerminalBar() {
    * terminal and moved nothing. A real terminal changes branch by being
    * re-bound through `POST /auth/terminal`, not by a dropdown.
    */
-  const live = DATA_MODE === "http";
+  // NFR-USA-005 — the training sandbox is the simulator, even on a live deployment.
+  const live = DATA_MODE === "http" && !training;
 
   const branch = branches.find((b) => b.id === state.branchId);
   const terminal = terminals.find((x) => x.id === state.terminalId);
@@ -163,7 +167,8 @@ export function TerminalBar() {
       <div className="flex-1" />
 
       {live ? <SignedOnCashier /> : null}
-      <ConnectivityBadge />
+      <TrainingButton />
+      <ConnectivityBadge open={syncOpen} onOpenChange={setSyncOpen} />
       <Link
         href="/dashboard"
         className="border-line bg-raised text-fg-muted hover:bg-sunken hover:text-fg inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium"
@@ -209,6 +214,10 @@ export function TerminalBar() {
         <p className="text-fg-subtle mt-2 text-xs leading-relaxed">{t("term.resetNote")}</p>
       </Modal>
     </header>
+    <TrainingBanner />
+    <IsolationBanner onDetails={() => setSyncOpen(true)} />
+    <ModeChangeNotice />
+    <CoachHost />
     <ClockSkewBanner deviceId={live ? getTerminalId() : state.terminalId} />
     </>
   );
@@ -436,7 +445,13 @@ function TerminalLink({
  * genuinely reflects "this order hasn't synced yet" rather than a claim about
  * a server — see `useOfflineOrderSync` in `lib/console/live/store.tsx`.
  */
-function ConnectivityBadge() {
+function ConnectivityBadge({
+  open,
+  onOpenChange: setOpen,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const { t, fmt } = useI18n();
   useBrowserConnectivity();
 
@@ -444,7 +459,6 @@ function ConnectivityBadge() {
   const hydrated = useConnectivityStore((s) => s.hydrated);
   const pending = useConnectivityStore(pendingCount);
   const queue = useConnectivityStore((s) => s.queue);
-  const [open, setOpen] = useState(false);
 
   // FR-OFF-043 — a write the server refused is a conflict a manager has to
   // see, so every one lands in the register (idempotently, by queue id).
@@ -559,6 +573,9 @@ function SyncQueueModal({ open, onClose }: { open: boolean; onClose: () => void 
           {t("sync.lastSynced")} · {formatTime(new Date(lastSyncedAt).toISOString(), fmt)}
         </p>
       ) : null}
+
+      {/* FR-OFF-003 — how long the till can keep going like this. */}
+      <IsolationPanel />
     </Modal>
   );
 }

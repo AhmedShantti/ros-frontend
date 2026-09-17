@@ -64,16 +64,42 @@ import { ServiceError, matchesAuditFilters, type ClockEvent } from "./types";
 /** The demo operator's open attendance record, if any. */
 let demoClock: ClockEvent | null = null;
 import { crmService } from "./crm";
+import { workforceHrService } from "./workforce-hr";
 import { settingsService } from "./settings";
 import { deliveryService } from "./delivery";
 import { stockProfileService } from "./stock-profiles";
 import { countReviewService } from "./count-reviews";
+import { transferRequestService } from "./inventory-transfer-requests";
+import { inventoryControlService } from "./inventory-controls";
+import { procurementService } from "./purchasing-local";
 import { mfaService } from "./mfa";
+import { securityEventService } from "./security-events";
+import { securitySettingsService } from "./security-settings";
+import { dsrService } from "./security-dsr";
+import { tenantLifecycleService } from "./tenant-lifecycle";
+import { assertTenantUnchanged } from "../local-store";
+import { assertTenantWritable } from "./tenant-context";
 import { conflictService } from "./conflicts";
 import { anomalyReviewService } from "./anomaly-reviews";
+import { operatingExpenseService } from "./costing-opex";
+import { equipmentFaultService } from "./costing-faults";
 import { menuProfileService } from "./menu-profiles";
 import { modifierNestingService } from "./modifier-nesting";
+import { modifierPricingService } from "./modifier-pricing";
+import { menuPricingService } from "./menu-pricing";
+import { menuAvailabilityService } from "./menu-availability";
+import { menuRecipesService } from "./menu-recipes";
 import { receiptTemplateService } from "./receipt-templates";
+import { branchNetworkService } from "./branch-network";
+import { createLocalisationService, versionFromPlatformPack } from "./localisation";
+import { kdsSetupService } from "./kds-setup";
+import { floorPlanService } from "./floor-plans";
+import { dashboardLayoutService } from "./dashboard-layouts";
+import { fiscalSequenceService } from "./offline-fiscal";
+import { cashAdjustmentService } from "./finance-adjustments";
+import { settlementService } from "./finance-settlements";
+import { dayCloseConfigService } from "./finance-day-close-config";
+import { priceListTaxService } from "./finance-tax-config";
 import { productionService } from "./production";
 
 import { branchById, branches, brands, centralKitchens, stations, stockLocations, tables, tenants, terminals, warehouses } from "../mock/org";
@@ -266,6 +292,7 @@ function makeCollection<T>(config: CollectionConfig<T>): CollectionService<T> {
         throw new ServiceError("READ_ONLY", "This collection cannot be written to.", 405);
       }
       return transport(() => {
+        assertTenantWritable(); // FR-PLT-021
         const id = `new_${Math.random().toString(36).slice(2, 10)}`;
         const row = config.factory!(input, id);
         store.unshift(row);
@@ -279,6 +306,9 @@ function makeCollection<T>(config: CollectionConfig<T>): CollectionService<T> {
         if (index === -1) {
           throw new ServiceError("NOT_FOUND", "That record no longer exists.", 404);
         }
+        // FR-PLT-003 — tenant_id never changes after creation.
+        assertTenantUnchanged(store[index], patch);
+        assertTenantWritable(); // FR-PLT-021
         const updated = { ...store[index]!, ...patch };
         store[index] = updated;
         return updated;
@@ -291,6 +321,7 @@ function makeCollection<T>(config: CollectionConfig<T>): CollectionService<T> {
         if (index === -1) {
           throw new ServiceError("NOT_FOUND", "That record no longer exists.", 404);
         }
+        assertTenantWritable(); // FR-PLT-021
         store.splice(index, 1);
       });
     },
@@ -921,8 +952,8 @@ const catalogue: CatalogueService = {
       orderTypes: input.orderTypes ?? ["dine_in"],
       priority: input.priority ?? 10,
       validFrom: input.validFrom ?? new Date().toISOString().slice(0, 10),
-      validTo: null,
-      recurrence: null,
+      validTo: input.validTo ?? null,
+      recurrence: input.recurrence ?? null,
       entryCount: 0,
       entries: [],
       active: true,
@@ -949,8 +980,11 @@ const catalogue: CatalogueService = {
       tenantId: tenants[0]!.id,
       name: (input.name as Localised) ?? { en: "New recipe", ar: "وصفة جديدة" },
       recipeType: input.recipeType ?? "menu_item",
-      targetId: null,
-      targetName: null,
+      targetId: input.targetId ?? null,
+      targetName: input.targetName ?? null,
+      scope: input.scope ?? "tenant",
+      brandId: input.brandId ?? null,
+      branchId: input.branchId ?? null,
       version: 1,
       status: "draft",
       yieldQuantity: input.yieldQuantity ?? { value: "1.000000", unit: "pc" },
@@ -968,7 +1002,7 @@ const catalogue: CatalogueService = {
   }),
   menus: menusCollection,
 
-  async toggleAvailability(itemId, available, reason) {
+  async toggleAvailability(itemId, available, reason, options) {
     return transport(() => {
       const index = menuItems.findIndex((m) => m.id === itemId);
       if (index === -1) {
@@ -978,6 +1012,8 @@ const catalogue: CatalogueService = {
         ...menuItems[index]!,
         available,
         unavailableReason: available ? null : (reason ?? "Manually 86'd"),
+        // FR-MNU-030 — kept like `Toggle86Dto.autoReenableAt`.
+        autoReenableAt: available ? null : (options?.autoReenableAt ?? null),
       };
       menuItems[index] = updated;
       return updated;
@@ -1295,6 +1331,8 @@ const inventory: InventoryService = {
       costingMethod: input.costingMethod ?? "weighted_average",
       batchTracked: input.batchTracked ?? false,
       expiryTracked: input.expiryTracked ?? false,
+      // FR-INV-023 — FEFO by default where expiry is tracked.
+      batchStrategy: input.batchStrategy ?? (input.expiryTracked ? "fefo" : "fifo"),
       storage: input.storage ?? "ambient",
       shelfLifeDays: input.shelfLifeDays ?? null,
       defaultSupplierId: input.defaultSupplierId ?? null,
@@ -1479,9 +1517,10 @@ const inventory: InventoryService = {
           input.isTrueWaste ?? !CONTROLLED_CATEGORIES.has(reason?.category ?? "storage"),
         value,
         recordedAt: new Date().toISOString(),
-        recordedBy: employees[0]!.id,
-        recordedByName: employees[0]!.name,
-        stationId: null,
+        // FR-INV-056 — who recorded it and at which station, when the caller says.
+        recordedBy: input.recordedBy || employees[0]!.id,
+        recordedByName: (input.recordedByName as Localised | undefined) ?? employees[0]!.name,
+        stationId: input.stationId ?? null,
         // FR-INV-058 — above the threshold this waits for a manager.
         approval:
           Math.abs(value.amount) > MOCK_APPROVAL_THRESHOLD ? "pending" : "not_required",
@@ -1659,6 +1698,103 @@ const inventory: InventoryService = {
         notes: input.notes ?? null,
       });
       return { movementId: id };
+    });
+  },
+
+  // -- Purchasing ------------------------------------------------------------
+
+  /** FR-PRC-032 / FR-PRC-037 — receipt in (with a batch record), return out. */
+  async postPurchaseMovement(input) {
+    return transport(() => {
+      const item = stockItemById(input.itemId);
+      if (!item) throw new ServiceError("NOT_FOUND", "That stock item no longer exists.", 404);
+      const magnitude = Number(input.quantity);
+      if (!(magnitude > 0)) throw new ServiceError("VALIDATION", "A received or returned quantity must be positive.", 400);
+      const signed = input.kind === "return" ? -magnitude : magnitude;
+      const locationName = locationNameOf(input.locationId) ?? { en: "", ar: "" };
+
+      let level = stockLevels.find((row) => row.itemId === item.id && row.locationId === input.locationId);
+      if (!level) {
+        level = {
+          itemId: item.id,
+          itemName: item.name,
+          sku: item.sku,
+          locationId: input.locationId,
+          locationName,
+          onHand: { value: "0", unit: item.baseUnit },
+          allocated: { value: "0", unit: item.baseUnit },
+          onOrder: { value: "0", unit: item.baseUnit },
+          reorderPoint: 0,
+          reorderQuantity: 0,
+          parLevel: 0,
+          unitCost: item.unitCost,
+          value: { amount: 0, currency: item.unitCost.currency },
+          daysOfCover: null,
+          lastCountedAt: null,
+          status: "ok",
+        };
+        stockLevels.push(level);
+      }
+      const after = Number(level.onHand.value) + signed;
+      level.onHand = { value: after.toFixed(3), unit: item.baseUnit };
+      level.value = { amount: Math.round(after * level.unitCost.amount), currency: level.unitCost.currency };
+
+      const unitCost =
+        input.unitCostMinor !== undefined
+          ? { amount: Math.round(Number(input.unitCostMinor)), currency: item.unitCost.currency }
+          : item.unitCost;
+
+      let batchId: Id | null = null;
+      if (input.kind === "receipt" && input.batch?.batchNumber) {
+        batchId = `bat_rcv_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+        const supplier = suppliers.find((row) => row.id === input.batch?.supplierId) ?? null;
+        const expiry = input.batch.expiryDate ?? "9999-12-31";
+        const days = Math.round((Date.parse(`${expiry}T00:00:00Z`) - Date.now()) / 86_400_000);
+        batches.unshift({
+          id: batchId,
+          itemId: item.id,
+          itemName: item.name,
+          locationId: input.locationId,
+          locationName,
+          batchNumber: input.batch.batchNumber,
+          productionDate: input.batch.productionDate,
+          expiryDate: expiry,
+          quantity: { value: magnitude.toFixed(3), unit: item.baseUnit },
+          unitCost,
+          value: { amount: Math.round(unitCost.amount * magnitude), currency: unitCost.currency },
+          supplierId: supplier?.id ?? null,
+          supplierName: supplier?.tradingName ?? null,
+          daysToExpiry: days,
+          status: days < 0 ? "expired" : days <= 2 ? "critical" : days <= 7 ? "expiring" : "fresh",
+        });
+      }
+
+      const id = `mv_prc_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      const now = new Date().toISOString();
+      stockMovements.unshift({
+        id,
+        tenantId: tenants[0]!.id,
+        locationId: input.locationId,
+        locationName,
+        itemId: item.id,
+        itemName: item.name,
+        batchId,
+        movementType: input.kind === "return" ? "purchase_return" : "purchase_receipt",
+        quantity: { value: signed.toFixed(3), unit: item.baseUnit },
+        unitCost,
+        totalCost: { amount: Math.round(unitCost.amount * magnitude), currency: unitCost.currency },
+        balanceAfter: { value: after.toFixed(3), unit: item.baseUnit },
+        referenceType: input.referenceType,
+        referenceId: input.referenceId,
+        counterpartMovementId: null,
+        occurredAt: now,
+        recordedAt: now,
+        performedBy: "",
+        performedByName: { en: "", ar: "" },
+        reasonCode: null,
+        notes: input.notes ?? null,
+      });
+      return { movementId: id, batchId };
     });
   },
 
@@ -2587,6 +2723,7 @@ const production: ProductionService = {
         prepTimeSeconds: input.prepTimeSeconds ?? 0,
         lines: [],
         instructions: input.instructions ?? { en: "", ar: "" },
+        referenceImages: input.referenceImages ?? [],
         effectiveFrom: input.effectiveFrom ?? null,
         createdAt: new Date().toISOString(),
         publishedBy: null,
@@ -2613,7 +2750,7 @@ const production: ProductionService = {
         componentName:
           stockItems.find((item) => item.id === line.stockItemId)?.name ??
           { en: "Component", ar: "مكوّن" },
-        quantity: { value: line.quantity, unit: "g" },
+        quantity: { value: line.quantity, unit: (line.unitId || "g") as UnitCode },
         wastagePercentage: Number(line.wastagePercentage ?? "0"),
         isOptional: line.isOptional ?? false,
         unitCost: { amount: 0, currency: "EGP" },
@@ -2722,16 +2859,39 @@ const demoModifierEffects = new Map<Id, ModifierRecipeEffect[]>();
 export const mockServices: ServiceRegistry = {
   dashboard: dashboardService,
   crm: crmService,
+  workforceHr: workforceHrService,
   settings: settingsService,
   delivery: deliveryService,
   stockProfiles: stockProfileService,
   countReviews: countReviewService,
+  transferRequests: transferRequestService,
+  inventoryControls: inventoryControlService,
   mfa: mfaService,
+  securityEvents: securityEventService,
+  securitySettings: securitySettingsService,
+  dataSubjectRequests: dsrService,
+  tenantLifecycle: tenantLifecycleService,
   conflicts: conflictService,
   anomalyReviews: anomalyReviewService,
+  operatingExpenses: operatingExpenseService,
+  equipmentFaults: equipmentFaultService,
   menuProfiles: menuProfileService,
   modifierNesting: modifierNestingService,
+  modifierPricing: modifierPricingService,
+  menuPricing: menuPricingService,
+  menuAvailability: menuAvailabilityService,
+  menuRecipes: menuRecipesService,
   receiptTemplates: receiptTemplateService,
+  branchNetwork: branchNetworkService,
+  localisation: createLocalisationService(() => countryPacks.map(versionFromPlatformPack)),
+  kdsSetup: kdsSetupService,
+  floorPlans: floorPlanService,
+  dashboardLayouts: dashboardLayoutService,
+  fiscalSequence: fiscalSequenceService,
+  cashAdjustments: cashAdjustmentService,
+  settlements: settlementService,
+  dayCloseConfig: dayCloseConfigService,
+  priceListTax: priceListTaxService,
   centralKitchen: productionService,
   sales,
   production,
@@ -2741,6 +2901,7 @@ export const mockServices: ServiceRegistry = {
   catalogue,
   inventory,
   purchasing,
+  procurement: procurementService,
   costing,
   workforce,
   finance,

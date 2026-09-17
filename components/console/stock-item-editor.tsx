@@ -23,7 +23,11 @@
  * history.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { defaultBatchStrategy, defaultExpiryDate, strategyNeedsWarning } from "@/lib/console/inventory-batches";
+import { receiptPreview } from "@/lib/console/inventory-costing";
+import { formatDate, formatMoney } from "@/lib/console/format";
+import { SegmentedControl } from "@/components/console/ui";
 import { ArrowRightLeft, Lock, Plus, ScanBarcode, Trash2 } from "lucide-react";
 
 import type {
@@ -203,6 +207,8 @@ function EditorForm({
     ...data.profile,
     allergens: data.profile.allergens.length > 0 ? data.profile.allergens : (item?.allergens ?? []),
     categoryPath: data.profile.categoryPath.length > 0 ? data.profile.categoryPath : item ? [item.category.en] : [],
+    // FR-INV-022 — the server's strategy for the item wins over the local profile.
+    batchStrategy: item?.batchStrategy ?? data.profile.batchStrategy,
   }));
   const [policies, setPolicies] = useState<LocationPolicy[]>(() =>
     data.locations.map((location) => {
@@ -296,6 +302,7 @@ function EditorForm({
             shelfLifeDays: core.shelfLifeDays.trim() ? Number(core.shelfLifeDays) : null,
             batchTracked: core.batchTracked,
             expiryTracked: core.expiryTracked,
+            batchStrategy: profile.batchStrategy,
             unitCost:
               core.standardCostMinor !== null
                 ? { amount: core.standardCostMinor, currency: tenant.baseCurrency }
@@ -315,6 +322,7 @@ function EditorForm({
             shelfLifeDays: core.shelfLifeDays.trim() ? Number(core.shelfLifeDays) : null,
             batchTracked: core.batchTracked,
             expiryTracked: core.expiryTracked,
+            batchStrategy: profile.batchStrategy,
             unitCost: { amount: core.standardCostMinor ?? 0, currency: item!.unitCost.currency },
             defaultSupplierId: core.defaultSupplierId,
             active: core.active,
@@ -423,7 +431,10 @@ function EditorForm({
 
         <fieldset disabled={!canManage} className="space-y-4">
           {section === "general" ? (
-            <GeneralSection core={core} setC={setC} locked={coreLocked} suppliers={data.suppliers} currency={tenant.baseCurrency} />
+            <>
+              <GeneralSection core={core} setC={setC} locked={coreLocked} suppliers={data.suppliers} currency={tenant.baseCurrency} />
+              <BatchAndCostingSection core={core} profile={profile} setP={setP} creating={creating} currency={tenant.baseCurrency} />
+            </>
           ) : null}
 
           {section === "units" ? (
@@ -973,6 +984,127 @@ function LevelsSection({
         </table>
       </div>
       <p className="text-fg-subtle text-xs">{t("inv.reorderIsLive")}</p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * FR-INV-022 / FR-INV-023 — consumption strategy; FR-INV-021 — the expiry a
+ * receipt defaults to; FR-INV-012 — what each costing method does to cost.
+ *
+ * The strategy defaults to FEFO the moment expiry tracking is switched on
+ * (and FIFO when it is off) until someone chooses otherwise; choosing FIFO
+ * for an expiry-tracked item is allowed but warned against, because FIFO
+ * and FEFO diverge exactly when a later delivery expires sooner.
+ */
+function BatchAndCostingSection({
+  core,
+  profile,
+  setP,
+  creating,
+  currency,
+}: {
+  core: CoreDraft;
+  profile: StockItemProfile;
+  setP: (patch: Partial<StockItemProfile>) => void;
+  creating: boolean;
+  currency: StockItem["unitCost"]["currency"];
+}) {
+  const { t, tx, fmt } = useI18n();
+  const chosen = useRef(!creating);
+  const first = useRef(true);
+  const [onHand, setOnHand] = useState("100");
+  const [receive, setReceive] = useState("50");
+  const [receiptCost, setReceiptCost] = useState<number | null>(core.standardCostMinor !== null ? Math.round(core.standardCostMinor * 1.1) : null);
+
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    // FR-INV-023 — follow the default until the strategy is chosen by hand.
+    if (!chosen.current) setP({ batchStrategy: defaultBatchStrategy(core.expiryTracked) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [core.expiryTracked]);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const shelfLife = core.shelfLifeDays.trim() ? Number(core.shelfLifeDays) : null;
+  const expiry = defaultExpiryDate({ shelfLifeDays: shelfLife, basis: profile.shelfLifeBasis, receivedOn: today, productionDate: today });
+
+  const current = core.standardCostMinor ?? 0;
+  const preview = receiptPreview({
+    onHandQty: Number(onHand) || 0,
+    onHandUnitCostMinor: current,
+    receivedQty: Number(receive) || 0,
+    receivedUnitCostMinor: receiptCost ?? current,
+    standardCostMinor: current,
+  });
+
+  return (
+    <div className="border-line space-y-4 border-t pt-4">
+      <Field label={t("invx.item.strategy")} hint={t("invx.item.strategyHint")}>
+        <SegmentedControl<"fifo" | "fefo">
+          value={profile.batchStrategy}
+          onChange={(batchStrategy) => {
+            chosen.current = true;
+            setP({ batchStrategy });
+          }}
+          options={[
+            { value: "fefo", label: t("invx.item.fefo") },
+            { value: "fifo", label: t("invx.item.fifo") },
+          ]}
+        />
+      </Field>
+      {strategyNeedsWarning(profile.batchStrategy, core.expiryTracked) ? <Callout tone="warn">{t("invx.item.fifoWarning")}</Callout> : null}
+
+      <Field label={t("invx.item.shelfBasis")} hint={t("invx.item.shelfBasisHint")}>
+        <SegmentedControl<"receipt" | "production">
+          value={profile.shelfLifeBasis}
+          onChange={(shelfLifeBasis) => setP({ shelfLifeBasis })}
+          options={[
+            { value: "receipt", label: t("invx.item.basisReceipt") },
+            { value: "production", label: t("invx.item.basisProduction") },
+          ]}
+        />
+      </Field>
+      <p className="text-fg-muted text-xs">
+        {expiry ? t("invx.item.expiryPreview").replace("{date}", formatDate(expiry, fmt)) : t("invx.item.noShelfLife")}
+      </p>
+
+      <section className="space-y-2">
+        <h3 className="text-fg text-sm font-semibold">{t("invx.item.costPreview")}</h3>
+        <p className="text-fg-subtle text-xs">{t("invx.item.costPreviewHint")}</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label={t("invx.item.onHandQty")}>
+            <Input dir="ltr" inputMode="decimal" value={onHand} onChange={(e) => setOnHand(e.target.value)} />
+          </Field>
+          <Field label={t("invx.item.receiveQty")}>
+            <Input dir="ltr" inputMode="decimal" value={receive} onChange={(e) => setReceive(e.target.value)} />
+          </Field>
+          <Field label={t("invx.item.receiptCost")}>
+            <MoneyInput value={receiptCost} currency={currency} onChange={setReceiptCost} />
+          </Field>
+        </div>
+        <ul className="divide-line border-line divide-y rounded-lg border text-sm">
+          {(Object.keys(preview) as CostingMethod[]).map((method) => (
+            <li key={method} className={cx("flex flex-wrap items-center justify-between gap-2 px-3 py-2", method === core.costingMethod && "bg-accent-soft")}>
+              <span className="text-fg">
+                {tx(COSTING_METHOD[method].label)} {method === core.costingMethod ? <Badge tone="accent">{t("invx.item.selected")}</Badge> : null}
+              </span>
+              <span className="text-fg-muted font-mono text-xs">
+                {t("invx.item.previewLine")
+                  .replace("{cost}", formatMoney({ amount: Math.round(preview[method].unitCostMinor), currency }, fmt))
+                  .replace("{value}", formatMoney({ amount: preview[method].valueMinor, currency }, fmt))}
+                {preview[method].varianceMinor !== 0
+                  ? ` · ${t("invx.item.ppv").replace("{value}", formatMoney({ amount: preview[method].varianceMinor, currency }, fmt))}`
+                  : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   );
 }

@@ -46,7 +46,7 @@ import {
   brands as mockBrands,
   tenants,
 } from "./mock/org";
-import type { FormatOptions } from "./format";
+import type { CalendarDisplay, FormatOptions } from "./format";
 import { tx } from "./format";
 import type { Scope } from "./services";
 import { DATA_MODE } from "@/lib/api/config";
@@ -69,6 +69,8 @@ import { setActiveTenantId } from "./services/tenant-context";
 
 const KEY_LOCALE = "ros.console.locale";
 const KEY_NUMERALS = "ros.console.numerals";
+/** FR-LOC-010 — Gregorian / Hijri / both, per user (this browser). */
+const KEY_CALENDAR = "ros.console.calendar";
 const KEY_THEME = "ros.console.theme";
 const KEY_ROLE = "ros.console.role";
 const KEY_BRAND = "ros.console.brand";
@@ -107,6 +109,9 @@ interface PreferencesValue extends FormatOptions {
   theme: ThemeChoice;
   resolvedTheme: "light" | "dark";
   arabicIndicNumerals: boolean;
+  /** FR-LOC-010 — calendar display; see `CalendarDisplay` in `./format`. */
+  calendar: CalendarDisplay;
+  setCalendar: (calendar: CalendarDisplay) => void;
   setLocale: (locale: Locale) => void;
   setTheme: (theme: ThemeChoice) => void;
   setArabicIndicNumerals: (on: boolean) => void;
@@ -130,6 +135,7 @@ function PreferencesProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemeChoice>("system");
   const [systemDark, setSystemDark] = useState(false);
   const [arabicIndicNumerals, setNumeralsState] = useState(false);
+  const [calendar, setCalendarState] = useState<CalendarDisplay>("gregory");
 
   useEffect(() => {
     const storedLocale = read(KEY_LOCALE);
@@ -142,6 +148,11 @@ function PreferencesProvider({ children }: { children: ReactNode }) {
 
     const storedNumerals = read(KEY_NUMERALS);
     if (storedNumerals !== null) setNumeralsState(storedNumerals === "true");
+
+    const storedCalendar = read(KEY_CALENDAR);
+    if (storedCalendar === "gregory" || storedCalendar === "hijri" || storedCalendar === "both") {
+      setCalendarState(storedCalendar);
+    }
   }, []);
 
   useEffect(() => {
@@ -186,6 +197,11 @@ function PreferencesProvider({ children }: { children: ReactNode }) {
     write(KEY_NUMERALS, String(on));
   }, []);
 
+  const setCalendar = useCallback((next: CalendarDisplay) => {
+    setCalendarState(next);
+    write(KEY_CALENDAR, next);
+  }, []);
+
   const value = useMemo<PreferencesValue>(() => {
     const dictionary = dictionaries[locale];
     const fallback = dictionaries.en;
@@ -195,6 +211,8 @@ function PreferencesProvider({ children }: { children: ReactNode }) {
       theme,
       resolvedTheme,
       arabicIndicNumerals,
+      calendar,
+      setCalendar,
       setLocale,
       setTheme,
       setArabicIndicNumerals,
@@ -208,6 +226,8 @@ function PreferencesProvider({ children }: { children: ReactNode }) {
     theme,
     resolvedTheme,
     arabicIndicNumerals,
+    calendar,
+    setCalendar,
     setLocale,
     setTheme,
     setArabicIndicNumerals,
@@ -235,6 +255,7 @@ export function useI18n() {
     fmt: {
       locale: prefs.locale,
       arabicIndicNumerals: prefs.arabicIndicNumerals,
+      calendar: prefs.calendar,
     } satisfies FormatOptions,
   };
 }

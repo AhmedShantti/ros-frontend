@@ -26,6 +26,7 @@ import { PageBody, PageHeader, Section, TileGrid, Toolbar } from "@/components/c
 import { CategoryBarChart, MetricTile } from "@/components/console/charts";
 import { AsyncPanel, Gate } from "@/components/console/states";
 import { Badge, Callout, Meter, SegmentedControl } from "@/components/console/ui";
+import { WasteInsights } from "@/components/console/costing-waste-insights";
 
 type GroupBy = "reason" | "item" | "location" | "employee";
 
@@ -90,6 +91,9 @@ function WasteAnalysisScreen() {
         </Toolbar>
 
         <AsyncPanel state={rowsState}>{(rows) => <WasteBody rows={rows} />}</AsyncPanel>
+
+        {/* FR-CST-021 / FR-CST-022 / FR-CST-024 — computed from the waste records themselves. */}
+        <WasteInsights />
       </PageBody>
     </>
   );
@@ -120,6 +124,7 @@ function WasteTiles({ totals }: { totals: WasteTotals }) {
       <MetricTile
         label={t("common.percentOfSales")}
         value={formatPercent(totals.percentOfNetSales, fmt, 2)}
+        spec="FR-CST-021"
       />
       <MetricTile
         label={t("cost.revenueToOffset")}

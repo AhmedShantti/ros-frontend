@@ -16,9 +16,13 @@
  *   - The invoice runs the **three-way match** (FR-PRC-041) with the
  *     tolerance for each check shown, because a control whose thresholds are
  *     invisible gets switched off the first time rounding trips it.
+ *
+ * Each form reads the tenant's procurement policy (FR-PRC-001): a skipped
+ * step changes what the form does, and simple mode (FR-PRC-002) turns a
+ * receipt without an order into order and receipt together.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Check, Thermometer, X } from "lucide-react";
 
 import type {
@@ -46,6 +50,12 @@ import {
   newDocumentLine,
   type DocumentLine,
 } from "@/components/console/line-editor";
+import { OrderSourcingChecks, type SourcingVerdict } from "@/components/console/purchasing-sourcing";
+import { FileCapture, ScanField, useActor, usePolicy } from "@/components/console/purchasing-shared";
+import type { StoredFile } from "@/lib/console/services/purchasing-local";
+import { decimalAdd } from "@/lib/console/stock-units";
+import { DEFAULT_POLICY, evaluateMatch } from "@/lib/console/purchasing-rules";
+import { defaultExpiryDate } from "@/lib/console/inventory-batches";
 import {
   Badge,
   Button,
@@ -345,6 +355,10 @@ export function RequisitionDrawer({
   const action = useAction();
   const items = useStockItems();
   const branches = useBranches(scope);
+  const actor = useActor();
+  const { policy } = usePolicy();
+  // FR-PRC-001 — a tenant that skips requisitions raises orders directly.
+  const skipped = policy ? !policy.steps.requisition : false;
 
   const [branchId, setBranchId] = useState<Id>("");
   const [neededBy, setNeededBy] = useState(() => new Date().toISOString().slice(0, 10));
@@ -364,17 +378,19 @@ export function RequisitionDrawer({
     if (!branchId) list.push(t("pur.needBranch"));
     if (usable.length === 0) list.push(t("pur.needLines"));
     if (!neededBy) list.push(t("pur.needDate"));
+    if (skipped) list.push(t("prc.req.skipped"));
     return list;
-  }, [branchId, usable.length, neededBy, t]);
+  }, [branchId, usable.length, neededBy, skipped, t]);
 
   async function submit(status: "draft" | "submitted") {
     if (problems.length > 0) return;
     const branch = branches.find((entry) => entry.id === branchId);
     await action.run(
-      () =>
-        services.purchasing.requisitions.create({
+      async () => {
+        const created = await services.purchasing.requisitions.create({
           branchId,
           branchName: branch?.name,
+          requestedBy: { en: actor.name, ar: actor.name },
           status,
           neededBy,
           notes: notes.trim() || null,
@@ -388,7 +404,11 @@ export function RequisitionDrawer({
               CURRENCY,
             ),
           })),
-        }),
+        });
+        // FR-PRC-019 — who asked, so they cannot also approve it.
+        await services.procurement.recordRequisition(created, actor);
+        return created;
+      },
       {
         onSuccess: () =>
           onSaved(status === "submitted" ? t("pur.requisitionSubmitted") : t("pur.requisitionSaved")),
@@ -429,6 +449,11 @@ export function RequisitionDrawer({
     >
       <div className="space-y-4">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+        {skipped ? (
+          <Callout tone="warn" title={t("prc.req.skippedTitle")}>
+            {t("prc.req.skipped")}
+          </Callout>
+        ) : null}
         <Callout tone="muted">{t("pur.requisitionNote")}</Callout>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -505,6 +530,10 @@ export function PurchaseOrderDrawer({
   const items = useStockItems();
   const suppliers = useSuppliers();
   const locations = useLocations();
+  const actor = useActor();
+  const { policy } = usePolicy();
+  const [verdict, setVerdict] = useState<SourcingVerdict>({ blocked: false, offListCategories: [] });
+  const onVerdict = useCallback((next: SourcingVerdict) => setVerdict(next), []);
 
   const [supplierId, setSupplierId] = useState<Id>("");
   const [locationId, setLocationId] = useState<Id>("");
@@ -538,6 +567,9 @@ export function PurchaseOrderDrawer({
   const totals = documentTotals(usable);
   const tier = tierOf(totals.total);
   const supplier = suppliers.find((entry) => entry.id === supplierId);
+  // FR-PRC-001 — with order approval skipped by policy, every order is approved as raised.
+  const approvalSkipped = policy ? !policy.steps.poApproval : false;
+  const autoApproved = tier === 0 || approvalSkipped;
 
   const belowMinimum =
     supplier && supplier.minimumOrderValue.amount > 0 && totals.subtotal < supplier.minimumOrderValue.amount;
@@ -547,10 +579,11 @@ export function PurchaseOrderDrawer({
     if (!supplierId) list.push(t("pur.needSupplier"));
     if (!locationId) list.push(t("pur.needLocation"));
     if (usable.length === 0) list.push(t("pur.needLines"));
+    if (verdict.blocked) list.push(t("prc.check.blockedByPolicy"));
     return list;
-  }, [supplierId, locationId, usable.length, t]);
+  }, [supplierId, locationId, usable.length, verdict.blocked, t]);
 
-  async function save(status: "draft" | "pending_approval") {
+  async function save(status: "approved" | "pending_approval") {
     if (problems.length > 0) return;
     const location = locations.find((entry) => entry.id === locationId);
 
@@ -562,6 +595,8 @@ export function PurchaseOrderDrawer({
       expectedDelivery: expected,
       status,
       approvalTier: tier,
+      createdBy: order?.createdBy ?? { en: actor.name, ar: actor.name },
+      ...(status === "approved" ? { approvedAt: new Date().toISOString() } : {}),
       subtotal: money(totals.subtotal, CURRENCY),
       taxTotal: money(totals.taxTotal, CURRENCY),
       total: money(totals.total, CURRENCY),
@@ -581,10 +616,17 @@ export function PurchaseOrderDrawer({
     };
 
     await action.run(
-      () =>
-        order
-          ? services.purchasing.orders.update(order.id, payload)
-          : services.purchasing.orders.create(payload),
+      async () => {
+        let saved = order
+          ? await services.purchasing.orders.update(order.id, payload)
+          : await services.purchasing.orders.create(payload);
+        if (status === "approved" && saved.status !== "approved") {
+          saved = await services.purchasing.orders.update(saved.id, { status: "approved", approvedAt: new Date().toISOString() });
+        }
+        // FR-PRC-019 / FR-PRC-010 — the requester, and any off-list category, on the record.
+        await services.procurement.recordSubmission(saved, actor, { offListCategories: verdict.offListCategories });
+        return saved;
+      },
       {
         onSuccess: () =>
           onSaved(
@@ -608,9 +650,9 @@ export function PurchaseOrderDrawer({
             variant="primary"
             loading={action.pending}
             disabled={problems.length > 0}
-            onClick={() => void save(tier === 0 ? "draft" : "pending_approval")}
+            onClick={() => void save(autoApproved ? "approved" : "pending_approval")}
           >
-            {tier === 0 ? t("pur.createOrder") : t("pur.sendForApproval")}
+            {autoApproved ? t("pur.createOrder") : t("pur.sendForApproval")}
           </Button>
           <Button variant="ghost" onClick={onClose}>
             {t("common.cancel")}
@@ -661,6 +703,21 @@ export function PurchaseOrderDrawer({
           emptyHint={t("pur.orderLinesHint")}
         />
 
+        {/* FR-PRC-007 / FR-PRC-010 / FR-PRC-011 — comparative pricing and supplier checks. */}
+        {supplierId ? (
+          <OrderSourcingChecks
+            supplierId={supplierId}
+            lines={lines}
+            items={items}
+            suppliers={suppliers}
+            policy={policy}
+            onVerdict={onVerdict}
+            onUsePrice={(key, unitPriceMinor) =>
+              setLines((current) => current.map((line) => (line.key === key ? { ...line, unitPrice: unitPriceMinor } : line)))
+            }
+          />
+        ) : null}
+
         {belowMinimum && supplier ? (
           <Callout tone="warn" title={t("pur.belowMinimum")}>
             {t("pur.belowMinimumBody").replace(
@@ -675,13 +732,15 @@ export function PurchaseOrderDrawer({
           requester who can see where their order routes stops trying to
           route it, which is the behaviour the control is for.
         */}
-        <Callout tone={tier === 0 ? "good" : "accent"} title={t("pur.approvalRouting")}>
-          {tier === 0
-            ? t("pur.tier0")
-            : t(`pur.tier${tier}` as never).replace(
-                "{amount}",
-                formatMoney(money(totals.total, CURRENCY), fmt),
-              )}
+        <Callout tone={autoApproved ? "good" : "accent"} title={t("pur.approvalRouting")}>
+          {approvalSkipped
+            ? t("prc.po.approvalSkipped")
+            : tier === 0
+              ? t("pur.tier0")
+              : t(`pur.tier${tier}` as never).replace(
+                  "{amount}",
+                  formatMoney(money(totals.total, CURRENCY), fmt),
+                )}
         </Callout>
 
         {problems.length > 0 ? (
@@ -710,9 +769,12 @@ interface ReceiptLineDraft {
   rejectionReason: string;
   batchNumber: string;
   expiryDate: string;
+  /** FR-INV-021 — true once someone typed a date over the shelf-life default. */
+  expiryOverridden: boolean;
   unitPrice: number;
   agreedPrice: number;
   batchTracked: boolean;
+  expiryTracked: boolean;
 }
 
 /** FR-PRC-033 — how far over the ordered quantity may be received untouched. */
@@ -734,6 +796,24 @@ export function ReceivingDrawer({
   const items = useStockItems();
   const suppliers = useSuppliers();
   const locations = useLocations();
+  const actor = useActor();
+  const { policy } = usePolicy();
+  // FR-PRC-002 — simple mode: a receipt without an order records the order too.
+  const simpleMode = policy?.simpleMode ?? false;
+  const receiptSkipped = policy ? !policy.steps.goodsReceipt : false;
+  // FR-PRC-034 — what was scanned at the door, and the supplier's delivery note.
+  const [scans, setScans] = useState<string[]>([]);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [deliveryNote, setDeliveryNote] = useState<StoredFile | null>(null);
+  const [highlight, setHighlight] = useState<string | null>(null);
+  const [receivedOn, setReceivedOn] = useState(() => new Date().toISOString().slice(0, 10));
+  // FR-INV-021 — shelf life counts from receipt or production, per item profile.
+  const profiles = useAsync(() => services.stockProfiles.all().catch(() => []), [open]);
+  const basisByItem = useMemo(
+    () => new Map((profiles.data ?? []).map((profile) => [profile.itemId, profile.shelfLifeBasis])),
+    [profiles.data],
+  );
 
   const orders = useAsync(
     () =>
@@ -769,7 +849,33 @@ export function ReceivingDrawer({
     setLocationId(locations[0]?.id ?? "");
     setTemperature("");
     setLines([]);
+    setScans([]);
+    setScanError(null);
+    setDeliveryNote(null);
+    setHighlight(null);
+    setReceivedOn(new Date().toISOString().slice(0, 10));
   }, [open, suppliers.length, locations.length]);
+
+  /** FR-INV-021 — the expiry a line defaults to from the item's shelf life. */
+  function expiryDefault(itemId: Id, on: string): string {
+    const item = itemsById.get(itemId);
+    if (!item) return "";
+    return (
+      defaultExpiryDate({
+        shelfLifeDays: item.shelfLifeDays,
+        basis: basisByItem.get(itemId) ?? "receipt",
+        receivedOn: on,
+      }) ?? ""
+    );
+  }
+
+  // FR-INV-021 — a new received date re-defaults every line not overridden by hand.
+  useEffect(() => {
+    setLines((current) =>
+      current.map((line) => (line.expiryOverridden ? line : { ...line, expiryDate: expiryDefault(line.itemId, receivedOn) })),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receivedOn, basisByItem]);
 
   /** Picking a PO pre-fills the sheet with what was ordered. */
   useEffect(() => {
@@ -788,10 +894,12 @@ export function ReceivingDrawer({
           rejected: "0",
           rejectionReason: "",
           batchNumber: "",
-          expiryDate: "",
+          expiryDate: expiryDefault(line.itemId, receivedOn),
+          expiryOverridden: false,
           unitPrice: line.unitPrice.amount,
           agreedPrice: line.unitPrice.amount,
           batchTracked: item?.batchTracked ?? false,
+          expiryTracked: item?.expiryTracked ?? false,
         };
       }),
     );
@@ -812,24 +920,57 @@ export function ReceivingDrawer({
     );
   }
 
-  function addAdHocLine(itemId: Id) {
+  /**
+   * FR-PRC-034 — a scan is tried as a barcode (item profiles), then as a SKU.
+   * A hit on the sheet counts one more received; a hit off it adds the line.
+   */
+  async function handleScan(code: string) {
+    setScanError(null);
+    setScanning(true);
+    try {
+      const byBarcode = await services.stockProfiles.findByBarcode(code).catch(() => null);
+      const item =
+        (byBarcode ? itemsById.get(byBarcode.itemId) : undefined) ??
+        items.find((row) => row.sku.toLowerCase() === code.toLowerCase());
+      if (!item) {
+        setScanError(t("prc.grn.scanNoMatch").replace("{code}", code));
+        return;
+      }
+      setScans((current) => [...current, code]);
+      const existing = lines.find((line) => line.itemId === item.id);
+      if (existing) {
+        patchLine(existing.key, { received: decimalAdd(existing.received || "0", "1") });
+        setHighlight(existing.key);
+      } else {
+        addAdHocLine(item.id, "1");
+      }
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  function addAdHocLine(itemId: Id, received = "") {
     const item = itemsById.get(itemId);
     if (!item) return;
+    const key = `adhoc_${Date.now().toString(36)}_${lines.length}`;
+    setHighlight(key);
     setLines((current) => [
       ...current,
       {
-        key: `adhoc_${current.length}`,
+        key,
         itemId,
         itemName: item.name,
         ordered: { value: "0", unit: item.baseUnit },
-        received: "",
+        received,
         rejected: "0",
         rejectionReason: "",
         batchNumber: "",
-        expiryDate: "",
+        expiryDate: expiryDefault(itemId, receivedOn),
+        expiryOverridden: false,
         unitPrice: item.unitCost?.amount ?? 0,
         agreedPrice: item.unitCost?.amount ?? 0,
         batchTracked: item.batchTracked ?? false,
+        expiryTracked: item.expiryTracked ?? false,
       },
     ]);
   }
@@ -839,6 +980,7 @@ export function ReceivingDrawer({
     if (!supplierId) list.push(t("pur.needSupplier"));
     if (!locationId) list.push(t("pur.needLocation"));
     if (lines.length === 0) list.push(t("pur.needReceiptLines"));
+    if (receiptSkipped) list.push(t("prc.grn.skipped"));
     if (needsTemperature && temperature === "") list.push(t("pur.needTemperature"));
     for (const line of lines) {
       if (Number(line.rejected || 0) > 0 && !line.rejectionReason.trim()) {
@@ -853,7 +995,7 @@ export function ReceivingDrawer({
       }
     }
     return list;
-  }, [supplierId, locationId, lines, needsTemperature, temperature, t]);
+  }, [supplierId, locationId, lines, needsTemperature, temperature, receiptSkipped, t]);
 
   const total = lines.reduce(
     (sum, line) => sum + Math.round(Number(line.received || 0) * line.unitPrice),
@@ -883,21 +1025,74 @@ export function ReceivingDrawer({
     }));
 
     await action.run(
-      () =>
-        services.purchasing.receipts.create({
-          purchaseOrderId: order?.id ?? null,
-          purchaseOrderRef: order?.reference ?? null,
+      async () => {
+        let linkedOrder: PurchaseOrder | null = order;
+        // FR-PRC-002 — simple mode: the order is recorded from what arrived,
+        // already received, in the same action as the receipt.
+        if (!order && simpleMode) {
+          const orderLines = receiptLines.map((line, index) => ({
+            id: `pol_${index + 1}`,
+            itemId: line.itemId,
+            itemName: line.itemName,
+            quantity: line.received,
+            receivedQuantity: line.received,
+            unitPrice: line.unitPrice,
+            taxRate: 0,
+            lineTotal: money(Math.round(Number(line.received.value || 0) * line.unitPrice.amount), CURRENCY),
+          }));
+          linkedOrder = await services.purchasing.orders.create({
+            supplierId,
+            supplierName: supplier?.tradingName,
+            deliveryLocationId: locationId,
+            deliveryLocationName: location?.name,
+            expectedDelivery: new Date().toISOString().slice(0, 10),
+            status: "received",
+            createdBy: { en: actor.name, ar: actor.name },
+            lines: orderLines,
+            subtotal: money(total, CURRENCY),
+            taxTotal: money(0, CURRENCY),
+            total: money(total, CURRENCY),
+          });
+          await services.procurement.recordSubmission(linkedOrder, actor, { source: "simple_mode" });
+        }
+        const receipt = await services.purchasing.receipts.create({
+          purchaseOrderId: linkedOrder?.id ?? null,
+          purchaseOrderRef: linkedOrder?.reference ?? null,
           supplierId,
           supplierName: supplier?.tradingName,
           locationId,
           locationName: location?.name,
+          receivedBy: { en: actor.name, ar: actor.name },
+          receivedAt:
+            receivedOn === new Date().toISOString().slice(0, 10)
+              ? new Date().toISOString()
+              : `${receivedOn}T12:00:00.000Z`,
           status: "posted",
           temperatureC: temperatureValue,
           temperatureOk,
           lines: receiptLines,
           total: money(total, CURRENCY),
-        }),
-      { onSuccess: () => onSaved(t("pur.receiptPosted")) },
+        });
+        // FR-PRC-032 — the stock movements (and batch records) for what was accepted.
+        const posting = await services.procurement.postReceipt(
+          receipt,
+          { items, deliveryNote, scans, actor },
+          { ledger: services.inventory },
+        );
+        return { linkedOrder, posting };
+      },
+      {
+        onSuccess: ({ linkedOrder, posting }) => {
+          const failed = posting.legs.filter((leg) => leg.error).length;
+          onSaved(
+            failed > 0
+              ? t("prc.grn.postedWithFailures").replace("{n}", String(failed))
+              : !order && linkedOrder
+                ? t("prc.grn.simplePosted").replace("{ref}", linkedOrder.reference)
+                : t("pur.receiptPosted"),
+          );
+        },
+      },
     );
   }
 
@@ -939,9 +1134,30 @@ export function ReceivingDrawer({
           </Select>
         </Field>
 
-        {!orderId ? (
-          <Callout tone="warn">{t("pur.directReceiptNote")}</Callout>
+        {receiptSkipped ? (
+          <Callout tone="warn" title={t("prc.grn.skippedTitle")}>
+            {t("prc.grn.skipped")}
+          </Callout>
         ) : null}
+
+        {!orderId ? (
+          simpleMode ? (
+            <Callout tone="accent" title={t("prc.policy.simpleActive")}>
+              {t("prc.grn.simpleNote")}
+            </Callout>
+          ) : (
+            <Callout tone="warn">{t("pur.directReceiptNote")}</Callout>
+          )
+        ) : null}
+
+        <Field label={t("prc.grn.receivedOn")} hint={t("prc.grn.receivedOnHint")}>
+          <Input type="date" dir="ltr" value={receivedOn} onChange={(event) => setReceivedOn(event.target.value)} />
+        </Field>
+
+        {/* FR-PRC-034 — scan at the door: wedge scanner or phone camera. */}
+        <Field label={t("prc.grn.scan")} hint={t("prc.grn.scanHint")} error={scanError}>
+          <ScanField onScan={(code) => void handleScan(code)} placeholder={t("prc.grn.scanPlaceholder")} busy={scanning} />
+        </Field>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label={t("pur.supplier")} required>
@@ -1023,7 +1239,7 @@ export function ReceivingDrawer({
                 const priceFlagged = Math.abs(variance) > PRICE_VARIANCE_TOLERANCE;
 
                 return (
-                  <li key={line.key} className="border-line rounded-lg border p-3">
+                  <li key={line.key} className={cx("rounded-lg border p-3", highlight === line.key ? "border-accent" : "border-line")}>
                     <p className="text-fg mb-2 text-sm font-medium">{tx(line.itemName)}</p>
 
                     <div className="grid gap-3 sm:grid-cols-3">
@@ -1081,27 +1297,50 @@ export function ReceivingDrawer({
                       </div>
                     ) : null}
 
-                    {line.batchTracked ? (
+                    {line.batchTracked || line.expiryTracked ? (
                       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        <Field label={t("inv.batchNumber")} required>
-                          <Input
-                            dir="ltr"
-                            value={line.batchNumber}
-                            onChange={(event) =>
-                              patchLine(line.key, { batchNumber: event.target.value })
-                            }
-                            className="font-mono"
-                          />
-                        </Field>
-                        <Field label={t("inv.expiryDate")} hint={t("pur.expiryHint")}>
-                          <Input
-                            type="date"
-                            dir="ltr"
-                            value={line.expiryDate}
-                            onChange={(event) =>
-                              patchLine(line.key, { expiryDate: event.target.value })
-                            }
-                          />
+                        {line.batchTracked ? (
+                          <Field label={t("inv.batchNumber")} required>
+                            <Input
+                              dir="ltr"
+                              value={line.batchNumber}
+                              onChange={(event) =>
+                                patchLine(line.key, { batchNumber: event.target.value })
+                              }
+                              className="font-mono"
+                            />
+                          </Field>
+                        ) : null}
+                        {/* FR-INV-021 — defaulted from shelf life, overridable. */}
+                        <Field
+                          label={t("inv.expiryDate")}
+                          hint={
+                            !line.expiryOverridden && line.expiryDate
+                              ? t("prc.grn.expiryDefaulted")
+                              : t("pur.expiryHint")
+                          }
+                        >
+                          <div className="flex gap-2">
+                            <Input
+                              type="date"
+                              dir="ltr"
+                              value={line.expiryDate}
+                              onChange={(event) =>
+                                patchLine(line.key, { expiryDate: event.target.value, expiryOverridden: true })
+                              }
+                            />
+                            {line.expiryOverridden && expiryDefault(line.itemId, receivedOn) ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  patchLine(line.key, { expiryDate: expiryDefault(line.itemId, receivedOn), expiryOverridden: false })
+                                }
+                              >
+                                {t("prc.grn.expiryReset")}
+                              </Button>
+                            ) : null}
+                          </div>
                         </Field>
                       </div>
                     ) : null}
@@ -1129,6 +1368,11 @@ export function ReceivingDrawer({
             </Field>
           </div>
         </section>
+
+        {/* FR-PRC-034 — the supplier's delivery note, photographed. */}
+        <Field label={t("prc.grn.deliveryNote")} hint={t("prc.grn.deliveryNoteHint")}>
+          <FileCapture value={deliveryNote} onChange={setDeliveryNote} label={t("prc.grn.captureNote")} />
+        </Field>
 
         <DescList>
           <DescRow label={t("doc.total")} mono>
@@ -1198,6 +1442,7 @@ export function InvoiceDrawer({
     setNumber("");
     setSubtotalMinor(null);
     setTaxMinor(null);
+    setPrintedTotalMinor(null);
   }, [open, suppliers.length]);
 
   useEffect(() => {
@@ -1206,45 +1451,57 @@ export function InvoiceDrawer({
     setSubtotalMinor(receipt.total.amount);
   }, [receipt?.id]);
 
-  const statedTotal = (subtotalMinor ?? 0) + (taxMinor ?? 0);
+  // The total as printed on the invoice; blank means "same as computed".
+  const [printedTotalMinor, setPrintedTotalMinor] = useState<number | null>(null);
+  const statedTotal = printedTotalMinor ?? (subtotalMinor ?? 0) + (taxMinor ?? 0);
+  const actor = useActor();
+  const { policy } = usePolicy();
+  const tolerances = policy?.tolerances ?? DEFAULT_POLICY.tolerances;
+  const matchSkipped = policy ? !policy.steps.threeWayMatch : false;
+  const paymentApprovalSkipped = policy ? !policy.steps.paymentApproval : false;
 
   /**
-   * FR-PRC-041 — the three-way match, with each tolerance stated.
+   * FR-PRC-041 / FR-PRC-042 — the three-way match against the tenant's
+   * tolerances (procurement policy), each one stated beside its check.
    *
    * The tolerances are shown because a control whose thresholds are invisible
-   * is one that gets disabled the first time rounding trips it. Quantity is
-   * exact, unit price may drift 2%, totals must land within a minor unit.
+   * is one that gets disabled the first time rounding trips it. The order-side
+   * value is the received quantity at the agreed price, recovered from each
+   * receipt line's recorded price variance.
    */
-  const checks = useMemo<MatchCheck[]>(() => {
+  const checkResults = useMemo(() => {
     if (!receipt) return [];
-    const receiptTotal = receipt.total.amount;
-    const priceDrift =
-      receiptTotal > 0 ? Math.abs(((subtotalMinor ?? 0) - receiptTotal) / receiptTotal) * 100 : 0;
+    const agreedValue = receipt.lines.reduce((sum, line) => {
+      const agreed = line.unitPrice.amount / (1 + (line.priceVariancePercent || 0) / 100);
+      return sum + Math.round(Number(line.received.value || 0) * agreed);
+    }, 0);
+    return evaluateMatch({
+      receiptValueMinor: receipt.total.amount,
+      orderValueMinor: receipt.purchaseOrderId ? agreedValue : null,
+      invoiceSubtotalMinor: subtotalMinor ?? 0,
+      invoiceTaxMinor: taxMinor ?? 0,
+      invoiceTotalMinor: statedTotal,
+      tolerances,
+    });
+  }, [receipt, subtotalMinor, taxMinor, statedTotal, tolerances]);
 
-    return [
-      {
-        label: t("pur.checkQuantity"),
-        expected: formatMoney(receipt.total, fmt),
-        stated: formatMoney(money(subtotalMinor ?? 0, CURRENCY), fmt),
-        tolerance: t("pur.toleranceExact"),
-        ok: (subtotalMinor ?? 0) === receiptTotal,
-      },
-      {
-        label: t("pur.checkPrice"),
-        expected: `±2%`,
-        stated: `${priceDrift.toFixed(1)}%`,
-        tolerance: "2%",
-        ok: priceDrift <= 2,
-      },
-      {
-        label: t("pur.checkTotal"),
-        expected: formatMoney(money((subtotalMinor ?? 0) + (taxMinor ?? 0), CURRENCY), fmt),
-        stated: formatMoney(money(statedTotal, CURRENCY), fmt),
-        tolerance: t("pur.toleranceMinorUnit"),
-        ok: Math.abs(statedTotal - ((subtotalMinor ?? 0) + (taxMinor ?? 0))) <= 1,
-      },
-    ];
-  }, [receipt, subtotalMinor, taxMinor, statedTotal, t, fmt]);
+  const checks = useMemo<MatchCheck[]>(
+    () =>
+      checkResults.map((result) => ({
+        label: t(result.check === "quantity" ? "pur.checkQuantity" : result.check === "price" ? "pur.checkPrice" : "pur.checkTotal"),
+        expected: formatMoney(money(result.expected, CURRENCY), fmt),
+        stated:
+          result.check === "total"
+            ? formatMoney(money(result.stated, CURRENCY), fmt)
+            : `${result.drift.toFixed(1)}%`,
+        tolerance:
+          result.check === "total"
+            ? t("prc.tol.minorUnits").replace("{n}", String(result.tolerance))
+            : `±${result.tolerance}%`,
+        ok: result.ok,
+      })),
+    [checkResults, t, fmt],
+  );
 
   const matched = checks.length > 0 && checks.every((check) => check.ok);
 
@@ -1264,23 +1521,48 @@ export function InvoiceDrawer({
       .toISOString()
       .slice(0, 10);
 
+    // FR-PRC-042 — within tolerance is eligible for payment approval; outside
+    // it the invoice enters dispute. FR-PRC-001 — skipped steps move it along.
+    const inTolerance = receipt ? matched : false;
+    const status: SupplierInvoice["status"] = matchSkipped
+      ? paymentApprovalSkipped
+        ? "approved_for_payment"
+        : "recorded"
+      : receipt
+        ? inTolerance
+          ? paymentApprovalSkipped
+            ? "approved_for_payment"
+            : "matched"
+          : "disputed"
+        : "recorded";
+
     await action.run(
-      () =>
-        services.purchasing.invoices.create({
+      async () => {
+        const created = await services.purchasing.invoices.create({
           supplierInvoiceNumber: number.trim(),
           supplierId,
           supplierName: supplier?.tradingName,
           goodsReceiptId: receipt?.id ?? null,
           goodsReceiptRef: receipt?.reference ?? null,
           purchaseOrderRef: receipt?.purchaseOrderRef ?? null,
-          status: receipt ? (matched ? "matched" : "disputed") : "recorded",
-          matchResult: receipt ? (matched ? "matched" : "disputed") : "unmatched",
+          status,
+          matchResult: receipt && !matchSkipped ? (matched ? "matched" : "disputed") : "unmatched",
           invoiceDate,
           dueDate: due,
           subtotal: money(subtotalMinor ?? 0, CURRENCY),
           taxTotal: money(taxMinor ?? 0, CURRENCY),
           total: money(statedTotal, CURRENCY),
-        }),
+        });
+        await services.procurement.recordInvoiceReview(
+          created,
+          {
+            checks: checkResults.map((row) => ({ check: row.check, drift: row.drift, tolerance: row.tolerance, ok: row.ok })),
+            captureId: null,
+          },
+          actor,
+        );
+        return created;
+      },
       {
         onSuccess: () =>
           onSaved(
@@ -1379,6 +1661,12 @@ export function InvoiceDrawer({
             />
           </Field>
         </div>
+
+        <Field label={t("prc.inv.printedTotal")} hint={t("prc.inv.printedTotalHint")}>
+          <MoneyInput value={printedTotalMinor} currency={CURRENCY} onChange={setPrintedTotalMinor} aria-label={t("prc.inv.printedTotal")} />
+        </Field>
+
+        {matchSkipped ? <Callout tone="warn">{t("prc.inv.matchSkipped")}</Callout> : null}
 
         {receipt ? (
           <section>

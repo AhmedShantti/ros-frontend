@@ -14,6 +14,7 @@
  */
 
 import type { CountryCode, Id, IsoDateTime, Localised } from "./types";
+import { packFor, packString, type PackKey, type PackLanguage } from "./locale-packs";
 
 export type ReceiptLayout = "ar" | "en" | "ar_en" | "en_ar";
 
@@ -123,8 +124,35 @@ function languages(layout: ReceiptLayout): ("ar" | "en")[] {
   }
 }
 
-function pick(value: Localised, language: "ar" | "en"): string {
-  return value[language]?.trim() || value[language === "ar" ? "en" : "ar"] || "";
+/**
+ * FR-LOC-009 — authored template text exists only in English and Arabic, so a
+ * pack language (Urdu, French…) prints the English side of it; labels come
+ * from the pack itself.
+ */
+function pick(value: Localised, language: PackLanguage): string {
+  if (language === "ar" || language === "en") {
+    return value[language]?.trim() || value[language === "ar" ? "en" : "ar"] || "";
+  }
+  return value.en?.trim() || value.ar || "";
+}
+
+/** A receipt label key from the old table mapped onto the pack's `r.*` keys. */
+const LABEL_KEYS: Record<string, PackKey> = {
+  order: "r.order",
+  cashier: "r.cashier",
+  table: "r.table",
+  customer: "r.customer",
+  subtotal: "r.subtotal",
+  total: "r.total",
+  vatNo: "r.vatNo",
+  points: "r.points",
+  tax: "r.tax",
+};
+
+function label(name: keyof typeof LABELS, language: PackLanguage): string {
+  // en/ar keep the hand-tuned receipt table; other languages read the pack.
+  if (language === "en" || language === "ar") return pick(LABELS[name]!, language);
+  return packString(language, LABEL_KEYS[name]!);
 }
 
 /** Left text, right amount, padded to the paper — reversed for Arabic by `dir`. */
@@ -156,29 +184,42 @@ export function renderReceipt(
   layout: ReceiptLayout,
   zatcaPayload: string | null,
 ): ReceiptLine[] {
+  return renderReceiptIn(template, input, languages(layout), zatcaPayload);
+}
+
+/**
+ * FR-LOC-008 / FR-LOC-009 — the receipt in any one or two pack languages, in
+ * print order. Direction follows each language's pack (Urdu prints RTL).
+ */
+export function renderReceiptIn(
+  template: ReceiptTemplate,
+  input: ReceiptInput,
+  printLanguages: PackLanguage[],
+  zatcaPayload: string | null,
+): ReceiptLine[] {
   const columns = columnsFor(template.paperWidth);
-  const langs = languages(layout);
+  const langs: PackLanguage[] = printLanguages.length > 0 ? printLanguages : ["en"];
   const out: ReceiptLine[] = [];
-  const text = (value: string, language: "ar" | "en", align: "start" | "center" | "end" = "start", bold = false) =>
+  const text = (value: string, language: PackLanguage, align: "start" | "center" | "end" = "start", bold = false) =>
     wrap(value, columns).forEach((chunk) =>
-      out.push({ kind: "text", text: chunk, align, dir: language === "ar" ? "rtl" : "ltr", bold }),
+      out.push({ kind: "text", text: chunk, align, dir: packFor(language).dir, bold }),
     );
-  const each = (fn: (language: "ar" | "en") => void) => langs.forEach(fn);
+  const each = (fn: (language: PackLanguage) => void) => langs.forEach(fn);
 
   if (template.logo) out.push({ kind: "logo" });
   each((language) => text(pick(template.legalName, language), language, "center", true));
   if (template.taxRegistration) {
-    each((language) => text(`${pick(LABELS.vatNo!, language)} ${template.taxRegistration}`, language, "center"));
+    each((language) => text(`${label("vatNo", language)} ${template.taxRegistration}`, language, "center"));
   }
   for (const line of template.header) each((language) => text(pick(line, language), language, "center"));
   out.push({ kind: "rule" });
 
   if (template.show.orderNumber) {
-    each((language) => text(pair(`${pick(LABELS.order!, language)} ${input.orderNumber}`, input.issuedAt.slice(0, 16).replace("T", " "), columns), language));
+    each((language) => text(pair(`${label("order", language)} ${input.orderNumber}`, input.issuedAt.slice(0, 16).replace("T", " "), columns), language));
   }
-  if (template.show.cashier) each((language) => text(`${pick(LABELS.cashier!, language)}: ${input.cashier}`, language));
-  if (template.show.table && input.table) each((language) => text(`${pick(LABELS.table!, language)}: ${input.table}`, language));
-  if (template.show.customer && input.customer) each((language) => text(`${pick(LABELS.customer!, language)}: ${input.customer}`, language));
+  if (template.show.cashier) each((language) => text(`${label("cashier", language)}: ${input.cashier}`, language));
+  if (template.show.table && input.table) each((language) => text(`${label("table", language)}: ${input.table}`, language));
+  if (template.show.customer && input.customer) each((language) => text(`${label("customer", language)}: ${input.customer}`, language));
   out.push({ kind: "rule" });
 
   for (const line of input.lines) {
@@ -193,14 +234,14 @@ export function renderReceipt(
   }
   out.push({ kind: "rule" });
 
-  each((language) => text(pair(pick(LABELS.subtotal!, language), input.subtotal, columns), language));
+  each((language) => text(pair(label("subtotal", language), input.subtotal, columns), language));
   if (template.show.taxBreakdown) {
     for (const tax of input.taxes) each((language) => text(pair(pick(tax.label, language), tax.amount, columns), language));
   }
-  each((language) => text(pair(pick(LABELS.total!, language), `${input.total} ${input.currency}`, columns), language, "start", true));
+  each((language) => text(pair(label("total", language), `${input.total} ${input.currency}`, columns), language, "start", true));
 
   if (template.show.loyalty && input.loyaltyPoints !== null) {
-    each((language) => text(pair(pick(LABELS.points!, language), String(input.loyaltyPoints), columns), language));
+    each((language) => text(pair(label("points", language), String(input.loyaltyPoints), columns), language));
   }
 
   if (template.footer.length > 0) out.push({ kind: "rule" });
@@ -218,6 +259,85 @@ export function renderReceipt(
       ].join("\n"),
     });
   }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Kitchen ticket — FR-LOC-008 / FR-LOC-009
+// ---------------------------------------------------------------------------
+
+export interface KitchenTicketInput {
+  orderNumber: string;
+  orderType: "dine_in" | "takeaway" | "delivery";
+  table: string | null;
+  guests: number | null;
+  server: string | null;
+  firedAt: IsoDateTime;
+  kind: "new" | "amendment" | "void";
+  held?: boolean;
+  rush?: boolean;
+  lines: {
+    quantity: number;
+    name: Localised;
+    /** Per-language kitchen names beyond en/ar, when the menu carries them. */
+    names?: Partial<Record<PackLanguage, string>>;
+    seat?: number | null;
+    course?: number | null;
+    allergy?: string | null;
+    modifiers: { kind: "no" | "extra" | "note"; text: Localised; texts?: Partial<Record<PackLanguage, string>> }[];
+  }[];
+}
+
+/**
+ * FR-LOC-008 / FR-LOC-009 — the kitchen ticket in the kitchen's own language,
+ * independent of the receipt and the console. Every fixed word ("ADDITION",
+ * "ALLERGY", "No") comes from the translation pack; item names use the
+ * language's own name when one exists and fall back to English otherwise.
+ */
+export function renderKitchenTicket(
+  input: KitchenTicketInput,
+  language: PackLanguage,
+  paperWidth: ReceiptTemplate["paperWidth"],
+): ReceiptLine[] {
+  const columns = columnsFor(paperWidth);
+  const dir = packFor(language).dir;
+  const s = (key: PackKey) => packString(language, key);
+  const named = (value: Localised, names?: Partial<Record<PackLanguage, string>>) =>
+    names?.[language]?.trim() || pick(value, language);
+  const out: ReceiptLine[] = [];
+  const text = (value: string, align: "start" | "center" | "end" = "start", bold = false) =>
+    wrap(value, columns).forEach((chunk) => out.push({ kind: "text", text: chunk, align, dir, bold }));
+
+  if (input.kind === "amendment") text(`*** ${s("k.amendment")} ***`, "center", true);
+  if (input.kind === "void") text(`*** ${s("k.void")} ***`, "center", true);
+  if (input.held) text(`[ ${s("k.held")} ]`, "center", true);
+  if (input.rush) text(`!! ${s("k.rush")} !!`, "center", true);
+
+  const typeKey: PackKey = input.orderType === "dine_in" ? "k.dineIn" : input.orderType === "takeaway" ? "k.takeaway" : "k.delivery";
+  text(pair(`${s("k.order")} ${input.orderNumber}`, input.firedAt.slice(11, 16), columns), "start", true);
+  text(s(typeKey), "start", true);
+  if (input.table) text(`${s("k.table")}: ${input.table}`);
+  if (input.guests !== null) text(`${s("k.guests")}: ${input.guests}`);
+  if (input.server) text(`${s("k.server")}: ${input.server}`);
+  out.push({ kind: "rule" });
+
+  let course: number | null | undefined;
+  for (const line of input.lines) {
+    if (line.course && line.course !== course) {
+      course = line.course;
+      text(`-- ${s("k.course")} ${line.course} --`, "center");
+    }
+    const seat = line.seat ? ` (${s("k.seat")} ${line.seat})` : "";
+    text(`${line.quantity} x ${named(line.name, line.names)}${seat}`, "start", true);
+    for (const modifier of line.modifiers) {
+      const body = named(modifier.text, modifier.texts);
+      const prefix = modifier.kind === "no" ? s("k.no") : modifier.kind === "extra" ? s("k.extra") : `${s("k.note")}:`;
+      text(`   ${prefix} ${body}`);
+    }
+    if (line.allergy) text(`   !! ${s("k.allergy")}: ${line.allergy}`, "start", true);
+  }
+  out.push({ kind: "rule" });
+  text(`${s("k.fired")} ${input.firedAt.slice(0, 16).replace("T", " ")}`, "center");
   return out;
 }
 

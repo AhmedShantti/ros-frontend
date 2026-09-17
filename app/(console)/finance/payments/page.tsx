@@ -25,14 +25,16 @@ import { useLive } from "@/lib/console/live/store";
 import { services } from "@/lib/console/services";
 import { useAsync } from "@/lib/console/hooks";
 import { DATA_MODE } from "@/lib/api/config";
-import { formatMoney, formatPercent, money, percentOf } from "@/lib/console/format";
+import { formatDate, formatMoney, formatPercent, money, percentOf } from "@/lib/console/format";
+import { dailyTenderTotals } from "@/lib/console/finance-tenders";
+import { TenderTotalsTable } from "@/components/console/finance-tenders";
 import { TENDER_TYPE } from "@/lib/console/labels";
 import { DataTable, type Column } from "@/components/console/data-table";
-import { PageBody, PageHeader, TileGrid } from "@/components/console/page";
+import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/page";
 import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
 import { MetricTile, MixDonut } from "@/components/console/charts";
 import { ErrorPanel, LoadingPanel } from "@/components/console/states";
-import { Card, CardHeader, Meter } from "@/components/console/ui";
+import { Callout, Card, CardHeader, Meter } from "@/components/console/ui";
 
 interface Row {
   tender: TenderType;
@@ -85,6 +87,11 @@ export default function PaymentsPage() {
       currency: currencyCode as "EGP" | "SAR" | "AED",
     };
   }, [state]);
+
+  const daily = useMemo(
+    () => dailyTenderTotals(state.orderIds.flatMap((id) => (state.orders[id] ? [state.orders[id]!] : []))),
+    [state.orderIds, state.orders],
+  );
 
   const { rows, total, currency } = useMemo(() => {
     if (!live) return device;
@@ -219,6 +226,22 @@ export default function PaymentsPage() {
               rowKey={(row) => row.tender}
               caption={t("fin.paymentsTitle")}
             />
+
+            {/* FR-FIN-010 — per business day, card by scheme and wallet by provider. */}
+            {live ? (
+              <Callout tone="muted">{t("fnc.liveNoSchemeSplit")}</Callout>
+            ) : (
+              <Section title={t("fnc.tenderByDay")} spec="FR-FIN-010">
+                <div className="space-y-4">
+                  {daily.map((entry) => (
+                    <div key={entry.day}>
+                      <p className="text-fg mb-2 text-sm font-medium">{formatDate(entry.day, fmt)}</p>
+                      <TenderTotalsTable rows={entry.totals.rows} currency={entry.totals.currency ?? currency} />
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
           </>
         )}
       </PageBody>

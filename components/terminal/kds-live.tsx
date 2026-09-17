@@ -32,7 +32,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChefHat, Check, RotateCcw, Timer, Utensils } from "lucide-react";
+import { Ban, ChefHat, Check, ImageIcon, LayoutList, ListOrdered, RotateCcw, Timer, Utensils } from "lucide-react";
 
 import type { Id, KitchenTicket, TicketUrgency } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
@@ -40,13 +40,38 @@ import type { StationQueue } from "@/lib/console/services/types";
 import { useAsync, useStations } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
-import { useNow, elapsedSince } from "@/lib/console/live/store";
+import { useLive, useNow, elapsedSince } from "@/lib/console/live/store";
 import { formatElapsed } from "@/lib/console/format";
 import { ORDER_TYPE, TICKET_URGENCY } from "@/lib/console/labels";
 import { urgencyFor } from "@/lib/console/live/engine";
+import {
+  allDayCounts,
+  cancelledLineVisible,
+  capacityReading,
+  sortTickets,
+  stationSetupOf,
+  type KdsSortMode,
+} from "@/lib/console/live/kds";
 import { getKdsStationId, setKdsStationId } from "@/lib/api/session";
 import { ErrorPanel } from "@/components/console/states";
 import { HoldToBump } from "@/components/terminal/chrome";
+import { KdsSoundControl, useKdsSound } from "@/components/terminal/kds-audio";
+import { useKdsAlerts } from "@/components/terminal/kds-alerts";
+import { useKdsDevicePrefs } from "@/components/terminal/kds-prefs";
+import {
+  AllDayBoard,
+  AllDayList,
+  ArmedHint,
+  CapacityBanner,
+  ItemPicture,
+  KDS_ITEM_TEXT,
+  KDS_QTY_TEXT,
+  SortPicker,
+  TimelineButton,
+  TimelineSheet,
+  useArmedTap,
+  useItemVisuals,
+} from "@/components/terminal/kds-parts";
 import {
   Badge,
   Button,
@@ -67,6 +92,9 @@ const UNSUPPORTED_KEYS = [
   "kds.unsupportedPriority",
   "kds.unsupportedCancelReason",
   "kds.unsupportedStagger",
+  "kdsView.unsupportedAmend",
+  "kdsView.unsupportedItemTarget",
+  "kdsView.unsupportedTimeline",
 ] as const;
 
 const URGENCY_CARD: Record<TicketUrgency, string> = {
@@ -87,6 +115,12 @@ export function LiveKds() {
   const { t, tx } = useI18n();
   const { scope } = useSession();
   const now = useNow(1000);
+  const sound = useKdsSound();
+  const visuals = useItemVisuals();
+  const prefs = useKdsDevicePrefs();
+  // The console's kitchen-display setup, mirrored into the store on this device.
+  const setup = useLive().state.kdsSetup;
+  const iconMode = prefs.iconMode ?? setup.iconMode;
 
   const stations = useStations(scope);
 
@@ -97,6 +131,8 @@ export function LiveKds() {
    */
   const [mounted, setMounted] = useState(false);
   const [stationId, setStation] = useState<Id | null>(null);
+  const [view, setView] = useState<"tickets" | "allday">("tickets");
+  const [timelineOf, setTimelineOf] = useState<KitchenTicket | null>(null);
 
   useEffect(() => {
     setStation(getKdsStationId());
@@ -147,7 +183,8 @@ export function LiveKds() {
   }, [stationId, action.pending, reload]);
 
   /*
-   * FR-KDS-021 — record that these tickets have been seen on this station.
+   * FR-KDS-040 — record that these tickets have been seen on this station
+   * (the server's first-viewed moment).
    *
    * The acknowledgement is write-once on the server, so re-sending an id is
    * harmless and returns zero. This tracks what has already been sent only to
@@ -180,13 +217,35 @@ export function LiveKds() {
     acknowledged.current = new Set();
   }, [stationId]);
 
+  // FR-KDS-023 — the server reads FIFO only; the station's configured order is applied here.
+  const sortMode: KdsSortMode = stationSetupOf(setup, stationId).sort;
+
   const active = useMemo(
     () =>
-      tickets
-        .filter((ticket) => ticket.state !== "bumped")
-        .sort((a, b) => new Date(a.firedAt).getTime() - new Date(b.firedAt).getTime()),
-    [tickets],
+      sortTickets(
+        tickets.filter((ticket) => ticket.state !== "bumped"),
+        sortMode,
+        now,
+        setup.orderTypePriority,
+      ),
+    [tickets, sortMode, now, setup.orderTypePriority],
   );
+
+  const station = stations.find((row) => row.id === stationId) ?? null;
+
+  // FR-KDS-045 — queued items against the station's throughput for the next 15 minutes.
+  const capacity = useMemo(
+    () => capacityReading(active, station?.capacityPerHour ?? 0, stationSetupOf(setup, stationId)),
+    [active, station, setup, stationId],
+  );
+
+  const flashing = useKdsAlerts({
+    tickets: active,
+    nowMs: now,
+    alerts: setup.alerts,
+    overCapacity: capacity.over,
+    play: sound.play,
+  });
 
   /**
    * FR-KDS-025 — what can still be pulled back.
@@ -207,18 +266,21 @@ export function LiveKds() {
       .slice(0, 4);
   }, [tickets, queue.data, now]);
 
-  const allDay = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const ticket of active) {
-      for (const line of ticket.lines) {
-        if (line.state === "ready" || line.state === "voided") continue;
-        counts.set(line.name.en, (counts.get(line.name.en) ?? 0) + line.quantity);
-      }
-    }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
-  }, [active]);
+  // FR-KDS-030 — localised, and split into startable and not.
+  const allDay = useMemo(() => allDayCounts(active, now), [active, now]);
 
-  const station = stations.find((row) => row.id === stationId) ?? null;
+  async function changeSort(next: KdsSortMode) {
+    if (!stationId) return;
+    try {
+      await services.kdsSetup.save({
+        ...setup,
+        stations: { ...setup.stations, [stationId]: { ...stationSetupOf(setup, stationId), sort: next } },
+      });
+      setMessage(t("kdsView.sortSaved").replace("{station}", station ? tx(station.name) : ""));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : t("kdsView.sortNotSaved"));
+    }
+  }
 
   // --- gates -------------------------------------------------------------
 
@@ -250,15 +312,46 @@ export function LiveKds() {
           <ChefHat size={12} aria-hidden />
           {station ? tx(station.name) : t("term.station")}
         </Badge>
-        <span className="text-fg-subtle text-xs tabular-nums">
+        <span className="text-fg-subtle text-sm tabular-nums">
           {t("kds.queue")} {active.length}
         </span>
+        <button
+          type="button"
+          aria-pressed={view === "allday"}
+          onClick={() => setView(view === "allday" ? "tickets" : "allday")}
+          className={cx(
+            "inline-flex min-h-12 items-center gap-2 rounded-lg border px-3 text-sm font-medium",
+            view === "allday" ? "border-accent bg-accent-soft text-accent" : "border-line bg-raised text-fg-muted",
+          )}
+        >
+          {view === "allday" ? <LayoutList size={18} aria-hidden /> : <ListOrdered size={18} aria-hidden />}
+          {view === "allday" ? t("kdsView.showTickets") : t("kds.allDay")}
+        </button>
+        {view === "tickets" ? (
+          <SortPicker value={sortMode} onChange={(next) => void changeSort(next)} note={t("kdsView.sortStationNote")} />
+        ) : null}
         <div className="flex-1" />
         {action.pending ? <Spinner /> : null}
-        <Button size="sm" variant="ghost" onClick={() => chooseStation(null)}>
+        {/* FR-KDS-031 */}
+        <button
+          type="button"
+          aria-pressed={iconMode}
+          onClick={() => prefs.setIconMode(!iconMode)}
+          className={cx(
+            "inline-flex min-h-12 items-center gap-2 rounded-lg border px-3 text-sm font-medium",
+            iconMode ? "border-accent bg-accent-soft text-accent" : "border-line bg-raised text-fg-muted",
+          )}
+        >
+          <ImageIcon size={18} aria-hidden />
+          {t("kdsView.iconMode")}
+        </button>
+        <KdsSoundControl sound={sound} />
+        <Button className="min-h-12" variant="ghost" onClick={() => chooseStation(null)}>
           {t("kds.changeStation")}
         </Button>
       </div>
+
+      <CapacityBanner reading={capacity} stationName={station ? tx(station.name) : ""} />
 
       {queue.error ? (
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -268,6 +361,8 @@ export function LiveKds() {
         <div className="text-fg-muted flex flex-1 items-center justify-center gap-2 text-sm">
           <Spinner /> {t("term.loading")}
         </div>
+      ) : view === "allday" ? (
+        <AllDayBoard rows={allDay} iconMode={iconMode} visuals={visuals} />
       ) : (
         <div className="flex min-h-0 flex-1">
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
@@ -286,8 +381,12 @@ export function LiveKds() {
                     key={ticket.id}
                     ticket={ticket}
                     now={now}
+                    iconMode={iconMode}
+                    visuals={visuals}
+                    flashing={flashing.has(ticket.id)}
                     cancelledVisibleFor={queue.data?.cancelledLineVisibilitySeconds ?? null}
                     pending={action.pending}
+                    onTimeline={() => setTimelineOf(ticket)}
                     onStartLine={(lineId) =>
                       action.run(() => services.kitchen.startLine(ticket.id, lineId), {
                         onSuccess: queue.reload,
@@ -310,32 +409,16 @@ export function LiveKds() {
             )}
           </div>
 
-          <aside className="border-line bg-raised hidden w-60 shrink-0 flex-col overflow-y-auto border-s p-3 lg:flex">
-            <h2 className="text-fg text-xs font-semibold">{t("kds.allDay")}</h2>
-            <p className="text-fg-subtle mt-0.5 mb-2 text-[0.68rem] leading-relaxed">
-              {t("kds.allDayNote")}
-            </p>
-            {allDay.length === 0 ? (
-              <p className="text-fg-subtle text-xs">—</p>
-            ) : (
-              <ul className="space-y-1">
-                {allDay.map(([name, count]) => (
-                  <li
-                    key={name}
-                    className="border-line flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5"
-                  >
-                    <span className="text-fg min-w-0 truncate text-xs">{name}</span>
-                    <span className="text-fg text-base font-bold tabular-nums">{count}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+          <aside className="border-line bg-raised hidden w-72 shrink-0 flex-col overflow-y-auto border-s p-3 lg:flex">
+            <h2 className="text-fg text-sm font-semibold">{t("kds.allDay")}</h2>
+            <p className="text-fg-subtle mt-0.5 mb-2 text-xs leading-relaxed">{t("kds.allDayNote")}</p>
+            <AllDayList rows={allDay} iconMode={iconMode} visuals={visuals} />
 
             {recallable.length > 0 ? (
               <>
-                <h2 className="text-fg mt-5 text-xs font-semibold">{t("kds.recall")}</h2>
-                <p className="text-fg-subtle mt-0.5 mb-2 text-[0.68rem]">FR-KDS-025</p>
-                <ul className="space-y-1">
+                <h2 className="text-fg mt-5 text-sm font-semibold">{t("kds.recall")}</h2>
+                <p className="text-fg-subtle mt-0.5 mb-2 text-xs">FR-KDS-025</p>
+                <ul className="space-y-1.5">
                   {recallable.map((ticket) => (
                     <li key={ticket.id}>
                       <button
@@ -347,10 +430,10 @@ export function LiveKds() {
                             success: t("kds.recalled"),
                           })
                         }
-                        className="border-line hover:bg-sunken flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-start disabled:opacity-50"
+                        className="border-line hover:bg-sunken flex min-h-12 w-full items-center justify-between gap-2 rounded-lg border px-3 text-start disabled:opacity-50"
                       >
-                        <span className="text-fg font-mono text-xs">{ticket.orderNumber}</span>
-                        <RotateCcw size={12} className="text-fg-subtle" aria-hidden />
+                        <span className="text-fg font-mono text-sm">{ticket.orderNumber}</span>
+                        <RotateCcw size={16} className="text-fg-subtle" aria-hidden />
                       </button>
                     </li>
                   ))}
@@ -359,8 +442,8 @@ export function LiveKds() {
             ) : null}
 
             <div className="mt-5">
-              <h2 className="text-fg text-xs font-semibold">{t("kds.unsupportedTitle")}</h2>
-              <ul className="text-fg-subtle mt-1.5 space-y-1 text-[0.68rem] leading-relaxed">
+              <h2 className="text-fg text-sm font-semibold">{t("kds.unsupportedTitle")}</h2>
+              <ul className="text-fg-subtle mt-1.5 space-y-1 text-xs leading-relaxed">
                 {UNSUPPORTED_KEYS.map((key) => (
                   <li key={key}>· {t(key)}</li>
                 ))}
@@ -369,6 +452,14 @@ export function LiveKds() {
           </aside>
         </div>
       )}
+
+      {timelineOf ? (
+        <TimelineSheet
+          ticket={tickets.find((ticket) => ticket.id === timelineOf.id) ?? timelineOf}
+          unrecorded={["createdAt", "servedAt"]}
+          onClose={() => setTimelineOf(null)}
+        />
+      ) : null}
 
       <Toast message={message} />
     </>
@@ -424,26 +515,36 @@ function StationPicker({
   );
 }
 
+
 // ---------------------------------------------------------------------------
 
 function LiveTicketCard({
   ticket,
   now,
+  iconMode,
+  visuals,
+  flashing,
   cancelledVisibleFor,
   pending,
+  onTimeline,
   onStartLine,
   onBumpLine,
   onBumpAll,
 }: {
   ticket: KitchenTicket;
   now: number;
+  iconMode: boolean;
+  visuals: ReturnType<typeof useItemVisuals>;
+  flashing: boolean;
   cancelledVisibleFor: number | null;
   pending: boolean;
+  onTimeline: () => void;
   onStartLine: (lineId: Id) => void;
   onBumpLine: (lineId: Id) => void;
   onBumpAll: () => void;
 }) {
   const { t, tx } = useI18n();
+  const armed = useArmedTap();
 
   const elapsed = elapsedSince(ticket.firedAt, now) ?? ticket.elapsedSeconds;
   const urgency = urgencyFor(elapsed, ticket.targetSeconds);
@@ -453,56 +554,46 @@ function LiveTicketCard({
   const pickup = started ? Math.max(0, elapsed - (cooking ?? 0)) : elapsed;
 
   /*
-   * `cancelledLineVisibilitySeconds` is the branch's answer to how long a
-   * struck-off line stays up. It is enforced here rather than filtered on the
-   * server, so a line that has been visible longer than the branch asks for
-   * drops off — and a null means "keep it up", not "hide it".
+   * FR-KDS-029 — `cancelledLineVisibilitySeconds` is the branch's answer to
+   * how long a struck-off line stays up, timed from the line's own
+   * cancellation. A null means "keep it up", not "hide it".
    */
-  const lines = ticket.lines.filter((line) => {
-    if (line.state !== "voided" || cancelledVisibleFor === null) return true;
-    // No cancellation timestamp means nothing to time out against, so it
-    // stays up — the safe direction for a line a cook may be mid-way through.
-    if (!line.cancelledAt) return true;
-    return (elapsedSince(line.cancelledAt, now) ?? 0) <= cancelledVisibleFor;
-  });
+  const lines = ticket.lines.filter((line) => cancelledLineVisible(line, cancelledVisibleFor, now));
 
   const outstanding = lines.filter((line) => line.state !== "ready" && line.state !== "voided");
 
   return (
     <article
-      className={cx("flex flex-col rounded-xl border p-3 transition-colors", URGENCY_CARD[urgency])}
+      className={cx(
+        "flex flex-col rounded-xl border p-3 transition-colors",
+        URGENCY_CARD[urgency],
+        flashing && "ring-accent animate-pulse ring-4",
+      )}
     >
       <header className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-fg font-mono text-lg leading-none font-bold">{ticket.orderNumber}</p>
-          <p className="text-fg-muted mt-1 text-xs">
+          <p className="text-fg font-mono text-2xl leading-none font-bold">{ticket.orderNumber}</p>
+          <p className="text-fg-muted mt-1.5 text-sm">
             {tx(ORDER_TYPE[ticket.orderType].label)}
             {ticket.tableLabel ? ` · ${ticket.tableLabel}` : ""}
             {ticket.course > 1 ? ` · ${t("pos.course")} ${ticket.course}` : ""}
           </p>
         </div>
         <div className="text-end">
-          <p className="text-fg-subtle text-[0.6rem] leading-none uppercase">
-            {t("kds.waitTotal")}
-          </p>
-          <p
-            className={cx(
-              "mt-0.5 text-2xl leading-none font-bold tabular-nums",
-              URGENCY_TIMER[urgency],
-            )}
-          >
+          <p className="text-fg-subtle text-[0.65rem] leading-none uppercase">{t("kds.waitTotal")}</p>
+          <p className={cx("mt-0.5 text-3xl leading-none font-bold tabular-nums", URGENCY_TIMER[urgency])}>
             {formatElapsed(elapsed)}
           </p>
           {ticket.targetSeconds > 0 ? (
-            <p className="text-fg-subtle mt-1 inline-flex items-center gap-1 text-[0.68rem] tabular-nums">
-              <Timer size={10} aria-hidden />
+            <p className="text-fg-subtle mt-1 inline-flex items-center gap-1 text-xs tabular-nums">
+              <Timer size={11} aria-hidden />
               {formatElapsed(ticket.targetSeconds)}
             </p>
           ) : null}
         </div>
       </header>
 
-      <div className="mt-2 flex flex-wrap gap-1">
+      <div className="mt-2 flex flex-wrap items-center gap-1">
         <Badge tone={TICKET_URGENCY[urgency].tone}>{tx(TICKET_URGENCY[urgency].label)}</Badge>
         {started ? (
           <Badge tone="accent">
@@ -514,6 +605,9 @@ function LiveTicketCard({
         )}
         {ticket.state === "recalled" ? <Badge tone="warn">{t("kds.recalled")}</Badge> : null}
         <Badge tone="muted">{tx(ticket.stationName)}</Badge>
+        <div className="ms-auto">
+          <TimelineButton onClick={onTimeline} />
+        </div>
       </div>
 
       <ul className="my-3 flex-1 space-y-2">
@@ -521,33 +615,40 @@ function LiveTicketCard({
           const done = line.state === "ready";
           const cancelled = line.state === "voided";
           const cooking = line.state === "preparing";
+          const key = `${ticket.id}:${line.id}`;
 
           return (
             <li key={line.id}>
               <div
                 className={cx(
                   "rounded-lg px-2 py-1.5 transition-colors",
-                  (done || cancelled) && "opacity-50",
+                  done && "opacity-50",
+                  cancelled && "border-bad bg-bad-soft border-2",
                 )}
               >
+                {/* FR-KDS-024 — bump item, with FR-KDS-026's second tap. */}
                 <button
                   type="button"
                   disabled={done || cancelled || pending}
-                  onClick={() => onBumpLine(line.id)}
+                  onClick={() => armed.tap(key, () => onBumpLine(line.id))}
                   className={cx(
-                    "w-full text-start",
+                    "min-h-12 w-full text-start",
                     !done && !cancelled && "hover:bg-fg/5 rounded-lg",
+                    armed.armed === key && "ring-accent rounded-lg ring-4",
                   )}
                 >
                   <span className="flex items-start gap-2">
-                    <span className="text-fg w-7 shrink-0 text-xl leading-tight font-bold tabular-nums">
+                    <span className={cx("text-fg w-9 shrink-0 font-extrabold tabular-nums", KDS_QTY_TEXT)}>
                       {line.quantity}
                     </span>
+                    {iconMode ? <ItemPicture visual={visuals(line.menuItemId, line.name)} name={tx(line.name)} /> : null}
                     <span className="min-w-0 flex-1">
                       <span
                         className={cx(
-                          "text-fg block text-lg leading-tight font-semibold",
-                          (done || cancelled) && "line-through",
+                          "text-fg block font-semibold",
+                          KDS_ITEM_TEXT,
+                          (done || cancelled) && "line-through decoration-4",
+                          cancelled && "text-bad",
                         )}
                       >
                         {tx(line.name)}
@@ -556,7 +657,7 @@ function LiveTicketCard({
                         <span
                           key={`${line.id}-${index}`}
                           className={cx(
-                            "block text-sm leading-snug font-medium",
+                            "block text-lg leading-snug font-semibold",
                             modifier.kind === "removal" ? "text-bad" : "text-accent",
                           )}
                         >
@@ -569,17 +670,17 @@ function LiveTicketCard({
                         </span>
                       ))}
                       {line.notes ? (
-                        <span className="text-fg-muted block text-sm italic">“{line.notes}”</span>
+                        <span className="text-fg-muted block text-base italic">“{line.notes}”</span>
                       ) : null}
                       {cancelled ? (
-                        <span className="text-bad block text-xs font-semibold">
+                        <span className="text-bad block text-base font-extrabold uppercase">
                           {t("kds.voidedLine")}
                         </span>
                       ) : null}
+                      <ArmedHint show={armed.armed === key} />
                     </span>
-                    {done ? (
-                      <Check size={16} className="text-good shrink-0" aria-hidden />
-                    ) : null}
+                    {done ? <Check size={22} className="text-good shrink-0" aria-hidden /> : null}
+                    {cancelled ? <Ban size={22} className="text-bad shrink-0" aria-hidden /> : null}
                   </span>
                 </button>
 
@@ -590,9 +691,8 @@ function LiveTicketCard({
                 */}
                 {!done && !cancelled && !cooking ? (
                   <Button
-                    size="sm"
                     variant="ghost"
-                    className="mt-1 ms-9"
+                    className="ms-11 mt-1 min-h-12"
                     disabled={pending}
                     onClick={() => onStartLine(line.id)}
                   >
@@ -605,7 +705,7 @@ function LiveTicketCard({
         })}
       </ul>
 
-      <dl className="border-line text-fg-subtle mb-2 flex items-center gap-3 border-t pt-2 text-[0.68rem] tabular-nums">
+      <dl className="border-line text-fg-subtle mb-2 flex items-center gap-3 border-t pt-2 text-xs tabular-nums">
         <div className="flex items-center gap-1">
           <dt>{t("kds.pickup")}</dt>
           <dd className="text-fg-muted font-medium">{formatElapsed(pickup)}</dd>
@@ -618,7 +718,8 @@ function LiveTicketCard({
         </div>
       </dl>
 
-      <div className="flex gap-1.5">
+      <div className="flex min-h-12 gap-1.5">
+        {/* FR-KDS-024 — bump all. */}
         <HoldToBump disabled={outstanding.length === 0 || pending} onBump={onBumpAll} />
       </div>
     </article>

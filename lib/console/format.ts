@@ -19,16 +19,87 @@ const LOCALE_TAG: Record<Locale, string> = {
   ar: "ar-EG",
 };
 
+/**
+ * FR-LOC-010 — which calendar dates are shown in. "both" prints the
+ * Gregorian date with the Umm al-Qura Hijri date beside it; the country pack
+ * decides whether Hijri is offered at all (see `lib/console/locale-packs.ts`).
+ */
+export type CalendarDisplay = "gregory" | "hijri" | "both";
+
 export interface FormatOptions {
   locale: Locale;
   /** FR-LOC-005 — Arabic-Indic numerals are configurable, not implied. */
   arabicIndicNumerals?: boolean;
+  /** FR-LOC-010 — absent means Gregorian, which keeps every existing caller unchanged. */
+  calendar?: CalendarDisplay;
 }
 
 function intlLocale(opts: FormatOptions): string {
   if (opts.locale !== "ar") return LOCALE_TAG.en;
   // The `-u-nu-latn` extension keeps Western digits inside an Arabic locale.
   return opts.arabicIndicNumerals ? "ar-EG" : "ar-EG-u-nu-latn";
+}
+
+/** FR-LOC-010 — the same locale tag, switched to the Umm al-Qura calendar. */
+function hijriLocale(opts: FormatOptions): string {
+  const base = intlLocale(opts);
+  return base.includes("-u-") ? base.replace("-u-", "-u-ca-islamic-umalqura-") : `${base}-u-ca-islamic-umalqura`;
+}
+
+/**
+ * FR-LOC-010 — format one instant under the chosen calendar display. Hijri is
+ * computed by the platform's Intl (`islamic-umalqura`), never by hand: the
+ * Umm al-Qura tables are observational and a home-grown conversion drifts.
+ */
+function calendarFormat(date: Date, opts: FormatOptions, options: Intl.DateTimeFormatOptions): string {
+  const gregorian = new Intl.DateTimeFormat(intlLocale(opts), options).format(date);
+  const mode = opts.calendar ?? "gregory";
+  if (mode === "gregory") return gregorian;
+  const hijri = new Intl.DateTimeFormat(hijriLocale(opts), options).format(date);
+  return mode === "hijri" ? hijri : `${gregorian} (${hijri})`;
+}
+
+/**
+ * FR-LOC-010 — BCP 47 formatting for languages beyond the console's en/ar:
+ * printed documents in Urdu, Bengali, Tagalog, Hindi, French or Turkish are
+ * formatted with that language's own digits, separators and month names.
+ */
+export function formatForTag(
+  tag: string,
+  value: { money?: Money; number?: number; date?: string; dateTime?: string },
+  calendar: CalendarDisplay = "gregory",
+): string {
+  const parts: string[] = [];
+  if (value.money) {
+    const exponent = CURRENCY_EXPONENT[value.money.currency] ?? 2;
+    parts.push(
+      new Intl.NumberFormat(tag, {
+        style: "currency",
+        currency: value.money.currency,
+        minimumFractionDigits: exponent,
+        maximumFractionDigits: exponent,
+      }).format(value.money.amount / 10 ** exponent),
+    );
+  }
+  if (typeof value.number === "number") parts.push(new Intl.NumberFormat(tag).format(value.number));
+  const iso = value.dateTime ?? value.date;
+  const date = parseDisplayDate(iso);
+  if (iso !== undefined) {
+    if (!date) {
+      parts.push("—");
+    } else {
+      const options: Intl.DateTimeFormatOptions = value.dateTime
+        ? { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }
+        : { year: "numeric", month: "long", day: "numeric", timeZone: DATE_ONLY_RE.test(iso) ? "UTC" : undefined };
+      const gregorian = new Intl.DateTimeFormat(tag, options).format(date);
+      if (calendar === "gregory") parts.push(gregorian);
+      else {
+        const hijri = new Intl.DateTimeFormat(`${tag}-u-ca-islamic-umalqura`, options).format(date);
+        parts.push(calendar === "hijri" ? hijri : `${gregorian} (${hijri})`);
+      }
+    }
+  }
+  return parts.join(" · ");
 }
 
 /** Pick the right side of a localised string, falling back per FR-LOC-007. */
@@ -155,26 +226,26 @@ export function formatDate(iso: string | null | undefined, opts: FormatOptions):
   // not a UTC instant — formatting it in the viewer's local zone can roll it
   // to the day before, so pin those to UTC instead of the ambient zone.
   const timeZone = DATE_ONLY_RE.test(iso as string) ? "UTC" : undefined;
-  return new Intl.DateTimeFormat(intlLocale(opts), {
+  return calendarFormat(date, opts, {
     year: "numeric",
     month: "short",
     day: "numeric",
     timeZone,
-  }).format(date);
+  });
 }
 
 export function formatDateTime(iso: string | null | undefined, opts: FormatOptions): string {
   const date = parseDisplayDate(iso);
   if (!date) return "—";
   const timeZone = DATE_ONLY_RE.test(iso as string) ? "UTC" : undefined;
-  return new Intl.DateTimeFormat(intlLocale(opts), {
+  return calendarFormat(date, opts, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
     timeZone,
-  }).format(date);
+  });
 }
 
 export function formatTime(iso: string | null | undefined, opts: FormatOptions): string {

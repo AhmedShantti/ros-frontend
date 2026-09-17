@@ -210,6 +210,9 @@ export const PERMISSION_CATALOGUE = [
     "Approve a matched invoice for payment.", "اعتماد فاتورة مطابقة للدفع.", true),
   def("supplier.manage", "procurement", "Manage suppliers", "إدارة الموردين",
     "Create and edit supplier master data.", "إنشاء بيانات الموردين وتعديلها."),
+  // FR-PRC-001 / FR-PRC-002 — which procure-to-pay steps a tenant runs.
+  def("purchase.policy.manage", "procurement", "Manage procurement policy", "إدارة سياسة المشتريات",
+    "Choose which procure-to-pay steps apply, simple mode and match tolerances.", "اختيار خطوات دورة الشراء المطبقة والوضع المبسط وحدود المطابقة.", true),
 
   // -- Costing --------------------------------------------------------------
   def("costing.view", "costing", "View food cost", "عرض تكلفة الطعام",
@@ -469,6 +472,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "recipe.view", "recipe.edit", "recipe.publish",
       "purchase.view", "purchase.order.create", "purchase.order.approve_tier_1",
       "purchase.order.approve_tier_2", "purchase.invoice.record", "supplier.manage",
+      "purchase.policy.manage",
       "costing.view", "costing.variance.view", "costing.margin.view",
       "hr.employee.view", "hr.schedule.manage", "hr.overtime.approve", "hr.performance.view",
       "report.view.sales", "report.view.inventory", "report.view.kitchen",

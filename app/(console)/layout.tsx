@@ -3,6 +3,8 @@ import { ConsoleProvider, ConsoleRoot } from "@/lib/console/providers";
 import { ConsoleShell } from "@/components/console/shell";
 import { ConsoleThemeScript } from "@/components/console/theme-script";
 import { LiveProvider } from "@/lib/console/live/store";
+import { TenantStateBanner } from "@/components/console/tenant-lifecycle";
+import { OpsErrorCapture } from "@/components/console/ops-error-capture";
 
 export const metadata: Metadata = {
   title: "TRENDOW — Management Console",
@@ -29,7 +31,13 @@ export default function ConsoleLayout({
             is visible here without a round trip. */}
         <LiveProvider>
           <ConsoleRoot className="bg-surface min-h-screen">
-            <ConsoleShell>{children}</ConsoleShell>
+            {/* NFR-OBS-001/005 client error capture; NFR-PORT-003/004 notice. */}
+            <OpsErrorCapture />
+            <ConsoleShell>
+              {/* FR-PLT-021 — suspended or restricted: read-only, said on every screen. */}
+              <TenantStateBanner />
+              {children}
+            </ConsoleShell>
           </ConsoleRoot>
         </LiveProvider>
       </ConsoleProvider>

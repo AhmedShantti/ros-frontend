@@ -21,6 +21,7 @@
  */
 
 import type {
+  ApprovalStamp,
   CostingMethod,
   AuditEntry,
   DenominationCount,
@@ -28,10 +29,15 @@ import type {
   IsoDateTime,
   KitchenTicket,
   Localised,
+  MenuItem,
+  MenuItemVariant,
+  ModifierPriceRule,
   Money,
   Order,
+  OrderDiscount,
   OrderLine,
   OrderLineModifier,
+  OrderLinePriceSource,
   OrderType,
   StockMovement,
   SyncState,
@@ -47,6 +53,7 @@ import {
   terminals,
 } from "../mock/org";
 import {
+  combos,
   menuItemById,
   menuItemBrandCode,
   modifierGroups,
@@ -58,17 +65,52 @@ import { wasteReasonByCode } from "../mock/inventory";
 import { activeEmployees, employeeById } from "../mock/workforce";
 import { countryPacks } from "../mock/platform";
 import { money } from "../format";
+import { redactCardData, redactOptional, retainCardData } from "../pci";
 import {
   balanceOf,
   computeLine,
   computeOrderTotals,
   expandLineToStock,
+  modifierGroupsForItem,
   passStation,
+  quoteCombo,
+  resolveModifierDelta,
   resolvePrice,
+  resolveStacking,
   roundCash,
+  releaseOffsetSeconds,
   routeLine,
   urgencyFor,
+  type ComboPick,
+  type ModifierPriceContext,
 } from "./engine";
+import {
+  extraStationTypes,
+  itemTargetSeconds,
+  normaliseKdsSetup,
+  restamp,
+  stamp,
+  type KdsSetup,
+} from "./kds";
+import {
+  cancelNeedsApproval,
+  discountTriggers,
+  expiryFrom,
+  isExpired,
+  refundNeedsApproval,
+  stampValid,
+  voidNeedsApproval,
+  worksAt,
+} from "./approval";
+import {
+  emptyOrderPromotionState,
+  reconcileOrderPromotions,
+  redemptionsFor,
+  saleTimeOf,
+  type OrderPromotionState,
+} from "./promotions";
+import type { Promotion } from "../types";
+import type { PromotionCart } from "../crm-promotion-engine";
 import {
   DEFAULT_SETTINGS,
   initialLiveState,
@@ -78,6 +120,8 @@ import {
   upsertAlert,
   type LiveCashSession,
   type LiveState,
+  type RemoteApproval,
+  type ServerSection,
   type VoidDisposition,
 } from "./state";
 
@@ -92,9 +136,17 @@ export function packForBranch(branchId: Id) {
   return countryPacks.find((p) => p.code === branch?.countryCode) ?? EG_PACK;
 }
 
-const modifierById = new Map(
-  modifierGroups.flatMap((g) => g.modifiers.map((m) => [m.id, m] as const)),
-);
+/**
+ * Every modifier in the catalogue, looked up fresh.
+ *
+ * Was a map built once at module load, which meant a modifier added in the
+ * console this session could be picked at the till and then silently
+ * dropped from the line — and never depleted — because the map had never
+ * heard of it. The catalogue is a handful of groups; rebuilding is cheap.
+ */
+function modifierMap() {
+  return new Map(modifierGroups.flatMap((g) => g.modifiers.map((m) => [m.id, m] as const)));
+}
 
 export const stationsByBranch = new Map<Id, typeof stations>();
 for (const station of stations) {
@@ -113,8 +165,30 @@ export interface DiscountInput {
   percentage: number | null;
   amountMinor: number | null;
   reason: Localised;
-  approvedByName: Localised | null;
+  /** FR-POS-046/051 — the preset the reason came from, if any. */
+  presetId: string | null;
+  /** FR-POS-051 — an exclusive discount never combines with another. */
+  exclusive: boolean;
+  /** FR-POS-048 — required whenever a FR-POS-047 threshold is crossed. */
+  approval: ApprovalStamp | null;
 }
+
+/**
+ * FR-POS-022 — the per-context modifier prices in force, passed in.
+ *
+ * The rules live in a service rather than in the catalogue fixtures, so they
+ * reach the reducer the way the timestamp does: on the action. Resolution
+ * happens here rather than at the caller because the context includes the
+ * price list that priced the line, and that is only known once
+ * `resolvePrice` has run — inside this reducer.
+ */
+export type ModifierPriceRules = readonly ModifierPriceRule[];
+
+/** A request a manager can decide from elsewhere — FR-POS-048. */
+export type RemoteApprovalInput = Omit<
+  RemoteApproval,
+  "id" | "requestedAt" | "expiresAt" | "status" | "decidedBy" | "decidedByName" | "decidedAt" | "comment" | "applied"
+>;
 
 export type LiveAction =
   | { type: "RESET"; at: IsoDateTime; branchId?: Id }
@@ -142,13 +216,29 @@ export type LiveAction =
       orderType: OrderType;
       tableId: Id | null;
       guestCount: number | null;
+      /** FR-POS-084 — a manager letting a server open a table outside their section. */
+      sectionOverride?: ApprovalStamp | null;
     }
   | { type: "ORDER_SELECT"; at: IsoDateTime; orderId: Id | null }
   | { type: "ORDER_SET_GUESTS"; at: IsoDateTime; orderId: Id; guestCount: number }
+  /** FR-POS-006 — set aside, to be picked up by anyone on any till in the branch. */
   | { type: "ORDER_PARK"; at: IsoDateTime; orderId: Id }
   | { type: "ORDER_RESUME"; at: IsoDateTime; orderId: Id }
-  | { type: "ORDER_CANCEL"; at: IsoDateTime; orderId: Id; reason: string }
+  | {
+      type: "ORDER_CANCEL";
+      at: IsoDateTime;
+      orderId: Id;
+      reason: string;
+      /** FR-POS-075 — required when `voidApproval` covers the order's lines. */
+      approval?: ApprovalStamp | null;
+    }
   | { type: "ORDER_MOVE_TABLE"; at: IsoDateTime; orderId: Id; tableId: Id }
+  /** FR-POS-082 — fold `sourceOrderId`'s table into `targetOrderId`'s. */
+  | { type: "ORDER_MERGE"; at: IsoDateTime; targetOrderId: Id; sourceOrderId: Id }
+  /** FR-POS-082 — move lines onto a new check, at the same table or another. */
+  | { type: "ORDER_SPLIT"; at: IsoDateTime; orderId: Id; lineIds: Id[]; tableId: Id | null }
+  /** FR-POS-007 — who is serving the order. */
+  | { type: "ORDER_SET_SERVER"; at: IsoDateTime; orderId: Id; serverId: Id }
   | { type: "ORDER_NOTE"; at: IsoDateTime; orderId: Id; note: string }
   /** FR-CRM-004 — attach (or detach, with nulls) a customer to the order. */
   | {
@@ -158,6 +248,21 @@ export type LiveAction =
       customerId: Id | null;
       customerName: Localised | null;
     }
+  /** FR-CRM-025/027 — mirror the console's promotions and recorded redemptions in. */
+  | {
+      type: "PROMOTIONS_SYNC";
+      at: IsoDateTime;
+      promotions: Promotion[];
+      redemptions: LiveState["promotionBook"]["redemptions"];
+    }
+  /** FR-CRM-025 — the attached customer's profile, loaded for tag/tier/visit conditions. */
+  | { type: "ORDER_PROMOTION_CUSTOMER"; at: IsoDateTime; orderId: Id; customer: NonNullable<PromotionCart["customer"]> }
+  /** FR-CRM-028 — a coupon validated at the till; `promotionId: null` takes the code off. */
+  | { type: "ORDER_COUPON"; at: IsoDateTime; orderId: Id; code: string; promotionId: Id | null }
+  /** A cashier takes an auto-applied promotion off this order, or puts it back. */
+  | { type: "ORDER_PROMOTION_DECLINE"; at: IsoDateTime; orderId: Id; promotionId: Id; declined: boolean }
+  /** FR-CRM-026 / FR-CRM-016 — the CRM service has recorded this sale's redemptions or points. */
+  | { type: "ORDER_PROMOTIONS_RECORDED"; at: IsoDateTime; orderId: Id; kind: "redeemed" | "earned" }
   /** Offline sync — never changes anything financial, only the sync ledger. */
   | {
       type: "ORDER_SYNC";
@@ -178,6 +283,21 @@ export type LiveAction =
       seatNumber: number | null;
       notes: string | null;
       openPriceMinor?: number | null;
+      /** FR-POS-022 — the per-context modifier prices in force. */
+      priceRules?: ModifierPriceRules;
+    }
+  /** FR-POS-030/031 — a combo, sold as its component lines. */
+  | {
+      type: "COMBO_ADD";
+      at: IsoDateTime;
+      orderId: Id;
+      comboId: Id;
+      picks: ComboPick[];
+      /** Modifiers chosen per slot, keyed by slot id. */
+      modifierIds: Record<Id, Id[]>;
+      priceRules?: ModifierPriceRules;
+      course: number;
+      seatNumber: number | null;
     }
   | { type: "LINE_QTY"; at: IsoDateTime; orderId: Id; lineId: Id; quantity: number }
   | { type: "LINE_NOTE"; at: IsoDateTime; orderId: Id; lineId: Id; notes: string | null }
@@ -192,6 +312,8 @@ export type LiveAction =
       lineId: Id;
       reason: string;
       disposition: VoidDisposition | null;
+      /** FR-POS-075 — required when `voidApproval` covers this void. */
+      approval?: ApprovalStamp | null;
     }
   | { type: "LINE_COMP"; at: IsoDateTime; orderId: Id; lineId: Id; reason: string }
   | {
@@ -202,6 +324,8 @@ export type LiveAction =
       discount: DiscountInput;
     }
   | { type: "ORDER_DISCOUNT"; at: IsoDateTime; orderId: Id; discount: DiscountInput }
+  /** FR-POS-049 — the record stays, marked removed, with who and why. */
+  | { type: "DISCOUNT_REMOVE"; at: IsoDateTime; orderId: Id; discountId: Id; reason: string }
   | { type: "ORDER_DISCOUNT_CLEAR"; at: IsoDateTime; orderId: Id }
   | { type: "ORDER_FIRE"; at: IsoDateTime; orderId: Id; course: number | null; hold?: boolean }
   /** FR-POS-037 — let the kitchen start a held course. */
@@ -216,8 +340,15 @@ export type LiveAction =
        *  every other tender, where it always equals `amountMinor`. */
       tenderedMinor?: number;
       tipMinor: number;
+      /**
+       * FR-POS-066 — whatever the terminal or the cashier supplied. Passed
+       * through `retainCardData` before anything is stored, so a full card
+       * number here is truncated to its last four rather than kept.
+       */
       cardLast4?: string | null;
       cardScheme?: string | null;
+      authorisationCode?: string | null;
+      terminalReference?: string | null;
     }
   | {
       type: "ORDER_REFUND";
@@ -225,12 +356,39 @@ export type LiveAction =
       orderId: Id;
       amountMinor: number;
       reason: string;
+      /** FR-POS-073 — a reason from the list, with `reason` as the detail. */
+      reasonCode?: string | null;
       returnToStock: boolean;
+      /** FR-POS-073 — required above `refundApprovalMinor`. */
+      approval?: ApprovalStamp | null;
     }
+  /** FR-POS-048 — send an approval to a manager and keep trading. */
+  | { type: "APPROVAL_REQUEST"; at: IsoDateTime; request: RemoteApprovalInput }
+  | {
+      type: "APPROVAL_DECIDE";
+      at: IsoDateTime;
+      requestId: Id;
+      decision: "approved" | "rejected";
+      deciderId: Id;
+      deciderName: Localised;
+      comment: string | null;
+    }
+  | { type: "APPROVAL_WITHDRAW"; at: IsoDateTime; requestId: Id }
+  /** FR-POS-084 — the sections for the terminal's branch, replaced whole. */
+  | { type: "SECTIONS_SET"; at: IsoDateTime; sections: ServerSection[] }
   | { type: "TICKET_START"; at: IsoDateTime; ticketId: Id }
   | { type: "TICKET_BUMP_LINE"; at: IsoDateTime; ticketId: Id; lineId: Id }
   | { type: "TICKET_BUMP"; at: IsoDateTime; ticketId: Id }
-  | { type: "TICKET_RECALL"; at: IsoDateTime; ticketId: Id }
+  | { type: "TICKET_RECALL"; at: IsoDateTime; ticketId: Id; remake?: boolean }
+  /** FR-KDS-040 — a station display has shown these tickets. Write-once per ticket. */
+  | { type: "TICKET_VIEWED"; at: IsoDateTime; ticketIds: Id[] }
+  /** FR-KDS-027 — rush / VIP on the whole order, now and for what it fires later. */
+  | { type: "ORDER_PRIORITY"; at: IsoDateTime; orderId: Id; priority: KitchenTicket["priority"] }
+  /** FR-KDS-011/023/044 — the console saved the kitchen-display setup. */
+  | { type: "KDS_SETUP_SYNC"; at: IsoDateTime; setup: KdsSetup }
+  /** FR-POS-082 — push a free table up against a seated one: one party, one bill. */
+  | { type: "ORDER_LINK_TABLE"; at: IsoDateTime; orderId: Id; tableId: Id }
+  | { type: "ORDER_UNLINK_TABLE"; at: IsoDateTime; orderId: Id; tableId: Id }
   /** A cook has seen the cancellation; the card may now leave the display. */
   | { type: "TICKET_ACK_CANCEL"; at: IsoDateTime; ticketId: Id }
   | { type: "TICKET_PRIORITY"; at: IsoDateTime; ticketId: Id; priority: KitchenTicket["priority"] }
@@ -355,14 +513,18 @@ function withAudit(state: LiveState, entry: AuditEntry): LiveState {
 
 function retotal(state: LiveState, order: Order): Order {
   const pack = packForBranch(state.branchId);
+  const recorded = applyLineDiscountRecords(order);
   const withLines = {
-    ...order,
-    lines: order.lines.map((line) => {
+    ...recorded,
+    lines: recorded.lines.map((line) => {
       const item = menuItemById.get(line.menuItemId);
       return computeLine(line, item?.taxClass ?? "standard", pack);
     }),
   };
-  const orderDiscount = withLines.discounts.reduce((sum, d) => sum + d.amount.amount, 0);
+  // Line discounts are already inside the lines; only the order's own count here.
+  const orderDiscount = withLines.discounts
+    .filter((d) => !d.lineId && !d.removedAt)
+    .reduce((sum, d) => sum + d.amount.amount, 0);
   return computeOrderTotals(withLines, {
     pack,
     serviceChargePercent:
@@ -374,6 +536,170 @@ function retotal(state: LiveState, order: Order): Order {
 
 function putOrder(state: LiveState, order: Order): LiveState {
   return { ...state, orders: { ...state.orders, [order.id]: order } };
+}
+
+/** A line's price before any discount: unit plus modifiers, times quantity. */
+function grossOf(line: OrderLine): number {
+  return (line.unitPrice.amount + line.modifiers.reduce((s, m) => s + m.priceDelta.amount, 0)) * line.quantity;
+}
+
+/**
+ * FR-POS-045/049 — a line's discount is the sum of its discount records.
+ *
+ * A percentage record is re-taken from the line's current gross, so a 10%
+ * discount on a burger stays 10% when a second burger is added; an amount
+ * record stays the amount. Lines with no record at all keep whatever
+ * discount they already carry, which is how orders written before records
+ * existed survive a migration untouched.
+ */
+function applyLineDiscountRecords(order: Order): Order {
+  const byLine = new Map<Id, OrderDiscount[]>();
+  for (const record of order.discounts) {
+    if (!record.lineId) continue;
+    const list = byLine.get(record.lineId) ?? [];
+    list.push(record);
+    byLine.set(record.lineId, list);
+  }
+  if (byLine.size === 0) return order;
+
+  const discounts = order.discounts.map((record) => {
+    if (!record.lineId || record.removedAt || record.percentage == null) return record;
+    const line = order.lines.find((l) => l.id === record.lineId);
+    if (!line) return record;
+    return { ...record, amount: money(Math.round((grossOf(line) * record.percentage) / 100), order.currency) };
+  });
+
+  const lines = order.lines.map((line) => {
+    const records = discounts.filter((d) => d.lineId === line.id);
+    if (records.length === 0) return line;
+    const total = records.filter((d) => !d.removedAt).reduce((s, d) => s + d.amount.amount, 0);
+    return { ...line, lineDiscount: money(Math.min(total, grossOf(line)), order.currency) };
+  });
+
+  return { ...order, lines, discounts };
+}
+
+/** Discounts in force: not removed, and not on a line that has since been voided. */
+export function activeDiscountsOf(order: Order): OrderDiscount[] {
+  return order.discounts.filter((d) => {
+    if (d.removedAt) return false;
+    if (!d.lineId) return true;
+    const line = order.lines.find((l) => l.id === d.lineId);
+    return Boolean(line) && line!.state !== "voided" && !line!.isComp;
+  });
+}
+
+/** Whether the till may still change what is on the order. */
+export function isEditable(order: Order): boolean {
+  return !["completed", "cancelled", "refunded", "partially_refunded", "merged", "parked"].includes(order.state);
+}
+
+/**
+ * FR-POS-048 / FR-SEC-016 — whether an approval stamp may be acted on.
+ *
+ * A PIN or card stamp names an employee who must still be an approver at
+ * this branch and must not be the operator. A remote stamp is good only if
+ * it points at a request this store holds as approved by the same person —
+ * the decision is the evidence, not the stamp.
+ */
+function approvalOk(state: LiveState, stamp: ApprovalStamp | null | undefined): stamp is ApprovalStamp {
+  if (!stamp) return false;
+  const requesterId = operatorOf(state).id;
+  if (stamp.method === "remote") {
+    const request = state.approvals.find((r) => r.id === stamp.requestId);
+    return (
+      Boolean(request) &&
+      request!.status === "approved" &&
+      request!.decidedBy === stamp.approverId &&
+      stamp.approverId !== requesterId
+    );
+  }
+  return stampValid(stamp, { branchId: state.branchId, requesterId });
+}
+
+/**
+ * FR-POS-075 — the order as the audit trail records it, before and after.
+ *
+ * "Full before/after state" is read as everything a reviewer needs to see
+ * what a void, cancellation or refund changed: every line with its state and
+ * money, the totals, and every payment. Ids are kept so an entry can be
+ * matched to the ledger; names are English so the trail reads the same
+ * whichever language the till was in.
+ */
+export function orderSnapshot(order: Order): Record<string, unknown> {
+  return {
+    orderNumber: order.orderNumber,
+    state: order.state,
+    orderType: order.orderType,
+    table: order.tableLabel,
+    lines: order.lines.map((line) => ({
+      id: line.id,
+      item: line.itemNameSnapshot.en,
+      quantity: line.quantity,
+      state: line.state,
+      comp: line.isComp,
+      discount: line.lineDiscount.amount,
+      total: line.lineTotal.amount,
+      ...(line.voidReason ? { voidReason: line.voidReason } : {}),
+    })),
+    subtotal: order.subtotal.amount,
+    discountTotal: order.discountTotal.amount,
+    serviceCharge: order.serviceChargeTotal.amount,
+    tax: order.taxTotal.amount,
+    grandTotal: order.grandTotal.amount + order.roundingAdjustment.amount,
+    paidTotal: order.paidTotal.amount,
+    payments: order.payments.map((p) => ({
+      id: p.id,
+      tender: p.tender,
+      amount: p.amount.amount,
+      ...(p.cardLast4 ? { cardLast4: p.cardLast4 } : {}),
+    })),
+  };
+}
+
+/**
+ * FR-POS-025/026 — a note as the branch allows it, and never a card number.
+ *
+ * With free-text notes switched off, only the configured chips survive: the
+ * note is split on the separator the chips are joined with, and any part
+ * that is not a chip in either language is dropped. The chips are the
+ * point of the switch — "no ice" still reaches the bar, "call me Dave" does
+ * not reach the grill.
+ */
+function noteForPolicy(note: string | null, settings: LiveState["settings"]): string | null {
+  if (note == null) return null;
+  let text = redactCardData(note).trim();
+  if (!settings.lineNotes) {
+    const chips = new Set(settings.noteChips.flatMap((chip) => [chip.en.trim(), chip.ar.trim()]));
+    text = text
+      .split(NOTE_SEPARATOR.trim())
+      .map((part) => part.trim())
+      .filter((part) => chips.has(part))
+      .join(NOTE_SEPARATOR);
+  }
+  return text.slice(0, 140) || null;
+}
+
+/** How note chips are joined on a line — shared with the till's note sheet. */
+export const NOTE_SEPARATOR = " · ";
+
+/** Every table an order occupies: its own and any merged into it. */
+function tablesOfOrder(order: Order): Id[] {
+  return [order.tableId, ...(order.linkedTableIds ?? [])].filter((id): id is Id => Boolean(id));
+}
+
+function releaseTables(state: LiveState, order: Order): LiveState {
+  let next = state;
+  for (const tableId of tablesOfOrder(order)) {
+    next = setTable(next, tableId, { state: "needs_cleaning", orderId: null, seatedAt: null });
+  }
+  return next;
+}
+
+/** FR-POS-084 — the section a table belongs to at this branch, if any. */
+export function sectionOfTable(state: LiveState, tableId: Id | null): ServerSection | null {
+  if (!tableId) return null;
+  return state.sections.find((s) => s.branchId === state.branchId && s.tableIds.includes(tableId)) ?? null;
 }
 
 function setTable(
@@ -605,27 +931,156 @@ export function isOverridden(
 }
 
 function depletionFor(line: OrderLine) {
-  return expandLineToStock(line, recipeById, modifierById);
+  return expandLineToStock(line, recipeById, modifierMap());
+}
+
+/** FR-POS-040 — the item's price for this order, now. */
+function priceFor(
+  state: LiveState,
+  order: Order,
+  item: MenuItem,
+  variant: MenuItemVariant,
+  at: IsoDateTime,
+  overrideMinor: number | null,
+) {
+  const branch = branchById.get(state.branchId)!;
+  return resolvePrice(item, variant, {
+    orderType: order.orderType,
+    branchId: branch.id,
+    brandId: branch.brandId,
+    minuteOfDay: minuteOfDayFrom(at),
+    priceLists,
+    overrideMinor,
+  });
+}
+
+/** The modifiers an item goes on with when nobody chooses: its groups' defaults. */
+function defaultModifierIds(item: MenuItem): Id[] {
+  return modifierGroupsForItem(item).flatMap((g) => g.modifiers.filter((m) => m.isDefault).map((m) => m.id));
+}
+
+function buildLine(
+  state: LiveState,
+  mint: ReturnType<typeof minter>,
+  order: Order,
+  input: {
+    item: MenuItem;
+    variant: MenuItemVariant;
+    quantity: number;
+    modifierIds: Id[];
+    priceRules?: ModifierPriceRules;
+    course: number;
+    seatNumber: number | null;
+    notes: string | null;
+    unitPrice: Money;
+    priceSource: OrderLinePriceSource;
+    combo: OrderLine["combo"];
+    sequence: number;
+  },
+): OrderLine {
+  const currency = currencyOf(state);
+  const catalogue = modifierMap();
+  // FR-POS-022 — the context this line is priced in. The price list is the
+  // one that priced the item, so a list that charges for a modifier only
+  // where it also changes the item's price stays coherent.
+  const priceContext: ModifierPriceContext = {
+    orderType: order.orderType,
+    branchId: state.branchId,
+    priceListId: input.priceSource.priceListId,
+  };
+  const modifiers: OrderLineModifier[] = input.modifierIds
+    .map((id) => catalogue.get(id))
+    .filter((m): m is NonNullable<typeof m> => Boolean(m))
+    .map((m) => {
+      // The rule that priced it is kept on the line, so a receipt query can
+      // say why this modifier cost what it did.
+      const priced = resolveModifierDelta(m, [...(input.priceRules ?? [])], priceContext);
+      return {
+        id: m.id,
+        name: m.name,
+        kind: m.kind,
+        priceDelta: money(priced.priceDelta.amount, currency),
+        priceRuleId: priced.ruleId,
+      };
+    });
+
+  const recipe = input.variant.recipeId ? recipeById.get(input.variant.recipeId) : undefined;
+  const unitCost = recipe?.computedCost.amount ?? 0;
+
+  return {
+    id: mint.next("oln"),
+    sequence: input.sequence,
+    menuItemId: input.item.id,
+    variantId: input.variant.id,
+    // BR-POS-004 — the name is snapshotted, never re-derived from master data.
+    itemNameSnapshot: {
+      en: `${input.item.name.en} — ${input.variant.name.en}`,
+      ar: `${input.item.name.ar} — ${input.variant.name.ar}`,
+    },
+    quantity: input.quantity,
+    unitPrice: input.unitPrice,
+    modifiers,
+    modifierTotal: money(0, currency),
+    lineDiscount: money(0, currency),
+    lineSubtotal: money(0, currency),
+    taxAmount: money(0, currency),
+    lineTotal: money(0, currency),
+    unitCostSnapshot: money(unitCost, currency),
+    recipeVersionId: input.variant.recipeId,
+    course: input.course,
+    seatNumber: input.seatNumber,
+    state: "pending",
+    stationId: null,
+    firedAt: null,
+    readyAt: null,
+    voidReason: null,
+    isComp: false,
+    notes: noteForPolicy(input.notes, state.settings),
+    // FR-POS-042 — which rule produced the price, kept for audit and reports.
+    priceSource: input.priceSource,
+    combo: input.combo,
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Tickets
 // ---------------------------------------------------------------------------
 
-function ticketLineFrom(line: OrderLine): TicketLine {
+function ticketLineFrom(
+  line: OrderLine,
+  setup: KdsSetup,
+  extras: { at: IsoDateTime; routedAt: IsoDateTime; addedAt: IsoDateTime | null; alsoAt: Localised[] },
+): TicketLine {
+  const item = menuItemById.get(line.menuItemId);
   return {
     id: line.id,
-    name: menuItemById.get(line.menuItemId)?.kitchenName ?? line.itemNameSnapshot,
+    name: item?.kitchenName ?? line.itemNameSnapshot,
     quantity: line.quantity,
     modifiers: line.modifiers.map((m) => ({ name: m.name, kind: m.kind })),
     state: line.state,
     notes: line.notes,
-    // The demo engine acknowledges cancellations rather than timing them out,
-    // so nothing here reads this clock. See `TicketLine.cancelledAt`.
+    // FR-KDS-029 — set when the till strikes the line off, so the display's
+    // visibility window runs from the cancellation.
     cancelledAt: null,
     seatNumber: line.seatNumber,
+    // FR-KDS-031 — lets an icon display show the item's picture.
+    menuItemId: line.menuItemId,
+    // FR-KDS-044 — the item's own target, configured or the recipe's prep time.
+    targetSeconds: itemTargetSeconds(setup, line.menuItemId, item?.prepTimeSeconds),
+    // FR-KDS-011 — the cook can see the same line is also being made elsewhere.
+    alsoAt: extras.alsoAt,
+    // FR-KDS-028 — an addition is marked on the line itself, not only on the card.
+    addedAt: extras.addedAt,
+    // FR-KDS-040 — created when the till fired it, routed when it reached the station.
+    timeline: { ...stamp(undefined, "createdAt", extras.at), routedAt: extras.routedAt },
   };
 }
+
+/**
+ * FR-KDS-012 — how long a packaging station needs. Packing is the last step,
+ * so its ticket is released this long before the rest of the order is due.
+ */
+const PACKAGING_SECONDS = 90;
 
 /**
  * Fires a set of lines: routes each to its station, then either amends the
@@ -644,7 +1099,10 @@ function fireLines(
 ): { state: LiveState; order: Order } {
   const hold = options.hold === true;
   const branchStations = stationsByBranch.get(state.branchId) ?? [];
+  const setup = state.kdsSetup ?? normaliseKdsSetup(null);
   const byStation = new Map<Id, OrderLine[]>();
+  /** FR-KDS-011 — every station each line went to, primary first. */
+  const stationsOfLine = new Map<Id, Id[]>();
 
   const lines = order.lines.map((line) => {
     if (!lineIds.has(line.id) || line.state !== "pending") return line;
@@ -658,9 +1116,22 @@ function fireLines(
       held: hold,
     };
     if (station) {
-      const list = byStation.get(station.id) ?? [];
-      list.push(fired);
-      byStation.set(station.id, list);
+      const targets = [station.id];
+      /*
+       * FR-KDS-011 — one line, several stations. A burger is cooked on the
+       * grill and boxed at packaging; both stations get the line, and the
+       * order only counts it ready once every one of them has marked it.
+       */
+      for (const type of extraStationTypes(setup, line.menuItemId, order.orderType)) {
+        const extra = branchStations.find((s) => s.active && s.type === type && s.type !== "pass");
+        if (extra && !targets.includes(extra.id)) targets.push(extra.id);
+      }
+      stationsOfLine.set(line.id, targets);
+      for (const stationId of targets) {
+        const list = byStation.get(stationId) ?? [];
+        list.push(fired);
+        byStation.set(stationId, list);
+      }
     }
     return fired;
   });
@@ -669,28 +1140,48 @@ function fireLines(
   const tickets = { ...next.tickets };
   const ticketIds = [...next.ticketIds];
 
+  const stationTarget = (stationId: Id, stationLines: OrderLine[]) => {
+    const station = branchStations.find((s) => s.id === stationId);
+    if (station?.type === "packaging") return PACKAGING_SECONDS;
+    return Math.max(
+      ...stationLines.map((l) => itemTargetSeconds(setup, l.menuItemId, menuItemById.get(l.menuItemId)?.prepTimeSeconds)),
+    );
+  };
+  /** FR-KDS-012 — the longest preparation in this firing; everything finishes with it. */
+  const batchSeconds = Math.max(0, ...[...byStation.entries()].map(([id, list]) => stationTarget(id, list)));
+  const stagger = state.settings.staggeredRelease && !hold;
+
   for (const [stationId, stationLines] of byStation) {
     const station = branchStations.find((s) => s.id === stationId)!;
     const course = stationLines[0]!.course;
-    const targetSeconds = Math.max(
-      ...stationLines.map((l) => menuItemById.get(l.menuItemId)?.prepTimeSeconds ?? 300),
-    );
+    const targetSeconds = stationTarget(stationId, stationLines);
+
+    /*
+     * FR-KDS-012 — staggered release. target_ready = fire_time + the longest
+     * prep in the firing, so a ticket with a shorter prep is released that
+     * much later. `firedAt` is the release moment — the clock starts then —
+     * and the display shows the card as scheduled until it arrives.
+     */
+    const offset = stagger ? releaseOffsetSeconds(targetSeconds, batchSeconds) : 0;
+    const releaseAt = offset > 0 ? new Date(Date.parse(at) + offset * 1000).toISOString() : at;
 
     /*
      * FR-POS-038 — lines added to a course this station has already been
-     * sent go out as their own ticket, marked as an addition. Folding them
-     * into the original card (or reprinting it) is how kitchens end up making
-     * the whole order twice.
+     * sent go out as their own ticket, marked as an addition, so the printer
+     * never reprints the whole order. FR-KDS-028 — the display folds that
+     * ticket into the card it amends (`amendsTicketId`) rather than showing
+     * the kitchen a second card.
      */
-    const amendment = ticketIds
+    const amends = ticketIds
       .map((id) => tickets[id]!)
-      .some(
+      .find(
         (t) =>
           t.orderId === order.id &&
           t.stationId === stationId &&
           t.course === course &&
           t.state !== "cancelled",
       );
+    const amendment = amends !== undefined;
 
     const id = mint.next("tkt");
     tickets[id] = {
@@ -705,16 +1196,30 @@ function fireLines(
       state: "queued",
       urgency: "on_target",
       course,
-      priority: order.orderType === "delivery" ? "rush" : "normal",
-      firedAt: at,
+      // FR-KDS-027 — the order's own flag, or rush for delivery by default.
+      priority: state.priorities?.[order.id] ?? (order.orderType === "delivery" ? "rush" : "normal"),
+      firedAt: releaseAt,
       startedAt: null,
       bumpedAt: null,
       cancelReason: null,
       targetSeconds,
       elapsedSeconds: 0,
-      lines: stationLines.map(ticketLineFrom),
+      lines: stationLines.map((line) =>
+        ticketLineFrom(line, setup, {
+          at,
+          routedAt: releaseAt,
+          addedAt: amendment ? at : null,
+          alsoAt: (stationsOfLine.get(line.id) ?? [])
+            .filter((other) => other !== stationId)
+            .map((other) => branchStations.find((s) => s.id === other)?.name)
+            .filter((name): name is Localised => Boolean(name)),
+        }),
+      ),
       held: hold,
       amendment,
+      amendsTicketId: amends?.id ?? null,
+      // FR-KDS-040 — created at the fire, routed when released to the station.
+      timeline: { ...stamp(undefined, "createdAt", at), routedAt: hold ? null : releaseAt },
     };
     ticketIds.unshift(id);
   }
@@ -762,14 +1267,21 @@ function syncOrderFromTickets(state: LiveState, orderId: Id, at: IsoDateTime): L
   const order = state.orders[orderId];
   if (!order) return state;
 
-  const readyLineIds = new Set<Id>();
+  /*
+   * FR-KDS-011 — a line routed to several stations is ready only when every
+   * one of them has it ready. Grill finishing the burger does not make it
+   * ready while packaging has not boxed it.
+   */
+  const lineReady = new Map<Id, boolean>();
   for (const id of state.ticketIds) {
     const ticket = state.tickets[id];
-    if (!ticket || ticket.orderId !== orderId) continue;
+    if (!ticket || ticket.orderId !== orderId || ticket.state === "cancelled") continue;
     for (const line of ticket.lines) {
-      if (line.state === "ready" || ticket.state === "bumped") readyLineIds.add(line.id);
+      const ready = line.state === "ready" || line.state === "served" || ticket.state === "bumped";
+      lineReady.set(line.id, (lineReady.get(line.id) ?? true) && ready);
     }
   }
+  const readyLineIds = new Set([...lineReady.entries()].filter(([, ready]) => ready).map(([id]) => id));
 
   const lines = order.lines.map((line) =>
     readyLineIds.has(line.id) && (line.state === "fired" || line.state === "preparing")
@@ -875,7 +1387,63 @@ function recomputeSession(state: LiveState): LiveState {
 // The reducer
 // ---------------------------------------------------------------------------
 
+/**
+ * Every action, then promotions brought into line — FR-CRM-027.
+ *
+ * Promotions are re-evaluated after any action rather than inside each case,
+ * so no line, customer, order-type or discount change can leave an order
+ * carrying a promotion it no longer qualifies for (or missing one it now
+ * does). Evaluation is idempotent: an order whose inputs did not change
+ * comes back as the same object.
+ */
 export function liveReducer(state: LiveState, action: LiveAction): LiveState {
+  const next = reduceAction(state, action);
+  if (next === state || action.type === "TICK") return next;
+  return reconcilePromotions(next, action.at);
+}
+
+function reconcilePromotions(state: LiveState, at: IsoDateTime): LiveState {
+  const book = state.promotionBook;
+  const contexts = state.orderPromotions ?? {};
+  let orders: LiveState["orders"] | null = null;
+  let nextContexts: Record<Id, OrderPromotionState> | null = null;
+  let redemptions: ReturnType<typeof redemptionsFor> | null = null;
+  const categoryOf = (menuItemId: Id) => menuItemById.get(menuItemId)?.categoryId ?? null;
+
+  for (const orderId of state.orderIds) {
+    const order = state.orders[orderId];
+    // Once payment has started the bill is fixed: a promotion appearing or
+    // lapsing mid-tender would move the balance under the cashier.
+    if (!order || !isEditable(order) || order.paidTotal.amount > 0) continue;
+    const previous = contexts[orderId];
+    if (!previous && order.lines.length === 0) continue;
+    redemptions ??= redemptionsFor(book, state.orders, contexts);
+    const outcome = reconcileOrderPromotions(order, previous, {
+      at,
+      saleTime: saleTimeOf(order.openedAt, branchById.get(order.branchId)?.timezone),
+      book,
+      redemptions,
+      policy: state.settings.discountStacking,
+      categoryOf,
+    });
+    if (!outcome) continue;
+    nextContexts ??= { ...contexts };
+    nextContexts[orderId] = outcome.context;
+    if (outcome.order !== order) {
+      orders ??= { ...state.orders };
+      orders[orderId] = retotal(state, outcome.order);
+    }
+  }
+
+  if (!orders && !nextContexts) return state;
+  return {
+    ...state,
+    orders: orders ?? state.orders,
+    orderPromotions: nextContexts ?? contexts,
+  };
+}
+
+function reduceAction(state: LiveState, action: LiveAction): LiveState {
   const mint = minter(state);
   const currency = currencyOf(state);
   const pack = packForBranch(state.branchId);
@@ -885,7 +1453,12 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
   switch (action.type) {
     // -----------------------------------------------------------------------
     case "RESET":
-      return initialLiveState(action.branchId ?? state.branchId);
+      // The kitchen-display setup is configuration, not shift data; it survives a reset.
+      return {
+        ...initialLiveState(action.branchId ?? state.branchId),
+        kdsSetup: state.kdsSetup,
+        promotionBook: state.promotionBook,
+      };
 
     case "SET_BRANCH": {
       if (action.branchId === state.branchId) return state;
@@ -900,6 +1473,11 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         closedSessions: state.closedSessions,
         settings: state.settings,
         unavailable: state.unavailable,
+        // Both are keyed by branch, so another branch's rows are simply not shown.
+        sections: state.sections,
+        approvals: state.approvals,
+        kdsSetup: state.kdsSetup,
+        promotionBook: state.promotionBook,
         idSeq: state.idSeq,
       };
     }
@@ -1048,6 +1626,22 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         ? (state.tableStates[action.tableId] ?? seededTables.find((t) => t.id === action.tableId))
         : null;
 
+      // FR-POS-084 — in restrict mode a table in someone else's section needs
+      // a manager to say so. Checked here as well as on the floor, so a stale
+      // screen or a second tab cannot open it anyway.
+      const section = sectionOfTable(state, action.tableId);
+      const outsideSection =
+        state.settings.sectionMode === "restrict" &&
+        section?.serverId != null &&
+        section.serverId !== operator.id;
+      if (outsideSection && !approvalOk(state, action.sectionOverride)) return state;
+
+      // FR-POS-007 — the section's server serves the table; otherwise whoever opened it.
+      const server =
+        section?.serverId && section.serverName
+          ? { id: section.serverId, name: section.serverName }
+          : operator;
+
       const order: Order = {
         id,
         tenantId: branch.tenantId,
@@ -1068,7 +1662,11 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         customerName: null,
         openedBy: operator.id,
         openedByName: operator.name,
-        servedByName: operator.name,
+        servedBy: server.id,
+        servedByName: server.name,
+        closedBy: null,
+        closedByName: null,
+        parked: null,
         currency,
         subtotal: money(0, currency),
         discountTotal: money(0, currency),
@@ -1107,18 +1705,28 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         state: "seated",
         seatedAt: action.at,
         orderId: id,
-        serverId: operator.id,
+        serverId: server.id,
       });
 
-      return commit(
-        withAudit(next, audit(state, mint, {
+      next = withAudit(next, audit(state, mint, {
+        at: action.at,
+        action: "order.created",
+        entityType: "order",
+        entityId: id,
+        after: { orderType: action.orderType, tableId: action.tableId, servedBy: server.name.en },
+      }));
+      if (outsideSection) {
+        next = withAudit(next, audit(next, mint, {
           at: action.at,
-          action: "order.created",
+          action: "floor.section.override",
           entityType: "order",
           entityId: id,
-          after: { orderType: action.orderType, tableId: action.tableId },
-        })),
-      );
+          before: { section: section?.name ?? null, sectionServer: section?.serverName?.en ?? null },
+          after: { openedBy: operator.name.en, table: table?.label ?? null },
+          approverName: action.sectionOverride?.approverName ?? null,
+        }));
+      }
+      return commit(next);
     }
 
     case "ORDER_SELECT":
@@ -1133,7 +1741,8 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
     case "ORDER_NOTE": {
       const order = state.orders[action.orderId];
       if (!order) return state;
-      return putOrder(state, { ...order, notes: action.note || null });
+      // FR-POS-066 — a card number typed into a note never reaches storage.
+      return putOrder(state, { ...order, notes: redactOptional(action.note.trim() || null) });
     }
 
     case "ORDER_SYNC": {
@@ -1174,26 +1783,105 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       return next;
     }
 
+    /*
+      FR-POS-006 — parked, with who parked it, where and when.
+
+      The order lives in the branch's shared store, not on the terminal that
+      parked it, so it shows on every till in the branch and anyone signed on
+      can pick it up. Parking used to change the state and nothing else: no
+      record of who set it aside, no audit entry, and nothing ever dispatched
+      a resume — a parked order could be selected but never un-parked.
+    */
     case "ORDER_PARK": {
       const order = state.orders[action.orderId];
-      if (!order) return state;
-      const next = putOrder(state, { ...order, state: "parked" });
-      return { ...next, activeOrderId: null };
+      if (!order || !isEditable(order) || !state.session) return state;
+      const operator = operatorOf(state);
+      const terminal = terminals.find((t) => t.id === state.terminalId);
+      let next = putOrder(state, {
+        ...order,
+        state: "parked",
+        parked: {
+          at: action.at,
+          by: operator.id,
+          byName: operator.name,
+          terminalId: state.terminalId,
+          terminalName: terminal?.name ?? order.terminalName,
+        },
+      });
+      next = { ...next, activeOrderId: state.activeOrderId === order.id ? null : state.activeOrderId };
+      return commit(
+        withAudit(next, audit(state, mint, {
+          at: action.at,
+          action: "order.parked",
+          entityType: "order",
+          entityId: order.id,
+          before: { state: order.state },
+          after: { state: "parked", terminal: terminal?.name ?? null },
+        })),
+      );
     }
 
     case "ORDER_RESUME": {
       const order = state.orders[action.orderId];
-      if (!order) return state;
-      const next = putOrder(state, {
+      // An authorised user is one signed on to a shift at this branch.
+      if (!order || order.state !== "parked" || !state.session) return state;
+      const operator = operatorOf(state);
+      const terminal = terminals.find((t) => t.id === state.terminalId);
+      const resumed: Order = {
         ...order,
-        state: order.firstFiredAt ? "open" : "draft",
-      });
-      return { ...next, activeOrderId: order.id };
+        // Back to where it was: part-paid stays part-paid, fired stays open.
+        state: order.paidTotal.amount > 0 ? "partially_paid" : order.firstFiredAt ? "open" : "draft",
+        parked: null,
+        // The order now lives on the till that picked it up.
+        terminalId: state.terminalId,
+        terminalName: terminal?.name ?? order.terminalName,
+      };
+      const next = { ...putOrder(state, resumed), activeOrderId: order.id };
+      return commit(
+        withAudit(next, audit(state, mint, {
+          at: action.at,
+          action: "order.resumed",
+          entityType: "order",
+          entityId: order.id,
+          before: {
+            state: "parked",
+            parkedBy: order.parked?.byName.en ?? null,
+            terminal: order.parked?.terminalName ?? order.terminalName,
+          },
+          after: {
+            state: resumed.state,
+            resumedBy: operator.name.en,
+            terminal: resumed.terminalName,
+            otherUser: order.parked ? order.parked.by !== operator.id : null,
+            otherTerminal: order.parked ? order.parked.terminalId !== state.terminalId : null,
+          },
+        })),
+      );
+    }
+
+    /** FR-POS-007 — the server can change mid-service; the change is recorded. */
+    case "ORDER_SET_SERVER": {
+      const order = state.orders[action.orderId];
+      const server = employeeById.get(action.serverId);
+      if (!order || !server || !worksAt(server, state.branchId)) return state;
+      if (["completed", "cancelled", "refunded", "partially_refunded", "merged"].includes(order.state)) return state;
+      if (order.servedBy === server.id) return state;
+      const next = putOrder(state, { ...order, servedBy: server.id, servedByName: server.name });
+      return commit(
+        withAudit(next, audit(state, mint, {
+          at: action.at,
+          action: "order.server.changed",
+          entityType: "order",
+          entityId: order.id,
+          before: { servedBy: order.servedByName?.en ?? null },
+          after: { servedBy: server.name.en },
+        })),
+      );
     }
 
     case "ORDER_MOVE_TABLE": {
       const order = state.orders[action.orderId];
-      if (!order) return state;
+      if (!order || !isEditable(order)) return state;
       const target =
         state.tableStates[action.tableId] ?? seededTables.find((t) => t.id === action.tableId);
       if (!target) return state;
@@ -1222,18 +1910,236 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       );
     }
 
+    /*
+      FR-POS-082 — two tables become one bill.
+
+      The source's lines, discounts and guests move onto the target, its
+      tables are linked to the target so the floor shows them occupied by it,
+      and the kitchen tickets are re-pointed so the runner reads the order
+      number the food will be billed under. The source is kept, emptied and
+      marked `merged` with a pointer to where its lines went, because an
+      order number that simply vanished would be a gap in the sequence.
+
+      Refused once money has been taken on either side: moving a payment
+      between bills is a refund and a re-sale, not a merge.
+    */
+    case "ORDER_MERGE": {
+      const target = state.orders[action.targetOrderId];
+      const source = state.orders[action.sourceOrderId];
+      if (!target || !source || target.id === source.id) return state;
+      if (!isEditable(target) || !isEditable(source)) return state;
+      if (target.paidTotal.amount > 0 || source.paidTotal.amount > 0) return state;
+      if (target.orderType !== "dine_in" || source.orderType !== "dine_in") return state;
+
+      const base = target.lines.length;
+      const movedLines = source.lines.map((line, index) => ({ ...line, sequence: base + index + 1 }));
+      const linked = [
+        ...(target.linkedTableIds ?? []),
+        ...tablesOfOrder(source).filter((id) => id !== target.tableId),
+      ];
+
+      const merged = retotal(state, {
+        ...target,
+        lines: [...target.lines, ...movedLines],
+        discounts: [...target.discounts, ...source.discounts],
+        guestCount: (target.guestCount ?? 0) + (source.guestCount ?? 0) || null,
+        customerId: target.customerId ?? source.customerId,
+        customerName: target.customerName ?? source.customerName,
+        firstFiredAt:
+          [target.firstFiredAt, source.firstFiredAt].filter((t): t is string => Boolean(t)).sort()[0] ?? null,
+        state: target.firstFiredAt || source.firstFiredAt ? "open" : target.state,
+        linkedTableIds: [...new Set(linked)],
+      });
+      const emptied = retotal(state, {
+        ...source,
+        lines: [],
+        discounts: [],
+        state: "merged",
+        mergedIntoOrderId: target.id,
+        linkedTableIds: [],
+      });
+
+      let next = putOrder(putOrder(state, merged), emptied);
+      for (const tableId of tablesOfOrder(source)) {
+        next = setTable(next, tableId, { orderId: target.id, state: "ordered" });
+      }
+      const tickets = { ...next.tickets };
+      for (const id of next.ticketIds) {
+        const ticket = tickets[id];
+        if (ticket?.orderId !== source.id) continue;
+        tickets[id] = { ...ticket, orderId: target.id, orderNumber: target.orderNumber, tableLabel: target.tableLabel };
+      }
+      next = {
+        ...next,
+        tickets,
+        activeOrderId: state.activeOrderId === source.id ? target.id : state.activeOrderId,
+      };
+
+      next = withAudit(next, audit(state, mint, {
+        at: action.at,
+        action: "order.tables.merged",
+        entityType: "order",
+        entityId: target.id,
+        before: { target: orderSnapshot(target), source: orderSnapshot(source) },
+        after: orderSnapshot(merged),
+      }));
+      next = withAudit(next, audit(next, mint, {
+        at: action.at,
+        action: "order.merged.into",
+        entityType: "order",
+        entityId: source.id,
+        before: orderSnapshot(source),
+        after: { state: "merged", mergedInto: target.orderNumber },
+      }));
+      return commit(next);
+    }
+
+    /*
+      FR-POS-082 — some of a table's lines onto a new check.
+
+      The new check takes the chosen lines with their discounts, at the same
+      table (two checks, one table) or at a free one. A combo's components
+      travel together — half a meal deal on each bill would reprice neither.
+      Kitchen tickets follow their lines: a ticket whose lines all moved is
+      re-pointed, and one holding lines from both checks is split in two, so
+      the station still shows exactly what it is making and marking a line
+      ready still reaches the bill it is on.
+    */
+    case "ORDER_SPLIT": {
+      const order = state.orders[action.orderId];
+      if (!order || !isEditable(order) || order.paidTotal.amount > 0) return state;
+
+      const chosen = new Set(action.lineIds);
+      for (const line of order.lines) {
+        if (line.combo && chosen.has(line.id)) {
+          for (const sibling of order.lines) {
+            if (sibling.combo?.instanceId === line.combo.instanceId) chosen.add(sibling.id);
+          }
+        }
+      }
+      const moving = order.lines.filter((l) => chosen.has(l.id) && l.state !== "voided");
+      const staying = order.lines.filter((l) => !chosen.has(l.id) || l.state === "voided");
+      if (moving.length === 0 || !staying.some((l) => l.state !== "voided")) return state;
+
+      const destination = action.tableId && action.tableId !== order.tableId
+        ? (state.tableStates[action.tableId] ?? seededTables.find((t) => t.id === action.tableId))
+        : null;
+      if (action.tableId && action.tableId !== order.tableId && (!destination || destination.state !== "available")) {
+        return state;
+      }
+
+      const operator = operatorOf(state);
+      const branch = branchById.get(state.branchId)!;
+      const newId = mint.next("ord");
+      const seq = state.numberSeq;
+      const movedIds = new Set(moving.map((l) => l.id));
+      const firedAt = moving.map((l) => l.firedAt).filter((t): t is string => Boolean(t)).sort()[0] ?? null;
+
+      const created = retotal(state, {
+        ...order,
+        id: newId,
+        orderNumber: `${branch.code}-${String(seq).padStart(4, "0")}`,
+        state: firedAt ? "open" : "draft",
+        tableId: destination ? destination.id : order.tableId,
+        tableLabel: destination ? destination.label : order.tableLabel,
+        linkedTableIds: [],
+        guestCount: null,
+        customerId: null,
+        customerName: null,
+        openedBy: operator.id,
+        openedByName: operator.name,
+        closedBy: null,
+        closedByName: null,
+        parked: null,
+        lines: moving.map((l, i) => ({ ...l, sequence: i + 1 })),
+        discounts: order.discounts.filter((d) => d.lineId && movedIds.has(d.lineId)),
+        payments: [],
+        paidTotal: money(0, currency),
+        tipTotal: money(0, currency),
+        roundingAdjustment: money(0, currency),
+        openedAt: action.at,
+        firstFiredAt: firedAt,
+        completedAt: null,
+        cancelledAt: null,
+        cancelledBy: null,
+        cancelReason: null,
+        syncState: "local",
+        syncedAt: null,
+        splitFromOrderId: order.id,
+        mergedIntoOrderId: null,
+        notes: null,
+      });
+      const remaining = retotal(state, {
+        ...order,
+        lines: staying.map((l, i) => ({ ...l, sequence: i + 1 })),
+        discounts: order.discounts.filter((d) => !d.lineId || !movedIds.has(d.lineId)),
+      });
+
+      let next: LiveState = {
+        ...putOrder(putOrder(state, remaining), created),
+        numberSeq: seq + 1,
+        orderIds: [newId, ...state.orderIds],
+        activeOrderId: newId,
+      };
+      if (destination) {
+        next = setTable(next, destination.id, {
+          state: firedAt ? "ordered" : "seated",
+          seatedAt: action.at,
+          orderId: newId,
+          serverId: order.servedBy ?? operator.id,
+        });
+      }
+
+      const tickets = { ...next.tickets };
+      const ticketIds = [...next.ticketIds];
+      for (const id of next.ticketIds) {
+        const ticket = tickets[id];
+        if (!ticket || ticket.orderId !== order.id) continue;
+        const going = ticket.lines.filter((l) => movedIds.has(l.id));
+        if (going.length === 0) continue;
+        const retarget = { orderId: newId, orderNumber: created.orderNumber, tableLabel: created.tableLabel };
+        if (going.length === ticket.lines.length) {
+          tickets[id] = { ...ticket, ...retarget };
+        } else {
+          tickets[id] = { ...ticket, lines: ticket.lines.filter((l) => !movedIds.has(l.id)) };
+          const copyId = mint.next("tkt");
+          tickets[copyId] = { ...ticket, ...retarget, id: copyId, lines: going };
+          ticketIds.splice(ticketIds.indexOf(id), 0, copyId);
+        }
+      }
+      next = { ...next, tickets, ticketIds };
+
+      next = withAudit(next, audit(state, mint, {
+        at: action.at,
+        action: "order.split",
+        entityType: "order",
+        entityId: order.id,
+        before: orderSnapshot(order),
+        after: { ...orderSnapshot(remaining), splitInto: created.orderNumber },
+      }));
+      next = withAudit(next, audit(next, mint, {
+        at: action.at,
+        action: "order.split.created",
+        entityType: "order",
+        entityId: newId,
+        after: { ...orderSnapshot(created), splitFrom: order.orderNumber },
+      }));
+      return commit(next);
+    }
+
     case "ORDER_CANCEL": {
       const order = state.orders[action.orderId];
-      if (!order) return state;
+      if (!order || !isEditable(order) || order.paidTotal.amount > 0) return state;
+      // FR-POS-075 — food already made is a void of every line; same rule.
+      if (cancelNeedsApproval(order, state.settings) && !approvalOk(state, action.approval)) return state;
+      const closer = operatorOf(state);
+      const reason = redactCardData(action.reason.trim());
+      if (!reason) return state;
 
       let next = state;
       // Pre-fire lines simply disappear; fired lines already cost us the food.
       const lines = order.lines.map((line) =>
-        line.state === "pending"
-          ? { ...line, state: "voided" as const, voidReason: action.reason }
-          : line.state === "voided"
-            ? line
-            : { ...line, state: "voided" as const, voidReason: action.reason },
+        line.state === "voided" ? line : { ...line, state: "voided" as const, voidReason: reason },
       );
 
       next = putOrder(
@@ -1243,8 +2149,12 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
           lines,
           state: "cancelled",
           cancelledAt: action.at,
-          cancelledBy: operatorOf(state).name,
-          cancelReason: action.reason,
+          cancelledBy: closer.name,
+          cancelReason: reason,
+          // FR-POS-007 — a cancelled order is closed too, by whoever cancelled it.
+          closedBy: closer.id,
+          closedByName: closer.name,
+          parked: null,
         }),
       );
 
@@ -1271,7 +2181,7 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       if (cooked.length > 0) {
         const branch = branchById.get(state.branchId)!;
         const operator = operatorOf(state);
-        const reason = wasteReasonByCode.get("order_error")!;
+        const wasteReason = wasteReasonByCode.get("order_error")!;
         const currency = currencyOf(state);
 
         const records: WasteRecord[] = cooked.map((line) => ({
@@ -1282,26 +2192,22 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
           itemId: line.menuItemId,
           itemName: line.itemNameSnapshot,
           quantity: { value: line.quantity.toFixed(3), unit: "pc" },
-          reasonCode: reason.code,
-          reasonName: reason.name,
-          category: reason.category,
-          isTrueWaste: reason.isTrueWaste,
-          value: money(line.unitCostSnapshot.amount, currency),
+          reasonCode: wasteReason.code,
+          reasonName: wasteReason.name,
+          category: wasteReason.category,
+          isTrueWaste: wasteReason.isTrueWaste,
+          value: money(line.unitCostSnapshot.amount * line.quantity, currency),
           recordedAt: action.at,
           recordedBy: operator.id,
           recordedByName: operator.name,
           stationId: line.stationId,
           approval: "not_required",
-          notes: action.reason,
+          notes: reason,
         }));
 
         next = { ...next, waste: [...records, ...next.waste].slice(0, 400) };
       }
-      next = setTable(next, order.tableId, {
-        state: "needs_cleaning",
-        orderId: null,
-        seatedAt: null,
-      });
+      next = releaseTables(next, order);
       /*
         Tell the kitchen rather than tidying the ticket away.
 
@@ -1324,8 +2230,8 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
           tickets[id] = {
             ...ticket,
             state: "cancelled",
-            cancelReason: action.reason,
-            lines: ticket.lines.map((l) => ({ ...l, state: "voided" as const })),
+            cancelReason: reason,
+            lines: ticket.lines.map((l) => ({ ...l, state: "voided" as const, cancelledAt: l.cancelledAt ?? action.at })),
           };
         }
       }
@@ -1338,9 +2244,12 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
           action: "order.cancelled",
           entityType: "order",
           entityId: order.id,
-          before: { state: order.state, total: order.grandTotal.amount },
-          after: { state: "cancelled" },
-          reasonText: action.reason,
+          // FR-POS-075 — actor (the entry's own), approver, reason, amount, and
+          // the whole order either side of the cancellation.
+          before: orderSnapshot(order),
+          after: { amount: order.grandTotal.amount, ...orderSnapshot(next.orders[order.id]!) },
+          reasonText: reason,
+          approverName: action.approval?.approverName ?? null,
         })),
       );
     }
@@ -1349,65 +2258,29 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
     case "LINE_ADD": {
       const order = state.orders[action.orderId];
       const item = menuItemById.get(action.menuItemId);
-      if (!order || !item) return state;
+      if (!order || !item || !isEditable(order)) return state;
       const variant = item.variants.find((v) => v.id === action.variantId);
       if (!variant) return state;
 
-      const branch = branchById.get(state.branchId)!;
-      const minuteOfDay = minuteOfDayFrom(action.at);
-      const price = resolvePrice(item, variant, {
-        orderType: order.orderType,
-        branchId: branch.id,
-        brandId: branch.brandId,
-        minuteOfDay,
-        priceLists,
-        overrideMinor: action.openPriceMinor ?? null,
-      });
-
-      const modifiers: OrderLineModifier[] = action.modifierIds
-        .map((id) => modifierById.get(id))
-        .filter((m): m is NonNullable<typeof m> => Boolean(m))
-        .map((m) => ({
-          id: m.id,
-          name: m.name,
-          kind: m.kind,
-          priceDelta: m.priceDelta,
-        }));
-
-      const recipe = variant.recipeId ? recipeById.get(variant.recipeId) : undefined;
-      const unitCost = recipe?.computedCost.amount ?? 0;
-      const sequence = order.lines.length + 1;
-
-      const line: OrderLine = {
-        id: mint.next("oln"),
-        sequence,
-        menuItemId: item.id,
-        variantId: variant.id,
-        // BR-POS-004 — the name is snapshotted, never re-derived from master data.
-        itemNameSnapshot: {
-          en: `${item.name.en} — ${variant.name.en}`,
-          ar: `${item.name.ar} — ${variant.name.ar}`,
-        },
+      const price = priceFor(state, order, item, variant, action.at, action.openPriceMinor ?? null);
+      const line = buildLine(state, mint, order, {
+        item,
+        variant,
         quantity: action.quantity,
-        unitPrice: price.price,
-        modifiers,
-        modifierTotal: money(0, currency),
-        lineDiscount: money(0, currency),
-        lineSubtotal: money(0, currency),
-        taxAmount: money(0, currency),
-        lineTotal: money(0, currency),
-        unitCostSnapshot: money(unitCost * action.quantity, currency),
-        recipeVersionId: variant.recipeId,
+        modifierIds: action.modifierIds,
+        priceRules: action.priceRules,
         course: action.course,
         seatNumber: action.seatNumber,
-        state: "pending",
-        stationId: null,
-        firedAt: null,
-        readyAt: null,
-        voidReason: null,
-        isComp: false,
         notes: action.notes,
-      };
+        unitPrice: price.price,
+        priceSource: {
+          rule: price.source,
+          priceListId: price.priceListId,
+          priceListName: price.priceListName,
+        },
+        combo: null,
+        sequence: order.lines.length + 1,
+      });
 
       let updated: Order = { ...order, lines: [...order.lines, line] };
       let next = putOrder(state, retotal(state, updated));
@@ -1422,34 +2295,103 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       return commit(next);
     }
 
+    /*
+      FR-POS-030/031/032 — a combo goes on as one line per component.
+
+      Each component keeps its own menu item, so it routes to its own station
+      and depletes its own recipe; the combo price is split across them by
+      the combo's strategy and allocation basis, and every line says which
+      combo it came from. Looked up in the live catalogue array rather than a
+      map built at load, so a combo edited in the console this session sells
+      at its edited price.
+    */
+    case "COMBO_ADD": {
+      const order = state.orders[action.orderId];
+      const combo = combos.find((c) => c.id === action.comboId);
+      if (!order || !combo || !combo.active || !isEditable(order)) return state;
+
+      const quote = quoteCombo(combo, action.picks, {
+        itemById: (id) => menuItemById.get(id),
+        listPrice: (item, variant) => priceFor(state, order, item, variant, action.at, null).price.amount,
+        unitCost: (variant) => (variant.recipeId ? (recipeById.get(variant.recipeId)?.computedCost.amount ?? 0) : 0),
+      });
+      if (!quote.complete) return state;
+
+      const instanceId = mint.next("cmi");
+      const added: OrderLine[] = [];
+      for (const component of quote.components) {
+        added.push(
+          buildLine(state, mint, order, {
+            item: component.item,
+            variant: component.variant,
+            quantity: 1,
+            modifierIds: action.modifierIds[component.slot.id] ?? defaultModifierIds(component.item),
+            priceRules: action.priceRules,
+            course: action.course,
+            seatNumber: action.seatNumber,
+            notes: null,
+            unitPrice: money(component.chargedMinor, currency),
+            priceSource: { rule: "combo", priceListId: null, priceListName: combo.name.en },
+            combo: {
+              comboId: combo.id,
+              instanceId,
+              name: combo.name,
+              slotId: component.slot.id,
+              slotName: component.slot.name,
+              strategy: combo.pricingStrategy,
+              listPrice: money(component.listMinor, currency),
+              premium: money(component.premiumMinor, currency),
+            },
+            sequence: order.lines.length + added.length + 1,
+          }),
+        );
+      }
+
+      let next = putOrder(state, retotal(state, { ...order, lines: [...order.lines, ...added] }));
+      if (state.settings.autoFire) {
+        const fired = fireLines(next, mint, next.orders[order.id]!, new Set(added.map((l) => l.id)), action.at);
+        next = putOrder(fired.state, retotal(fired.state, fired.order));
+      }
+      return commit(next);
+    }
+
     case "LINE_QTY": {
       const order = state.orders[action.orderId];
-      if (!order) return state;
+      if (!order || !isEditable(order)) return state;
       const quantity = Math.max(1, Math.min(99, action.quantity));
       const lines = order.lines.map((line) => {
-        if (line.id !== action.lineId || line.state !== "pending") return line;
+        // A combo component's quantity is the combo's; it changes as a unit.
+        if (line.id !== action.lineId || line.state !== "pending" || line.combo) return line;
         const recipe = line.recipeVersionId ? recipeById.get(line.recipeVersionId) : undefined;
         return {
           ...line,
           quantity,
-          unitCostSnapshot: money((recipe?.computedCost.amount ?? 0) * quantity, currency),
+          unitCostSnapshot: money(recipe?.computedCost.amount ?? 0, currency),
         };
       });
       return putOrder(state, retotal(state, { ...order, lines }));
     }
 
+    /*
+      FR-POS-025/026 — a kitchen note on a line not yet sent.
+
+      Once a line has fired, the kitchen has its copy; editing the note here
+      would change the bill's record without changing the ticket the cook is
+      reading, so a fired line's note is left alone.
+    */
     case "LINE_NOTE": {
       const order = state.orders[action.orderId];
-      if (!order) return state;
+      if (!order || !isEditable(order)) return state;
+      const notes = noteForPolicy(action.notes, state.settings);
       const lines = order.lines.map((line) =>
-        line.id === action.lineId ? { ...line, notes: action.notes } : line,
+        line.id === action.lineId && line.state === "pending" ? { ...line, notes } : line,
       );
       return putOrder(state, { ...order, lines });
     }
 
     case "LINE_COURSE": {
       const order = state.orders[action.orderId];
-      if (!order) return state;
+      if (!order || !isEditable(order)) return state;
       const lines = order.lines.map((line) =>
         line.id === action.lineId && line.state === "pending"
           ? { ...line, course: action.course }
@@ -1472,6 +2414,80 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
           after: { customerId: action.customerId },
         }),
       );
+    }
+
+    case "PROMOTIONS_SYNC":
+      return {
+        ...state,
+        promotionBook: { promotions: action.promotions, redemptions: action.redemptions, syncedAt: action.at },
+      };
+
+    case "ORDER_PROMOTION_CUSTOMER": {
+      const order = state.orders[action.orderId];
+      if (!order || order.customerId !== action.customer.id) return state;
+      const context = state.orderPromotions[order.id] ?? emptyOrderPromotionState();
+      return {
+        ...state,
+        orderPromotions: { ...state.orderPromotions, [order.id]: { ...context, customer: action.customer } },
+      };
+    }
+
+    case "ORDER_COUPON": {
+      const order = state.orders[action.orderId];
+      if (!order || !isEditable(order) || order.paidTotal.amount > 0) return state;
+      const code = action.code.trim().toUpperCase();
+      if (!code) return state;
+      const context = state.orderPromotions[order.id] ?? emptyOrderPromotionState();
+      const others = context.coupons.filter((c) => c.code !== code);
+      if (!action.promotionId && others.length === context.coupons.length) return state;
+      const coupons = action.promotionId ? [...others, { code, promotionId: action.promotionId }] : others;
+      const next = {
+        ...state,
+        orderPromotions: { ...state.orderPromotions, [order.id]: { ...context, coupons } },
+      };
+      return commit(
+        withAudit(next, audit(state, mint, {
+          at: action.at,
+          action: action.promotionId ? "order.coupon.applied" : "order.coupon.removed",
+          entityType: "order",
+          entityId: order.id,
+          after: { code, promotionId: action.promotionId, orderNumber: order.orderNumber },
+        })),
+      );
+    }
+
+    case "ORDER_PROMOTION_DECLINE": {
+      const order = state.orders[action.orderId];
+      if (!order || !isEditable(order) || order.paidTotal.amount > 0) return state;
+      const context = state.orderPromotions[order.id] ?? emptyOrderPromotionState();
+      if (context.declined.includes(action.promotionId) === action.declined) return state;
+      const declined = action.declined
+        ? [...context.declined, action.promotionId]
+        : context.declined.filter((id) => id !== action.promotionId);
+      const next = {
+        ...state,
+        orderPromotions: { ...state.orderPromotions, [order.id]: { ...context, declined } },
+      };
+      return commit(
+        withAudit(next, audit(state, mint, {
+          at: action.at,
+          action: action.declined ? "order.promotion.declined" : "order.promotion.restored",
+          entityType: "order",
+          entityId: order.id,
+          after: { promotionId: action.promotionId, orderNumber: order.orderNumber },
+        })),
+      );
+    }
+
+    case "ORDER_PROMOTIONS_RECORDED": {
+      const context = state.orderPromotions[action.orderId];
+      if (!context) return state;
+      const field = action.kind === "redeemed" ? "redeemedAt" : "earnedAt";
+      if (context[field]) return state;
+      return {
+        ...state,
+        orderPromotions: { ...state.orderPromotions, [action.orderId]: { ...context, [field]: action.at } },
+      };
     }
 
     case "LINE_SEAT": {
@@ -1499,27 +2515,38 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
 
     case "LINE_VOID": {
       const order = state.orders[action.orderId];
-      if (!order) return state;
+      if (!order || !isEditable(order)) return state;
       const line = order.lines.find((l) => l.id === action.lineId);
       if (!line || line.state === "voided") return state;
+      const reason = redactCardData(action.reason.trim());
+      if (!reason) return state;
 
-      const preFire = line.state === "pending";
+      // A combo's components were priced together, so they are voided
+      // together: dropping the drink from a meal deal would leave the burger
+      // and fries charged at their share of a combo that no longer exists.
+      const targets = line.combo
+        ? order.lines.filter((l) => l.combo?.instanceId === line.combo!.instanceId && l.state !== "voided")
+        : [line];
+      const targetIds = new Set(targets.map((l) => l.id));
+      const preFire = targets.every((l) => l.state === "pending");
+      // FR-POS-070 — the disposition question is only real for food that exists.
+      if (!preFire && !action.disposition) return state;
+      // FR-POS-075 — a void the policy covers needs its approver.
+      if (voidNeedsApproval(preFire, state.settings) && !approvalOk(state, action.approval)) return state;
+
       let next = state;
-
-      // Pre-fire: nothing was made, so the line just leaves the order.
-      const lines = preFire
-        ? order.lines.filter((l) => l.id !== line.id).map((l, i) => ({ ...l, sequence: i + 1 }))
-        : order.lines.map((l) =>
-            l.id === line.id
-              ? { ...l, state: "voided" as const, voidReason: action.reason }
-              : l,
-          );
+      // Pre-fire: nothing was made, so the lines just leave the order.
+      const lines = order.lines
+        .filter((l) => !(targetIds.has(l.id) && l.state === "pending"))
+        .map((l) => (targetIds.has(l.id) ? { ...l, state: "voided" as const, voidReason: reason } : l))
+        .map((l, i) => ({ ...l, sequence: i + 1 }));
 
       next = putOrder(next, retotal(next, { ...order, lines }));
 
       // Post-fire: the food exists. FR-POS-071 makes the cook say where it went.
-      if (!preFire) {
-        const deltas = depletionFor(line);
+      const cooked = targets.filter((l) => l.state !== "pending");
+      for (const made of cooked) {
+        const deltas = depletionFor(made);
         if (action.disposition === "returned_to_stock") {
           next = applyStock(
             next,
@@ -1529,17 +2556,16 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
               at: action.at,
               movementType: "sale_reversal",
               referenceType: "order_line",
-              referenceId: line.id,
+              referenceId: made.id,
               reasonCode: "void_return",
-              notes: action.reason,
+              notes: reason,
             },
           );
         } else if (action.disposition) {
           const reasonCode = action.disposition === "staff_meal" ? "staff_meal" : "order_error";
-          const reason = wasteReasonByCode.get(reasonCode)!;
+          const wasteReason = wasteReasonByCode.get(reasonCode)!;
           const branch = branchById.get(state.branchId)!;
           const operator = operatorOf(state);
-          const value = line.unitCostSnapshot.amount;
 
           // Stock already left at fire time; this record classifies why, so
           // the loss lands in waste rather than in unexplained variance.
@@ -1548,56 +2574,69 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
             tenantId: branch.tenantId,
             locationId: branch.id,
             locationName: branch.name,
-            itemId: line.menuItemId,
-            itemName: line.itemNameSnapshot,
-            quantity: { value: line.quantity.toFixed(3), unit: "pc" },
-            reasonCode: reason.code,
-            reasonName: reason.name,
-            category: reason.category,
-            isTrueWaste: reason.isTrueWaste,
-            value: money(value, currency),
+            itemId: made.menuItemId,
+            itemName: made.itemNameSnapshot,
+            quantity: { value: made.quantity.toFixed(3), unit: "pc" },
+            reasonCode: wasteReason.code,
+            reasonName: wasteReason.name,
+            category: wasteReason.category,
+            isTrueWaste: wasteReason.isTrueWaste,
+            value: money(made.unitCostSnapshot.amount * made.quantity, currency),
             recordedAt: action.at,
             recordedBy: operator.id,
             recordedByName: operator.name,
-            stationId: line.stationId,
+            stationId: made.stationId,
             approval: "not_required",
-            notes: action.reason,
+            notes: reason,
           };
           next = { ...next, waste: [record, ...next.waste].slice(0, 400) };
         }
+      }
 
-        // Strike the line through on the station display — FR-KDS-029.
+      if (cooked.length > 0) {
+        // Strike the lines through on the station display — FR-KDS-029.
+        const cookedIds = new Set(cooked.map((l) => l.id));
         const tickets = { ...next.tickets };
         for (const id of next.ticketIds) {
           const ticket = tickets[id];
           if (!ticket || ticket.orderId !== order.id) continue;
-          if (!ticket.lines.some((l) => l.id === line.id)) continue;
+          if (!ticket.lines.some((l) => cookedIds.has(l.id))) continue;
           tickets[id] = {
             ...ticket,
+            // The visibility window runs from this moment, not from the fire.
             lines: ticket.lines.map((l) =>
-              l.id === line.id ? { ...l, state: "voided" as const } : l,
+              cookedIds.has(l.id) ? { ...l, state: "voided" as const, cancelledAt: action.at } : l,
             ),
           };
         }
         next = { ...next, tickets };
       }
 
+      const after = next.orders[order.id]!;
       return commit(
         withAudit(next, audit(state, mint, {
           at: action.at,
           action: preFire ? "order.line.voided.prefire" : "order.line.voided.postfire",
           entityType: "order_line",
           entityId: line.id,
-          before: { state: line.state, total: line.lineTotal.amount },
-          after: { state: "voided", disposition: action.disposition },
-          reasonText: action.reason,
+          // FR-POS-075 — the order either side of the void, with the amount
+          // it took off the bill and what happened to the food.
+          before: orderSnapshot(order),
+          after: {
+            amount: order.grandTotal.amount - after.grandTotal.amount,
+            voidedLines: targets.map((l) => l.id),
+            disposition: action.disposition,
+            ...orderSnapshot(after),
+          },
+          reasonText: reason,
+          approverName: action.approval?.approverName ?? null,
         })),
       );
     }
 
     case "LINE_COMP": {
       const order = state.orders[action.orderId];
-      if (!order) return state;
+      if (!order || !isEditable(order)) return state;
       const lines = order.lines.map((l) =>
         l.id === action.lineId ? { ...l, isComp: true } : l,
       );
@@ -1613,86 +2652,154 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       );
     }
 
-    case "LINE_DISCOUNT": {
-      const order = state.orders[action.orderId];
-      if (!order) return state;
-      const lines = order.lines.map((line) => {
-        if (line.id !== action.lineId) return line;
-        const gross =
-          (line.unitPrice.amount +
-            line.modifiers.reduce((s, m) => s + m.priceDelta.amount, 0)) *
-          line.quantity;
-        const amount =
-          action.discount.amountMinor ??
-          Math.round((gross * (action.discount.percentage ?? 0)) / 100);
-        return { ...line, lineDiscount: money(Math.min(amount, gross), currency) };
-      });
+    /*
+      FR-POS-045 … FR-POS-051 — one path for a discount on a line or on the
+      whole order.
 
-      const next = putOrder(state, retotal(state, { ...order, lines }));
-      return commit(
-        withAudit(next, audit(state, mint, {
-          at: action.at,
-          action: "order.discount.applied",
-          entityType: "order_line",
-          entityId: action.lineId,
-          after: {
-            percentage: action.discount.percentage,
-            amount: action.discount.amountMinor,
-          },
-          reasonText: action.discount.reason.en,
-          approverName: action.discount.approvedByName,
-        })),
-      );
-    }
-
+        047  every threshold is judged on what was actually entered, and
+             crossing any of them needs an approval stamp the reducer checks
+             itself (048) — the sheet asking first is not the control
+        049  every discount becomes a record: amount, percentage, reason,
+             who applied it, who approved it and how, when, and the order
+             as it stood
+        051  an exclusive discount, or any discount under best-single, only
+             goes on if it beats what it would have to combine with, and the
+             ones it beats are marked removed rather than deleted
+    */
+    case "LINE_DISCOUNT":
     case "ORDER_DISCOUNT": {
       const order = state.orders[action.orderId];
-      if (!order) return state;
-      const operator = operatorOf(state);
-      const base = order.lines
-        .filter((l) => l.state !== "voided" && !l.isComp)
-        .reduce((s, l) => s + l.lineSubtotal.amount, 0);
-      const amount =
-        action.discount.amountMinor ??
-        Math.round((base * (action.discount.percentage ?? 0)) / 100);
+      if (!order || !isEditable(order)) return state;
+      const line = action.type === "LINE_DISCOUNT" ? order.lines.find((l) => l.id === action.lineId) : null;
+      if (action.type === "LINE_DISCOUNT" && (!line || line.state === "voided" || line.isComp)) return state;
 
-      const discount = {
+      const input = action.discount;
+      const base = line
+        ? grossOf(line)
+        : order.lines.filter((l) => l.state !== "voided" && !l.isComp).reduce((s, l) => s + l.lineSubtotal.amount, 0);
+      if (base <= 0) return state;
+      const requested =
+        input.amountMinor ?? Math.round((base * Math.max(0, Math.min(100, input.percentage ?? 0))) / 100);
+      const amountMinor = Math.max(0, Math.min(requested, base));
+      if (amountMinor <= 0) return state;
+
+      const operator = operatorOf(state);
+      const sessionStart = state.session?.openedAt ?? "";
+      const discountsThisShift = Object.values(state.orders)
+        .flatMap((o) => o.discounts)
+        .filter((d) => d.appliedById === operator.id && d.appliedAt >= sessionStart).length;
+      const triggers = discountTriggers(
+        {
+          percent: (amountMinor / base) * 100,
+          amountMinor,
+          discountsThisShift,
+          paymentStarted: order.paidTotal.amount > 0,
+        },
+        state.settings,
+      );
+      if (triggers.length > 0 && !approvalOk(state, input.approval)) return state;
+
+      const active = activeDiscountsOf(order);
+      const verdict = resolveStacking(
+        active.map((d) => ({ id: d.id, amountMinor: d.amount.amount, exclusive: d.exclusive === true })),
+        { amountMinor, exclusive: input.exclusive },
+        state.settings.discountStacking,
+      );
+      if (verdict.outcome === "keep_existing") return state;
+      const superseded = new Set(verdict.outcome === "replace" ? verdict.conflictIds : []);
+
+      const record: OrderDiscount = {
         id: mint.next("dsc"),
-        reason: action.discount.reason,
-        percentage: action.discount.percentage,
-        amount: money(Math.min(amount, base), currency),
+        reason: input.reason,
+        percentage: input.amountMinor == null ? (input.percentage ?? null) : null,
+        amount: money(amountMinor, currency),
         appliedBy: operator.name,
-        approvedBy: action.discount.approvedByName,
+        approvedBy: input.approval?.approverName ?? null,
         appliedAt: action.at,
+        lineId: line?.id ?? null,
+        appliedById: operator.id,
+        approvedById: input.approval?.approverId ?? null,
+        approvalMethod: input.approval?.method ?? null,
+        context: {
+          orderNumber: order.orderNumber,
+          orderType: order.orderType,
+          tableLabel: order.tableLabel,
+          baseAmount: base,
+          lineCount: order.lines.filter((l) => l.state !== "voided").length,
+          paymentStarted: order.paidTotal.amount > 0,
+        },
+        presetId: input.presetId,
+        exclusive: input.exclusive,
+        removedAt: null,
+        removedReason: null,
       };
 
-      const next = putOrder(
-        state,
-        retotal(state, { ...order, discounts: [...order.discounts, discount] }),
+      const discounts = [
+        ...order.discounts.map((d) =>
+          superseded.has(d.id)
+            ? { ...d, removedAt: action.at, removedReason: `Superseded by ${input.reason.en} (FR-POS-051)` }
+            : d,
+        ),
+        record,
+      ];
+
+      let next = putOrder(state, retotal(state, { ...order, discounts }));
+      next = withAudit(next, audit(state, mint, {
+        at: action.at,
+        action: "order.discount.applied",
+        entityType: line ? "order_line" : "order",
+        entityId: line?.id ?? order.id,
+        before: { discountTotal: order.discountTotal.amount, grandTotal: order.grandTotal.amount },
+        after: {
+          amount: amountMinor,
+          percentage: record.percentage,
+          preset: input.presetId,
+          exclusive: input.exclusive,
+          triggers,
+          approvalMethod: record.approvalMethod,
+          superseded: [...superseded],
+          orderNumber: order.orderNumber,
+          grandTotal: next.orders[order.id]!.grandTotal.amount,
+        },
+        reasonText: input.reason.en,
+        approverName: input.approval?.approverName ?? null,
+      }));
+      return commit(next);
+    }
+
+    /** FR-POS-049 — taken off, not deleted: the record says who removed it and why. */
+    case "DISCOUNT_REMOVE":
+    case "ORDER_DISCOUNT_CLEAR": {
+      const order = state.orders[action.orderId];
+      if (!order || !isEditable(order)) return state;
+      const targets = new Set(
+        activeDiscountsOf(order)
+          .filter((d) => (action.type === "DISCOUNT_REMOVE" ? d.id === action.discountId : !d.lineId))
+          .map((d) => d.id),
       );
+      if (targets.size === 0) return state;
+      const why = action.type === "DISCOUNT_REMOVE" ? redactCardData(action.reason.trim()) : "Order discounts cleared";
+      const discounts = order.discounts.map((d) =>
+        targets.has(d.id) ? { ...d, removedAt: action.at, removedReason: why || "Removed" } : d,
+      );
+      const next = putOrder(state, retotal(state, { ...order, discounts }));
       return commit(
         withAudit(next, audit(state, mint, {
           at: action.at,
-          action: "order.discount.applied",
+          action: "order.discount.removed",
           entityType: "order",
           entityId: order.id,
-          after: { amount: discount.amount.amount, percentage: action.discount.percentage },
-          reasonText: action.discount.reason.en,
-          approverName: action.discount.approvedByName,
+          before: { discountTotal: order.discountTotal.amount, discounts: [...targets] },
+          after: { discountTotal: next.orders[order.id]!.discountTotal.amount },
+          reasonText: why,
         })),
       );
-    }
-
-    case "ORDER_DISCOUNT_CLEAR": {
-      const order = state.orders[action.orderId];
-      if (!order) return state;
-      return putOrder(state, retotal(state, { ...order, discounts: [] }));
     }
 
     // --- kitchen -----------------------------------------------------------
     case "ORDER_FIRE": {
       const order = state.orders[action.orderId];
-      if (!order) return state;
+      if (!order || !isEditable(order)) return state;
       // FR-POS-003 — a dine-in order needs a table before it reaches the kitchen.
       if (order.orderType === "dine_in" && !order.tableId) return state;
 
@@ -1728,7 +2835,16 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         if (!ticket || ticket.orderId !== order.id || !ticket.held) continue;
         if (action.course !== null && ticket.course !== action.course) continue;
         // The clock starts now: time on hold is not time the kitchen took.
-        tickets[id] = { ...ticket, held: false, firedAt: action.at, elapsedSeconds: 0, urgency: "on_target" };
+        tickets[id] = {
+          ...ticket,
+          held: false,
+          firedAt: action.at,
+          elapsedSeconds: 0,
+          urgency: "on_target",
+          // FR-KDS-040 — a held ticket reaches the station when it is released.
+          timeline: stamp(ticket.timeline, "routedAt", action.at),
+          lines: ticket.lines.map((line) => ({ ...line, timeline: stamp(line.timeline, "routedAt", action.at) })),
+        };
         released += 1;
       }
       if (released === 0) return state;
@@ -1751,24 +2867,45 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       const ticket = state.tickets[action.ticketId];
       // FR-POS-037 — a held course is not the kitchen's to start.
       if (!ticket || ticket.state !== "queued" || ticket.held) return state;
+      // FR-KDS-012 — nor is one the staggered release has not let out yet.
+      if (Date.parse(action.at) < Date.parse(ticket.firedAt)) return state;
       return {
         ...state,
         tickets: {
           ...state.tickets,
           // Stamped once and never overwritten: a ticket amended after work
           // began is still work that began when it began.
-          [ticket.id]: { ...ticket, state: "started", startedAt: ticket.startedAt ?? action.at },
+          [ticket.id]: {
+            ...ticket,
+            state: "started",
+            startedAt: ticket.startedAt ?? action.at,
+            // FR-KDS-040
+            timeline: stamp(ticket.timeline, "startedAt", action.at),
+            lines: ticket.lines.map((line) =>
+              line.state === "voided" ? line : { ...line, timeline: stamp(line.timeline, "startedAt", action.at) },
+            ),
+          },
         },
       };
     }
 
+    // FR-KDS-024 — bump item: one line is ready, the rest of the ticket carries on.
     case "TICKET_BUMP_LINE": {
       const ticket = state.tickets[action.ticketId];
       // Nothing on a cancelled ticket can be marked ready — the food is not
       // going anywhere, and readying a line would re-open it as work.
-      if (!ticket || ticket.state === "cancelled") return state;
+      if (!ticket || ticket.state === "cancelled" || ticket.held) return state;
+      if (Date.parse(action.at) < Date.parse(ticket.firedAt)) return state;
       const lines = ticket.lines.map((l) =>
-        l.id === action.lineId && l.state !== "voided" ? { ...l, state: "ready" as const } : l,
+        l.id === action.lineId && l.state !== "voided" && l.state !== "ready"
+          ? {
+              ...l,
+              state: "ready" as const,
+              // FR-KDS-040 — readying a line is also when work on it started,
+              // if nobody pressed Start.
+              timeline: restamp(stamp(l.timeline, "startedAt", action.at), { readyAt: action.at, bumpedAt: action.at }),
+            }
+          : l,
       );
       const allReady = lines.every((l) => l.state === "ready" || l.state === "voided");
 
@@ -1784,6 +2921,9 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
             // Start does — otherwise a cook who skips the button loses it.
             startedAt: ticket.startedAt ?? action.at,
             bumpedAt: allReady ? action.at : ticket.bumpedAt,
+            timeline: allReady
+              ? restamp(stamp(ticket.timeline, "startedAt", action.at), { readyAt: action.at, bumpedAt: action.at })
+              : stamp(ticket.timeline, "startedAt", action.at),
           },
         },
         recallable: allReady
@@ -1794,11 +2934,13 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       return next;
     }
 
+    // FR-KDS-024 — bump all: the whole ticket is ready at once.
     case "TICKET_BUMP": {
       const ticket = state.tickets[action.ticketId];
       // A cancelled ticket leaves via TICKET_ACK_CANCEL. Bumping it would
       // record food as made and served, and make it recallable.
-      if (!ticket || ticket.state === "bumped" || ticket.state === "cancelled") return state;
+      if (!ticket || ticket.state === "bumped" || ticket.state === "cancelled" || ticket.held) return state;
+      if (Date.parse(action.at) < Date.parse(ticket.firedAt)) return state;
       let next: LiveState = {
         ...state,
         tickets: {
@@ -1810,8 +2952,14 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
             // the whole wait was pick-up and prep is indistinguishable.
             startedAt: ticket.startedAt,
             bumpedAt: action.at,
+            // FR-KDS-040 — ready and bumped are the same moment for bump-all.
+            timeline: restamp(ticket.timeline, { readyAt: action.at, bumpedAt: action.at }),
             lines: ticket.lines.map((l) =>
-              l.state === "voided" ? l : { ...l, state: "ready" as const },
+              l.state === "voided"
+                ? l
+                : l.state === "ready"
+                  ? { ...l, timeline: stamp(l.timeline, "bumpedAt", action.at) }
+                  : { ...l, state: "ready" as const, timeline: restamp(l.timeline, { readyAt: action.at, bumpedAt: action.at }) },
             ),
           },
         },
@@ -1833,7 +2981,7 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         ...state,
         tickets: {
           ...state.tickets,
-          [ticket.id]: { ...ticket, state: "bumped", bumpedAt: action.at },
+          [ticket.id]: { ...ticket, state: "bumped", bumpedAt: action.at, timeline: stamp(ticket.timeline, "bumpedAt", action.at) },
         },
       };
     }
@@ -1849,6 +2997,10 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       if (!open.some((entry) => entry.id === ticket.id)) {
         return { ...state, recallable: open };
       }
+      const recalledTimeline = (timeline: KitchenTicket["timeline"]) => {
+        const base = restamp(timeline, { readyAt: null, bumpedAt: null, servedAt: null });
+        return { ...base, recalledAt: [...base.recalledAt, action.at] };
+      };
       const next: LiveState = {
         ...state,
         tickets: {
@@ -1859,8 +3011,15 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
             // Back on the line, so it is not done any more. `startedAt` keeps
             // its original value: the recall is part of the same work.
             bumpedAt: null,
+            // FR-KDS-027 — a remake is a recall the kitchen has to cook again,
+            // flagged so it cannot be mistaken for a ticket that was merely
+            // bumped early.
+            priority: action.remake ? "remake" : ticket.priority,
+            remakeCount: action.remake ? (ticket.remakeCount ?? 0) + 1 : ticket.remakeCount,
+            // FR-KDS-040 — every recall is kept; ready and bumped re-open.
+            timeline: recalledTimeline(ticket.timeline),
             lines: ticket.lines.map((l) =>
-              l.state === "voided" ? l : { ...l, state: "fired" as const },
+              l.state === "voided" ? l : { ...l, state: "fired" as const, timeline: recalledTimeline(l.timeline) },
             ),
           },
         },
@@ -1869,27 +3028,100 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       const order = next.orders[ticket.orderId];
       if (!order) return next;
       const ids = new Set(ticket.lines.map((l) => l.id));
-      return putOrder(next, {
+      const restored = putOrder(next, {
         ...order,
         lines: order.lines.map((l) =>
-          ids.has(l.id) && l.state === "ready"
+          ids.has(l.id) && (l.state === "ready" || l.state === "served")
             ? { ...l, state: "fired" as const, readyAt: null }
             : l,
         ),
       });
+      if (!action.remake) return restored;
+      return commit(
+        withAudit(restored, audit(state, mint, {
+          at: action.at,
+          action: "kitchen.ticket.remake",
+          entityType: "kitchen_ticket",
+          entityId: ticket.id,
+          after: { orderNumber: ticket.orderNumber, station: ticket.stationName.en, remakes: (ticket.remakeCount ?? 0) + 1 },
+        })),
+      );
     }
 
+    // FR-KDS-040 — first viewed, write-once, for every ticket a display has shown.
+    case "TICKET_VIEWED": {
+      let changed = false;
+      const tickets = { ...state.tickets };
+      for (const id of action.ticketIds) {
+        const ticket = tickets[id];
+        if (!ticket || ticket.timeline?.firstViewedAt) continue;
+        // FR-KDS-012 — a ticket not yet released has not reached the station to be seen.
+        if (Date.parse(action.at) < Date.parse(ticket.firedAt)) continue;
+        tickets[id] = {
+          ...ticket,
+          timeline: stamp(ticket.timeline, "firstViewedAt", action.at),
+          lines: ticket.lines.map((line) => ({ ...line, timeline: stamp(line.timeline, "firstViewedAt", action.at) })),
+        };
+        changed = true;
+      }
+      return changed ? { ...state, tickets } : state;
+    }
+
+    // FR-KDS-027 — rush, VIP or remake on one ticket, from the station.
     case "TICKET_PRIORITY": {
       const ticket = state.tickets[action.ticketId];
-      if (!ticket) return state;
-      return {
+      if (!ticket || ticket.priority === action.priority) return state;
+      const next: LiveState = {
         ...state,
         tickets: {
           ...state.tickets,
           [ticket.id]: { ...ticket, priority: action.priority },
         },
       };
+      return commit(
+        withAudit(next, audit(state, mint, {
+          at: action.at,
+          action: "kitchen.ticket.priority",
+          entityType: "kitchen_ticket",
+          entityId: ticket.id,
+          before: { priority: ticket.priority },
+          after: { priority: action.priority, orderNumber: ticket.orderNumber },
+        })),
+      );
     }
+
+    // FR-KDS-027 — rush / VIP on the order: every open ticket, and every later firing.
+    case "ORDER_PRIORITY": {
+      const order = state.orders[action.orderId];
+      if (!order) return state;
+      const previous = state.priorities?.[order.id] ?? "normal";
+      if (previous === action.priority) return state;
+      const priorities = { ...(state.priorities ?? {}) };
+      if (action.priority === "normal") delete priorities[order.id];
+      else priorities[order.id] = action.priority;
+      const tickets = { ...state.tickets };
+      for (const id of state.ticketIds) {
+        const ticket = tickets[id];
+        if (!ticket || ticket.orderId !== order.id) continue;
+        if (ticket.state === "bumped" || ticket.state === "cancelled") continue;
+        // A remake stays a remake; the order's flag does not wash it out.
+        if (ticket.priority === "remake") continue;
+        tickets[id] = { ...ticket, priority: action.priority };
+      }
+      return commit(
+        withAudit({ ...state, priorities, tickets }, audit(state, mint, {
+          at: action.at,
+          action: "order.priority.changed",
+          entityType: "order",
+          entityId: order.id,
+          before: { priority: previous },
+          after: { priority: action.priority },
+        })),
+      );
+    }
+
+    case "KDS_SETUP_SYNC":
+      return { ...state, kdsSetup: normaliseKdsSetup(action.setup) };
 
     /** The expediter passes the order; the floor plan follows. */
     case "ORDER_SERVE": {
@@ -1899,8 +3131,81 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         l.state === "ready" ? { ...l, state: "served" as const } : l,
       );
       let next = putOrder(state, { ...order, lines });
+      // FR-KDS-040 — served, on every ticket of the order and each of its lines.
+      const tickets = { ...next.tickets };
+      for (const id of next.ticketIds) {
+        const ticket = tickets[id];
+        if (!ticket || ticket.orderId !== order.id || ticket.state !== "bumped") continue;
+        tickets[id] = {
+          ...ticket,
+          timeline: stamp(ticket.timeline, "servedAt", action.at),
+          lines: ticket.lines.map((line) =>
+            line.state === "voided" ? line : { ...line, timeline: stamp(line.timeline, "servedAt", action.at) },
+          ),
+        };
+      }
+      next = { ...next, tickets };
       next = setTable(next, order.tableId, { state: "food_served" });
+      // FR-POS-081/083 — the tables pushed together are served too.
+      for (const linked of order.linkedTableIds ?? []) {
+        next = setTable(next, linked, { state: "food_served" });
+      }
       return next;
+    }
+
+    /*
+      FR-POS-082 — merge tables, physically.
+
+      Pushing a free table up against a seated party is the other half of
+      "merging tables": there is no second bill to fold in, only a second
+      table that now belongs to this order. It shows as occupied by the order
+      on the floor, it is released with the order, and both directions are
+      audited.
+    */
+    case "ORDER_LINK_TABLE": {
+      const order = state.orders[action.orderId];
+      if (!order || !isEditable(order) || order.orderType !== "dine_in") return state;
+      if (action.tableId === order.tableId || (order.linkedTableIds ?? []).includes(action.tableId)) return state;
+      const table = state.tableStates[action.tableId] ?? seededTables.find((t) => t.id === action.tableId);
+      if (!table || table.branchId !== state.branchId || table.state !== "available") return state;
+      const primary = order.tableId ? (state.tableStates[order.tableId] ?? null) : null;
+      let next = putOrder(state, { ...order, linkedTableIds: [...(order.linkedTableIds ?? []), table.id] });
+      next = setTable(next, table.id, {
+        state: primary?.state && primary.state !== "available" ? primary.state : "seated",
+        orderId: order.id,
+        seatedAt: primary?.seatedAt ?? action.at,
+        serverId: primary?.serverId ?? null,
+      });
+      return commit(
+        withAudit(next, audit(state, mint, {
+          at: action.at,
+          action: "order.table.linked",
+          entityType: "order",
+          entityId: order.id,
+          before: { table: order.tableLabel, linked: (order.linkedTableIds ?? []).length },
+          after: { table: order.tableLabel, joined: table.label },
+        })),
+      );
+    }
+
+    case "ORDER_UNLINK_TABLE": {
+      const order = state.orders[action.orderId];
+      if (!order || !isEditable(order)) return state;
+      const linked = order.linkedTableIds ?? [];
+      if (!linked.includes(action.tableId)) return state;
+      const table = state.tableStates[action.tableId] ?? seededTables.find((t) => t.id === action.tableId);
+      let next = putOrder(state, { ...order, linkedTableIds: linked.filter((id) => id !== action.tableId) });
+      next = setTable(next, action.tableId, { state: "needs_cleaning", orderId: null, seatedAt: null });
+      return commit(
+        withAudit(next, audit(state, mint, {
+          at: action.at,
+          action: "order.table.unlinked",
+          entityType: "order",
+          entityId: order.id,
+          before: { joined: table?.label ?? action.tableId },
+          after: { table: order.tableLabel },
+        })),
+      );
     }
 
     case "TABLE_STATE":
@@ -1965,7 +3270,7 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
     // --- money -------------------------------------------------------------
     case "ORDER_PAY": {
       const order = state.orders[action.orderId];
-      if (!order) return state;
+      if (!order || !isEditable(order)) return state;
 
       let working = order;
 
@@ -1981,8 +3286,23 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
 
       const remaining = balanceOf(working).amount;
       const applied = Math.min(action.amountMinor, Math.max(0, remaining));
+      // Nothing applied against a real balance is a no-op, not a payment. A
+      // fully comped order owes nothing and still settles on a zero payment.
+      if (applied <= 0 && remaining > 0) return state;
       const tendered = action.tender === "cash" ? (action.tenderedMinor ?? applied) : applied;
       const change = Math.max(0, tendered - applied);
+
+      // FR-POS-066 — the last four, the scheme, the authorisation code and
+      // the terminal's reference, and nothing else, whatever was passed in.
+      const card =
+        action.tender === "card"
+          ? retainCardData({
+              last4: action.cardLast4,
+              scheme: action.cardScheme,
+              authorisationCode: action.authorisationCode,
+              terminalReference: action.terminalReference,
+            })
+          : { cardLast4: null, cardScheme: null, authorisationCode: null, terminalReference: null };
 
       const payment = {
         id: mint.next("pay"),
@@ -1991,15 +3311,19 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         tenderedAmount: money(tendered, currency),
         changeAmount: money(change, currency),
         tip: money(action.tipMinor, currency),
-        cardLast4: action.cardLast4 ?? null,
-        cardScheme: action.cardScheme ?? null,
-        // FR-POS-065 — the reference doubles as the idempotency key.
-        authorisationCode: action.tender === "card" ? `A${mint.next("").slice(-6)}` : null,
+        cardLast4: card.cardLast4,
+        cardScheme: card.cardScheme,
+        // The terminal's own code when it gave one. FR-POS-065 — the minted
+        // fallback doubles as the idempotency key.
+        authorisationCode:
+          action.tender === "card" ? (card.authorisationCode ?? `A${mint.next("").slice(-6)}`) : null,
+        terminalReference: card.terminalReference,
         capturedAt: action.at,
       };
 
       const paidTotal = working.paidTotal.amount + applied;
       const settled = paidTotal >= working.grandTotal.amount + working.roundingAdjustment.amount;
+      const closer = operatorOf(state);
 
       working = {
         ...working,
@@ -2008,6 +3332,9 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         tipTotal: money(working.tipTotal.amount + action.tipMinor, currency),
         state: settled ? "completed" : "partially_paid",
         completedAt: settled ? action.at : null,
+        // FR-POS-007 — whoever took the settling payment closed the order.
+        closedBy: settled ? closer.id : null,
+        closedByName: settled ? closer.name : null,
       };
 
       let next = putOrder(state, working);
@@ -2032,11 +3359,7 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
             l.state === "voided" ? l : { ...l, state: "served" as const },
           ),
         });
-        next = setTable(next, working.tableId, {
-          state: "needs_cleaning",
-          orderId: null,
-          seatedAt: null,
-        });
+        next = releaseTables(next, working);
         // The order stays selected so the receipt can be read, reprinted or
         // refunded. Starting the next order is what clears it.
       } else {
@@ -2056,6 +3379,7 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
             amount: applied,
             paidTotal,
             grandTotal: working.grandTotal.amount,
+            ...(card.cardLast4 ? { cardLast4: card.cardLast4, cardScheme: card.cardScheme } : {}),
           },
         })),
       );
@@ -2063,7 +3387,10 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
 
     case "ORDER_REFUND": {
       const order = state.orders[action.orderId];
-      if (!order) return state;
+      if (!order || !["completed", "partially_refunded"].includes(order.state)) return state;
+      // FR-POS-073 — a refund always carries a reason.
+      const reason = redactCardData(action.reason.trim());
+      if (!reason && !action.reasonCode) return state;
 
       // FR-POS-072 — refunds may never exceed the original, in aggregate.
       const refundedSoFar = order.payments
@@ -2073,8 +3400,12 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       const amount = Math.min(action.amountMinor, Math.max(0, refundable));
       if (amount <= 0) return state;
 
+      // FR-POS-073 — above the threshold, a manager, checked here too.
+      if (refundNeedsApproval(amount, state.settings) && !approvalOk(state, action.approval)) return state;
+
       // FR-POS-074 — back to the original tender unless someone overrides it.
-      const originalTender = order.payments[0]?.tender ?? "cash";
+      const original = order.payments.find((p) => p.amount.amount > 0);
+      const originalTender = original?.tender ?? "cash";
 
       const payment = {
         id: mint.next("pay"),
@@ -2083,9 +3414,12 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         tenderedAmount: money(-amount, currency),
         changeAmount: money(0, currency),
         tip: money(0, currency),
-        cardLast4: null,
-        cardScheme: null,
+        // Back to the card it came from: the last four are what the acquirer
+        // matches a refund on, and are the only card data a payment keeps.
+        cardLast4: original?.cardLast4 ?? null,
+        cardScheme: original?.cardScheme ?? null,
         authorisationCode: null,
+        terminalReference: null,
         capturedAt: action.at,
       };
 
@@ -2120,7 +3454,7 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
             referenceType: "order",
             referenceId: order.id,
             reasonCode: "refund_return",
-            notes: action.reason,
+            notes: reason,
           },
         );
       }
@@ -2133,9 +3467,182 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
           action: "order.refunded",
           entityType: "order",
           entityId: order.id,
-          before: { paidTotal: order.paidTotal.amount },
-          after: { refunded: amount, returnToStock: action.returnToStock },
-          reasonText: action.reason,
+          // FR-POS-075 — the whole order either side of the refund.
+          before: orderSnapshot(order),
+          after: {
+            amount,
+            tender: originalTender,
+            returnToStock: action.returnToStock,
+            refundedTotal: totalRefunded,
+            ...orderSnapshot(next.orders[order.id]!),
+          },
+          reasonCode: action.reasonCode ?? null,
+          reasonText: reason || null,
+          approverName: action.approval?.approverName ?? null,
+        })),
+      );
+    }
+
+    // --- approvals — FR-POS-048, FR-SEC-031/032 ------------------------------
+    case "APPROVAL_REQUEST": {
+      if (!state.session) return state;
+      const id = mint.next("apr");
+      const request: RemoteApproval = {
+        ...action.request,
+        reason: redactCardData(action.request.reason),
+        id,
+        requestedAt: action.at,
+        expiresAt: expiryFrom(action.at, state.settings.remoteApprovalMinutes),
+        status: "pending",
+        decidedBy: null,
+        decidedByName: null,
+        decidedAt: null,
+        comment: null,
+        applied: null,
+      };
+      const next = { ...state, approvals: [request, ...state.approvals].slice(0, 100) };
+      return commit(
+        withAudit(next, audit(state, mint, {
+          at: action.at,
+          action: "approval.requested",
+          entityType: "approval_request",
+          entityId: id,
+          after: {
+            kind: request.kind,
+            orderNumber: request.orderNumber,
+            amount: request.amountMinor,
+            to: request.targetApproverName?.en ?? "any manager on duty",
+          },
+          reasonText: request.reason,
+        })),
+      );
+    }
+
+    /*
+      A manager decides. On approval the stored action is replayed with a
+      remote stamp — so what is approved is exactly what was asked for, and
+      it passes through the same checks as if it had been approved on the
+      spot. If the order moved on while the request waited (paid, cancelled,
+      outbid by a better discount) the replay changes nothing, and the
+      request says so rather than looking like it worked.
+    */
+    case "APPROVAL_DECIDE": {
+      const request = state.approvals.find((r) => r.id === action.requestId);
+      if (!request || request.status !== "pending") return state;
+      // FR-SEC-016 — nobody approves their own request.
+      if (action.deciderId === request.requestedBy) return state;
+
+      const replace = (patch: Partial<RemoteApproval>): LiveState => ({
+        ...state,
+        approvals: state.approvals.map((r) => (r.id === request.id ? { ...r, ...patch } : r)),
+      });
+
+      if (isExpired(request, action.at)) {
+        const expired = replace({ status: "expired" });
+        return commit(
+          withAudit(expired, audit(state, mint, {
+            at: action.at,
+            action: "approval.expired",
+            entityType: "approval_request",
+            entityId: request.id,
+            after: { orderNumber: request.orderNumber },
+          })),
+        );
+      }
+
+      const decided = replace({
+        status: action.decision,
+        decidedBy: action.deciderId,
+        decidedByName: action.deciderName,
+        decidedAt: action.at,
+        comment: action.comment ? redactCardData(action.comment) : null,
+      });
+      let next = commit(
+        withAudit(decided, audit(state, mint, {
+          at: action.at,
+          action: action.decision === "approved" ? "approval.approved" : "approval.rejected",
+          entityType: "approval_request",
+          entityId: request.id,
+          after: { kind: request.kind, orderNumber: request.orderNumber, amount: request.amountMinor },
+          reasonText: action.comment,
+          approverName: action.deciderName,
+        })),
+      );
+      if (action.decision !== "approved") return next;
+
+      const stamp: ApprovalStamp = {
+        approverId: action.deciderId,
+        approverName: action.deciderName,
+        method: "remote",
+        at: action.at,
+        requestId: request.id,
+      };
+      const replay = stampedAction(request.action, stamp, action.at);
+      const before = next.audit.length;
+      const applied = replay ? liveReducer(next, replay) : next;
+      const worked = applied.audit.length > before;
+      next = {
+        ...applied,
+        approvals: applied.approvals.map((r) => (r.id === request.id ? { ...r, applied: worked } : r)),
+      };
+      return next;
+    }
+
+    case "APPROVAL_WITHDRAW": {
+      const request = state.approvals.find((r) => r.id === action.requestId);
+      if (!request || request.status !== "pending") return state;
+      const next: LiveState = {
+        ...state,
+        approvals: state.approvals.map((r) => (r.id === request.id ? { ...r, status: "withdrawn" } : r)),
+      };
+      return commit(
+        withAudit(next, audit(state, mint, {
+          at: action.at,
+          action: "approval.withdrawn",
+          entityType: "approval_request",
+          entityId: request.id,
+          after: { orderNumber: request.orderNumber },
+        })),
+      );
+    }
+
+    // --- floor — FR-POS-084 ---------------------------------------------------
+    case "SECTIONS_SET": {
+      const mine = action.sections
+        .filter((s) => s.tableIds.length > 0 || s.serverId)
+        .map((s) => ({ ...s, branchId: state.branchId }));
+      // A table belongs to one section; a later section cannot also claim it.
+      const claimed = new Set<Id>();
+      const sections = mine.map((s) => {
+        const tableIds = s.tableIds.filter((id) => !claimed.has(id));
+        tableIds.forEach((id) => claimed.add(id));
+        return { ...s, tableIds };
+      });
+
+      let next: LiveState = {
+        ...state,
+        sections: [...state.sections.filter((s) => s.branchId !== state.branchId), ...sections],
+      };
+      // The table's own `serverId` follows the section, so everything that
+      // already reads it — the floor, the tables page — sees the assignment.
+      for (const table of tablesOf(state)) {
+        const section = sections.find((s) => s.tableIds.includes(table.id));
+        next = setTable(next, table.id, { serverId: section?.serverId ?? null });
+      }
+      return commit(
+        withAudit(next, audit(state, mint, {
+          at: action.at,
+          action: "floor.sections.updated",
+          entityType: "branch",
+          entityId: state.branchId,
+          before: {
+            sections: state.sections
+              .filter((s) => s.branchId === state.branchId)
+              .map((s) => ({ name: s.name, server: s.serverName?.en ?? null, tables: s.tableIds.length })),
+          },
+          after: {
+            sections: sections.map((s) => ({ name: s.name, server: s.serverName?.en ?? null, tables: s.tableIds.length })),
+          },
         })),
       );
     }
@@ -2164,6 +3671,26 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
 
     default:
       return state;
+  }
+}
+
+/**
+ * The action a remote request asked for, carrying the manager's stamp.
+ *
+ * Only the actions a till can send for remote approval are replayable; a
+ * request for anything else is decided but never executed.
+ */
+function stampedAction(action: LiveAction, stamp: ApprovalStamp, at: IsoDateTime): LiveAction | null {
+  switch (action.type) {
+    case "LINE_DISCOUNT":
+    case "ORDER_DISCOUNT":
+      return { ...action, at, discount: { ...action.discount, approval: stamp } };
+    case "ORDER_REFUND":
+    case "LINE_VOID":
+    case "ORDER_CANCEL":
+      return { ...action, at, approval: stamp };
+    default:
+      return null;
   }
 }
 

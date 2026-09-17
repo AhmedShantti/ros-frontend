@@ -11,13 +11,23 @@
  * That is why the brand, not the branch, is the level menus and price lists
  * attach to. Modelling the menu on the branch would force a six-brand kitchen
  * to maintain six copies of everything and keep them in step by hand.
+ *
+ * FR-PLT-004 — a Tenant Owner can move a branch into a brand from the brand's
+ * drawer, after seeing the price-list and menu implications. FR-PLT-021 —
+ * brands past the plan's limit are marked read-only (never removed), and a
+ * new brand cannot be created past it. FR-PLT-003 — the tenant id is shown
+ * as fixed.
  */
 
 import { useMemo, useState } from "react";
+import { Lock } from "lucide-react";
 import { Plus } from "lucide-react";
 import type { Brand } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { PLAN_LIMITS, overLimitIds } from "@/lib/console/tenant-plan";
+import { BranchReassignIntoBrand } from "@/components/console/tenant-branch-reassign";
+import { useTenantState } from "@/components/console/tenant-lifecycle";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatNumber } from "@/lib/console/format";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
@@ -47,8 +57,21 @@ export default function BrandsPage() {
 
 function BrandsScreen() {
   const { t, tx, fmt } = useI18n();
-  const { scope } = useSession();
+  const { scope, tenant } = useSession();
   const canManage = usePermission("org.manage");
+  const tenantState = useTenantState();
+
+  // FR-PLT-021 — the whole estate, to work out which brands the plan no longer covers.
+  const everyBrand = useAsync(
+    () => services.organisation.brands.list({ limit: 500 }).then((page) => page.rows).catch(() => [] as Brand[]),
+    [tenant.id],
+  );
+  const brandLimit = PLAN_LIMITS[tenant.plan].brands;
+  const overLimit = useMemo(
+    () => overLimitIds(everyBrand.data ?? [], brandLimit, (row) => row.id, (row) => row.id),
+    [everyBrand.data, brandLimit],
+  );
+  const atLimit = (everyBrand.data?.length ?? 0) >= brandLimit;
   const [selected, setSelected] = useState<Brand | null>(null);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();
@@ -97,13 +120,20 @@ function BrandsScreen() {
         key: "active",
         header: t("common.status"),
         render: (row) => (
-          <Badge tone={row.active ? "good" : "muted"} dot>
-            {row.active ? t("common.active") : t("common.inactive")}
-          </Badge>
+          <span className="flex flex-wrap items-center gap-1.5">
+            <Badge tone={row.active ? "good" : "muted"} dot>
+              {row.active ? t("common.active") : t("common.inactive")}
+            </Badge>
+            {overLimit.has(row.id) ? (
+              <Badge tone="warn">
+                <Lock size={10} aria-hidden /> {t("tnt.overPlan")}
+              </Badge>
+            ) : null}
+          </span>
         ),
       },
     ],
-    [t, tx, fmt],
+    [t, tx, fmt, overLimit],
   );
 
   // FR-LOC-006 — the server keeps one name for this; say which one is sent.
@@ -120,6 +150,8 @@ function BrandsScreen() {
             <Button
               variant="primary"
               icon={<Plus size={14} />}
+              disabled={atLimit || tenantState.readOnly}
+              title={atLimit ? t("tnt.atLimit") : tenantState.readOnly ? t("tnt.readOnlyBanner") : undefined}
               onClick={() => setCreating(true)}
             >
               {t("common.new")}
@@ -162,7 +194,15 @@ function BrandsScreen() {
         <Callout tone="muted">{t("org.brandScopeNote")}</Callout>
       </PageBody>
 
-      <BrandDrawer brand={selected} onClose={() => setSelected(null)} />
+      <BrandDrawer
+        brand={selected}
+        readOnly={selected ? overLimit.has(selected.id) || tenantState.readOnly : false}
+        onClose={() => setSelected(null)}
+        onChanged={(note) => {
+          setMessage(note);
+          collection.reload();
+        }}
+      />
       <RecordDrawer
         open={creating}
         title={t("org.newBrand")}
@@ -192,7 +232,17 @@ function BrandsScreen() {
 
 // ---------------------------------------------------------------------------
 
-function BrandDrawer({ brand, onClose }: { brand: Brand | null; onClose: () => void }) {
+function BrandDrawer({
+  brand,
+  readOnly,
+  onClose,
+  onChanged,
+}: {
+  brand: Brand | null;
+  readOnly: boolean;
+  onClose: () => void;
+  onChanged: (message: string) => void;
+}) {
   const { t, tx, fmt } = useI18n();
   // The session's branch list is the real one against a backend and the
   // fixtures in demo mode. Reading the fixtures unconditionally, as this
@@ -222,6 +272,11 @@ function BrandDrawer({ brand, onClose }: { brand: Brand | null; onClose: () => v
           </DescRow>
           <DescRow label={t("org.branchCount")} mono>
             {formatNumber(brand.branchCount, fmt)}
+          </DescRow>
+          <DescRow label={t("tnt.tenantId")} mono>
+            <span className="text-xs" dir="ltr" title={t("tnt.tenantIdFixed")}>
+              {brand.tenantId}
+            </span>
           </DescRow>
           <DescRow label={t("common.code")} mono>
             <span className="inline-flex items-center gap-2" dir="ltr">
@@ -253,6 +308,10 @@ function BrandDrawer({ brand, onClose }: { brand: Brand | null; onClose: () => v
             </ul>
           </section>
         ) : null}
+
+        {readOnly ? <Callout tone="warn">{t("tnt.brandReadOnly")}</Callout> : null}
+
+        <BranchReassignIntoBrand brand={brand} readOnly={readOnly} onDone={onChanged} />
       </div>
     </Drawer>
   );

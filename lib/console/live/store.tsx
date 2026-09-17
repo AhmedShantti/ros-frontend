@@ -28,13 +28,10 @@ import {
 } from "react";
 import type { Id, Order } from "../types";
 import { liveReducer, type LiveAction } from "./reducer";
-import {
-  initialLiveState,
-  LIVE_STATE_VERSION,
-  LIVE_STORAGE_KEY,
-  type LiveState,
-} from "./state";
+import { initialLiveState, LIVE_STORAGE_KEY, migrateLiveState, type LiveState } from "./state";
 import { useConnectivityStore, type QueuedStatus } from "@/store/connectivity";
+import { KDS_SETUP_COLLECTION, KDS_SETUP_EVENT, readKdsSetup } from "../services/kds-setup";
+import { usePromotionBridge } from "./promotion-bridge";
 
 type RootAction = LiveAction | { type: "HYDRATE"; state: LiveState };
 
@@ -61,19 +58,23 @@ interface LiveValue {
   ready: boolean;
   activeOrder: Order | null;
   reset: () => void;
+  /**
+   * NFR-USA-005 — this store is the training sandbox: practice orders live
+   * under their own storage key and never reach the sync queue.
+   */
+  training: boolean;
 }
 
 const LiveContext = createContext<LiveValue | null>(null);
 
-function readStored(): LiveState | null {
+function readStored(storageKey: string): LiveState | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(LIVE_STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as LiveState;
-    // A schema change invalidates the drawer rather than corrupting it.
-    if (parsed.version !== LIVE_STATE_VERSION) return null;
-    return parsed;
+    // A schema change is migrated where it can be and refused where it
+    // cannot — never read half-understood into the drawer.
+    return migrateLiveState(JSON.parse(raw));
   } catch {
     return null;
   }
@@ -93,12 +94,29 @@ function readStored(): LiveState | null {
  * reached the server) are deliberately different fields — an order rung up
  * at 8:35pm during an outage and synced at 9:10pm keeps both times.
  */
-function useOfflineOrderSync(state: LiveState, dispatch: (action: Dispatchable) => void): void {
+function useOfflineOrderSync(
+  state: LiveState,
+  dispatch: (action: Dispatchable) => void,
+  training: boolean,
+): void {
   // A newly-completed order is resolved the instant it appears: synced right
   // away if the link is up, queued if it is not.
   useEffect(() => {
+    // NFR-USA-005 — practice sales are never sent anywhere.
+    if (training) return;
     const connectivity = useConnectivityStore.getState();
-    const offline = connectivity.state === "offline" || connectivity.state === "degraded";
+    /*
+     * FR-OFF-003 — isolated is the deepest outage there is, and it used to be
+     * missing here: a sale taken with no network at all was marked `synced`
+     * on the spot, so the queue the till shows was empty exactly when it
+     * mattered. Every state in which the server is not known to be reachable
+     * queues.
+     */
+    const offline =
+      connectivity.state === "offline" ||
+      connectivity.state === "degraded" ||
+      connectivity.state === "isolated" ||
+      connectivity.state === "conflict";
 
     for (const order of Object.values(state.orders)) {
       if (order.state !== "completed" || order.syncState !== "local") continue;
@@ -120,7 +138,7 @@ function useOfflineOrderSync(state: LiveState, dispatch: (action: Dispatchable) 
         });
       }
     }
-  }, [state.orders, dispatch]);
+  }, [state.orders, dispatch, training]);
 
   // The queue resolves independently, on its own timer. An order's entry
   // disappearing means it synced; landing on `failed` means it did not.
@@ -152,22 +170,65 @@ function useOfflineOrderSync(state: LiveState, dispatch: (action: Dispatchable) 
   }, [queue, lastSyncedAt, state.orders, dispatch]);
 }
 
-export function LiveProvider({ children }: { children: ReactNode }) {
+/** NFR-USA-005 — the training sandbox's own store, beside the real one. */
+export const TRAINING_STORAGE_KEY = "ros.live.training.v1";
+
+export function LiveProvider({
+  children,
+  storageKey = LIVE_STORAGE_KEY,
+  training = false,
+}: {
+  children: ReactNode;
+  /** Where this store persists. The training sandbox passes its own key. */
+  storageKey?: string;
+  training?: boolean;
+}) {
   const [state, rawDispatch] = useReducer(rootReducer, undefined, () => initialLiveState());
   const [ready, setReady] = useState(false);
   // What this tab last wrote, so an echo of our own write is ignored.
   const lastSerialised = useRef<string | null>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   // Rehydrate after mount. Doing it here rather than in the initialiser keeps
   // the server render and the first client render identical.
   useEffect(() => {
-    const stored = readStored();
+    const stored = readStored(storageKey);
     if (stored) {
       lastSerialised.current = JSON.stringify(stored);
       rawDispatch({ type: "HYDRATE", state: stored });
     }
     setReady(true);
-  }, []);
+  }, [storageKey]);
+
+  /*
+   * FR-KDS-011/023/044 — mirror the kitchen-display setup into the store.
+   *
+   * The reducer routes and times lines from `state.kdsSetup`; the console
+   * saves the record through `services.kdsSetup`. This keeps the copy in
+   * step: on mount, when the setup page in this tab saves, when another tab
+   * writes it, and on a slow interval in case the tenant resolved late.
+   */
+  useEffect(() => {
+    if (!ready) return;
+    const sync = () => {
+      const setup = readKdsSetup();
+      if (JSON.stringify(setup) === JSON.stringify(stateRef.current.kdsSetup)) return;
+      rawDispatch({ type: "KDS_SETUP_SYNC", at: new Date().toISOString(), setup });
+    };
+    sync();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key?.endsWith(`.${KDS_SETUP_COLLECTION}`)) sync();
+    };
+    const timer = window.setInterval(sync, 30_000);
+    window.addEventListener(KDS_SETUP_EVENT, sync);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener(KDS_SETUP_EVENT, sync);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [ready]);
 
   // Write-through persistence.
   useEffect(() => {
@@ -176,21 +237,21 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       const serialised = JSON.stringify(state);
       if (serialised === lastSerialised.current) return;
       lastSerialised.current = serialised;
-      window.localStorage.setItem(LIVE_STORAGE_KEY, serialised);
+      window.localStorage.setItem(storageKey, serialised);
     } catch {
       // A full or blocked quota must never take the terminal down mid-service.
     }
-  }, [state, ready]);
+  }, [state, ready, storageKey]);
 
   // Another tab moved: adopt its state. This is what makes the KDS light up
   // a second after the POS fires a course.
   useEffect(() => {
     function onStorage(event: StorageEvent) {
-      if (event.key !== LIVE_STORAGE_KEY || !event.newValue) return;
+      if (event.key !== storageKey || !event.newValue) return;
       if (event.newValue === lastSerialised.current) return;
       try {
-        const parsed = JSON.parse(event.newValue) as LiveState;
-        if (parsed.version !== LIVE_STATE_VERSION) return;
+        const parsed = migrateLiveState(JSON.parse(event.newValue));
+        if (!parsed) return;
         lastSerialised.current = event.newValue;
         rawDispatch({ type: "HYDRATE", state: parsed });
       } catch {
@@ -199,23 +260,25 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     }
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [storageKey]);
 
   const dispatch = useCallback((action: Dispatchable) => {
     rawDispatch({ ...action, at: action.at ?? new Date().toISOString() } as LiveAction);
   }, []);
 
-  useOfflineOrderSync(state, dispatch);
+  useOfflineOrderSync(state, dispatch, training);
+  // FR-CRM-026/027 — promotions mirrored in; redemptions and points recorded on close.
+  usePromotionBridge(state, dispatch, { ready, training });
 
   const reset = useCallback(() => {
     try {
-      window.localStorage.removeItem(LIVE_STORAGE_KEY);
+      window.localStorage.removeItem(storageKey);
     } catch {
       // Nothing to do — the in-memory reset below is what matters.
     }
     lastSerialised.current = null;
     rawDispatch({ type: "RESET", at: new Date().toISOString() });
-  }, []);
+  }, [storageKey]);
 
   const value = useMemo<LiveValue>(
     () => ({
@@ -224,8 +287,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       ready,
       activeOrder: state.activeOrderId ? (state.orders[state.activeOrderId] ?? null) : null,
       reset,
+      training,
     }),
-    [state, dispatch, ready, reset],
+    [state, dispatch, ready, reset, training],
   );
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;

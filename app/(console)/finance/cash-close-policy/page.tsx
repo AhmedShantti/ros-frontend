@@ -17,7 +17,10 @@
  * database refuses an effective instant in the past.
  */
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
+import { LEVEL_LABEL } from "@/lib/console/settings";
+import { SharedDrawerBadge, useBranchSettings } from "@/components/console/finance-policy";
 import type { CashClosePolicy } from "@/lib/console/services/types";
 import { services } from "@/lib/console/services";
 import { useAction } from "@/lib/console/actions";
@@ -27,6 +30,7 @@ import { formatDateTime, formatMoney } from "@/lib/console/format";
 import { Gate } from "@/components/console/states";
 import { PageBody, PageHeader, Section } from "@/components/console/page";
 import {
+  Badge,
   Button,
   Callout,
   Card,
@@ -104,6 +108,8 @@ function CashClosePolicyScreen() {
           )}
         </Section>
 
+        <SharedDrawerPolicy branchId={branchId} />
+
         <Section title={t("ccp.newTitle")}>
           <NewPolicyCard
             branchId={branchId}
@@ -117,6 +123,42 @@ function CashClosePolicyScreen() {
 
       <Toast message={message} />
     </>
+  );
+}
+
+/**
+ * FR-FIN-003 — the branch's shared-drawer policy, read through the settings
+ * cascade. Editing lives in the settings editor (key `cash.sharedDrawerMode`),
+ * where locks and inheritance are shown; this card states the effective
+ * value and what it means for accountability.
+ */
+function SharedDrawerPolicy({ branchId }: { branchId: string }) {
+  const { t, tx } = useI18n();
+  const { resolve } = useBranchSettings();
+  const resolved = branchId ? resolve("cash.sharedDrawerMode", branchId) : null;
+  if (!resolved) return null;
+  const on = Boolean(resolved.value);
+  return (
+    <Section title={t("fnc.sharedDrawer")} spec="FR-FIN-003">
+      <Card>
+        <DescList>
+          <DescRow label={t("common.status")}>
+            {on ? <SharedDrawerBadge /> : <Badge tone="good">{t("fnc.singleCashier")}</Badge>}
+          </DescRow>
+          <DescRow label={t("fnc.setAt")}>{tx(LEVEL_LABEL[resolved.suppliedBy])}</DescRow>
+        </DescList>
+        <div className="mt-3">
+          <Callout tone={on ? "warn" : "muted"} title={on ? t("fnc.reducedControlTitle") : undefined}>
+            {on ? t("fnc.reducedControlBody") : t("fnc.singleCashierBody")}
+          </Callout>
+        </div>
+        <p className="mt-3 text-xs">
+          <Link href="/settings" className="text-accent underline">
+            {t("fnc.changeInSettings")}
+          </Link>
+        </p>
+      </Card>
+    </Section>
   );
 }
 

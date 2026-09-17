@@ -33,6 +33,7 @@
 
 import type { Id, Localised, Page } from "./types";
 import { ServiceError, type CollectionService, type ScopedQuery } from "./services/types";
+import { assertTenantWritable } from "./services/tenant-context";
 
 const PREFIX = "ros.local";
 
@@ -75,6 +76,26 @@ export function clearLocalStore(tenantId: string): void {
     for (const name of doomed) window.localStorage.removeItem(name);
   } catch {
     // Nothing to clear if storage is unavailable.
+  }
+}
+
+/**
+ * FR-PLT-003 — a record's `tenant_id` is fixed at creation. A patch that
+ * names a different tenant is refused outright rather than merged, so no
+ * screen (or bulk import) can move a row between tenants.
+ */
+export function assertTenantUnchanged(row: unknown, patch: unknown): void {
+  if (!row || !patch || typeof row !== "object" || typeof patch !== "object") return;
+  if (!("tenantId" in patch)) return;
+  const current = (row as { tenantId?: unknown }).tenantId;
+  const next = (patch as { tenantId?: unknown }).tenantId;
+  if (current !== undefined && next !== current) {
+    throw new ServiceError(
+      "TENANT_IMMUTABLE",
+      "A record cannot be moved to another organisation.",
+      409,
+      "tenant_id is set when a record is created and never changes.",
+    );
   }
 }
 
@@ -180,6 +201,15 @@ export function localCollection<T>(
   // re-parse the JSON each time.
   const cache = new Map<string, T[]>();
 
+  // Another tab wrote this collection — the console saving a rule the open
+  // till needs, say. The mirror is dropped so the next read sees the write,
+  // rather than serving this tab's copy until a reload.
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", (event) => {
+      if (event.key?.startsWith(`${PREFIX}.`) && event.key.endsWith(`.${config.name}`)) cache.clear();
+    });
+  }
+
   function load(): T[] {
     const tenantId = tenantOf();
     const cached = cache.get(tenantId);
@@ -265,6 +295,8 @@ export function localCollection<T>(
 
     async create(input: Partial<T>) {
       return settle(() => {
+        // FR-PLT-021 — a suspended tenant keeps its data, read-only.
+        assertTenantWritable();
         if (!config.factory) {
           throw new ServiceError(
             "NOT_SUPPORTED",
@@ -287,6 +319,8 @@ export function localCollection<T>(
         if (index === -1) {
           throw new ServiceError("NOT_FOUND", "That record no longer exists.", 404);
         }
+        assertTenantUnchanged(rows[index]!, patch);
+        assertTenantWritable();
         const merged = config.onUpdate
           ? config.onUpdate(rows[index]!, patch)
           : { ...rows[index]!, ...patch };
@@ -302,6 +336,7 @@ export function localCollection<T>(
         const index = rows.findIndex((row) => config.idOf(row) === id);
         if (index === -1) return;
 
+        assertTenantWritable();
         const refusal = config.guardRemove?.(rows[index]!, rows);
         if (refusal) throw new ServiceError("CONFLICT", refusal, 409);
 

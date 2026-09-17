@@ -38,7 +38,12 @@ import { useI18n } from "@/lib/console/providers";
 import { formatDateTime } from "@/lib/console/format";
 import { localId, nowIso } from "@/lib/console/local-store";
 import { normalisePhone } from "@/components/console/customer";
+import { LoyaltyBalanceQr } from "@/components/console/crm-customer-record";
+import { useAsync } from "@/lib/console/hooks";
 import { encodeQr, qrSvgPath } from "@/lib/console/qr";
+import { languagesFor, resolveDocumentLanguages, type PackLanguage } from "@/lib/console/locale-packs";
+import { services } from "@/lib/console/services";
+import { getTerminalBranchId } from "@/lib/api/session";
 import {
   Badge,
   Button,
@@ -390,6 +395,7 @@ export function ReceiptDeliverySheet({
             <p className="text-fg-muted text-center text-xs leading-relaxed">
               {t("print.qrHint")}
             </p>
+            {order.customerId ? <ReceiptLoyaltyQr customerId={order.customerId} /> : null}
           </div>
         ) : (
           <Field
@@ -418,6 +424,24 @@ export function ReceiptDeliverySheet({
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+/**
+ * FR-CRM-022 — a known guest also gets a second code leading to their
+ * loyalty balance page. It is a token link, never the customer id, and it is
+ * left out entirely when the link cannot be issued rather than showing a
+ * code that resolves to nothing.
+ */
+function ReceiptLoyaltyQr({ customerId }: { customerId: string }) {
+  const { t } = useI18n();
+  const link = useAsync(() => services.crm.loyalty.balanceLink(customerId), [customerId]);
+  if (!link.data) return null;
+  return (
+    <div className="border-line flex w-full flex-col items-center gap-2 border-t pt-3">
+      <LoyaltyBalanceQr path={link.data.path} size="h-32 w-32" />
+      <p className="text-fg-muted text-center text-xs">{t("crm.balanceLink.title")}</p>
+    </div>
   );
 }
 
@@ -451,8 +475,12 @@ function ReceiptQr({ order }: { order: Order }) {
 // Kitchen ticket language — FR-POS-105
 // ---------------------------------------------------------------------------
 
-export const TICKET_LANGUAGES = ["ar", "en", "ur", "bn", "tl", "hi", "fr", "tr"] as const;
-export type TicketLanguage = (typeof TICKET_LANGUAGES)[number];
+/**
+ * FR-LOC-008 / FR-LOC-009 — only languages whose translation pack covers
+ * every kitchen-ticket string are offered.
+ */
+export const TICKET_LANGUAGES: readonly PackLanguage[] = languagesFor("kitchen_ticket");
+export type TicketLanguage = PackLanguage;
 
 const TICKET_LANGUAGE_KEY = "ros.pos.ticketLanguage";
 
@@ -471,10 +499,28 @@ export function useTicketLanguage(): [TicketLanguage, (next: TicketLanguage) => 
       const stored = window.localStorage.getItem(TICKET_LANGUAGE_KEY);
       if (stored && (TICKET_LANGUAGES as readonly string[]).includes(stored)) {
         setLanguage(stored as TicketLanguage);
+        return;
       }
     } catch {
       // Falls back to the tenant default.
     }
+    // FR-LOC-008 — no choice on this device: the kitchen-ticket language set
+    // for this terminal's branch (or the tenant) in the console.
+    let cancelled = false;
+    services.localisation.documentLanguages
+      .all()
+      .then((rows) => {
+        if (cancelled) return;
+        const resolved = resolveDocumentLanguages(rows, getTerminalBranchId(), "kitchen_ticket");
+        const first = resolved.languages[0];
+        if (first && (TICKET_LANGUAGES as readonly string[]).includes(first)) setLanguage(first);
+      })
+      .catch(() => {
+        // Tenant unresolved or storage blocked — the built-in default stands.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const set = useCallback((next: TicketLanguage) => {

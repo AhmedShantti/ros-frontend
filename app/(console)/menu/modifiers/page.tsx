@@ -16,10 +16,15 @@
 
 import { useMemo, useState } from "react";
 import { Plus, SlidersHorizontal } from "lucide-react";
-import { GroupRulesDrawer, GroupSimulator, NestingPicker } from "@/components/console/modifier-group-editor";
+import {
+  ContextPricing,
+  GroupRulesDrawer,
+  GroupSimulator,
+  NestingPicker,
+} from "@/components/console/modifier-group-editor";
 import type { Modifier, ModifierGroup, RecipeDelta, Localised } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAsync, useBranches, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatMoney, formatNumber, formatQuantity } from "@/lib/console/format";
@@ -225,15 +230,21 @@ function GroupDrawer({
   onChanged: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
+  const { scope } = useSession();
+  const branches = useBranches(scope);
   const canManage = usePermission("menu.item.manage");
   const [adding, setAdding] = useState(false);
   const [editingRules, setEditingRules] = useState(false);
   const context = useAsync(async () => {
-    const [groups, nesting] = await Promise.all([
+    const [groups, nesting, priceRules, priceLists] = await Promise.all([
       services.catalogue.modifierGroups.list({ limit: 300 }).then((page) => page.rows),
       services.modifierNesting.map(),
+      // FR-POS-022 — the per-context deltas, read once for the whole drawer
+      // rather than per modifier row.
+      services.modifierPricing.all(),
+      services.catalogue.priceLists.list({ limit: 200 }).then((page) => page.rows),
     ]);
-    return { groups, nesting };
+    return { groups, nesting, priceRules, priceLists };
   }, [group?.id]);
   if (!group) return null;
 
@@ -304,13 +315,22 @@ function GroupDrawer({
                   onChanged={changed}
                   nesting={
                     canManage && context.data ? (
-                      <NestingPicker
-                        parent={current}
-                        modifier={modifier}
-                        groups={context.data.groups}
-                        nesting={context.data.nesting}
-                        onChanged={changed}
-                      />
+                      <>
+                        <NestingPicker
+                          parent={current}
+                          modifier={modifier}
+                          groups={context.data.groups}
+                          nesting={context.data.nesting}
+                          onChanged={changed}
+                        />
+                        <ContextPricing
+                          modifier={modifier}
+                          rules={context.data.priceRules}
+                          branches={branches}
+                          priceLists={context.data.priceLists}
+                          onChanged={changed}
+                        />
+                      </>
                     ) : null
                   }
                 />

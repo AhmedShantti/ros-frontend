@@ -21,6 +21,8 @@ import { services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { effectivePermissions, userSodFindings, type UserSodFinding } from "@/lib/console/access";
 import { AssignmentsSection } from "@/components/console/assignment-editor";
+import { EffectiveAccessByScope } from "@/components/console/security-effective-access";
+import { ClassificationBadge, SensitiveValue } from "@/components/console/security-sensitive";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { formatDateTime, formatRelative } from "@/lib/console/format";
 import { SCOPE_LEVEL, USER_STATUS, labelOf } from "@/lib/console/labels";
@@ -211,10 +213,12 @@ function RoleCell({ assignments }: { assignments: RoleAssignment[] }) {
 
   return (
     <span className="flex flex-wrap gap-1">
-      {assignments.map((assignment) => {
+      {assignments.map((assignment, index) => {
         const role = roleById.get(assignment.roleId);
+        // FR-SEC-003 — the same role can be held at two scopes, so the role id
+        // alone is not a unique key.
         return (
-          <Badge key={assignment.roleId} tone="accent">
+          <Badge key={`${assignment.roleId}-${assignment.scopeLevel}-${index}`} tone="accent">
             {role ? tx(role.name) : assignment.roleId}
           </Badge>
         );
@@ -308,8 +312,19 @@ function UserDrawer({
               {tx(status.label)}
             </Badge>
           </DescRow>
-          <DescRow label={t("usr.phone")} mono>
-            <span dir="ltr">{user.phone}</span>
+          {/* FR-SEC-042 / FR-SEC-060 — contact details are restricted personal data:
+              masked until revealed, and every reveal is logged. */}
+          <DescRow label={t("usr.phone")}>
+            <span className="inline-flex items-center gap-2">
+              <SensitiveValue value={user.phone} field="user.phone" subjectType="user" subjectId={user.id} kind="phone" />
+              <ClassificationBadge cls="restricted" />
+            </span>
+          </DescRow>
+          {/* FR-PLT-003 — shown, never editable: a user cannot be moved to another tenant. */}
+          <DescRow label={t("tnt.tenantId")} mono>
+            <span className="text-xs" dir="ltr" title={t("tnt.tenantIdFixed")}>
+              {user.tenantId}
+            </span>
           </DescRow>
           <DescRow label={t("usr.locale")}>
             {user.locale === "ar" ? "العربية" : "English"}
@@ -335,6 +350,9 @@ function UserDrawer({
         </DescList>
 
         <AssignmentsSection user={user} roles={roles.data ?? []} onSaved={onChanged} />
+
+        {/* FR-SEC-003 — several assignments, several scopes: what applies where. */}
+        <EffectiveAccessByScope assignments={user.assignments} roles={roles.data ?? []} />
 
         {findings.length > 0 ? (
           <section>

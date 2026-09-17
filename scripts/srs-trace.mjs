@@ -105,16 +105,38 @@ for (const file of files) {
   }
 }
 
-const { requirements } = JSON.parse(
+/**
+ * The extract has been written in two shapes: `{ requirements: [...] }` with
+ * `module`/`priority`, and a bare array with `pri` and the module only inside
+ * the id. Normalise both so the rest of the script sees one.
+ */
+const raw = JSON.parse(
   fs.readFileSync(path.join(ROOT, "docs/srs-requirements.json"), "utf8"),
 );
+const requirements = (Array.isArray(raw) ? raw : raw.requirements).map((r) => ({
+  ...r,
+  module: r.module ?? r.id.split("-")[1],
+  priority: r.priority ?? r.pri,
+}));
+
+/**
+ * `docs/FRONTEND_COVERAGE.md` is the reviewed frontend scope. When present,
+ * a requirement listed there is frontend by definition, whatever the text
+ * heuristic below would guess.
+ */
+const coveragePath = path.join(ROOT, "docs/FRONTEND_COVERAGE.md");
+const FE_SCOPE = fs.existsSync(coveragePath)
+  ? new Set(
+      [...fs.readFileSync(coveragePath, "utf8").matchAll(/\*\*((?:FR|NFR)-[A-Z]{2,4}-\d{3})\*\*/g)].map((m) => m[1]),
+    )
+  : null;
 
 const isCopy = (p) => COPY.some((re) => re.test(p));
 
 const rows = requirements.map((req) => {
   const where = [...(hits.get(req.id) ?? [])].sort();
   const code = where.filter((p) => !isCopy(p));
-  const face = surface(req.module, req.text);
+  const face = FE_SCOPE ? (FE_SCOPE.has(req.id) ? "frontend" : "server-only") : surface(req.module, req.text);
   let state;
   if (code.length > 0) state = "implemented";
   else if (where.length > 0) state = "displayed";

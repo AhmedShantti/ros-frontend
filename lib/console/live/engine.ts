@@ -12,6 +12,10 @@
  */
 
 import type {
+  Combo,
+  ComboAllocationBasis,
+  ComboPricingStrategy,
+  ComboSlot,
   CountryPack,
   Currency,
   Id,
@@ -19,6 +23,7 @@ import type {
   MenuItem,
   MenuItemVariant,
   ModifierGroup,
+  ModifierPriceRule,
   Money,
   Order,
   OrderLine,
@@ -208,6 +213,250 @@ function windowMatches(list: PriceList, minuteOfDay: number): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Modifier price by context — FR-POS-022
+// ---------------------------------------------------------------------------
+
+export interface ModifierPriceContext {
+  orderType: OrderType;
+  branchId: Id;
+  /** The list that priced the item this modifier is on, if any (FR-POS-042). */
+  priceListId: Id | null;
+}
+
+/**
+ * How specific a rule is. Order type outweighs branch, which outweighs price
+ * list, and the weights are powers of two so the sum orders rules
+ * lexicographically: any rule naming the order type beats every rule that
+ * does not, whatever else either names. The SRS's own example — free for
+ * dine-in, charged for delivery — is an order-type decision, so that is the
+ * dimension that has to win.
+ */
+function specificity(rule: ModifierPriceRule): number {
+  return (rule.orderType ? 4 : 0) + (rule.branchId ? 2 : 0) + (rule.priceListId ? 1 : 0);
+}
+
+function ruleMatches(rule: ModifierPriceRule, ctx: ModifierPriceContext): boolean {
+  if (rule.orderType && rule.orderType !== ctx.orderType) return false;
+  if (rule.branchId && rule.branchId !== ctx.branchId) return false;
+  if (rule.priceListId && rule.priceListId !== ctx.priceListId) return false;
+  return true;
+}
+
+/**
+ * The delta a modifier charges here, and the rule that set it.
+ *
+ * With no matching rule the modifier's own delta applies and `ruleId` is
+ * null, so the line can say whether it was priced by context or by default.
+ */
+export function resolveModifierDelta(
+  modifier: { id: Id; priceDelta: Money },
+  rules: ModifierPriceRule[],
+  ctx: ModifierPriceContext,
+): { priceDelta: Money; ruleId: Id | null } {
+  const winner = rules
+    .filter((rule) => rule.modifierId === modifier.id && ruleMatches(rule, ctx))
+    // Most specific first; the newest breaks a tie between two equal rules.
+    .sort((a, b) => specificity(b) - specificity(a) || b.updatedAt.localeCompare(a.updatedAt))[0];
+  return winner
+    ? { priceDelta: money(winner.priceDelta.amount, modifier.priceDelta.currency), ruleId: winner.id }
+    : { priceDelta: modifier.priceDelta, ruleId: null };
+}
+
+// ---------------------------------------------------------------------------
+// Combos — FR-POS-030, FR-POS-031, FR-POS-032
+// ---------------------------------------------------------------------------
+
+export interface ComboPick {
+  slotId: Id;
+  menuItemId: Id;
+}
+
+export interface ComboComponentQuote {
+  slot: ComboSlot;
+  item: MenuItem;
+  variant: MenuItemVariant;
+  /** The component's own price in this context, minor units. */
+  listMinor: number;
+  premiumMinor: number;
+  /** Its share of the combo, premium included — what its line is charged. */
+  chargedMinor: number;
+  costMinor: number;
+}
+
+export interface ComboQuote {
+  strategy: ComboPricingStrategy;
+  /** Every slot has a pick. The combo cannot be sold until it does. */
+  complete: boolean;
+  totalMinor: number;
+  /** The components bought separately, premiums aside. */
+  listTotalMinor: number;
+  savingMinor: number;
+  components: ComboComponentQuote[];
+}
+
+export interface ComboPricing {
+  itemById: (id: Id) => MenuItem | undefined;
+  /** The component's price as the till would charge it alone (FR-POS-040). */
+  listPrice: (item: MenuItem, variant: MenuItemVariant) => number;
+  unitCost: (variant: MenuItemVariant) => number;
+}
+
+/**
+ * Splits a whole number of minor units across weights, exactly.
+ *
+ * Largest-remainder rounding: every share is floored, then the leftover
+ * units go to the shares that lost the most in the flooring. The parts
+ * always sum to the total — a combo's components adding up to one piastre
+ * more than the combo is how a sales report stops reconciling.
+ */
+export function allocateMinor(total: number, weights: number[]): number[] {
+  if (weights.length === 0) return [];
+  const safe = weights.map((w) => (Number.isFinite(w) && w > 0 ? w : 0));
+  const sum = safe.reduce((s, w) => s + w, 0);
+  // All-zero weights (no costs recorded, say) fall back to an equal split.
+  const basis = sum > 0 ? safe : safe.map(() => 1);
+  const basisSum = sum > 0 ? sum : basis.length;
+
+  const exact = basis.map((w) => (total * w) / basisSum);
+  const floored = exact.map((x) => Math.floor(x));
+  let leftover = total - floored.reduce((s, x) => s + x, 0);
+  const order = exact
+    .map((x, i) => ({ i, remainder: x - Math.floor(x) }))
+    .sort((a, b) => b.remainder - a.remainder || a.i - b.i);
+  for (const { i } of order) {
+    if (leftover <= 0) break;
+    floored[i]! += 1;
+    leftover -= 1;
+  }
+  return floored;
+}
+
+/**
+ * What a combo costs with these picks, and what each component is charged.
+ *
+ * The three strategies of FR-POS-031:
+ *
+ *   fixed               the combo's own price, whatever was picked
+ *   sum_minus_discount  the picks at their own prices, less the combo's discount
+ *   component_override  each slot's override price, or the pick's own price
+ *                       where a slot sets none
+ *
+ * Premiums for premium choices ride on top in every strategy and stay with
+ * the component that earned them. The rest of the price is allocated across
+ * components by the combo's basis (FR-POS-032), except under
+ * `component_override`, where the override *is* each component's price and
+ * there is nothing left to allocate.
+ */
+export function quoteCombo(combo: Combo, picks: ComboPick[], pricing: ComboPricing): ComboQuote {
+  const components: ComboComponentQuote[] = [];
+  for (const slot of combo.slots) {
+    const pick = picks.find((p) => p.slotId === slot.id);
+    const item = pick && slot.optionItemIds.includes(pick.menuItemId) ? pricing.itemById(pick.menuItemId) : undefined;
+    const variant = item?.variants[0];
+    if (!item || !variant) continue;
+    const listMinor = pricing.listPrice(item, variant);
+    components.push({
+      slot,
+      item,
+      variant,
+      listMinor,
+      premiumMinor: slot.premiumItemIds?.includes(item.id) ? slot.priceDelta.amount : 0,
+      chargedMinor: 0,
+      costMinor: pricing.unitCost(variant),
+    });
+  }
+
+  const complete = components.length === combo.slots.length && combo.slots.length > 0;
+  const listTotalMinor = components.reduce((sum, c) => sum + c.listMinor, 0);
+  const premiums = components.reduce((sum, c) => sum + c.premiumMinor, 0);
+
+  if (combo.pricingStrategy === "component_override") {
+    for (const c of components) {
+      c.chargedMinor = (c.slot.overridePrice?.amount ?? c.listMinor) + c.premiumMinor;
+    }
+  } else {
+    const base =
+      combo.pricingStrategy === "fixed"
+        ? combo.price.amount
+        : Math.max(0, listTotalMinor - (combo.discount?.amount ?? 0));
+    const shares = allocateMinor(base, weightsFor(combo.allocationBasis ?? "list_price", components));
+    components.forEach((c, i) => {
+      c.chargedMinor = shares[i]! + c.premiumMinor;
+    });
+  }
+
+  const totalMinor = components.reduce((sum, c) => sum + c.chargedMinor, 0);
+  return {
+    strategy: combo.pricingStrategy,
+    complete,
+    totalMinor,
+    listTotalMinor,
+    savingMinor: listTotalMinor + premiums - totalMinor,
+    components,
+  };
+}
+
+function weightsFor(basis: ComboAllocationBasis, components: ComboComponentQuote[]): number[] {
+  if (basis === "equal") return components.map(() => 1);
+  if (basis === "cost") return components.map((c) => c.costMinor);
+  return components.map((c) => c.listMinor);
+}
+
+// ---------------------------------------------------------------------------
+// Discount stacking — FR-POS-051
+// ---------------------------------------------------------------------------
+
+export type StackingPolicy = "stack" | "best_single";
+
+export interface StackEntry {
+  id: string;
+  amountMinor: number;
+  exclusive: boolean;
+}
+
+export interface StackVerdict {
+  /** apply: nothing conflicts. replace: the candidate wins and the conflicts go. keep_existing: it does not apply. */
+  outcome: "apply" | "replace" | "keep_existing";
+  conflictIds: string[];
+  conflictValueMinor: number;
+  candidateValueMinor: number;
+}
+
+/**
+ * Whether a new discount may join the ones already on the order.
+ *
+ * An exclusive discount — or any discount at all under `best_single` — does
+ * not combine with others. When one is involved, the guest gets whichever
+ * side is worth more to them: the new discount alone, or the ones it would
+ * have had to combine with. A tie keeps what is already there, so a cashier
+ * re-applying the same promotion does not churn the record.
+ *
+ * Because every application goes through this, an order carrying an active
+ * exclusive discount never carries anything else — which is what lets the
+ * conflict set below be "the exclusive ones" in the stacking case.
+ *
+ * Comps are not discounts (FR-POS-050) and are never passed in.
+ */
+export function resolveStacking(
+  active: StackEntry[],
+  candidate: { amountMinor: number; exclusive: boolean },
+  policy: StackingPolicy,
+): StackVerdict {
+  const conflicts =
+    policy === "best_single" || candidate.exclusive ? active : active.filter((entry) => entry.exclusive);
+  const conflictValueMinor = conflicts.reduce((sum, entry) => sum + entry.amountMinor, 0);
+  const base = {
+    conflictIds: conflicts.map((entry) => entry.id),
+    conflictValueMinor,
+    candidateValueMinor: candidate.amountMinor,
+  };
+  if (conflicts.length === 0) return { outcome: "apply", ...base };
+  return candidate.amountMinor > conflictValueMinor
+    ? { outcome: "replace", ...base }
+    : { outcome: "keep_existing", ...base };
+}
+
+// ---------------------------------------------------------------------------
 // Tax — country pack driven
 // ---------------------------------------------------------------------------
 
@@ -223,6 +472,24 @@ export function taxRateFor(pack: CountryPack, taxClass: TaxClassCode): number | 
  * adds tax on top under tax-exclusive pricing. The caller decides which by
  * passing the pack; the two modes differ by jurisdiction, not by preference.
  */
+/**
+ * Rounds a fractional minor-unit amount by the pack's rounding mode
+ * (FR-FIN-035). `Math.round` alone is HALF_UP for positives only and ignores
+ * the pack, so a HALF_EVEN or DOWN jurisdiction drifted by a unit per line.
+ */
+export function roundMinor(value: number, mode: CountryPack["roundingMode"]): number {
+  const sign = value < 0 ? -1 : 1;
+  const abs = Math.abs(value);
+  // Tolerate float noise such as 12.4999999 from a division.
+  const floor = Math.floor(abs + 1e-9);
+  const fraction = abs - floor;
+  let result: number;
+  if (mode === "DOWN") result = floor;
+  else if (Math.abs(fraction - 0.5) < 1e-9) result = mode === "HALF_EVEN" ? (floor % 2 === 0 ? floor : floor + 1) : floor + 1;
+  else result = fraction > 0.5 ? floor + 1 : floor;
+  return sign * result;
+}
+
 export function applyTax(
   amount: Money,
   rate: number | null,
@@ -233,14 +500,14 @@ export function applyTax(
   }
   const factor = rate / 100;
   if (pack.pricingMode === "tax_inclusive") {
-    const net = Math.round(amount.amount / (1 + factor));
+    const net = roundMinor(amount.amount / (1 + factor), pack.roundingMode);
     return {
       net: money(net, amount.currency),
       tax: money(amount.amount - net, amount.currency),
       gross: amount,
     };
   }
-  const tax = Math.round(amount.amount * factor);
+  const tax = roundMinor(amount.amount * factor, pack.roundingMode);
   return {
     net: amount,
     tax: money(tax, amount.currency),
@@ -271,10 +538,12 @@ export function roundCash(
   if (step <= 1) return { rounded: amount, adjustment: money(0, amount.currency) };
 
   const quotient = amount.amount / step;
+  // DOWN floors (never charges the customer up); the half modes follow the
+  // pack like tax does rather than always rounding half up.
   const rounded =
     pack.roundingMode === "DOWN"
       ? Math.floor(quotient) * step
-      : Math.round(quotient) * step;
+      : roundMinor(quotient, pack.roundingMode) * step;
 
   return {
     rounded: money(rounded, amount.currency),
@@ -385,7 +654,8 @@ export function computeOrderTotals(order: Order, options: OrderTotalsOptions): O
   const grandBeforeRounding =
     afterDiscount + serviceCharge + (inclusive ? 0 : lineTax + serviceTax);
 
-  const cogs = live.reduce((sum, l) => sum + l.unitCostSnapshot.amount, 0);
+  // The snapshot is per unit (FR-CST-002), as the API defines it.
+  const cogs = live.reduce((sum, l) => sum + l.unitCostSnapshot.amount * l.quantity, 0);
 
   return {
     ...order,

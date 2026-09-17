@@ -1157,6 +1157,13 @@ details[open] .chev {
    runtime values; `@theme inline` exposes them to Tailwind so
    `bg-surface` compiles to `var(--c-surface)` and the `.dark` override
    cascades without recompiling any utility.
+
+   NFR-USA-007 / NFR-USA-008 (WCAG 2.1 AA, 1.4.3 and 1.4.11): every text
+   token (fg, fg-muted, fg-subtle, accent, good, warn, bad, info) is at least
+   4.5:1 against surface, raised and sunken in both themes, and --c-control
+   (input borders, switch tracks) is at least 3:1. --c-line stays a
+   decorative hairline and is exempt. Re-check these ratios when a value
+   changes; the comments beside each token record them.
    ================================================================== */
 :root {
   --c-surface: #f5f3ec;
@@ -1164,15 +1171,21 @@ details[open] .chev {
   --c-sunken: #eae8df;
   --c-line: #dedcd3;
   --c-line-strong: #c0beb4;
+  /* NFR-USA-008 — form-control borders and switch tracks need 3:1 against
+     every surface they sit on; hairline dividers (--c-line) are decorative
+     and exempt. #83817b: 3.5 surface / 3.9 raised / 3.2 sunken. */
+  --c-control: #83817b;
   --c-fg: #14181d;
   --c-fg-muted: #565650;
-  --c-fg-subtle: #8b8a82;
+  /* NFR-USA-008 — was #8b8a82 (2.8:1 on sunken). 4.7 sunken / 5.8 raised. */
+  --c-fg-subtle: #676660;
   --c-accent: #8a5a05;
   --c-accent-fg: #fffdf6;
   --c-accent-soft: #fff4e0;
   --c-good: #0f6b4c;
   --c-good-soft: #e2f6ed;
-  --c-warn: #96690f;
+  /* NFR-USA-008 — was #96690f (4.0:1 on sunken). Now ≥4.6 on every light surface. */
+  --c-warn: #885f0e;
   --c-warn-soft: #fbeed0;
   --c-bad: #a41f38;
   --c-bad-soft: #fdeaee;
@@ -1186,9 +1199,11 @@ details[open] .chev {
   --c-sunken: #232932;
   --c-line: #2e353f;
   --c-line-strong: #46505d;
+  --c-control: #6e7680; /* NFR-USA-008 — 3.9 surface / 3.5 raised / 3.2 sunken */
   --c-fg: #eceae4;
   --c-fg-muted: #a0a099;
-  --c-fg-subtle: #74746d;
+  /* NFR-USA-008 — was #74746d (3.1:1 on sunken). 4.7 sunken / 5.7 surface. */
+  --c-fg-subtle: #92928d;
   --c-accent: #f0a92c;
   --c-accent-fg: #24190a;
   --c-accent-soft: #35290f;
@@ -1208,6 +1223,7 @@ details[open] .chev {
   --color-sunken: var(--c-sunken);
   --color-line: var(--c-line);
   --color-line-strong: var(--c-line-strong);
+  --color-control: var(--c-control);
   --color-fg: var(--c-fg);
   --color-fg-muted: var(--c-fg-muted);
   --color-fg-subtle: var(--c-fg-subtle);

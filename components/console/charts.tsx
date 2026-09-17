@@ -323,18 +323,23 @@ export function HourlyChart({
   salesLabel,
   labourLabel,
   forecastLabel,
+  priorWeekLabel,
   format,
 }: {
-  data: HourlySalesPoint[];
+  /** `priorWeek` — the same hour on the same weekday a week earlier (FR-RPT-032). */
+  data: (HourlySalesPoint & { priorWeek?: number | null })[];
   height?: number;
   salesLabel: string;
   labourLabel: string;
   forecastLabel?: string;
+  /** When set, draws the prior-week line. */
+  priorWeekLabel?: string;
   format?: (value: number) => string;
 }) {
   const theme = useChartTheme();
   const { dir, fmt } = useI18n();
   const rtl = dir === "rtl";
+  const hasLabour = data.some((point) => typeof point.labourCost === "number");
   const formatValue = format ?? ((value: number) => formatNumber(value, fmt));
 
   return (
@@ -377,14 +382,28 @@ export function HourlyChart({
             dot={false}
           />
         ) : null}
-        <Line
-          type="monotone"
-          dataKey="labourCost"
-          name={labourLabel}
-          stroke={theme.warn}
-          strokeWidth={2}
-          dot={false}
-        />
+        {priorWeekLabel ? (
+          <Line
+            type="monotone"
+            dataKey="priorWeek"
+            name={priorWeekLabel}
+            stroke={theme.info}
+            strokeWidth={1.5}
+            strokeDasharray="2 3"
+            dot={false}
+            connectNulls
+          />
+        ) : null}
+        {hasLabour || !priorWeekLabel ? (
+          <Line
+            type="monotone"
+            dataKey="labourCost"
+            name={labourLabel}
+            stroke={theme.warn}
+            strokeWidth={2}
+            dot={false}
+          />
+        ) : null}
       </ComposedChart>
     </ChartFrame>
   );

@@ -32,7 +32,9 @@ import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
 import { ScheduleBuilder } from "@/components/console/workforce-forms";
 import { ExportButton } from "@/components/console/export-button";
-import { Badge, Button, Callout, Toast } from "@/components/console/ui";
+import { Badge, Button, Callout, Tabs, Toast } from "@/components/console/ui";
+import { PublicationsPanel, PublishDraftsButton } from "@/components/console/workforce-publications";
+import { SwapsPanel } from "@/components/console/workforce-swaps";
 
 export default function SchedulesPage() {
   return (
@@ -49,6 +51,9 @@ function SchedulesScreen() {
   const canManage = usePermission("hr.schedule.manage");
   const [message, setMessage] = useTransientMessage();
   const [building, setBuilding] = useState(false);
+  // FR-HRM-015 / FR-HRM-016 — publications and swap requests beside the roster.
+  const [tab, setTab] = useState<"shifts" | "publications" | "swaps">("shifts");
+  const [reloadKey, setReloadKey] = useState(0);
 
   const collection = useCollection<ScheduledShift>(
     (query) => services.workforce.shifts.list(query),
@@ -145,18 +150,51 @@ function SchedulesScreen() {
         spec="FR-HRM-012"
         actions={
           canManage ? (
-            <Button
-              variant="primary"
-              icon={<Plus size={14} />}
-              onClick={() => setBuilding(true)}
-            >
-              {t("common.new")}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <PublishDraftsButton
+                drafts={collection.rows.filter((row) => row.status === "draft")}
+                onDone={(note) => {
+                  setMessage(note);
+                  setReloadKey((n) => n + 1);
+                  collection.reload();
+                }}
+              />
+              <Button
+                variant="primary"
+                icon={<Plus size={14} />}
+                onClick={() => setBuilding(true)}
+              >
+                {t("common.new")}
+              </Button>
+            </div>
           ) : null
         }
       />
 
       <PageBody>
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "shifts" as const, label: t("wf.tabShifts") },
+            { value: "publications" as const, label: t("wf.tabPublications") },
+            { value: "swaps" as const, label: t("wf.tabSwaps") },
+          ]}
+        />
+
+        {tab === "publications" ? <PublicationsPanel branches={branches} reloadKey={reloadKey} /> : null}
+        {tab === "swaps" ? (
+          <SwapsPanel
+            reloadKey={reloadKey}
+            onChanged={(note) => {
+              setMessage(note);
+              collection.reload();
+            }}
+          />
+        ) : null}
+
+        {tab === "shifts" ? (
+        <>
         {totals.violations > 0 ? (
           <Callout tone="warn" icon={<AlertTriangle size={14} />} title={t("wf.violations")}>
             {t("wf.violationsNote")}
@@ -213,6 +251,8 @@ function SchedulesScreen() {
           caption={t("wf.schedulesTitle")}
           dense
         />
+        </>
+        ) : null}
       </PageBody>
 
       <ScheduleBuilder
@@ -221,6 +261,7 @@ function SchedulesScreen() {
         onSaved={(note) => {
           setBuilding(false);
           setMessage(note);
+          setReloadKey((n) => n + 1);
           collection.reload();
         }}
       />

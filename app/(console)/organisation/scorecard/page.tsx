@@ -16,7 +16,9 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
 
-import type { Branch, BranchRankingRow, DashboardData } from "@/lib/console/types";
+import type { Branch, BranchRankingRow, Currency, DashboardData } from "@/lib/console/types";
+import { convertMoney, findRate, REPORTING_CURRENCIES } from "@/lib/console/branch-fx";
+import { BranchGroupSelect, useBranchGroups, useGroupBranchIds } from "@/components/console/branch-group-filter";
 import type { OperatingHours } from "@/lib/console/services/types";
 import { services } from "@/lib/console/services";
 import { useAsync, useTransientMessage } from "@/lib/console/hooks";
@@ -95,9 +97,39 @@ function Scorecard() {
   const [threshold, setThreshold] = useState("2");
   const [likeForLike, setLikeForLike] = useState(false);
   const [maturity, setMaturity] = useState("12");
+  // FR-BRN-005 — narrow the comparison to a region, cluster or territory.
+  const [groupId, setGroupId] = useState("");
+  const groups = useBranchGroups();
+  const allowed = useGroupBranchIds(groups.data, groupId);
+  // FR-BRN-004 — money measures from branches in different currencies are
+  // ranked after conversion at a stated rate, never compared raw.
+  const [reporting, setReporting] = useState<Currency>("EGP");
 
   const data = useAsync(async () => {
     const dashboard = await services.dashboard.get({ ...scope, branchId: null });
+    const [rates, snapshots] = await Promise.all([
+      services.branchNetwork.fxRates.all().catch(() => []),
+      services.branchNetwork.rankingSnapshots.all().catch(() => []),
+    ]);
+    // FR-BRN-012 — record today's raw measures, so the next period can show
+    // movement on any metric, not only the one the server ranks.
+    const snapshotId = `${dashboard.businessDay}|${scope.brandId ?? "all"}`;
+    await services.branchNetwork.rankingSnapshots
+      .put({
+        id: snapshotId,
+        businessDay: dashboard.businessDay,
+        brandId: scope.brandId,
+        capturedAt: new Date().toISOString(),
+        rows: dashboard.branchRanking.map((row) => ({
+          branchId: row.branchId,
+          values: Object.fromEntries(METRICS.map((m) => [m.key, m.read(row)])),
+        })),
+      })
+      .catch(() => undefined);
+    const prior =
+      snapshots
+        .filter((row) => row.brandId === scope.brandId && row.businessDay < dashboard.businessDay)
+        .sort((a, b) => b.businessDay.localeCompare(a.businessDay))[0] ?? null;
     const hours = await Promise.all(
       dashboard.branchRanking.map((row) =>
         services.organisation
@@ -106,7 +138,7 @@ function Scorecard() {
           .catch(() => [row.branchId, [] as OperatingHours[]] as const),
       ),
     );
-    return { dashboard, hours: new Map(hours) };
+    return { dashboard, hours: new Map(hours), rates, prior };
   }, [scope.tenantId, scope.brandId]);
 
   const branchById = useMemo(() => new Map(availableBranches.map((row) => [row.id, row])), [availableBranches]);
@@ -127,20 +159,49 @@ function Scorecard() {
       return hoursOn(data.data?.hours.get(branchId) ?? [], weekday);
     };
 
-    const base = dashboard.branchRanking.map((row) => {
+    const inView = dashboard.branchRanking.filter((row) => !allowed || allowed.has(row.branchId));
+    const currencies = new Set(inView.map((row) => branchById.get(row.branchId)?.currency ?? dashboard.currency));
+    const mixed = currencies.size > 1;
+    const rates = data.data?.rates ?? [];
+
+    /** A raw measure made comparable across branches: size-normalised, and converted when currencies differ. */
+    const comparable = (m: MetricDef, raw: number | null, branchId: string): number | null => {
+      if (raw === null) return null;
+      const branch = branchById.get(branchId);
+      let value = raw;
+      if (m.kind === "money" && mixed) {
+        const from = branch?.currency ?? dashboard.currency;
+        const converted = convertMoney(
+          { amount: Math.round(raw), currency: from },
+          reporting,
+          from === reporting ? null : findRate(rates, from, reporting, dashboard.businessDay),
+        );
+        if (!converted) return null;
+        value = converted.amount;
+      }
+      if (!m.additive) return value;
+      const d = divisor(branch, branchId);
+      return d === null ? null : value / d;
+    };
+
+    const base = inView.map((row) => {
       const branch = branchById.get(row.branchId);
-      const values = Object.fromEntries(
-        METRICS.map((m) => {
-          const raw = m.read(row);
-          if (raw === null) return [m.key, null];
-          if (!m.additive) return [m.key, raw];
-          const d = divisor(branch, row.branchId);
-          return [m.key, d === null ? null : raw / d];
-        }),
-      ) as Record<MetricKey, number | null>;
+      const values = Object.fromEntries(METRICS.map((m) => [m.key, comparable(m, m.read(row), row.branchId)])) as Record<MetricKey, number | null>;
       const mature = branch ? monthsSince(branch.openedAt) >= matureMonths : true;
       return { row, branch, values, mature };
     });
+
+    // FR-BRN-012 — the prior period's rank on the selected metric, same basis and same branch set.
+    const prior = data.data?.prior ?? null;
+    const priorRank = new Map<string, number>();
+    if (prior) {
+      prior.rows
+        .filter((entry) => !allowed || allowed.has(entry.branchId))
+        .map((entry) => ({ branchId: entry.branchId, value: comparable(def, entry.values[metric] ?? null, entry.branchId) }))
+        .filter((entry): entry is { branchId: string; value: number } => entry.value !== null)
+        .sort((a, b) => (def.higherIsBetter ? b.value - a.value : a.value - b.value))
+        .forEach((entry, index) => priorRank.set(entry.branchId, index + 1));
+    }
 
     // FR-BRN-013 / FR-BRN-014 — mean and spread from the comparison group.
     const stats = Object.fromEntries(
@@ -166,6 +227,8 @@ function Scorecard() {
     return ranked.map((entry, index) => ({
       ...entry,
       rank: entry.values[metric] === null ? null : index + 1,
+      priorRank: priorRank.get(entry.row.branchId) ?? null,
+      mixed,
       z: Object.fromEntries(
         METRICS.map((m) => {
           const value = entry.values[m.key];
@@ -175,14 +238,14 @@ function Scorecard() {
       ) as Record<MetricKey, number>,
       groupMean: stats,
     }));
-  }, [data.data, branchById, normalise, likeForLike, matureMonths, metric, def]);
+  }, [data.data, branchById, normalise, likeForLike, matureMonths, metric, def, allowed, reporting]);
 
   type Row = (typeof rows)[number];
   const top = rows.find((entry) => entry.values[metric] !== null)?.values[metric] ?? 0;
 
   const format = (m: MetricDef, value: number | null) => {
     if (value === null) return "—";
-    const currency = data.data?.dashboard.currency ?? "EGP";
+    const currency = rows[0]?.mixed ? reporting : (rows[0]?.branch?.currency ?? data.data?.dashboard.currency ?? "EGP");
     if (m.kind === "percent") return formatPercent(value, fmt);
     if (m.kind === "money") return formatMoney({ amount: Math.round(value), currency }, fmt, normalise === "none");
     return formatNumber(value, fmt, normalise === "none" ? 0 : 1);
@@ -195,10 +258,12 @@ function Scorecard() {
       key: "rank",
       header: "#",
       render: (entry) => {
-        // Movement is only meaningful against the prior period's ranking on
-        // the same basis, which the server gives for net sales, unnormalised.
-        const comparable = metric === "netSales" && normalise === "none" && entry.row.previousRank !== null;
-        const move = comparable ? entry.row.previousRank! - (entry.rank ?? 0) : 0;
+        // FR-BRN-012 — movement against the prior period's ranking on the same
+        // basis: the recorded prior snapshot for any metric, or the server's
+        // own previous rank for unnormalised net sales when none is recorded.
+        const previous = entry.priorRank ?? (metric === "netSales" && normalise === "none" ? entry.row.previousRank : null);
+        const comparable = previous !== null && entry.rank !== null;
+        const move = comparable ? previous! - entry.rank! : 0;
         return (
           <span className="flex items-center gap-1 font-mono tabular-nums">
             {entry.rank ?? "—"}
@@ -319,6 +384,18 @@ function Scorecard() {
               <Input dir="ltr" inputMode="decimal" value={threshold} onChange={(event) => setThreshold(event.target.value)} className="w-20 font-mono" />
             </Field>
           </div>
+          <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <BranchGroupSelect groups={groups.data ?? []} value={groupId} onChange={setGroupId} />
+            <Field label={t("brn.cons.reportingCurrency")} hint={t("brn.score.currencyHint")}>
+              <Select value={reporting} onChange={(event) => setReporting(event.target.value as Currency)}>
+                {REPORTING_CURRENCIES.map((currency) => (
+                  <option key={currency} value={currency}>
+                    {currency}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
           <div className="mt-2 flex flex-wrap items-end gap-4">
             <Toggle checked={likeForLike} onChange={setLikeForLike} label={t("bsc.likeForLike")} hint={t("bsc.likeForLikeHint")} />
             {likeForLike ? (
@@ -337,8 +414,10 @@ function Scorecard() {
             <>
               <Callout tone="muted">
                 {t("bsc.period").replace("{day}", ready.dashboard.businessDay)}
-                {unit ? ` ${t("bsc.showingPer").replace("{unit}", unit)}` : ""}
+                {unit ? ` ${t("bsc.showingPer").replace("{unit}", unit)}` : ""}{" "}
+                {ready.prior ? t("brn.score.movementVs").replace("{day}", ready.prior.businessDay) : t("brn.score.noPrior")}
               </Callout>
+              {rows[0]?.mixed ? <Callout tone="warn">{t("brn.score.mixedCurrency").replace("{currency}", reporting)}</Callout> : null}
               <DataTable columns={columns} rows={rows} rowKey={(entry) => entry.row.branchId} caption={t("bsc.title")} dense />
               <Section title={t("bsc.outliers")} hint={t("bsc.outliersHint").replace("{n}", String(sigma))}>
                 {outliers.length === 0 ? (

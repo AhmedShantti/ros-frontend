@@ -64,7 +64,7 @@ export type SettingValue = boolean | number | string;
 
 export type SettingKind = "boolean" | "integer" | "percent" | "money" | "minutes" | "enum";
 
-export type SettingGroup = "pos" | "kitchen" | "financial" | "cash" | "inventory" | "security" | "localisation";
+export type SettingGroup = "pos" | "kitchen" | "financial" | "cash" | "inventory" | "security" | "localisation" | "workforce";
 
 export const SETTING_GROUPS: { id: SettingGroup; label: Localised }[] = [
   { id: "pos", label: { en: "Point of sale", ar: "نقطة البيع" } },
@@ -74,6 +74,7 @@ export const SETTING_GROUPS: { id: SettingGroup; label: Localised }[] = [
   { id: "inventory", label: { en: "Inventory", ar: "المخزون" } },
   { id: "security", label: { en: "Security and sessions", ar: "الأمان والجلسات" } },
   { id: "localisation", label: { en: "Language and format", ar: "اللغة والتنسيق" } },
+  { id: "workforce", label: { en: "Workforce", ar: "القوى العاملة" } },
 ];
 
 export interface SettingDefinition {
@@ -122,7 +123,7 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
       en: "A dine-in order cannot reach the kitchen without somewhere to take it.",
       ar: "لا يصل طلب الصالة إلى المطبخ دون تحديد مكان تقديمه.",
     },
-    spec: "FR-POS-080",
+    spec: "FR-POS-003",
     financial: false,
     platformDefault: true,
     lowestLevel: "branch",
@@ -220,7 +221,7 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
       en: "A long press rather than a tap, so a greasy sleeve does not clear a ticket.",
       ar: "ضغطة مطوّلة بدل النقرة، كي لا يُنهي كمٌّ دهني تذكرة بالخطأ.",
     },
-    spec: "FR-KDS-031",
+    spec: "FR-KDS-026",
     financial: false,
     platformDefault: true,
     lowestLevel: "terminal",
@@ -365,6 +366,21 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     platformDefault: 500_000,
     lowestLevel: "terminal",
     min: 0,
+  }),
+  // FR-FIN-003 — shared-drawer mode is a branch policy, off unless chosen.
+  d({
+    key: "cash.sharedDrawerMode",
+    group: "cash",
+    kind: "boolean",
+    label: { en: "Shared-drawer mode", ar: "وضع الدرج المشترك" },
+    hint: {
+      en: "Lets several cashiers work one drawer. Accountability then attaches to the shift, not the person — a reduced control environment.",
+      ar: "يسمح لعدة صرّافين بالعمل على درج واحد. تنتقل المساءلة عندها إلى الوردية لا إلى الشخص، وهي بيئة رقابة مخفّضة.",
+    },
+    spec: "FR-FIN-003",
+    financial: false,
+    platformDefault: false,
+    lowestLevel: "branch",
   }),
 
   // -- Inventory -------------------------------------------------------------
@@ -543,6 +559,71 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     financial: false,
     platformDefault: false,
     lowestLevel: "terminal",
+  }),
+
+  // -- Workforce -------------------------------------------------------------
+  d({
+    // FR-HRM-023 — enforced in components/terminal/clock.tsx.
+    key: "hr.earlyClockInMinutes",
+    group: "workforce",
+    kind: "minutes",
+    label: { en: "Earliest clock-in before a shift", ar: "أقرب تسجيل حضور قبل الوردية" },
+    hint: {
+      en: "A clock-in earlier than this before the scheduled start is refused, so paid hours start with the shift.",
+      ar: "يُرفض تسجيل الحضور قبل بداية الوردية المجدولة بأكثر من هذه المدة، لتبدأ الساعات المدفوعة مع الوردية.",
+    },
+    spec: "FR-HRM-023",
+    financial: false,
+    platformDefault: 15,
+    lowestLevel: "branch",
+    min: 0,
+    max: 180,
+  }),
+  d({
+    // FR-HRM-027 — photo at clock-in, off unless a tenant or branch turns it on.
+    key: "hr.clockInPhoto",
+    group: "workforce",
+    kind: "boolean",
+    label: { en: "Take a photo at clock-in", ar: "التقاط صورة عند تسجيل الحضور" },
+    hint: {
+      en: "Deters clocking in for someone else. Each employee is shown a notice before their first photo.",
+      ar: "يردع تسجيل الحضور نيابة عن زميل. يُعرض على كل موظف إشعار قبل أول صورة له.",
+    },
+    spec: "FR-HRM-027",
+    financial: false,
+    platformDefault: false,
+    lowestLevel: "branch",
+  }),
+  d({
+    // FR-HRM-026 — paid rest allowance; rest beyond it is unpaid.
+    key: "hr.paidRestMinutes",
+    group: "workforce",
+    kind: "minutes",
+    label: { en: "Paid rest break per shift", ar: "استراحة مدفوعة لكل وردية" },
+    hint: {
+      en: "Rest breaks up to this long are paid. Anything longer is recorded as unpaid.",
+      ar: "استراحات الراحة حتى هذه المدة مدفوعة، وما يزيد عنها يُسجَّل غير مدفوع.",
+    },
+    spec: "FR-HRM-026",
+    financial: false,
+    platformDefault: 15,
+    lowestLevel: "branch",
+    min: 0,
+    max: 120,
+  }),
+  d({
+    key: "hr.mealBreakPaid",
+    group: "workforce",
+    kind: "boolean",
+    label: { en: "Meal breaks are paid", ar: "استراحة الوجبة مدفوعة" },
+    hint: {
+      en: "Off means a meal break is taken off the payable hours.",
+      ar: "الإيقاف يعني خصم استراحة الوجبة من الساعات المدفوعة.",
+    },
+    spec: "FR-HRM-026",
+    financial: false,
+    platformDefault: false,
+    lowestLevel: "branch",
   }),
 ];
 

@@ -30,7 +30,8 @@ import { ExportButton } from "@/components/console/export-button";
 import { useConfirm } from "@/components/console/confirm";
 import { EmptyState } from "@/components/console/fields";
 import { PromotionDrawer } from "@/components/console/promotion";
-import { Badge, Button, Toast } from "@/components/console/ui";
+import { Badge, Button, Tabs, Toast } from "@/components/console/ui";
+import { PromotionConformance, PromotionSimulator } from "@/components/console/crm-promotion-lab";
 
 export default function PromotionsPage() {
   return (
@@ -61,6 +62,7 @@ function PromotionsScreen() {
 
   const [selected, setSelected] = useState<Promotion | null>(null);
   const [creating, setCreating] = useState(false);
+  const [tab, setTab] = useState<"list" | "simulator" | "conformance">("list");
   const [message, setMessage] = useTransientMessage();
 
   const collection = useCollection<Promotion>(
@@ -199,6 +201,28 @@ function PromotionsScreen() {
       />
 
       <PageBody>
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "list" as const, label: t("promo.tabList") },
+            { value: "simulator" as const, label: t("promo.tabSimulator") },
+            { value: "conformance" as const, label: t("promo.tabConformance") },
+          ]}
+        />
+        {/* FR-CRM-026 / FR-CRM-027 — the shared evaluator, exercised. */}
+        {tab === "simulator" ? (
+          <PromotionSimulator
+            onRedeemed={(note) => {
+              setMessage(note);
+              collection.reload();
+            }}
+          />
+        ) : null}
+        {tab === "conformance" ? <PromotionConformance /> : null}
+
+        {tab === "list" ? (
+        <>
         <TileGrid columns={3}>
           <MetricTile label={t("promo.activeCount")} value={formatNumber(totals.active, fmt)} />
           <MetricTile
@@ -259,6 +283,8 @@ function PromotionsScreen() {
               ) : undefined
             }
           />
+        ) : null}
+        </>
         ) : null}
       </PageBody>
 

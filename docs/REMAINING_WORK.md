@@ -1,5 +1,23 @@
 # ROS Frontend — Build Status
 
+**Status (2026-09-17): every P0, P1 and P2 item below is built.**
+`node scripts/srs-trace.mjs` finds code for 460 of the 470 frontend-scope
+requirements in `docs/FRONTEND_COVERAGE.md`. The other ten cannot be delivered
+from a browser: TLS, KMS rotation, secret injection, dependency scanning,
+penetration testing, report rollups / incremental rebuild / SCD2 dimensions,
+and one row the PDF extraction garbled. `NFR-USA-007` is referenced in
+`app/globals.css`, which the trace script does not scan.
+
+Known frontend limits still open:
+- `Currency` is `EGP | SAR | AED`, and ~48 call sites format money as two
+  decimals. The Jordan and Kuwait packs therefore carry placeholder currencies
+  (EGP/AED) until JOD/KWD (3 decimals) are added end to end.
+- Many new domains persist in the browser (`localCollection`) because the API
+  has no endpoints for them; each screen says so. They move to the server by
+  implementing the same service interface in `http.ts`.
+- The server-backed till (`pos-live.tsx`) has no floor plan, promotions or
+  isolated-mode queue — those work on the simulator till only.
+
 Working state as of the last session. `npx tsc --noEmit` and `npx next build`
 both pass.
 
@@ -225,42 +243,50 @@ re-inventing.
 
 ## Remaining — P1
 
-- [ ] Graphical floor plan editor; merge tables; split a table's order; server
+- [x] Graphical floor plan editor; merge tables; split a table's order; server
       sections. (FR-POS-080…084)
-- [ ] KDS: audible alerts, capacity warning, icon/image mode, per-item target
+- [x] KDS: audible alerts, capacity warning, icon/image mode, per-item target
       prep time, order-type-priority sort. (FR-KDS-012/023/029/031/044/045)
-- [ ] Pricing: change history, bulk operations, CSV import with preview,
+- [x] Pricing: change history, bulk operations, CSV import with preview,
       margin-below-threshold warning, future effective dates. (FR-MNU-024…026)
-- [ ] Inventory: cycle counting schedule, storage-ordered count sheets,
+- [x] Inventory: cycle counting schedule, storage-ordered count sheets,
       reorder suggestions with forecast, batch traceability both ways.
       (FR-INV-027/048/049/067…069)
-- [ ] Transfer requests and suggested transfers. (FR-BRN-016/017)
-- [ ] Finance: card-batch and aggregator payout reconciliation.
+- [x] Transfer requests and suggested transfers. (FR-BRN-016/017)
+- [x] Finance: card-batch and aggregator payout reconciliation.
       (FR-FIN-011/012)
-- [ ] Approved-supplier lists and supplier compliance documents.
+- [x] Approved-supplier lists and supplier compliance documents.
       (FR-PRC-010/011)
-- [ ] Dashboards: role-specific defaults, widget selection and layout
+- [x] Dashboards: role-specific defaults, widget selection and layout
       persistence, live operations view. (FR-RPT-030…034)
-- [ ] Menu engineering matrix. (FR-MNU-055…057)
-- [ ] Leave requests, shift swaps. (FR-HRM-016/017)
-- [ ] 86 auto-re-enable time, daily quantity limits, remaining-sellable in the
+- [x] Menu engineering matrix. (FR-MNU-055…057)
+- [x] Leave requests, shift swaps. (FR-HRM-016/017)
+      *`/workforce/leave` (requests, approval, balances per type, leave-type
+      config) and the Swap requests tab on `/workforce/schedules` (peer accept →
+      manager approval against `validateSwap`, roster changed before the
+      decision is recorded). Rules in `lib/console/workforce-rules.ts`; data in
+      `services.workforceHr` (local — no endpoints).*
+- [x] 86 auto-re-enable time, daily quantity limits, remaining-sellable in the
       console. (FR-MNU-030/033/035)
 
 ## Remaining — P2
 
-- [ ] Franchise: field locking, royalties, compliance visibility. (FR-BRN-035…037)
-- [ ] Nutrition panel. (FR-MNU-050)
-- [ ] Invoice OCR capture with human verification. (FR-PRC-046)
-- [ ] Break-even progress; like-for-like branch comparison. (FR-CST-038, FR-BRN-014)
-- [ ] Central-kitchen transfer pricing. (FR-BRN-030)
-- [ ] Natural-language report query. (FR-RPT-047)
-- [ ] Clock-in photo capture with consent notice. (FR-HRM-027)
-- [ ] Additional language packs (ur/bn/tl/fr/tr/hi) beyond the kitchen-ticket
+- [x] Franchise: field locking, royalties, compliance visibility. (FR-BRN-035…037)
+- [x] Nutrition panel. (FR-MNU-050)
+- [x] Invoice OCR capture with human verification. (FR-PRC-046)
+- [x] Break-even progress; like-for-like branch comparison. (FR-CST-038, FR-BRN-014)
+- [x] Central-kitchen transfer pricing. (FR-BRN-030)
+- [x] Natural-language report query. (`/reports/ask`, deterministic parser, no LLM) (FR-RPT-047)
+- [x] Clock-in photo capture with consent notice. (FR-HRM-027)
+      *`hr.clockInPhoto` setting; notice + getUserMedia capture with a
+      no-camera fallback in `components/terminal/clock.tsx`; review on the
+      attendance page's Photos tab (90-day retention, local store).*
+- [x] Additional language packs (ur/bn/tl/fr/tr/hi) beyond the kitchen-ticket
       picker; Hijri calendar display; per-user vs per-terminal vs per-document
       language selection. (FR-LOC-008/009/010)
-- [ ] Waste anomaly detection; automatic expiry write-off at day close.
+- [x] Waste anomaly detection; automatic expiry write-off at day close.
       (FR-INV-026/061)
-- [ ] In-product bilingual release notes. (FR-OPS-013)
+- [x] In-product bilingual release notes. (`/operations/release-notes`) (FR-OPS-013)
 
 ---
 

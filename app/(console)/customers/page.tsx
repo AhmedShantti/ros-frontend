@@ -42,6 +42,7 @@ import { ExportButton } from "@/components/console/export-button";
 import { useConfirm } from "@/components/console/confirm";
 import { EmptyState } from "@/components/console/fields";
 import { CustomerDrawer, CustomerQuickCreate, SEGMENT_TONE } from "@/components/console/customer";
+import { CustomerRecordDrawer } from "@/components/console/crm-customer-record";
 import { Badge, Button, Toast } from "@/components/console/ui";
 
 export default function CustomersPage() {
@@ -64,6 +65,7 @@ function CustomersScreen() {
 
   const [selected, setSelected] = useState<Customer | null>(null);
   const [creating, setCreating] = useState(false);
+  const [creatingFull, setCreatingFull] = useState(false);
   const [message, setMessage] = useTransientMessage();
 
   const collection = useCollection<Customer>(
@@ -223,6 +225,11 @@ function CustomersScreen() {
               ]}
             />
             {canManage ? (
+              <Button icon={<Plus size={14} />} onClick={() => setCreatingFull(true)}>
+                {t("crm.record.button")}
+              </Button>
+            ) : null}
+            {canManage ? (
               <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
                 {t("crm.newCustomer")}
               </Button>
@@ -335,6 +342,18 @@ function CustomersScreen() {
         onChanged={(note) => {
           setMessage(note);
           collection.reload();
+        }}
+      />
+
+      {/* FR-CRM-001 — the complete record, for back office and phone orders. */}
+      <CustomerRecordDrawer
+        open={creatingFull}
+        onClose={() => setCreatingFull(false)}
+        onCreated={(customer) => {
+          setCreatingFull(false);
+          setMessage(t("crm.created"));
+          collection.reload();
+          setSelected(customer);
         }}
       />
 

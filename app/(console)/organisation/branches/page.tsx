@@ -44,6 +44,7 @@ import { RecordDrawer } from "@/components/console/record-drawer";
 import { trimLocalised } from "@/components/console/fields";
 import { DATA_MODE } from "@/lib/api/config";
 import { BranchTemplateDrawer } from "@/components/console/branch-template";
+import { BranchCountryPackPanel, BranchHoldingsPanel } from "@/components/console/branch-holdings";
 
 export default function BranchesPage() {
   return (
@@ -363,6 +364,12 @@ function BranchDrawer({
         </DescList>
 
         <Callout tone="muted">{t("org.dayBoundaryHint")}</Callout>
+
+        {/* FR-BRN-002 — what this branch holds as its own. */}
+        <BranchHoldingsPanel branch={branch} />
+
+        {/* FR-BRN-003 — the country pack this branch trades under. */}
+        <BranchCountryPackPanel branch={branch} canManage={canManage} onChanged={onChanged} />
 
         {canManage ? (
           <BrandReassign branch={branch} brands={availableBrands} onChanged={onChanged} />

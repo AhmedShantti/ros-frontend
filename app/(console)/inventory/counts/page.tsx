@@ -14,8 +14,12 @@
  * errors net to zero and still mean two items are wrong.
  */
 
-import { useEffect, useMemo, useState } from "react";
-import { MessageSquareText, Plus, RotateCcw, ScanBarcode, X } from "lucide-react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { CalendarClock, MapPinned, MessageSquareText, Plus, RotateCcw, ScanBarcode, X } from "lucide-react";
+import { orderForSheet } from "@/lib/console/services/inventory-controls";
+import { CountSheetButton } from "@/components/console/inventory-count-sheet";
 import type { CountLine, CountSession, StockItem } from "@/lib/console/types";
 import { MIN_EXPLANATION, reviewStateOf, type ReviewState } from "@/lib/console/services/count-reviews";
 import { LEVEL_LABEL, SETTING_BY_KEY, resolveSetting } from "@/lib/console/settings";
@@ -63,7 +67,11 @@ import {
   Toggle,
 } from "@/components/console/ui";
 
-/** FR-INV-042 — the expected figure stays hidden until the count is in. */
+/**
+ * FR-INV-041 — two count modes: blind hides the expected quantity while
+ * counting, open displays it. FR-INV-042 — the expected figure stays hidden
+ * until the count is in.
+ */
 function expectedIsHidden(session: CountSession): boolean {
   return session.mode === "blind" && (session.status === "draft" || session.status === "counting");
 }
@@ -71,7 +79,10 @@ function expectedIsHidden(session: CountSession): boolean {
 export default function StockCountsPage() {
   return (
     <Gate permissions={["inventory.view"]}>
-      <CountsScreen />
+      {/* `useSearchParams` suspends during prerender; the boundary keeps the route static. */}
+      <Suspense fallback={null}>
+        <CountsScreen />
+      </Suspense>
     </Gate>
   );
 }
@@ -82,6 +93,37 @@ function CountsScreen() {
   const [selected, setSelected] = useState<CountSession | null>(null);
   const [opening, setOpening] = useState(false);
   const [message, setMessage] = useTransientMessage();
+  const searchParams = useSearchParams();
+
+  /*
+   * FR-INV-048 — the cycle-count schedule opens a session and links here
+   * with `?open=<id>`. Live there is no count index to find it in, so the
+   * session is read by id and opened straight into the drawer, carrying the
+   * mode and location the link names (the lines read cannot say either).
+   */
+  const openId = searchParams.get("open");
+  useEffect(() => {
+    if (!openId) return;
+    let cancelled = false;
+    void services.inventory.counts
+      .get(openId)
+      .then((read) => {
+        if (cancelled || !read) return;
+        const mode = searchParams.get("mode");
+        setSelected({
+          ...read,
+          reference: read.reference || searchParams.get("reference") || read.id,
+          locationId: read.locationId || searchParams.get("location") || "",
+          mode: mode === "open" || mode === "blind" ? mode : read.mode,
+          status: read.status ?? "counting",
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId]);
 
   // Locations come from the service so the filter offers real ids.
   const locationList = useAsync(() => services.organisation.locations(), []);
@@ -194,9 +236,23 @@ function CountsScreen() {
         subtitle={t("inv.countsSubtitle")}
         spec="FR-INV-042"
         actions={
-          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setOpening(true)}>
-            {t("common.new")}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/inventory/counts/cycle"
+              className="border-line bg-raised text-fg hover:bg-sunken inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-sm font-medium"
+            >
+              <CalendarClock size={14} aria-hidden /> {t("invx.cyc.title")}
+            </Link>
+            <Link
+              href="/inventory/counts/storage"
+              className="border-line bg-raised text-fg hover:bg-sunken inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-sm font-medium"
+            >
+              <MapPinned size={14} aria-hidden /> {t("invx.sto.title")}
+            </Link>
+            <Button variant="primary" icon={<Plus size={14} />} onClick={() => setOpening(true)}>
+              {t("common.new")}
+            </Button>
+          </div>
         }
       />
 
@@ -362,7 +418,7 @@ function CountDrawer({
   onChanged: (message: string) => void;
   onOpened: (session: CountSession) => void;
 }) {
-  const { t, tx, fmt } = useI18n();
+  const { t, tx, fmt, locale } = useI18n();
   const { session: auth } = useSession();
   const canPost = usePermission("inventory.count.post");
   const canCount = usePermission("inventory.count.perform");
@@ -396,6 +452,12 @@ function CountDrawer({
   );
   const policy = useCountPolicy(session?.locationId ?? null);
 
+  // FR-INV-049 — the location's storage layout puts the lines in walking order.
+  const layout = useAsync(
+    async () => (session?.locationId ? services.inventoryControls.storage.get(session.locationId).catch(() => null) : null),
+    [session?.locationId],
+  );
+
   /*
    * Live, `counts.get` can only read the lines — the backend has no route
    * for the session itself — so the identity the drawer was opened with
@@ -424,6 +486,9 @@ function CountDrawer({
     () => new Map((reviews.data ?? []).map((row) => [row.lineId, row])),
     [reviews.data],
   );
+
+  const walk = useMemo(() => orderForSheet(layout.data ?? null, current?.lines ?? [], locale), [layout.data, current?.lines, locale]);
+  const slotByLine = useMemo(() => new Map(walk.map((row) => [row.line.id, row])), [walk]);
 
   // A poster reviews variances; a counter never sees what is expected.
   const hidden = current ? expectedIsHidden(current) && !canPost : false;
@@ -563,6 +628,20 @@ function CountDrawer({
         ),
       },
       {
+        // FR-INV-049 — where to find it on the walk.
+        key: "slot",
+        header: t("invx.sheet.shelf"),
+        secondary: true,
+        render: (row) => {
+          const slot = slotByLine.get(row.id);
+          return slot?.area ? (
+            <CellStack primary={<span className="font-mono">{slot.area.code}</span>} secondary={slot.slot?.shelf || undefined} />
+          ) : (
+            <span className="text-fg-subtle">—</span>
+          );
+        },
+      },
+      {
         key: "counted",
         header: t("inv.counted"),
         numeric: true,
@@ -669,7 +748,7 @@ function CountDrawer({
 
     return base;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, tx, fmt, hidden, states, reviewByLine, posted, canPost]);
+  }, [t, tx, fmt, hidden, states, reviewByLine, posted, canPost, slotByLine]);
 
   if (!session || !current) return null;
 
@@ -827,10 +906,29 @@ function CountDrawer({
         ) : null}
 
         <section>
-          <h3 className="text-fg mb-2 text-sm font-semibold">{t("inv.countLines")}</h3>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-fg text-sm font-semibold">{t("inv.countLines")}</h3>
+            <CountSheetButton
+              title={t("invx.sheet.title")}
+              reference={current.reference}
+              locationId={current.locationId}
+              locationName={tx(current.locationName)}
+              blind={expectedIsHidden(current)}
+              lines={current.lines.map((line) => ({
+                itemId: line.itemId,
+                itemName: line.itemName,
+                sku: line.sku,
+                unit: line.expected.unit,
+                expected: line.expected.value,
+              }))}
+            />
+          </div>
+          {!layout.loading && (layout.data?.areas.length ?? 0) === 0 ? (
+            <p className="text-fg-subtle mb-2 text-xs">{t("invx.sheet.noLayout")}</p>
+          ) : null}
           <DataTable
             columns={columns}
-            rows={current.lines}
+            rows={walk.map((row) => row.line)}
             rowKey={(row) => row.id}
             caption={t("inv.countLines")}
             emptyTitle={t("inv.countLines")}
@@ -1067,7 +1165,8 @@ function OpenCountDrawer({
     [],
   );
   const policy = useCountPolicy(locationId || null);
-  // FR-INV-042 — blind is the default; a lock anywhere above makes it mandatory.
+  // FR-INV-041 — the session is opened blind or open; FR-INV-042 — blind is
+  // the default, and a lock anywhere above makes it mandatory.
   const blind = policy.blindLockedAt ? true : (blindChoice ?? policy.blindDefault);
 
   useEffect(() => {

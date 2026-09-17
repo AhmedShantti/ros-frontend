@@ -32,7 +32,8 @@ import {
   AttendanceCorrectionDrawer,
   PayrollExportDrawer,
 } from "@/components/console/workforce-forms";
-import { Badge, Button, Callout, Toast } from "@/components/console/ui";
+import { Badge, Button, Callout, Tabs, Toast } from "@/components/console/ui";
+import { BreaksPanel, ClockPhotosPanel } from "@/components/console/workforce-attendance-extras";
 
 export default function AttendancePage() {
   return (
@@ -50,6 +51,7 @@ function AttendanceScreen() {
   const [message, setMessage] = useTransientMessage();
   const [correcting, setCorrecting] = useState<AttendanceRecord | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [tab, setTab] = useState<"records" | "breaks" | "photos">("records");
   const canCorrect = usePermission("hr.attendance.correct");
 
   const collection = useCollection<AttendanceRecord>(
@@ -205,6 +207,22 @@ function AttendanceScreen() {
       />
 
       <PageBody>
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "records" as const, label: t("wf.att.tabRecords") },
+            { value: "breaks" as const, label: t("wf.att.tabBreaks") },
+            { value: "photos" as const, label: t("wf.att.tabPhotos") },
+          ]}
+        />
+        {/* FR-HRM-026 — paid and unpaid breaks. */}
+        {tab === "breaks" ? <BreaksPanel /> : null}
+        {/* FR-HRM-027 — clock-in photos, for people who correct attendance. */}
+        {tab === "photos" ? <ClockPhotosPanel /> : null}
+
+        {tab === "records" ? (
+        <>
         <TileGrid columns={4}>
           <MetricTile label={t("wf.hours")} value={formatNumber(totals.hours, fmt, 1)} />
           <MetricTile
@@ -261,6 +279,8 @@ function AttendanceScreen() {
         />
 
         <Callout tone="muted">{t("wf.payrollNote")}</Callout>
+        </>
+        ) : null}
       </PageBody>
 
       <PayrollExportDrawer

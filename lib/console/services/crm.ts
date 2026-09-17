@@ -36,6 +36,15 @@ import type {
 import { localCollection, localDocument, localId, nowIso } from "../local-store";
 import { getActiveTenantId } from "./tenant-context";
 import { ServiceError, type CollectionService, type ScopedQuery } from "./types";
+import {
+  evaluatePromotions,
+  usageRejection,
+  type AppliedPromotion,
+  type PromotionCart,
+  type PromotionRedemption,
+  type PromotionResult,
+} from "../crm-promotion-engine";
+import { pointsEarned, type EarnBreakdown, type EarnInput } from "../loyalty-earn";
 
 const tenantOf = () => getActiveTenantId();
 
@@ -185,6 +194,19 @@ const loyaltyStore = localCollection<LoyaltyEntry>(
     idOf: (row) => row.id,
     filters: { customerId: (row) => row.customerId, kind: (row) => row.kind },
     sorters: { occurredAt: (row) => row.occurredAt },
+    // Without a factory the collection refused every append, so no sale could
+    // ever post points (FR-CRM-016) or redeem them (FR-CRM-017).
+    factory: (input, id) => ({
+      id,
+      customerId: input.customerId ?? "",
+      kind: input.kind ?? "adjust",
+      points: input.points ?? 0,
+      balanceAfter: input.balanceAfter ?? 0,
+      orderId: input.orderId ?? null,
+      reason: input.reason ?? "",
+      occurredAt: input.occurredAt ?? nowIso(),
+      offlineCapture: input.offlineCapture ?? false,
+    }),
   },
   tenantOf,
 );
@@ -306,6 +328,108 @@ const programmeDoc = localDocument<LoyaltyProgramme>(
   tenantOf,
 );
 
+/** FR-CRM-026 — every redemption, so the usage limits can be counted. */
+export interface PromotionRedemptionRecord extends PromotionRedemption {
+  id: Id;
+  orderId: Id | null;
+  discountMinor: number;
+  at: string;
+}
+
+const redemptionsStore = localCollection<PromotionRedemptionRecord>(
+  {
+    name: "promotion-redemptions",
+    idOf: (row) => row.id,
+    filters: { promotionId: (row) => row.promotionId, day: (row) => row.day },
+    sorters: { at: (row) => row.at },
+    factory: (input, id) => ({
+      id,
+      promotionId: input.promotionId ?? "",
+      customerId: input.customerId ?? null,
+      day: input.day ?? nowIso().slice(0, 10),
+      orderId: input.orderId ?? null,
+      discountMinor: input.discountMinor ?? 0,
+      at: input.at ?? nowIso(),
+    }),
+  },
+  tenantOf,
+);
+
+/**
+ * FR-CRM-022 — the opaque token a receipt QR carries. Not the customer id, so
+ * the link cannot be walked to other people's balances by changing a digit.
+ */
+interface BalanceLink {
+  token: string;
+  customerId: Id;
+  createdAt: string;
+}
+
+const balanceLinksDoc = localDocument<BalanceLink[]>("loyalty-links", () => [], tenantOf);
+
+function randomToken(): string {
+  const bytes = new Uint8Array(12);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** What the public balance page may show — first name only, no phone, no email. */
+export interface PublicBalance {
+  firstName: string;
+  points: number;
+  valueMinor: number;
+  tier: { name: Localised; colour: string } | null;
+  nextTier: { name: Localised; pointsToGo: number } | null;
+  recent: { kind: LoyaltyEntry["kind"]; points: number; occurredAt: string }[];
+  expiryMonths: number | null;
+}
+
+/**
+ * FR-CRM-022 — resolve a balance link for an explicit tenant.
+ *
+ * Reads the tenant's stored rows directly (the keys `local-store.ts` writes,
+ * `ros.local.<tenant>.<name>`) rather than through the collections, because
+ * the public page has no session and must not depend on whichever tenant the
+ * console provider last made active. Returns null when this browser holds no
+ * such link — which, until a server serves balances, is every device other
+ * than the one the data lives on.
+ */
+export function resolveBalanceLink(tenantId: string, token: string): PublicBalance | null {
+  function read<T>(name: string): T[] {
+    try {
+      const raw = window.localStorage.getItem(`ros.local.${tenantId}.${name}`);
+      const parsed: unknown = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  const links = read<BalanceLink[]>("loyalty-links")[0] ?? [];
+  const link = links.find((row) => row.token === token);
+  if (!link) return null;
+  const customer = read<Customer>("customers").find((row) => row.id === link.customerId);
+  if (!customer || customer.anonymisedAt) return null;
+  const programme = read<LoyaltyProgramme>("loyalty-programme")[0] ?? DEFAULT_PROGRAMME;
+  const ledger = read<LoyaltyEntry>("loyalty-entries")
+    .filter((row) => row.customerId === customer.id)
+    .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+  const points = ledger[0]?.balanceAfter ?? customer.loyaltyPoints;
+  const tiers = [...programme.tiers].sort((a, b) => a.thresholdPoints - b.thresholdPoints);
+  const tier = [...tiers].reverse().find((row) => points >= row.thresholdPoints) ?? null;
+  const next = tiers.find((row) => row.thresholdPoints > points) ?? null;
+  const first = (customer.name.en || customer.name.ar).trim().split(/\s+/)[0] ?? "";
+  return {
+    firstName: first,
+    points,
+    valueMinor: points * programme.redeemValueMinor,
+    tier: tier ? { name: tier.name, colour: tier.colour } : null,
+    nextTier: next ? { name: next.name, pointsToGo: next.thresholdPoints - points } : null,
+    recent: ledger.slice(0, 5).map((row) => ({ kind: row.kind, points: row.points, occurredAt: row.occurredAt })),
+    expiryMonths: programme.expiryMonths,
+  };
+}
+
 function generateCode(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
@@ -384,6 +508,13 @@ export interface CrmService {
     programme(): Promise<LoyaltyProgramme>;
     saveProgramme(next: LoyaltyProgramme): Promise<LoyaltyProgramme>;
     ledger(customerId: Id): Promise<LoyaltyEntry[]>;
+    /**
+     * FR-CRM-016 — post the points a sale earns, computed on net spend
+     * excluding tax and discounted amounts per the programme.
+     */
+    earnForSale(input: { customerId: Id; orderId: Id | null; sale: EarnInput }): Promise<{ breakdown: EarnBreakdown; entry: LoyaltyEntry | null }>;
+    /** FR-CRM-022 — the balance link for this customer's receipt QR. */
+    balanceLink(customerId: Id): Promise<{ tenantId: string; token: string; path: string }>;
     /** Append to the ledger and re-project the balance. */
     post(input: {
       customerId: Id;
@@ -395,7 +526,28 @@ export interface CrmService {
     }): Promise<LoyaltyEntry>;
   };
 
-  promotions: CollectionService<Promotion>;
+  promotions: CollectionService<Promotion> & {
+    /** FR-CRM-027 — the shared evaluator over the stored promotions and redemptions. */
+    evaluate(cart: PromotionCart): Promise<PromotionResult>;
+    /**
+     * FR-CRM-026 — record the redemptions of an evaluated order. Limits are
+     * re-checked here against the stored redemptions at write time.
+     *
+     * The till passes `applied`: the sale has already closed with those
+     * discounts, so they are recorded as given rather than re-decided, and a
+     * limit crossed in the meantime (offline, another till) is recorded, not
+     * refused. With an `orderId`, a second call for the same order records
+     * nothing — a retry never counts twice against a limit.
+     */
+    redeem(input: {
+      cart: PromotionCart;
+      orderId: Id | null;
+      applied?: AppliedPromotion[];
+      /** FR-CRM-028 — codes used on the order; each one's redeemed count moves. */
+      couponCodes?: string[];
+    }): Promise<PromotionResult>;
+    redemptions(promotionId?: Id): Promise<PromotionRedemptionRecord[]>;
+  };
 
   coupons: CollectionService<Coupon> & {
     /** FR-CRM-028 — bulk generation, each code tracked separately. */
@@ -424,6 +576,40 @@ export const crmService: CrmService = {
     async get(id: Id) {
       const row = await customersStore.get(id);
       return row ? { ...row, segment: segmentOf(row) } : null;
+    },
+
+    /**
+     * FR-CRM-001 — the full record is editable, but the phone is the primary
+     * identifier (FR-CRM-002): a change is refused if another customer already
+     * holds that number, and an email must at least look like one.
+     */
+    async create(input: Partial<Customer>) {
+      const phone = String(input.phone ?? "").trim();
+      if (phone && (await crmService.customers.findByPhone(phone))) {
+        throw new ServiceError("CONFLICT", "A customer already uses that phone number.", 409);
+      }
+      if (input.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)) {
+        throw new ServiceError("VALIDATION", "That email address is not valid.", 400);
+      }
+      return customersStore.create(input);
+    },
+
+    async update(id: Id, patch: Partial<Customer>) {
+      if (patch.phone !== undefined) {
+        const phone = patch.phone.trim();
+        if (!phone) throw new ServiceError("VALIDATION", "A phone number is required.", 400);
+        const holder = await crmService.customers.findByPhone(phone);
+        if (holder && holder.id !== id) {
+          throw new ServiceError("CONFLICT", "A customer already uses that phone number.", 409);
+        }
+      }
+      if (patch.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(patch.email)) {
+        throw new ServiceError("VALIDATION", "That email address is not valid.", 400);
+      }
+      if (patch.addresses && patch.addresses.filter((address) => address.isDefault).length > 1) {
+        throw new ServiceError("VALIDATION", "Only one address can be the default.", 400);
+      }
+      return customersStore.update(id, patch);
     },
 
     async findByPhone(phone: string) {
@@ -491,6 +677,40 @@ export const crmService: CrmService = {
       return next;
     },
 
+    async earnForSale({ customerId, orderId, sale }) {
+      const programme = programmeDoc.read();
+      const breakdown = pointsEarned(sale, programme);
+      if (!programme.enabled || programme.model !== "points" || breakdown.points <= 0) {
+        return { breakdown, entry: null };
+      }
+      // One earning per order: a till retrying after a lost response must
+      // not post the same sale's points twice.
+      if (orderId) {
+        const ledger = await crmService.loyalty.ledger(customerId);
+        const existing = ledger.find((row) => row.kind === "earn" && row.orderId === orderId);
+        if (existing) return { breakdown, entry: existing };
+      }
+      const entry = await crmService.loyalty.post({
+        customerId,
+        kind: "earn",
+        points: breakdown.points,
+        reason: orderId ? `Order ${orderId}` : "Sale",
+        orderId,
+      });
+      return { breakdown, entry };
+    },
+
+    async balanceLink(customerId) {
+      const links = balanceLinksDoc.read();
+      let link = links.find((row) => row.customerId === customerId);
+      if (!link) {
+        link = { token: randomToken(), customerId, createdAt: nowIso() };
+        balanceLinksDoc.write([...links, link]);
+      }
+      const tenantId = tenantOf();
+      return { tenantId, token: link.token, path: `/loyalty/${encodeURIComponent(tenantId)}/${link.token}` };
+    },
+
     async ledger(customerId) {
       const all = await loyaltyStore.all();
       return all
@@ -543,7 +763,75 @@ export const crmService: CrmService = {
     },
   },
 
-  promotions: promotionsStore,
+  promotions: {
+    ...promotionsStore,
+
+    async evaluate(cart) {
+      const [promotions, redemptions] = await Promise.all([promotionsStore.all(), redemptionsStore.all()]);
+      return evaluatePromotions(promotions, cart, redemptions);
+    },
+
+    async redeem({ cart, orderId, applied: given, couponCodes }) {
+      const [promotions, redemptions] = await Promise.all([promotionsStore.all(), redemptionsStore.all()]);
+      if (orderId && redemptions.some((row) => row.orderId === orderId)) {
+        // Idempotent per order: already recorded, so report without writing.
+        const mine = redemptions.filter((row) => row.orderId === orderId);
+        const applied = mine.map((row) => ({ promotionId: row.promotionId, discountMinor: row.discountMinor, allocations: [], pointsMultiplier: null }));
+        return { subtotalMinor: 0, applied, rejected: [], discountMinor: applied.reduce((s, a) => s + a.discountMinor, 0), pointsMultiplier: 1 };
+      }
+      let result: PromotionResult;
+      if (given) {
+        const known = given.filter((row) => promotions.some((p) => p.id === row.promotionId));
+        result = {
+          subtotalMinor: cart.lines.reduce((sum, line) => sum + line.quantity * line.unitPriceMinor, 0),
+          applied: known,
+          rejected: [],
+          discountMinor: known.reduce((sum, row) => sum + row.discountMinor, 0),
+          pointsMultiplier: known.find((row) => row.pointsMultiplier !== null)?.pointsMultiplier ?? 1,
+        };
+      } else {
+        result = evaluatePromotions(promotions, cart, redemptions);
+        for (const applied of result.applied) {
+          const promotion = promotions.find((row) => row.id === applied.promotionId)!;
+          // FR-CRM-026 — enforced again at write time, not only at evaluation.
+          const refusal = usageRejection(promotion, cart, redemptions);
+          if (refusal) {
+            throw new ServiceError("CONFLICT", "A usage limit was reached before this order could redeem the promotion.", 409, refusal);
+          }
+        }
+      }
+      if (couponCodes && couponCodes.length > 0) {
+        const coupons = await couponsStore.all();
+        for (const code of couponCodes) {
+          const coupon = coupons.find((row) => row.code.toUpperCase() === code.trim().toUpperCase());
+          if (coupon && result.applied.some((row) => row.promotionId === coupon.promotionId)) {
+            await couponsStore.update(coupon.id, { redeemedCount: coupon.redeemedCount + 1 });
+          }
+        }
+      }
+      for (const applied of result.applied) {
+        const promotion = promotions.find((row) => row.id === applied.promotionId)!;
+        await redemptionsStore.create({
+          promotionId: applied.promotionId,
+          customerId: cart.customer?.id ?? null,
+          day: cart.at.slice(0, 10),
+          orderId,
+          discountMinor: applied.discountMinor,
+          at: nowIso(),
+        });
+        await promotionsStore.update(promotion.id, {
+          redemptions: promotion.redemptions + 1,
+          discountCost: money(promotion.discountCost.amount + applied.discountMinor, promotion.discountCost.currency),
+        });
+      }
+      return result;
+    },
+
+    async redemptions(promotionId) {
+      const all = await redemptionsStore.all();
+      return promotionId ? all.filter((row) => row.promotionId === promotionId) : all;
+    },
+  },
 
   coupons: {
     ...couponsStore,

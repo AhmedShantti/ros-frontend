@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ConsoleProvider, ConsoleRoot } from "@/lib/console/providers";
 import { ConsoleThemeScript } from "@/components/console/theme-script";
-import { LiveProvider } from "@/lib/console/live/store";
+import { TerminalLiveRoot } from "@/components/terminal/train-provider";
 
 export const metadata: Metadata = {
   title: "TRENDOW — Terminal",
@@ -22,11 +22,12 @@ export default function TerminalLayout({ children }: { children: React.ReactNode
     <>
       <ConsoleThemeScript />
       <ConsoleProvider surface="terminal">
-        <LiveProvider>
+        {/* NFR-USA-005 — the live store, or the training sandbox beside it. */}
+        <TerminalLiveRoot>
           <ConsoleRoot className="bg-surface flex h-dvh flex-col overflow-hidden">
             {children}
           </ConsoleRoot>
-        </LiveProvider>
+        </TerminalLiveRoot>
       </ConsoleProvider>
     </>
   );

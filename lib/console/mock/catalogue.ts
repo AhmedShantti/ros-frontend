@@ -1135,12 +1135,18 @@ export const combos: Combo[] = (() => {
   const saladIds = menuItems.filter((m) => m.categoryId === "cat_salads").map((m) => m.id);
   const dessertIds = menuItems.filter((m) => m.categoryId === "cat_desserts").map((m) => m.id);
 
+  /**
+   * `premium` names the options that cost extra in the slot — by default the
+   * last (usually the dearest) option — and `override` is the price a
+   * component carries inside a `component_override` combo.
+   */
   const makeSlot = (
     id: string,
     en: string,
     ar: string,
     ids: string[],
     priceDelta = 0,
+    extra: { premium?: "last"; override?: number } = {},
   ): Combo["slots"][number] => {
     const options = slotOptions(ids);
     return {
@@ -1149,6 +1155,8 @@ export const combos: Combo[] = (() => {
       optionItemIds: options.map((o) => o.id),
       optionNames: options.map((o) => o.name),
       priceDelta: egp(priceDelta),
+      premiumItemIds: extra.premium && options.length > 1 ? [options[options.length - 1]!.id] : [],
+      overridePrice: extra.override !== undefined ? egp(extra.override) : null,
     };
   };
 
@@ -1159,10 +1167,11 @@ export const combos: Combo[] = (() => {
       name: { en: "Shawarma meal", ar: "وجبة شاورما" },
       price: egp(89),
       pricingStrategy: "fixed",
+      allocationBasis: "list_price",
       slots: [
         makeSlot("slt_0001", "Sandwich", "ساندويتش", shawarmaIds),
         makeSlot("slt_0002", "Side", "طبق جانبي", sideIds),
-        makeSlot("slt_0003", "Drink", "مشروب", drinkIds),
+        makeSlot("slt_0003", "Drink", "مشروب", drinkIds, 10, { premium: "last" }),
       ],
       active: true,
     },
@@ -1172,9 +1181,11 @@ export const combos: Combo[] = (() => {
       name: { en: "Burger combo", ar: "كومبو برجر" },
       price: egp(175),
       pricingStrategy: "sum_minus_discount",
+      discount: egp(25),
+      allocationBasis: "list_price",
       slots: [
         makeSlot("slt_0010", "Burger", "برجر", burgerIds),
-        makeSlot("slt_0011", "Side", "طبق جانبي", sideIds),
+        makeSlot("slt_0011", "Side", "طبق جانبي", sideIds, 15, { premium: "last" }),
         makeSlot("slt_0012", "Drink", "مشروب", drinkIds),
       ],
       active: true,
@@ -1185,6 +1196,7 @@ export const combos: Combo[] = (() => {
       name: { en: "Pasta lunch", ar: "غداء المكرونة" },
       price: egp(185),
       pricingStrategy: "fixed",
+      allocationBasis: "cost",
       slots: [
         makeSlot("slt_0020", "Pasta", "مكرونة", pastaIds),
         makeSlot("slt_0021", "Salad", "سلطة", saladIds),
@@ -1199,10 +1211,10 @@ export const combos: Combo[] = (() => {
       price: egp(88),
       pricingStrategy: "component_override",
       slots: [
-        makeSlot("slt_0030", "Coffee", "قهوة", menuItems.filter((m) => m.categoryId === "cat_hot_drinks").map((m) => m.id)),
-        makeSlot("slt_0031", "Pastry", "معجنات", [...dessertIds, ...menuItems.filter((m) => m.categoryId === "cat_breakfast").map((m) => m.id)]),
+        makeSlot("slt_0030", "Coffee", "قهوة", menuItems.filter((m) => m.categoryId === "cat_hot_drinks").map((m) => m.id), 0, { override: 45 }),
+        makeSlot("slt_0031", "Pastry", "معجنات", [...dessertIds, ...menuItems.filter((m) => m.categoryId === "cat_breakfast").map((m) => m.id)], 0, { override: 43 }),
       ],
-      active: false,
+      active: true,
     },
   ];
 })();

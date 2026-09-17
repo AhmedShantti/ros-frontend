@@ -111,6 +111,20 @@ function isPartial(params: ReportParams): boolean {
   return params.to >= today;
 }
 
+/**
+ * The Monday that starts the ISO week containing `day`, as YYYY-MM-DD.
+ *
+ * Weekly grain groups by this key. It is computed from the transactions at
+ * request time — there is no pre-aggregated weekly rollup behind it.
+ */
+export function weekOf(day: string): string {
+  const date = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return day;
+  const offset = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - offset);
+  return date.toISOString().slice(0, 10);
+}
+
 function sum(values: number[]): number {
   return values.reduce((total, value) => total + value, 0);
 }
@@ -198,6 +212,14 @@ function salesBy(dimension: string): Builder {
         }
         case "day":
           key = (order.openedAt ?? order.businessDay).slice(0, 10);
+          label = key;
+          break;
+        case "week":
+          key = weekOf((order.openedAt ?? order.businessDay).slice(0, 10));
+          label = key;
+          break;
+        case "month":
+          key = (order.openedAt ?? order.businessDay).slice(0, 7);
           label = key;
           break;
         default:
@@ -704,6 +726,183 @@ const prepTime: Builder = async (params) => {
   };
 };
 
+/**
+ * Food cost percentage — cost of goods from the line cost snapshots over net
+ * sales, grouped by branch or by period.
+ *
+ * A line whose cost snapshot is zero (and is not a comp) is counted as
+ * uncosted rather than as free food; when no line in the period carries a
+ * cost at all the report says it has no source instead of printing 0 %.
+ */
+function foodCostBy(dimension: string): Builder {
+  return async (params) => {
+    const orders = await loadOrders(params);
+    const groups = new Map<
+      string,
+      { label: string; orders: number; net: number; cost: number; uncosted: number }
+    >();
+    let anyCost = false;
+
+    for (const order of orders) {
+      const day = (order.openedAt ?? order.businessDay).slice(0, 10);
+      const key =
+        dimension === "branch"
+          ? order.branchId
+          : dimension === "week"
+            ? weekOf(day)
+            : dimension === "month"
+              ? day.slice(0, 7)
+              : day;
+      const label = dimension === "branch" ? tx(order.branchName, params.locale) : key;
+      const entry = groups.get(key) ?? { label, orders: 0, net: 0, cost: 0, uncosted: 0 };
+      entry.orders += 1;
+      entry.net += netOf(order);
+      for (const line of order.lines) {
+        if (line.state === "voided") continue;
+        const unit = line.unitCostSnapshot?.amount ?? 0;
+        if (unit > 0) anyCost = true;
+        else if (!line.isComp) entry.uncosted += 1;
+        entry.cost += unit * line.quantity;
+      }
+      groups.set(key, entry);
+    }
+
+    if (orders.length > 0 && !anyCost) {
+      return {
+        columns: [],
+        rows: [],
+        generatedAt: new Date().toISOString(),
+        partial: isPartial(params),
+        unavailable: "no-cost-snapshots",
+      };
+    }
+
+    const currency = orders[0]?.currency ?? "EGP";
+    const rows: ReportRow[] = [...groups.entries()].map(([key, entry]) => ({
+      id: key,
+      label: entry.label,
+      values: {
+        orders: entry.orders,
+        net: entry.net,
+        cost: Math.round(entry.cost),
+        foodCostPercent: entry.net > 0 ? Math.round((entry.cost / entry.net) * 1000) / 10 : 0,
+        uncosted: entry.uncosted,
+      },
+    }));
+    rows.sort((a, b) =>
+      dimension === "branch"
+        ? Number(b.values.foodCostPercent) - Number(a.values.foodCostPercent)
+        : a.id.localeCompare(b.id),
+    );
+
+    const totalNet = sum(rows.map((row) => Number(row.values.net)));
+    const totalCost = sum(rows.map((row) => Number(row.values.cost)));
+    return {
+      columns: [
+        { key: "orders", header: "rep.col.orders", numeric: true },
+        { key: "net", header: "rep.col.net", numeric: true, currency },
+        { key: "cost", header: "rep.col.cost", numeric: true, currency },
+        { key: "foodCostPercent", header: "rep.col.foodCostPercent", numeric: true },
+        { key: "uncosted", header: "rep.col.uncostedLines", numeric: true },
+      ],
+      rows,
+      totals: {
+        orders: sum(rows.map((row) => Number(row.values.orders))),
+        net: totalNet,
+        cost: totalCost,
+        foodCostPercent: totalNet > 0 ? Math.round((totalCost / totalNet) * 1000) / 10 : 0,
+        uncosted: sum(rows.map((row) => Number(row.values.uncosted))),
+      },
+      chart: { valueKey: "foodCostPercent", label: "rep.col.foodCostPercent" },
+      generatedAt: new Date().toISOString(),
+      partial: isPartial(params),
+    };
+  };
+}
+
+/** Items at or under their reorder point, with the suggested quantity. */
+const lowStock: Builder = async (params) => {
+  const page = await services.inventory.levels.list({ scope: params.scope, limit: 1000 });
+  const rows: ReportRow[] = page.rows
+    .filter((level) => {
+      const onHand = Number(level.onHand.value);
+      return (
+        level.status === "low" ||
+        level.status === "critical" ||
+        level.status === "negative" ||
+        (level.reorderPoint > 0 && onHand <= level.reorderPoint)
+      );
+    })
+    .map((level) => {
+      const onHand = Number(level.onHand.value);
+      const suggested =
+        level.reorderQuantity > 0
+          ? level.reorderQuantity
+          : Math.max(0, Math.round((level.parLevel - onHand) * 100) / 100);
+      return {
+        id: `${level.locationId}::${level.itemId}`,
+        label: tx(level.itemName, params.locale),
+        secondary: tx(level.locationName, params.locale),
+        values: {
+          onHand: Math.round(onHand * 100) / 100,
+          unit: level.onHand.unit,
+          reorderPoint: level.reorderPoint,
+          suggested,
+          daysOfCover: level.daysOfCover === null ? "—" : Math.round(level.daysOfCover * 10) / 10,
+          status: level.status,
+        },
+      };
+    })
+    .sort((a, b) => Number(a.values.onHand) - Number(b.values.onHand));
+
+  return {
+    columns: [
+      { key: "onHand", header: "rep.col.onHand", numeric: true },
+      { key: "unit", header: "rep.col.unit" },
+      { key: "reorderPoint", header: "rep.col.reorderPoint", numeric: true },
+      { key: "suggested", header: "rep.col.suggested", numeric: true },
+      { key: "daysOfCover", header: "rep.col.daysOfCover", numeric: true },
+    ],
+    rows,
+    generatedAt: new Date().toISOString(),
+    partial: false,
+  };
+};
+
+/** Batches by days to expiry, with the value at risk. */
+const expiryWatch: Builder = async (params) => {
+  const page = await services.inventory.batches.list({ scope: params.scope, limit: 1000 });
+  const rows: ReportRow[] = page.rows
+    .filter((batch) => batch.status !== "fresh")
+    .sort((a, b) => a.daysToExpiry - b.daysToExpiry)
+    .map((batch) => ({
+      id: batch.id,
+      label: tx(batch.itemName, params.locale),
+      secondary: `${batch.batchNumber} · ${tx(batch.locationName, params.locale)}`,
+      values: {
+        expiryDate: batch.expiryDate,
+        daysToExpiry: batch.daysToExpiry,
+        quantity: `${batch.quantity.value} ${batch.quantity.unit}`,
+        value: batch.value.amount,
+        status: batch.status,
+      },
+    }));
+  const currency = page.rows[0]?.value.currency ?? "EGP";
+  return {
+    columns: [
+      { key: "expiryDate", header: "rep.col.expiryDate" },
+      { key: "daysToExpiry", header: "rep.col.daysToExpiry", numeric: true },
+      { key: "quantity", header: "rep.col.quantity" },
+      { key: "value", header: "rep.col.valueAtRisk", numeric: true, currency, share: true },
+    ],
+    rows,
+    totals: { value: sum(rows.map((row) => Number(row.values.value))) },
+    chart: { valueKey: "value", label: "rep.col.valueAtRisk" },
+    generatedAt: new Date().toISOString(),
+    partial: false,
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -722,6 +921,9 @@ const BUILDERS: Record<string, Builder> = {
 
   "stock-valuation": stockValuation,
   "waste-analysis": wasteBy("reason"),
+  "food-cost": foodCostBy("branch"),
+  "low-stock": lowStock,
+  "expiry-watch": expiryWatch,
   "prep-time": prepTime,
 
   attendance: labourByEmployee,
@@ -734,6 +936,8 @@ const BUILDERS: Record<string, Builder> = {
 export const GROUPINGS: Record<string, GroupOption[]> = {
   "sales-summary": [
     { key: "day", labelKey: "rep.group.day" },
+    { key: "week", labelKey: "rep.group.week" },
+    { key: "month", labelKey: "rep.group.month" },
     { key: "hour", labelKey: "rep.group.hour" },
     { key: "branch", labelKey: "rep.group.branch" },
     { key: "orderType", labelKey: "rep.group.orderType" },
@@ -744,6 +948,12 @@ export const GROUPINGS: Record<string, GroupOption[]> = {
     { key: "item", labelKey: "rep.group.item" },
     { key: "location", labelKey: "rep.group.location" },
     { key: "category", labelKey: "rep.group.category" },
+  ],
+  "food-cost": [
+    { key: "branch", labelKey: "rep.group.branch" },
+    { key: "day", labelKey: "rep.group.day" },
+    { key: "week", labelKey: "rep.group.week" },
+    { key: "month", labelKey: "rep.group.month" },
   ],
   "stock-valuation": [
     { key: "location", labelKey: "rep.group.location" },
@@ -762,6 +972,9 @@ export async function runReport(id: string, params: ReportParams): Promise<Repor
   // Grouped reports pick their builder from the toolbar, not the id.
   if (id === "sales-summary" && params.groupBy) {
     return salesBy(params.groupBy)(params);
+  }
+  if (id === "food-cost" && params.groupBy) {
+    return foodCostBy(params.groupBy)(params);
   }
   if (id === "waste-analysis" && params.groupBy) {
     return wasteBy(params.groupBy as "reason" | "item" | "location" | "category")(params);

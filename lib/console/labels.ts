@@ -75,6 +75,7 @@ export const ORDER_STATE: Record<OrderState, Entry> = {
   cancelled: e("Cancelled", "ملغى", "bad"),
   partially_refunded: e("Partially refunded", "مسترد جزئيًا", "bad"),
   refunded: e("Refunded", "مسترد", "bad"),
+  merged: e("Merged", "مدموج", "muted"),
 };
 
 /**

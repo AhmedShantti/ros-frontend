@@ -117,12 +117,12 @@ function crc32(bytes: Uint8Array): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-interface ZipEntry {
+export interface ZipEntry {
   name: string;
   bytes: Uint8Array;
 }
 
-function zip(entries: ZipEntry[]): Blob {
+export function zip(entries: ZipEntry[]): Blob {
   const encoder = new TextEncoder();
   const chunks: Uint8Array[] = [];
   const central: Uint8Array[] = [];

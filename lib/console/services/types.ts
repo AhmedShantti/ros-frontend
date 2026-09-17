@@ -433,7 +433,17 @@ export interface CatalogueService {
   /** FR-MNU-001 — the menus a branch can serve. */
   menus: CollectionService<Menu>;
   /** FR-MNU-030 — "86" an item, or bring it back. */
-  toggleAvailability(itemId: Id, available: boolean, reason?: string): Promise<MenuItem>;
+  toggleAvailability(
+    itemId: Id,
+    available: boolean,
+    reason?: string,
+    /** FR-MNU-030 — an optional time the 86 lifts itself (`Toggle86Dto.autoReenableAt`). */
+    options?: {
+      autoReenableAt?: IsoDateTime | null;
+      /** FR-MNU-030 — per branch. Absent means every branch (a tenant-wide rule). */
+      branchId?: Id | null;
+    },
+  ): Promise<MenuItem>;
 
   // -- Menu assignment (C-01) ------------------------------------------------
   /** Assign a menu to a branch. */
@@ -582,6 +592,27 @@ export interface InventoryService {
     notes?: string;
   }): Promise<{ movementId: Id }>;
 
+  // -- Purchasing ------------------------------------------------------------
+  /**
+   * FR-PRC-032 / FR-PRC-037 — post one line of a goods receipt
+   * (`purchase_receipt`, in) or a supplier return (`purchase_return`, out).
+   * Live this is `POST /inventory/movements`. `quantity` is positive, in the
+   * item's base unit; `kind` supplies the sign. `batch` asks for a batch
+   * record; `batchId` comes back null where the ledger cannot create one
+   * (the live movement endpoint takes no batch fields).
+   */
+  postPurchaseMovement(input: {
+    locationId: Id;
+    itemId: Id;
+    kind: "receipt" | "return";
+    quantity: string;
+    unitCostMinor?: string;
+    referenceType: "goods_receipt" | "supplier_return";
+    referenceId: Id;
+    notes?: string;
+    batch?: { batchNumber: string; productionDate: IsoDate | null; expiryDate: IsoDate | null; supplierId: Id | null } | null;
+  }): Promise<{ movementId: Id; batchId: Id | null }>;
+
   // -- Reason codes ----------------------------------------------------------
   reasonCodes(): Promise<ReasonCode[]>;
   createReasonCode(input: {
@@ -701,6 +732,15 @@ export interface RecipeVersion {
   createdAt: IsoDateTime;
   /** Who published it. The API carries no publication timestamp. */
   publishedBy: Id | null;
+  /** FR-MNU-049 — reference photos shown beside the prep instructions. */
+  referenceImages?: RecipeReferenceImage[];
+}
+
+/** FR-MNU-049 — one reference photo on a recipe version. `src` is a data URL or an https URL. */
+export interface RecipeReferenceImage {
+  id: Id;
+  src: string;
+  caption: Localised;
 }
 
 /**
@@ -748,6 +788,8 @@ export interface ProductionService {
       yieldPercentage?: string;
       prepTimeSeconds?: number;
       instructions?: Localised;
+      /** FR-MNU-049 — `CreateRecipeVersionDto.referenceImages`; fixed with the version. */
+      referenceImages?: RecipeReferenceImage[];
       effectiveFrom?: IsoDate;
       lines?: RecipeLineInput[];
     },
@@ -1278,6 +1320,12 @@ export interface ServiceRegistry {
    */
   crm: import("./crm").CrmService;
   /**
+   * Leave, shift swaps, schedule publications and acknowledgements, breaks,
+   * clock-in photos, kitchen station assignments — SRS ch.14. No endpoints
+   * exist for any of them, so browser-local under both modes.
+   */
+  workforceHr: import("./workforce-hr").WorkforceHrService;
+  /**
    * The configuration cascade's overrides — SRS §6.4. Browser-local under
    * both data modes until the backend serves settings; see `./settings`.
    */
@@ -1291,18 +1339,65 @@ export interface ServiceRegistry {
   stockProfiles: import("./stock-profiles").StockProfileService;
   /** FR-INV-046 — recount requests and variance explanations. Local. */
   countReviews: import("./count-reviews").CountReviewService;
+  /** FR-BRN-016 — transfer requests and their approval. Local; dispatch is real. */
+  transferRequests: import("./inventory-transfer-requests").TransferRequestService;
+  /**
+   * FR-INV-026/048/049/051/056/061/067…070 — storage layouts, cycle policy,
+   * forecast inputs, write-off policy, detection policies, waste photos and
+   * reconciliation runs. Local; nothing here moves stock.
+   */
+  inventoryControls: import("./inventory-controls").InventoryControlService;
   /** FR-SEC-023 — TOTP enrolment; no MFA endpoints exist yet. Local. */
   mfa: import("./mfa").MfaService;
+  /** FR-SEC-033/035/042, FR-AUD-007 — append-only, hash-chained security event log. Local. */
+  securityEvents: import("./security-events").SecurityEventService;
+  /** FR-SEC-025/034/035/052/053 — tenant security configuration. Local. */
+  securitySettings: import("./security-settings").SecuritySettingsService;
+  /** FR-SEC-062 — data subject request register. Local. */
+  dataSubjectRequests: import("./security-dsr").DsrService;
+  /** FR-PLT-021/022/023 — export jobs, termination, plan state. Local. */
+  tenantLifecycle: import("./tenant-lifecycle").TenantLifecycleService;
   /** FR-OFF-042/043 — conflict register and clock-skew log. Local. */
   conflicts: import("./conflicts").ConflictService;
   /** FR-CST-042 — managers' reviews of anomaly flags. Local, append-only. */
   anomalyReviews: import("./anomaly-reviews").AnomalyReviewService;
+  /** FR-CST-036 — branch operating expenses. No backend resource. Local. */
+  operatingExpenses: import("./costing-opex").OperatingExpenseService;
+  /** FR-CST-024 — equipment fault log for waste root-cause analysis. Local. */
+  equipmentFaults: import("./costing-faults").EquipmentFaultService;
   /** FR-MNU-005 — POS label, receipt name, image: no API field. Local. */
   menuProfiles: import("./menu-profiles").MenuProfileService;
   /** FR-POS-023 — modifier → child group links. No API field. Local. */
   modifierNesting: import("./modifier-nesting").ModifierNestingService;
+  modifierPricing: import("./modifier-pricing").ModifierPricingService;
+  /** FR-MNU-024/025 — price history, scheduled prices, branch groups. Local. */
+  menuPricing: import("./menu-pricing").MenuPricingService;
+  /** FR-MNU-030/032/035 — availability log, overrides, daily limits. Local. */
+  menuAvailability: import("./menu-availability").MenuAvailabilityService;
+  /** FR-MNU-047/050 — nutrition facts per stock item, variant notes. Local. */
+  menuRecipes: import("./menu-recipes").MenuRecipesService;
   /** FR-POS-101 — receipt templates per brand and country. Local. */
   receiptTemplates: import("./receipt-templates").ReceiptTemplateService;
+  /** FR-BRN-004/005/006/007/012/030/035/036 — branch groups, FX, standards, overrides, franchise. Local. */
+  branchNetwork: import("./branch-network").BranchNetworkService;
+  /** FR-LOC-008/011/012/021/024/030 — pack versions, language assignment, print matrix. Local. */
+  localisation: import("./localisation").LocalisationService;
+  /** FR-KDS-011/023/029/031/044/045 — kitchen display setup. No API. Local. */
+  kdsSetup: import("./kds-setup").KdsSetupService;
+  /** FR-POS-080 — table positions, shapes and room fixtures. No API field. Local. */
+  floorPlans: import("./floor-plans").FloorPlanService;
+  /** FR-RPT-034 — user dashboard layouts and tenant defaults per role. Local. */
+  dashboardLayouts: import("./dashboard-layouts").DashboardLayoutService;
+  /** FR-OFF-017/018 — fiscal sequence policies and number-block ledger. Local. */
+  fiscalSequence: import("./offline-fiscal").FiscalSequenceService;
+  /** FR-FIN-007 — adjusting entries against closed cash sessions. Local, append-only. */
+  cashAdjustments: import("./finance-adjustments").CashAdjustmentService;
+  /** FR-FIN-011/012 — imported settlement statements, terms, resolutions. Local. */
+  settlements: import("./finance-settlements").SettlementService;
+  /** FR-FIN-025/026 — day-close automation configuration. Local; execution is the server's. */
+  dayCloseConfig: import("./finance-day-close-config").DayCloseConfigService;
+  /** FR-FIN-031 — per price list tax-inclusive/exclusive versions. No API field. Local. */
+  priceListTax: import("./finance-tax-config").PriceListTaxService;
   /**
    * Production and distribution orders — SRS §17.5. The documents are
    * browser-local; the stock they move goes to the real ledger. See `./production`.
@@ -1316,6 +1411,13 @@ export interface ServiceRegistry {
   catalogue: CatalogueService;
   inventory: InventoryService;
   purchasing: PurchasingService;
+  /**
+   * Procure-to-pay controls with no backend model — policy, price lists,
+   * approved suppliers, compliance documents, approval history and links,
+   * returns, credit notes, payments. Local; stock movements are real. See
+   * `./purchasing-local`.
+   */
+  procurement: import("./purchasing-local").ProcurementService;
   costing: CostingService;
   workforce: WorkforceService;
   finance: FinanceService;

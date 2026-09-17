@@ -7,9 +7,16 @@
  * less cash refunded, plus pay-ins, less pay-outs and safe drops. Variance
  * is the counted figure against that, and it is the only number on this
  * screen anyone argues about.
+ *
+ * A closed session is immutable (FR-FIN-007): its detail drawer offers no
+ * edit, only adjusting entries recorded beside it. Tender totals per session
+ * (FR-FIN-010) are attributed by terminal and time window. Branches running
+ * shared-drawer mode are marked as a reduced control environment
+ * (FR-FIN-003). The sessions themselves come from this device's till: the
+ * backend has no cash-session index to list from.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useI18n } from "@/lib/console/providers";
 import { useLive } from "@/lib/console/live/store";
 import type { LiveCashSession } from "@/lib/console/live/state";
@@ -19,6 +26,12 @@ import { CellStack, DataTable, type Column } from "@/components/console/data-tab
 import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/page";
 import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
 import { MetricTile } from "@/components/console/charts";
+import { SessionDrawer } from "@/components/console/finance-session-drawer";
+import {
+  SharedDrawerBadge,
+  SharedDrawerCallout,
+  useSharedDrawerBranches,
+} from "@/components/console/finance-policy";
 import {
   Badge,
   Card,
@@ -32,6 +45,13 @@ import {
 export default function CashSessionsPage() {
   const { t, tx, fmt } = useI18n();
   const { state } = useLive();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // FR-FIN-003 — branches whose policy lets several cashiers share a drawer.
+  const sharedBranches = useSharedDrawerBranches();
+  const orders = useMemo(
+    () => state.orderIds.flatMap((id) => (state.orders[id] ? [state.orders[id]!] : [])),
+    [state.orderIds, state.orders],
+  );
 
   const sessions = useMemo(
     () => (state.session ? [state.session, ...state.closedSessions] : state.closedSessions),
@@ -39,6 +59,7 @@ export default function CashSessionsPage() {
   );
 
   const currency = sessions[0]?.openingFloat.currency ?? "EGP";
+  const selectedSession = sessions.find((session) => session.id === selectedId) ?? null;
 
   const totals = useMemo(() => {
     const closed = state.closedSessions;
@@ -55,7 +76,10 @@ export default function CashSessionsPage() {
       key: "drawer",
       header: t("fin.drawer"),
       render: (session) => (
-        <CellStack primary={session.terminalName} secondary={tx(session.branchName)} />
+        <span className="flex flex-col items-start gap-1">
+          <CellStack primary={session.terminalName} secondary={tx(session.branchName)} />
+          {sharedBranches.has(session.branchId) ? <SharedDrawerBadge /> : null}
+        </span>
       ),
     },
     {
@@ -150,6 +174,8 @@ export default function CashSessionsPage() {
       <PageBody>
         <LiveNotice />
 
+        <SharedDrawerCallout branchIds={sharedBranches} />
+
         <TileGrid>
           <MetricTile label={t("shift.title")} value={String(sessions.length)} />
           <MetricTile
@@ -240,10 +266,19 @@ export default function CashSessionsPage() {
               rows={sessions}
               rowKey={(session) => session.id}
               caption={t("fin.cashTitle")}
+              onRowClick={(session) => setSelectedId(session.id)}
+              activeRowKey={selectedId}
             />
           </Section>
         )}
       </PageBody>
+
+      <SessionDrawer
+        session={selectedSession}
+        orders={orders}
+        shared={selectedSession ? sharedBranches.has(selectedSession.branchId) : false}
+        onClose={() => setSelectedId(null)}
+      />
     </>
   );
 }

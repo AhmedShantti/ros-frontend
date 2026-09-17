@@ -12,17 +12,27 @@
  *     says whether the line could be added yet.
  *   - `LinkGroupWithOverrides` — attach a group to one item with that
  *     item's own prices and defaults (FR-MNU-010).
+ *   - `ContextPricing` — a modifier's price per order type, branch and price
+ *     list (FR-POS-022).
  */
 
 import { useMemo, useState } from "react";
-import { CornerDownRight, Minus, Plus, RotateCcw } from "lucide-react";
+import { Coins, CornerDownRight, Minus, Plus, RotateCcw, Trash2 } from "lucide-react";
 
-import type { Id, Localised, Modifier, ModifierGroup } from "@/lib/console/types";
+import type {
+  Id,
+  Localised,
+  Modifier,
+  ModifierGroup,
+  ModifierPriceRule,
+  OrderType,
+} from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useAction } from "@/lib/console/actions";
 import { useAsync } from "@/lib/console/hooks";
 import { useI18n } from "@/lib/console/providers";
 import { formatMoney } from "@/lib/console/format";
+import { ORDER_TYPE } from "@/lib/console/labels";
 import {
   MAX_NESTING,
   canNest,
@@ -494,4 +504,232 @@ export function LinkGroupWithOverrides({
       </AsyncPanel>
     </section>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Price by context — FR-POS-022
+// ---------------------------------------------------------------------------
+
+/**
+ * A modifier's price where it differs from its own.
+ *
+ * FR-POS-022 wants a delta configurable per order type, per branch and per
+ * price list, and gives "free for dine-in, charged for delivery" as the
+ * example — which is two rules on one modifier, one naming each order type.
+ *
+ * A rule naming none of the three dimensions is refused rather than saved: it
+ * would match everything, which is what the modifier's own price already
+ * does, and two ways to say one thing is how they come to disagree. Saving a
+ * context that already has a rule replaces it, so the answer never depends on
+ * which of two identical rules was written last.
+ *
+ * Resolution is not done here. `resolveModifierDelta` in
+ * `lib/console/live/engine.ts` is the one implementation, and the till, the
+ * simulator and this list all read from it.
+ */
+export function ContextPricing({
+  modifier,
+  rules,
+  branches,
+  priceLists,
+  onChanged,
+}: {
+  modifier: Modifier;
+  rules: ModifierPriceRule[];
+  branches: { id: Id; name: Localised }[];
+  priceLists: { id: Id; name: Localised }[];
+  onChanged: (message: string) => void;
+}) {
+  const { t, tx, fmt } = useI18n();
+  const action = useAction();
+  const [open, setOpen] = useState(false);
+  const [orderType, setOrderType] = useState<OrderType | "">("");
+  const [branchId, setBranchId] = useState("");
+  const [priceListId, setPriceListId] = useState("");
+  const [amount, setAmount] = useState<number | null>(null);
+
+  const mine = useMemo(
+    () =>
+      rules
+        .filter((rule) => rule.modifierId === modifier.id)
+        .sort((a, b) => contextRank(b) - contextRank(a) || a.id.localeCompare(b.id)),
+    [rules, modifier.id],
+  );
+
+  const dimensioned = Boolean(orderType || branchId || priceListId);
+  const collides =
+    dimensioned &&
+    mine.some(
+      (rule) =>
+        rule.orderType === (orderType || null) &&
+        rule.branchId === (branchId || null) &&
+        rule.priceListId === (priceListId || null),
+    );
+
+  async function save() {
+    if (!dimensioned) return;
+    await action.run(
+      () =>
+        services.modifierPricing.save({
+          modifierId: modifier.id,
+          orderType: orderType || null,
+          branchId: branchId || null,
+          priceListId: priceListId || null,
+          priceDelta: { amount: amount ?? 0, currency: modifier.priceDelta.currency },
+        }),
+      {
+        onSuccess: () => {
+          setOrderType("");
+          setBranchId("");
+          setPriceListId("");
+          setAmount(null);
+          onChanged(t("mpr.saved"));
+        },
+      },
+    );
+  }
+
+  const show = (minor: number) =>
+    minor === 0
+      ? t("mpr.free")
+      : formatMoney({ amount: minor, currency: modifier.priceDelta.currency }, fmt, true);
+
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="text-fg-muted hover:text-fg flex items-center gap-1.5 text-xs"
+        aria-expanded={open}
+      >
+        <Coins size={12} aria-hidden />
+        {t("mpr.edit")}
+        {mine.length > 0 ? <Badge tone="accent">{String(mine.length)}</Badge> : null}
+      </button>
+
+      {open ? (
+        <div className="border-line mt-2 space-y-2.5 rounded-lg border p-3">
+          <p className="text-fg-muted text-xs leading-relaxed">{t("mpr.hint")}</p>
+
+          <ul className="divide-line divide-y text-xs">
+            {mine.map((rule) => (
+              <li key={rule.id} className="flex flex-wrap items-center gap-2 py-1.5">
+                <span className="text-fg min-w-0 flex-1">
+                  {describeContext(rule, { branches, priceLists, tx, t })}
+                </span>
+                <span className="text-fg shrink-0 font-mono tabular-nums">{show(rule.priceDelta.amount)}</span>
+                <button
+                  type="button"
+                  aria-label={t("mpr.remove")}
+                  className="text-fg-subtle hover:text-bad"
+                  onClick={() =>
+                    void action.run(() => services.modifierPricing.remove(rule.id), {
+                      onSuccess: () => onChanged(t("mpr.removed")),
+                    })
+                  }
+                >
+                  <Trash2 size={12} aria-hidden />
+                </button>
+              </li>
+            ))}
+            <li className="text-fg-subtle flex flex-wrap items-center gap-2 py-1.5">
+              <span className="min-w-0 flex-1">{t("mpr.everywhere")}</span>
+              <span className="shrink-0 font-mono tabular-nums">{show(modifier.priceDelta.amount)}</span>
+              <span className="w-3" aria-hidden />
+            </li>
+          </ul>
+
+          {mine.length === 0 ? <p className="text-fg-subtle text-xs">{t("mpr.none")}</p> : null}
+
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Field label={t("mpr.orderType")}>
+              <Select
+                value={orderType}
+                onChange={(event) => setOrderType(event.target.value as OrderType | "")}
+                className="py-1 text-xs"
+              >
+                <option value="">{t("mpr.any")}</option>
+                {(Object.keys(ORDER_TYPE) as OrderType[]).map((value) => (
+                  <option key={value} value={value}>
+                    {tx(ORDER_TYPE[value].label)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={t("common.branch")}>
+              <Select value={branchId} onChange={(event) => setBranchId(event.target.value)} className="py-1 text-xs">
+                <option value="">{t("mpr.any")}</option>
+                {branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {tx(branch.name)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={t("mpr.priceList")}>
+              <Select
+                value={priceListId}
+                onChange={(event) => setPriceListId(event.target.value)}
+                className="py-1 text-xs"
+              >
+                <option value="">{t("mpr.any")}</option>
+                {priceLists.map((list) => (
+                  <option key={list.id} value={list.id}>
+                    {tx(list.name)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="w-32">
+              <MoneyInput
+                value={amount}
+                currency={modifier.priceDelta.currency}
+                onChange={setAmount}
+                aria-label={t("mpr.title")}
+              />
+            </div>
+            <Button
+              icon={<Plus size={12} />}
+              disabled={!dimensioned || action.pending}
+              loading={action.pending}
+              onClick={save}
+            >
+              {t("mpr.add")}
+            </Button>
+          </div>
+
+          {!dimensioned ? <p className="text-fg-subtle text-xs">{t("mpr.needsDimension")}</p> : null}
+          {collides ? <p className="text-warn text-xs">{t("mpr.replaces")}</p> : null}
+          {action.error ? <p className="text-bad text-xs">{action.error}</p> : null}
+          <p className="text-fg-subtle text-[0.65rem] leading-relaxed">{t("mpr.precedence")}</p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Matches `specificity` in the engine, so the list reads in resolution order. */
+function contextRank(rule: ModifierPriceRule): number {
+  return (rule.orderType ? 4 : 0) + (rule.branchId ? 2 : 0) + (rule.priceListId ? 1 : 0);
+}
+
+function describeContext(
+  rule: ModifierPriceRule,
+  ctx: {
+    branches: { id: Id; name: Localised }[];
+    priceLists: { id: Id; name: Localised }[];
+    tx: (value: Localised) => string;
+    t: (key: ConsoleKey) => string;
+  },
+): string {
+  const named = (id: Id, rows: { id: Id; name: Localised }[]) =>
+    ctx.tx(rows.find((row) => row.id === id)?.name ?? { en: id, ar: id });
+  const parts: string[] = [];
+  if (rule.orderType) parts.push(ctx.tx(ORDER_TYPE[rule.orderType].label));
+  if (rule.branchId) parts.push(named(rule.branchId, ctx.branches));
+  if (rule.priceListId) parts.push(named(rule.priceListId, ctx.priceLists));
+  return parts.length > 0 ? parts.join(" · ") : ctx.t("mpr.everywhere");
 }

@@ -35,7 +35,10 @@ import { LivePos } from "@/components/terminal/pos-live";
  * rest as unavailable.
  */
 export default function PosPage() {
-  if (DATA_MODE === "http") {
+  const { training } = useLive();
+  // NFR-USA-005 — practice always runs on the simulator, so a training order
+  // can never reach the real backend, whatever this deployment is wired to.
+  if (DATA_MODE === "http" && !training) {
     return (
       <>
         <TerminalBar />
@@ -72,7 +75,7 @@ function DemoPos() {
     return (
       <>
         <TerminalBar />
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto" data-coach="shift">
           <ShiftGate />
         </div>
       </>
@@ -84,15 +87,17 @@ function DemoPos() {
       <TerminalBar />
 
       <div className="border-line flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-1.5">
-        <SegmentedControl
-          value={effectivePane}
-          onChange={(next) => setPane(next)}
-          label={t("pos.menu")}
-          options={[
-            { value: "floor", label: t("pos.floorPlan") },
-            { value: "menu", label: t("pos.menu") },
-          ]}
-        />
+        <span data-coach="pane" className="inline-flex">
+          <SegmentedControl
+            value={effectivePane}
+            onChange={(next) => setPane(next)}
+            label={t("pos.menu")}
+            options={[
+              { value: "floor", label: t("pos.floorPlan") },
+              { value: "menu", label: t("pos.menu") },
+            ]}
+          />
+        </span>
         {activeOrder ? (
           <span className="text-fg-subtle hidden items-center gap-1.5 text-xs sm:inline-flex">
             {effectivePane === "menu" ? (

@@ -19,6 +19,8 @@
  */
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
+import { Building2, ShieldAlert } from "lucide-react";
 
 import type { CountryPack, Terminal } from "@/lib/console/types";
 import { useI18n, usePreferences, useSession } from "@/lib/console/providers";
@@ -61,6 +63,7 @@ type Tab = "config" | "inspector" | "history" | "preferences";
 
 export default function SettingsPage() {
   const { t } = useI18n();
+  const { canAny } = useSession();
   const [tab, setTab] = useState<Tab>("config");
   const [message, setMessage] = useTransientMessage();
 
@@ -70,7 +73,22 @@ export default function SettingsPage() {
         title={t("set.title")}
         subtitle={t("set.subtitle")}
         spec="§6.4"
-        actions={<TerminalLinks />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {/* FR-SEC-025/052/053/060 and FR-PLT-021/022/023 live on their own pages. */}
+            {canAny(["settings.tenant.manage", "audit.view"]) ? (
+              <Link href="/settings/security" className="border-line text-fg hover:bg-sunken inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs">
+                <ShieldAlert size={13} aria-hidden /> {t("nav.securitySettings")}
+              </Link>
+            ) : null}
+            {canAny(["settings.tenant.manage", "platform.tenant.manage"]) ? (
+              <Link href="/settings/tenant" className="border-line text-fg hover:bg-sunken inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs">
+                <Building2 size={13} aria-hidden /> {t("nav.organisationLifecycle")}
+              </Link>
+            ) : null}
+            <TerminalLinks />
+          </div>
+        }
         meta={<CascadeLegend />}
       />
 

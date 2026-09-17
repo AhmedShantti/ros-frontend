@@ -32,6 +32,7 @@ import type {
 } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { churnRiskOf } from "@/lib/console/services/crm";
+import { CustomerAddressBook, LoyaltyBalanceLinkPanel } from "@/components/console/crm-customer-record";
 import { useAsync } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission } from "@/lib/console/providers";
@@ -296,7 +297,8 @@ export function CustomerDrawer({
         ) : null}
         {tab === "loyalty" ? <LoyaltyTab customer={customer} onChanged={onChanged} /> : null}
         {tab === "addresses" ? (
-          <AddressesTab customer={customer} canManage={canManage} onChanged={onChanged} />
+          // FR-CRM-006 — labelled delivery addresses with notes, editable.
+          <CustomerAddressBook key={customer.id} customer={customer} canManage={canManage} onChanged={onChanged} />
         ) : null}
         {tab === "consent" ? (
           <ConsentTab customer={customer} canManage={canManage} onChanged={onChanged} />
@@ -324,6 +326,7 @@ function ProfileTab({
   const canExport = usePermission("crm.customer.export");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(() => ({
+    phone: customer.phone,
     name: customer.name,
     email: customer.email ?? "",
     dateOfBirth: customer.dateOfBirth ?? "",
@@ -334,7 +337,10 @@ function ProfileTab({
   async function save() {
     await action.run(
       () =>
+        // FR-CRM-001 — every field of the record, phone included; the service
+        // refuses a phone another customer already holds.
         services.crm.customers.update(customer.id, {
+          phone: normalisePhone(draft.phone),
           name: draft.name,
           email: draft.email.trim() || null,
           dateOfBirth: draft.dateOfBirth || null,
@@ -394,6 +400,23 @@ function ProfileTab({
     return (
       <div className="space-y-4">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <Field
+          label={t("crm.phone")}
+          required
+          hint={
+            normalisePhone(draft.phone) !== draft.phone
+              ? `${t("crm.storedAs")} ${normalisePhone(draft.phone)}`
+              : t("crm.record.phonePrimary")
+          }
+        >
+          <Input
+            dir="ltr"
+            inputMode="tel"
+            value={draft.phone}
+            onChange={(event) => setDraft((c) => ({ ...c, phone: event.target.value }))}
+          />
+        </Field>
 
         <LocalisedField
           label={t("common.name")}
@@ -669,6 +692,9 @@ function LoyaltyTab({
         </section>
       ) : null}
 
+      {/* FR-CRM-022 — the link a receipt QR carries to this balance. */}
+      {!customer.anonymisedAt ? <LoyaltyBalanceLinkPanel customerId={customer.id} /> : null}
+
       <section>
         <h3 className="text-fg mb-2 text-sm font-semibold">{t("crm.ledger")}</h3>
         <p className="text-fg-subtle mb-2 text-xs leading-relaxed">{t("crm.ledgerNote")}</p>
@@ -706,167 +732,6 @@ function LoyaltyTab({
 }
 
 // ---------------------------------------------------------------------------
-
-function AddressesTab({
-  customer,
-  canManage,
-  onChanged,
-}: {
-  customer: Customer;
-  canManage: boolean;
-  onChanged: (message: string) => void;
-}) {
-  const { t } = useI18n();
-  const action = useAction();
-  const confirm = useConfirm();
-  const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState({ label: "", line: "", city: "", notes: "" });
-
-  async function save(next: CustomerAddress[]) {
-    await action.run(() => services.crm.customers.update(customer.id, { addresses: next }), {
-      onSuccess: () => onChanged(t("crm.saved")),
-    });
-  }
-
-  async function add() {
-    if (!draft.line.trim()) return;
-    const entry: CustomerAddress = {
-      id: `adr_${Date.now().toString(36)}`,
-      label: draft.label.trim() || t("crm.addressDefaultLabel"),
-      line: draft.line.trim(),
-      city: draft.city.trim(),
-      notes: draft.notes.trim() || null,
-      isDefault: customer.addresses.length === 0,
-    };
-    await save([...customer.addresses, entry]);
-    setDraft({ label: "", line: "", city: "", notes: "" });
-    setAdding(false);
-  }
-
-  async function remove(id: Id) {
-    const ok = await confirm({
-      title: t("crm.removeAddress"),
-      body: t("crm.removeAddressBody"),
-      confirmLabel: t("common.delete"),
-      tone: "danger",
-    });
-    if (!ok) return;
-    await save(customer.addresses.filter((entry) => entry.id !== id));
-  }
-
-  return (
-    <div className="space-y-3">
-      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
-
-      {customer.addresses.length === 0 ? (
-        <Callout tone="muted">{t("crm.noAddresses")}</Callout>
-      ) : (
-        <ul className="space-y-2">
-          {customer.addresses.map((address) => (
-            <li key={address.id} className="border-line rounded-lg border p-3">
-              <div className="flex items-start gap-2">
-                <MapPin size={14} className="text-fg-subtle mt-0.5 shrink-0" aria-hidden />
-                <div className="min-w-0 flex-1">
-                  <p className="text-fg flex items-center gap-2 text-sm font-medium">
-                    {address.label}
-                    {address.isDefault ? <Badge tone="accent">{t("crm.default")}</Badge> : null}
-                  </p>
-                  <p className="text-fg-muted mt-0.5 text-xs">
-                    {address.line}
-                    {address.city ? `, ${address.city}` : ""}
-                  </p>
-                  {address.notes ? (
-                    <p className="text-fg-subtle mt-1 text-xs italic">{address.notes}</p>
-                  ) : null}
-                </div>
-                {canManage ? (
-                  <div className="flex shrink-0 gap-1">
-                    {!address.isDefault ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() =>
-                          void save(
-                            customer.addresses.map((entry) => ({
-                              ...entry,
-                              isDefault: entry.id === address.id,
-                            })),
-                          )
-                        }
-                      >
-                        {t("crm.makeDefault")}
-                      </Button>
-                    ) : null}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t("common.delete")}
-                      icon={<Trash2 size={13} />}
-                      onClick={() => void remove(address.id)}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {canManage ? (
-        adding ? (
-          <div className="border-line space-y-3 rounded-lg border p-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label={t("crm.addressLabel")} hint={t("crm.addressLabelHint")}>
-                <Input
-                  data-autofocus
-                  value={draft.label}
-                  onChange={(event) => setDraft((c) => ({ ...c, label: event.target.value }))}
-                />
-              </Field>
-              <Field label={t("onb.city")}>
-                <Input
-                  value={draft.city}
-                  onChange={(event) => setDraft((c) => ({ ...c, city: event.target.value }))}
-                />
-              </Field>
-            </div>
-            <Field label={t("onb.address")} required>
-              <Input
-                value={draft.line}
-                onChange={(event) => setDraft((c) => ({ ...c, line: event.target.value }))}
-              />
-            </Field>
-            <Field label={t("crm.deliveryNotes")} hint={t("crm.deliveryNotesHint")}>
-              <Textarea
-                rows={2}
-                value={draft.notes}
-                onChange={(event) => setDraft((c) => ({ ...c, notes: event.target.value }))}
-              />
-            </Field>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="primary"
-                loading={action.pending}
-                disabled={!draft.line.trim()}
-                onClick={add}
-              >
-                {t("common.add")}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
-                {t("common.cancel")}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <Button size="sm" icon={<Plus size={13} />} onClick={() => setAdding(true)}>
-            {t("crm.addAddress")}
-          </Button>
-        )
-      ) : null}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 

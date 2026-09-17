@@ -191,6 +191,78 @@ function detailOf(error: unknown): string | null {
   return null;
 }
 
+/** The HTTP status a `ServiceError` carries, or null. */
+function statusOf(error: unknown): number | null {
+  if (error && typeof error === "object" && "status" in error) {
+    const status = (error as { status?: unknown }).status;
+    return typeof status === "number" ? status : null;
+  }
+  return null;
+}
+
+export type ErrorNextStep =
+  | "network"
+  | "auth"
+  | "forbidden"
+  | "notFound"
+  | "conflict"
+  | "validation"
+  | "server"
+  | "tenant"
+  | "readOnly"
+  | "unknown";
+
+/**
+ * NFR-USA-011 — every error message states what happened *and* what to do
+ * next. The service layer already says what happened (the message); this
+ * picks the next step from the stable code first, then the HTTP status, so
+ * one mapping serves every screen instead of each inventing its own advice.
+ */
+export function nextStepFor(error: unknown): ErrorNextStep {
+  const code = codeOf(error) ?? "";
+  const status = statusOf(error);
+  if (code === "NETWORK_UNREACHABLE" || (error instanceof TypeError && /fetch|network/i.test(error.message))) return "network";
+  if (code === "TENANT_UNRESOLVED") return "tenant";
+  if (code === "TENANT_READ_ONLY" || code === "READ_ONLY") return "readOnly";
+  if (code === "SESSION_EXPIRED" || code === "UNAUTHORIZED" || status === 401) return "auth";
+  if (code === "FORBIDDEN" || status === 403) return "forbidden";
+  if (code === "NOT_FOUND" || status === 404) return "notFound";
+  if (code === "CONFLICT" || code.endsWith("_CONFLICT") || status === 409) return "conflict";
+  if (code.startsWith("VALIDATION") || code === "UNKNOWN_FIELDS" || code === "BAD_REQUEST" || status === 400 || status === 422) {
+    return "validation";
+  }
+  if (status !== null && status >= 500) return "server";
+  return "unknown";
+}
+
+/**
+ * An inline error for a failed action — the same two-part message as
+ * `ErrorPanel`, sized for a form or a drawer. Accepts the caught error or,
+ * for `useAction().error`, the message it already produced.
+ */
+export function ErrorCallout({
+  error,
+  title,
+  className,
+}: {
+  error: unknown;
+  title?: string;
+  className?: string;
+}) {
+  const { t } = useI18n();
+  if (!error) return null;
+  const message = typeof error === "string" ? error : error instanceof Error ? error.message : String(error);
+  const step = typeof error === "string" ? "unknown" : nextStepFor(error);
+  return (
+    <Callout tone="bad" title={title} className={className}>
+      <span role="alert">
+        {message} <span className="font-medium">{t("err.nextLabel")}</span>{" "}
+        {t(`err.next.${step}` as const)}
+      </span>
+    </Callout>
+  );
+}
+
 /** True when the failure is "the server does not do this", not "it broke". */
 export function isUnsupported(error: unknown): boolean {
   return codeOf(error) === "NOT_IMPLEMENTED";
@@ -256,12 +328,17 @@ export function ErrorPanel({
       title={t("state.errorTitle")}
       body={
         <>
-          {error?.message}
+          {/* NFR-USA-011 — what happened, then what to do about it. */}
+          <span role="alert">{error?.message}</span>
           {code ? (
             <span className="border-line text-fg-subtle ms-2 rounded border px-1.5 py-0.5 font-mono text-[0.62rem] tracking-wide uppercase">
               {code}
             </span>
           ) : null}
+          <span className="text-fg-muted mt-2 block">
+            <span className="text-fg font-medium">{t("err.nextLabel")}</span>{" "}
+            {t(`err.next.${nextStepFor(error)}` as const)}
+          </span>
         </>
       }
       action={

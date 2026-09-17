@@ -14,13 +14,14 @@
  * support tickets asking for a report that is already there.
  *
  * Every export is written to the audit trail with the requesting user, the
- * filters applied and the row count (FR-RPT-030). An export is a copy of
+ * filters applied and the row count (FR-RPT-044). An export is a copy of
  * tenant data leaving the system, and it is treated as one.
  */
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Download, FileBarChart, Play } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, Download, FileBarChart, MessageSquareText, Play } from "lucide-react";
 import type { ReportCategory, ReportDefinition } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useAsync, useTransientMessage } from "@/lib/console/hooks";
@@ -41,6 +42,18 @@ export default function ReportsPage() {
       <PageHeader title={t("rep.title")} subtitle={t("rep.subtitle")} spec="§19.3" />
 
       <PageBody>
+        {/* FR-RPT-047 — the question box is the other way into the same engine. */}
+        <Link
+          href="/reports/ask"
+          className="border-line bg-raised hover:bg-sunken focus-visible:ring-accent flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+        >
+          <MessageSquareText size={16} className="text-accent shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1">
+            <span className="text-fg block text-sm font-medium">{t("ask.entryTitle")}</span>
+            <span className="text-fg-muted block text-xs">{t("ask.entryBody")}</span>
+          </span>
+          <ArrowRight size={14} className="text-fg-subtle shrink-0 rtl:rotate-180" aria-hidden />
+        </Link>
         <Callout tone="muted">{t("rep.exportNote")}</Callout>
         <AsyncPanel state={state}>{(rows) => <ReportsBody reports={rows} />}</AsyncPanel>
       </PageBody>

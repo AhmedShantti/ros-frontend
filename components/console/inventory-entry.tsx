@@ -27,8 +27,10 @@ import { AlertTriangle, Camera, X } from "lucide-react";
 
 import type { Id, Quantity, StockItem, StockLocation, UnitCode } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
+import { MAX_PHOTO_BYTES } from "@/lib/console/services/inventory-controls";
 import type { ReasonCode } from "@/lib/console/services/types";
-import { useAsync } from "@/lib/console/hooks";
+import { useAsync, useStations } from "@/lib/console/hooks";
+import { formatDateTime } from "@/lib/console/format";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { formatMoney, money } from "@/lib/console/format";
@@ -116,6 +118,13 @@ export function InventoryEntryDrawer({
   const [reasonCode, setReasonCode] = useState(initial?.reasonCode ?? "");
   const [notes, setNotes] = useState(initial?.notes ?? "");
   const [photoName, setPhotoName] = useState<string | null>(null);
+  /** FR-INV-056 — the photograph itself, downscaled, kept against the record. */
+  const [photoData, setPhotoData] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [stationId, setStationId] = useState<Id | null>(null);
+  const { session } = useSession();
+  const stations = useStations(scope);
+  const stationOptions = stations.filter((station) => !locationId || station.branchId === locationId);
 
   const itemsById = useMemo(() => {
     const map = new Map<Id, StockItem>();
@@ -162,6 +171,9 @@ export function InventoryEntryDrawer({
     setReasonCode("");
     setNotes("");
     setPhotoName(null);
+    setPhotoData(null);
+    setPhotoError(null);
+    setStationId(null);
     setDirection("decrease");
   }
 
@@ -176,7 +188,9 @@ export function InventoryEntryDrawer({
             : `-${quantity.value}`;
 
         if (kind === "waste") {
-          await services.inventory.waste.create({
+          // FR-INV-056 — item, quantity, unit, reason, location, employee,
+          // timestamp and computed value; station and photograph optional.
+          const created = await services.inventory.waste.create({
             locationId: locationId!,
             itemId: itemId!,
             quantity,
@@ -184,7 +198,22 @@ export function InventoryEntryDrawer({
             isTrueWaste,
             notes: notes.trim() || null,
             value: money(valueMinor, currency),
+            stationId,
+            recordedAt: new Date().toISOString(),
+            recordedBy: session?.user.employeeId ?? session?.user.id ?? "",
+            recordedByName: session?.user.name,
           });
+          // The API has no attachment field; the photograph is kept on this
+          // device against the record id the create returned.
+          if (photoData && created?.id) {
+            await services.inventoryControls.photos.save({
+              recordId: created.id,
+              dataUrl: photoData,
+              fileName: photoName ?? "photo.jpg",
+              capturedAt: new Date().toISOString(),
+              capturedBy: session?.user.email ?? null,
+            });
+          }
         } else {
           await services.inventory.adjustments.create({
             locationId: locationId!,
@@ -353,8 +382,30 @@ export function InventoryEntryDrawer({
           <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
         </Field>
 
+        {kind === "waste" && stationOptions.length > 0 ? (
+          <Field label={t("invx.entry.station")} hint={t("invx.entry.stationHint")}>
+            <Select value={stationId ?? ""} onChange={(event) => setStationId(event.target.value || null)}>
+              <option value="">{t("common.none")}</option>
+              {stationOptions.map((station) => (
+                <option key={station.id} value={station.id}>
+                  {tx(station.name)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+
+        {kind === "waste" ? (
+          <p className="text-fg-subtle text-xs">
+            {t("invx.entry.recordedAs")
+              .replace("{name}", tx(session?.user.name) || session?.user.email || "—")
+              .replace("{at}", formatDateTime(new Date().toISOString(), fmt))}
+          </p>
+        ) : null}
+
         {kind === "waste" ? (
           <Field label={t("entry.photo")} hint={t("entry.photoHint")}>
+            {photoError ? <p className="text-bad mb-1 text-xs">{photoError}</p> : null}
             {photoName ? (
               <div className="border-line flex items-center gap-2 rounded-lg border px-3 py-2">
                 <Camera size={14} className="text-fg-subtle shrink-0" aria-hidden />
@@ -364,7 +415,10 @@ export function InventoryEntryDrawer({
                   variant="ghost"
                   aria-label={t("common.clear")}
                   icon={<X size={12} />}
-                  onClick={() => setPhotoName(null)}
+                  onClick={() => {
+                    setPhotoName(null);
+                    setPhotoData(null);
+                  }}
                 />
               </div>
             ) : (
@@ -376,6 +430,15 @@ export function InventoryEntryDrawer({
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   setPhotoName(file ? file.name : null);
+                  setPhotoError(null);
+                  if (file) {
+                    void downscalePhoto(file)
+                      .then(setPhotoData)
+                      .catch(() => {
+                        setPhotoData(null);
+                        setPhotoError(t("invx.entry.photoFailed"));
+                      });
+                  }
                 }}
               />
             )}
@@ -413,4 +476,34 @@ export function InventoryEntryDrawer({
       </div>
     </Drawer>
   );
+}
+
+/**
+ * FR-INV-056 — a photograph small enough to keep: longest side 1024 px,
+ * JPEG, stepping the quality down until it fits the local store's limit.
+ */
+export async function downscalePhoto(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = reject;
+      element.src = url;
+    });
+    const scale = Math.min(1, 1024 / Math.max(image.width, image.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("no canvas");
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    for (const quality of [0.72, 0.55, 0.4, 0.28]) {
+      const data = canvas.toDataURL("image/jpeg", quality);
+      if (data.length <= MAX_PHOTO_BYTES) return data;
+    }
+    throw new Error("too large");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }

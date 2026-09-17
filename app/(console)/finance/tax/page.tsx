@@ -29,6 +29,14 @@ import { TAX_CLASS, labelOf } from "@/lib/console/labels";
 import { countryPacks } from "@/lib/console/mock/platform";
 import { branchById } from "@/lib/console/mock/org";
 import { DataTable, type Column } from "@/components/console/data-table";
+import { useBranchSettings } from "@/components/console/finance-policy";
+import {
+  BranchPricingModeSection,
+  ItemTaxClassSection,
+  OrderTypeRateMatrix,
+  PriceListTaxSection,
+  RoundingConsistency,
+} from "@/components/console/finance-tax";
 import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/page";
 import { MetricTile, MixDonut } from "@/components/console/charts";
 import { AsyncPanel, Gate } from "@/components/console/states";
@@ -61,12 +69,51 @@ function TaxScreen() {
 
       <PageBody>
         <AsyncPanel state={state}>{(rows) => <TaxBody rows={rows} />}</AsyncPanel>
+
+        <TaxConfiguration />
       </PageBody>
     </>
   );
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * FR-FIN-031 (inclusive/exclusive per branch and per price list), FR-FIN-033
+ * (tax class per item, order-type rates), FR-FIN-035 (rounding consistency).
+ *
+ * The pack here is read through the registry, not the demo fixture: live,
+ * there is no country-pack endpoint, and the pack-dependent panels say so
+ * instead of borrowing demo rates.
+ */
+function TaxConfiguration() {
+  const { t, tx } = useI18n();
+  const { scope, tenant, availableBranches } = useSession();
+  const { packs } = useBranchSettings();
+  const countryCode =
+    availableBranches.find((branch) => branch.id === scope.branchId)?.countryCode ?? tenant.countryCode;
+  const scopedPack = packs.find((candidate) => candidate.code === countryCode) ?? null;
+
+  return (
+    <>
+      <BranchPricingModeSection />
+      <PriceListTaxSection />
+      <ItemTaxClassSection pack={scopedPack} />
+      {scopedPack ? (
+        <>
+          <Section title={`${t("fnc.orderTypeRates")} · ${tx(scopedPack.name)}`} spec="FR-FIN-033">
+            <OrderTypeRateMatrix pack={scopedPack} />
+          </Section>
+          <Section title={`${t("fnc.roundingConsistency")} · ${tx(scopedPack.name)}`} spec="FR-FIN-035">
+            <RoundingConsistency pack={scopedPack} />
+          </Section>
+        </>
+      ) : (
+        <Callout tone="muted">{t("fnc.packUnavailable")}</Callout>
+      )}
+    </>
+  );
+}
 
 function TaxBody({ rows }: { rows: TaxSummaryRow[] }) {
   const { t, tx, fmt } = useI18n();

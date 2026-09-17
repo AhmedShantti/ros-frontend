@@ -42,8 +42,10 @@ import {
   DescRow,
   Drawer,
   Meter,
+  Tabs,
   cx,
 } from "@/components/console/ui";
+import { KitchenMetricsPanel, RankingPanel } from "@/components/console/workforce-kitchen";
 
 export default function PerformancePage() {
   return (
@@ -57,6 +59,7 @@ function PerformanceScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [selected, setSelected] = useState<EmployeePerformance | null>(null);
+  const [tab, setTab] = useState<"service" | "kitchen" | "ranking">("service");
 
   const collection = useCollection<EmployeePerformance>(
     (query) => services.workforce.performance.list(query),
@@ -188,6 +191,23 @@ function PerformanceScreen() {
       />
 
       <PageBody>
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "service" as const, label: t("wf.perf.tabService") },
+            { value: "kitchen" as const, label: t("wf.perf.tabKitchen") },
+            { value: "ranking" as const, label: t("wf.perf.tabRanking") },
+          ]}
+        />
+
+        {/* FR-HRM-031 — kitchen metrics from KDS data. */}
+        {tab === "kitchen" ? <KitchenMetricsPanel /> : null}
+        {/* FR-HRM-032 — rank on any metric within branch, position and period. */}
+        {tab === "ranking" ? <RankingPanel /> : null}
+
+        {tab === "service" ? (
+        <>
         <TileGrid columns={4}>
           <MetricTile
             label={t("fin.netSales")}
@@ -222,6 +242,8 @@ function PerformanceScreen() {
         />
 
         <Callout tone="muted">{t("wf.performanceNote")}</Callout>
+        </>
+        ) : null}
       </PageBody>
 
       <PerformanceDrawer row={selected} onClose={() => setSelected(null)} />

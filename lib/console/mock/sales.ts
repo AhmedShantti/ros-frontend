@@ -166,7 +166,7 @@ function buildLine(index: number, seq: number, state: OrderLineState): OrderLine
     taxAmount: EGP(tax),
     lineTotal: EGP(isComp ? 0 : subtotal),
     // Cost is recognised even on a comp — FR-POS-050.
-    unitCostSnapshot: EGP(unitCostFor(variant.recipeId) * quantity),
+    unitCostSnapshot: EGP(unitCostFor(variant.recipeId)),
     recipeVersionId: variant.recipeId,
     course: chance(rng, 0.3) ? int(rng, 1, 3) : 1,
     seatNumber: chance(rng, 0.25) ? int(rng, 1, 6) : null,
@@ -298,7 +298,7 @@ export const orders: Order[] = (() => {
     }
 
     const tipTotal = payments.reduce((s, p) => s + p.tip.amount, 0);
-    const cogsTotal = active.reduce((s, l) => s + l.unitCostSnapshot.amount, 0);
+    const cogsTotal = active.reduce((s, l) => s + l.unitCostSnapshot.amount * l.quantity, 0);
 
     const useTable = orderType === "dine_in" && branch.seats > 0;
     const branchTables = tablesByBranch.get(branch.id) ?? [];

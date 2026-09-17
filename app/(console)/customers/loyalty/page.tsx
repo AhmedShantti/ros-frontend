@@ -30,6 +30,7 @@ import { AsyncPanel, Gate } from "@/components/console/states";
 import { useConfirm } from "@/components/console/confirm";
 import { EMPTY_LOCALISED, LocalisedField, MoneyInput } from "@/components/console/fields";
 import { PageBody, PageHeader, Section } from "@/components/console/page";
+import { LoyaltyEarnCalculator } from "@/components/console/loyalty-earn-calculator";
 import {
   Badge,
   Button,
@@ -260,6 +261,13 @@ function ProgrammeForm({
           )}
         </div>
       </Section>
+
+      {draft.model === "points" ? (
+        // FR-CRM-016 — the earning rule on net spend, run against the draft settings.
+        <Section title={t("loy.calc.title")} hint={t("loy.calc.hint")} spec="FR-CRM-016">
+          <LoyaltyEarnCalculator programme={draft} />
+        </Section>
+      ) : null}
 
       {draft.model === "points" ? (
         <Section

@@ -12,14 +12,22 @@
  * Tier 0 is auto-approved. That is a deliberate threshold rather than an
  * absence of control — putting a manager in the loop for a crate of lemons
  * trains everyone to approve without reading, which is worse than not asking.
+ *
+ * The drawer carries the rest of the order's life (`purchasing-orders.tsx`):
+ * approve or reject with segregation of duties (FR-PRC-019), an approval link
+ * for an approver away from the console (FR-PRC-020), send to the supplier
+ * (FR-PRC-021), amend before receipt (FR-PRC-023) and, for consolidated
+ * orders, branch attribution (FR-PRC-016). Suggested orders (FR-PRC-022) are
+ * one click from the header.
  */
 
 import { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import Link from "next/link";
+import { Link2, Pencil, Plus, Send, Sparkles } from "lucide-react";
 import type { PurchaseOrder, PurchaseOrderLine } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { DATA_MODE } from "@/lib/api/config";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import {
   formatDate,
@@ -35,6 +43,15 @@ import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
 import { PurchaseOrderDrawer as PurchaseOrderFormDrawer } from "@/components/console/purchasing-forms";
+import {
+  AmendOrderDrawer,
+  ApprovalLinkDrawer,
+  OrderDecision,
+  OrderHistory,
+  TransmitOrderDrawer,
+  canAmend,
+  useOrderWorkflow,
+} from "@/components/console/purchasing-orders";
 import {
   Badge,
   Button,
@@ -87,17 +104,6 @@ function PurchaseOrdersScreen() {
   }, [collection.rows]);
 
   const currency = collection.rows[0]?.total.currency ?? "EGP";
-
-  async function approve(order: PurchaseOrder) {
-    try {
-      await services.purchasing.approveOrder(order.id);
-      setMessage(t("pur.approved"));
-      setSelected(null);
-      collection.reload();
-    } catch {
-      setMessage(t("state.errorTitle"));
-    }
-  }
 
   const columns = useMemo<Column<PurchaseOrder>[]>(
     () => [
@@ -172,13 +178,18 @@ function PurchaseOrdersScreen() {
         subtitle={t("pur.ordersSubtitle")}
         spec="FR-PRC-018"
         actions={
-          <Button
-            variant="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setCreating(true)}
-          >
-            {t("common.new")}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/purchasing/suggestions">
+              <Button icon={<Sparkles size={14} />}>{t("prc.suggest.open")}</Button>
+            </Link>
+            <Button
+              variant="primary"
+              icon={<Plus size={14} />}
+              onClick={() => setCreating(true)}
+            >
+              {t("common.new")}
+            </Button>
+          </div>
         }
       />
 
@@ -237,7 +248,16 @@ function PurchaseOrdersScreen() {
         />
       </PageBody>
 
-      <OrderDrawer order={selected} onClose={() => setSelected(null)} onApprove={approve} />
+      <OrderDrawer
+        key={selected ? `${selected.id}:${selected.status}:${selected.total.amount}` : "none"}
+        order={selected}
+        onClose={() => setSelected(null)}
+        onChanged={(updated, note) => {
+          setSelected(updated);
+          setMessage(note);
+          collection.reload();
+        }}
+      />
       <PurchaseOrderFormDrawer
         order={null}
         open={creating}
@@ -259,14 +279,21 @@ function PurchaseOrdersScreen() {
 function OrderDrawer({
   order,
   onClose,
-  onApprove,
+  onChanged,
 }: {
   order: PurchaseOrder | null;
   onClose: () => void;
-  onApprove: (order: PurchaseOrder) => void;
+  onChanged: (order: PurchaseOrder, message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
-  const canApprove = usePermission("approval.act");
+  const canRaise = usePermission("purchase.order.create");
+  const workflow = useOrderWorkflow(order?.id ?? null);
+  const [panel, setPanel] = useState<"amend" | "send" | "link" | null>(null);
+  const supplierRecord = useMemo(
+    () => (DATA_MODE === "http" ? null : suppliers.find((row) => row.id === order?.supplierId) ?? null),
+    [order?.supplierId],
+  );
+  const liveSupplier = useAsyncSupplier(order?.supplierId ?? null);
 
   const columns = useMemo<Column<PurchaseOrderLine>[]>(
     () => [
@@ -338,14 +365,36 @@ function OrderDrawer({
       title={order.reference}
       subtitle={tx(order.supplierName)}
       footer={
-        canApprove && order.status === "pending_approval" ? (
-          <Button variant="primary" onClick={() => onApprove(order)}>
-            {t("pur.approveOrder")}
-          </Button>
-        ) : null
+        <div className="flex flex-wrap gap-2">
+          {canRaise && canAmend(order) ? (
+            <Button icon={<Pencil size={14} />} onClick={() => setPanel("amend")}>
+              {t("prc.amend.open")}
+            </Button>
+          ) : null}
+          {canRaise && (order.status === "approved" || order.status === "sent") ? (
+            <Button icon={<Send size={14} />} onClick={() => setPanel("send")}>
+              {t("prc.send.open")}
+            </Button>
+          ) : null}
+          {order.status === "pending_approval" ? (
+            <Button icon={<Link2 size={14} />} onClick={() => setPanel("link")}>
+              {t("prc.link.open")}
+            </Button>
+          ) : null}
+        </div>
       }
     >
       <div className="space-y-5">
+        {/* FR-PRC-019 — decided here, never by the person who raised it. */}
+        <OrderDecision
+          order={order}
+          workflow={workflow.data ?? null}
+          channel="console"
+          onDone={(updated, note) => {
+            workflow.reload();
+            onChanged(updated, note);
+          }}
+        />
         {order.status === "pending_approval" ? (
           <Callout tone="warn" title={t("pur.approvalTier")}>
             {t("pur.tierNote")} {tx(band.approver)}.
@@ -388,7 +437,47 @@ function OrderDrawer({
             dense
           />
         </section>
+
+        <section>
+          <h3 className="text-fg mb-2 text-sm font-semibold">{t("prc.history.title")}</h3>
+          <OrderHistory order={order} workflow={workflow.data ?? null} />
+        </section>
       </div>
+
+      {panel === "amend" ? (
+        <AmendOrderDrawer
+          order={order}
+          workflow={workflow.data ?? null}
+          onClose={() => setPanel(null)}
+          onSaved={(updated, note) => {
+            setPanel(null);
+            workflow.reload();
+            onChanged(updated, note);
+          }}
+        />
+      ) : null}
+      {panel === "send" ? (
+        <TransmitOrderDrawer
+          order={order}
+          supplier={liveSupplier ?? supplierRecord}
+          onClose={() => {
+            setPanel(null);
+            workflow.reload();
+          }}
+          onSent={async (note) => {
+            setPanel(null);
+            workflow.reload();
+            const fresh = await services.purchasing.orders.get(order.id);
+            onChanged(fresh ?? order, note);
+          }}
+        />
+      ) : null}
+      {panel === "link" ? <ApprovalLinkDrawer order={order} onClose={() => setPanel(null)} /> : null}
     </Drawer>
   );
+}
+
+function useAsyncSupplier(id: string | null) {
+  const state = useAsync(() => (id ? services.purchasing.suppliers.get(id).catch(() => null) : Promise.resolve(null)), [id]);
+  return state.data ?? null;
 }

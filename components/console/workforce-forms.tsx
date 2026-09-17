@@ -29,10 +29,13 @@ import type {
   AttendanceRecord,
   Employee,
   Id,
+  Localised,
   OvertimeRecord,
   ScheduledShift,
 } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
+import { EMPLOYMENT_TYPE } from "@/lib/console/labels";
+import { EMPLOYMENT_RULES, hoursBetween, validateShift } from "@/lib/console/workforce-rules";
 import { useAsync, useBranches } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
@@ -57,17 +60,15 @@ import {
 } from "@/components/console/ui";
 
 // ---------------------------------------------------------------------------
-// Scheduling rules — FR-HRM-012
+// Scheduling rules — FR-HRM-012, per employment type (FR-HRM-002)
 // ---------------------------------------------------------------------------
 
-interface RuleContext {
-  employeeId: Id;
-  date: string;
-  startTime: string;
-  endTime: string;
-  /** Every other shift already on the roster, for cross-day checks. */
-  siblings: DraftShift[];
-}
+/*
+ * The rules themselves live in `lib/console/workforce-rules.ts` so the swap
+ * approval and the till apply the same ones; re-exported for callers that
+ * imported them from here.
+ */
+export { validateShift } from "@/lib/console/workforce-rules";
 
 export interface DraftShift {
   key: string;
@@ -78,78 +79,37 @@ export interface DraftShift {
   endTime: string;
 }
 
-function hoursBetween(start: string, end: string): number {
-  const [sh, sm] = start.split(":").map(Number);
-  const [eh, em] = end.split(":").map(Number);
-  let minutes = (eh! * 60 + em!) - (sh! * 60 + sm!);
-  // A shift ending before it starts crossed midnight.
-  if (minutes <= 0) minutes += 24 * 60;
-  return minutes / 60;
+/**
+ * FR-HRM-015 — record a publication of these shifts to these people.
+ *
+ * The mobile push that should follow needs a notification service this
+ * console does not have, so the publication is stored as awaiting one and
+ * the schedules screen says so; acknowledgement is taken at the till's clock
+ * panel or recorded by a manager.
+ */
+export async function recordPublication(input: {
+  branchId: Id;
+  weekStart: string;
+  shifts: { id: Id; employeeId: Id }[];
+  names: Map<Id, Localised>;
+  by: string;
+}) {
+  const employeeIds = [...new Set(input.shifts.map((shift) => shift.employeeId))];
+  return services.workforceHr.publications.create({
+    branchId: input.branchId,
+    weekStart: input.weekStart,
+    shiftIds: input.shifts.map((shift) => shift.id),
+    employeeIds,
+    employeeNames: Object.fromEntries(
+      employeeIds.map((id) => [id, input.names.get(id) ?? { en: id, ar: id }]),
+    ),
+    publishedBy: input.by,
+  });
 }
 
-const MAX_CONSECUTIVE_DAYS = 6;
-const MIN_REST_HOURS = 11;
-const MAX_SHIFT_HOURS = 12;
-const MAX_WEEKLY_HOURS = 48;
-
-/**
- * Returns message keys rather than sentences, so the caller renders them in
- * the active language — the same convention the Zod schemas use.
- */
-export function validateShift(ctx: RuleContext): string[] {
-  const problems: string[] = [];
-  const length = hoursBetween(ctx.startTime, ctx.endTime);
-
-  if (length > MAX_SHIFT_HOURS) problems.push("wf.rule.tooLong");
-  if (length <= 0) problems.push("wf.rule.zeroLength");
-
-  const mine = ctx.siblings.filter(
-    (shift) => shift.employeeId === ctx.employeeId && shift.date !== ctx.date,
-  );
-
-  const weekly =
-    mine.reduce((sum, shift) => sum + hoursBetween(shift.startTime, shift.endTime), 0) + length;
-  if (weekly > MAX_WEEKLY_HOURS) problems.push("wf.rule.weeklyHours");
-
-  // Consecutive days, counting this one.
-  const days = new Set(mine.map((shift) => shift.date));
-  days.add(ctx.date);
-  const sorted = [...days].sort();
-  let run = 1;
-  let longest = 1;
-  for (let i = 1; i < sorted.length; i += 1) {
-    const gap = (Date.parse(sorted[i]!) - Date.parse(sorted[i - 1]!)) / 86_400_000;
-    run = gap === 1 ? run + 1 : 1;
-    longest = Math.max(longest, run);
-  }
-  if (longest > MAX_CONSECUTIVE_DAYS) problems.push("wf.rule.consecutive");
-
-  // Rest between this shift and the adjacent days.
-  for (const shift of mine) {
-    const gapDays = Math.abs(
-      (Date.parse(ctx.date) - Date.parse(shift.date)) / 86_400_000,
-    );
-    if (gapDays !== 1) continue;
-    const earlier = shift.date < ctx.date ? shift : { startTime: ctx.startTime, endTime: ctx.endTime };
-    const later = shift.date < ctx.date ? { startTime: ctx.startTime } : shift;
-    const [eh, em] = earlier.endTime.split(":").map(Number);
-    const [lh, lm] = later.startTime.split(":").map(Number);
-    const rest = 24 - (eh! + em! / 60) + (lh! + lm! / 60);
-    if (rest < MIN_REST_HOURS) {
-      problems.push("wf.rule.rest");
-      break;
-    }
-  }
-
-  const clash = ctx.siblings.some(
-    (shift) =>
-      shift.employeeId === ctx.employeeId &&
-      shift.date === ctx.date &&
-      !(shift.endTime <= ctx.startTime || shift.startTime >= ctx.endTime),
-  );
-  if (clash) problems.push("wf.rule.overlap");
-
-  return problems;
+/** Monday-based start of the week containing `iso`. */
+export function weekStartFor(iso: string): string {
+  return weekStartOf(iso);
 }
 
 // ---------------------------------------------------------------------------
@@ -187,10 +147,11 @@ export function ScheduleBuilder({
   onSaved: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
-  const { scope } = useSession();
+  const { scope, session } = useSession();
   const action = useAction();
   const confirm = useConfirm();
   const branches = useBranches(scope);
+  const sessionName = session?.user.name.en ?? "";
 
   const employees = useAsync(
     () =>
@@ -215,7 +176,17 @@ export function ScheduleBuilder({
   }, [open, scope.branchId, branches.length]);
 
   const days = useMemo(() => weekDates(weekStart), [weekStart]);
-  const roster = employees.data ?? [];
+  /**
+   * FR-HRM-005 — who can be rostered here: people whose home branch this is,
+   * and people assigned to cover it. Covering staff are marked in the grid.
+   */
+  const roster = useMemo(
+    () =>
+      (employees.data ?? []).filter(
+        (row) => !branchId || row.homeBranchId === branchId || row.permittedBranchIds.includes(branchId),
+      ),
+    [employees.data, branchId],
+  );
 
   const rateOf = (employeeId: Id) =>
     roster.find((row) => row.id === employeeId)?.hourlyRate.amount ?? 0;
@@ -241,11 +212,14 @@ export function ScheduleBuilder({
           startTime: shift.startTime,
           endTime: shift.endTime,
           siblings: shifts.filter((other) => other.key !== shift.key),
+          // FR-HRM-002 — each person is checked against their own type's rules.
+          employmentType: roster.find((row) => row.id === shift.employeeId)?.employmentType,
+          typeOf: (id) => roster.find((row) => row.id === id)?.employmentType,
         }),
       );
     }
     return map;
-  }, [shifts]);
+  }, [shifts, roster]);
 
   const allViolations = useMemo(() => {
     const seen = new Map<string, number>();
@@ -288,10 +262,10 @@ export function ScheduleBuilder({
     }, 0);
   }
 
-  async function publish() {
+  async function publish(asDraft = false) {
     if (shifts.length === 0) return;
 
-    if (allViolations.length > 0) {
+    if (!asDraft && allViolations.length > 0) {
       const ok = await confirm({
         title: t("wf.publishWithViolations"),
         body: t("wf.publishWithViolationsBody").replace(
@@ -306,10 +280,11 @@ export function ScheduleBuilder({
 
     await action.run(
       async () => {
+        const created: Id[] = [];
         for (const shift of shifts) {
           const employee = roster.find((row) => row.id === shift.employeeId);
           const hours = hoursBetween(shift.startTime, shift.endTime);
-          await services.workforce.shifts.create({
+          const row = await services.workforce.shifts.create({
             employeeId: shift.employeeId,
             employeeName: employee?.name,
             position: employee?.position,
@@ -318,16 +293,28 @@ export function ScheduleBuilder({
             startTime: shift.startTime,
             endTime: shift.endTime,
             hours,
-            status: "published",
+            status: asDraft ? "draft" : "published",
             projectedCost: money(
               Math.round(hours * (employee?.hourlyRate.amount ?? 0)),
               "EGP",
             ),
             violations: (violationsByKey.get(shift.key) ?? []).map((key) => t(key as never)),
           });
+          created.push(row.id);
+        }
+        // FR-HRM-015 — publishing is an event with an audience, recorded so
+        // acknowledgements can be tracked against it.
+        if (!asDraft) {
+          await recordPublication({
+            branchId,
+            weekStart,
+            shifts: shifts.map((shift, index) => ({ id: created[index]!, employeeId: shift.employeeId })),
+            names: new Map(roster.map((row) => [row.id, row.name])),
+            by: sessionName,
+          });
         }
       },
-      { onSuccess: () => onSaved(t("wf.schedulePublished")) },
+      { onSuccess: () => onSaved(asDraft ? t("wf.scheduleDrafted") : t("wf.schedulePublished")) },
     );
   }
 
@@ -348,6 +335,13 @@ export function ScheduleBuilder({
             onClick={() => void publish()}
           >
             {t("wf.publish")}
+          </Button>
+          <Button
+            loading={action.pending}
+            disabled={shifts.length === 0 || !branchId}
+            onClick={() => void publish(true)}
+          >
+            {t("wf.saveDraft")}
           </Button>
           <Button variant="ghost" onClick={onClose}>
             {t("common.cancel")}
@@ -426,8 +420,15 @@ export function ScheduleBuilder({
                     <th scope="row" className="px-2 py-2 text-start font-normal">
                       <span className="text-fg block truncate">{tx(employee.name)}</span>
                       <span className="text-fg-subtle block truncate text-[0.65rem]">
-                        {tx(employee.position)}
+                        {tx(employee.position)} · {tx(EMPLOYMENT_TYPE[employee.employmentType].label)} ·{" "}
+                        {/* FR-HRM-002 — the week cap this person is held to. */}
+                        {t("wf.maxWeekShort").replace("{n}", String(EMPLOYMENT_RULES[employee.employmentType].maxWeeklyHours))}
                       </span>
+                      {branchId && employee.homeBranchId !== branchId ? (
+                        <Badge tone="accent" className="mt-0.5">
+                          {t("wf.covering")}
+                        </Badge>
+                      ) : null}
                     </th>
                     {days.map((day) => {
                       const cell = shifts.filter(

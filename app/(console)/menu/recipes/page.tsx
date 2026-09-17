@@ -21,8 +21,9 @@
  * drawer shows each term so the total can be argued with.
  */
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { GitCompare, Plus } from "lucide-react";
 import type { Recipe, RecipeLine } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
@@ -61,6 +62,14 @@ import { RecordDrawer } from "@/components/console/record-drawer";
 import { RecipeEditor } from "@/components/console/recipe-editor";
 import { useConfirm } from "@/components/console/confirm";
 import { trimLocalised } from "@/components/console/fields";
+import { FranchiseLockNotice, useFranchiseLock } from "@/components/console/franchise-lock";
+import {
+  BranchVariantsPanel,
+  NewDraftDrawer,
+  NutritionPanel,
+  PrepCardPanel,
+  currentVersion,
+} from "@/components/console/menu-recipe-panels";
 
 export default function MenuRecipesPage() {
   return (
@@ -212,9 +221,15 @@ function RecipesScreen() {
         subtitle={t("recipes.subtitle")}
         spec="FR-MNU-040"
         actions={
-          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
-            {t("common.new")}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {/* FR-MNU-047: branch deviation compliance report */}
+            <Link href="/menu/recipes/compliance">
+              <Button icon={<GitCompare size={14} />}>{t("mnr.compliance.title")}</Button>
+            </Link>
+            <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
+              {t("common.new")}
+            </Button>
+          </div>
         }
       />
 
@@ -294,6 +309,7 @@ function RecipesScreen() {
         canPublish={canPublish}
         canEdit={canEdit}
         onClose={() => setSelected(null)}
+        onOpenRecipe={setSelected}
         onChanged={(note) => {
           setMessage(note);
           collection.reload();
@@ -344,21 +360,29 @@ function RecipesScreen() {
 
 function RecipeDrawer({
   recipe,
-  canPublish,
-  canEdit,
+  canPublish: mayPublish,
+  canEdit: mayEdit,
   onClose,
+  onOpenRecipe,
   onChanged,
 }: {
   recipe: Recipe | null;
   canPublish: boolean;
   canEdit: boolean;
   onClose: () => void;
+  onOpenRecipe: (recipe: Recipe) => void;
   onChanged: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
   const confirm = useConfirm();
   const action = useAction();
-  const [tab, setTab] = useState<"components" | "versions" | "scale">("components");
+  const [tab, setTab] = useState<"components" | "versions" | "scale" | "prep" | "nutrition" | "variants">("components");
+  const [newDraft, setNewDraft] = useState(false);
+  const { scope: sessionScope } = useSession();
+  // FR-BRN-035 — a franchise branch may keep recipes with the brand.
+  const lock = useFranchiseLock(recipe?.branchId ?? sessionScope.branchId ?? null, "recipes");
+  const canEdit = mayEdit && !lock.locked;
+  const canPublish = mayPublish && !lock.locked;
 
   /** SRS §26.3 — version history, newest first, each with its lines. */
   const versions = useAsync(
@@ -451,7 +475,7 @@ function RecipeDrawer({
             </Button>
           ) : null}
           {canEdit && !draft ? (
-            <Button loading={action.pending} onClick={() => void startDraft()}>
+            <Button loading={action.pending} onClick={() => setNewDraft(true)}>
               {t("recipes.newDraft")}
             </Button>
           ) : null}
@@ -460,6 +484,8 @@ function RecipeDrawer({
     >
       <div className="space-y-5">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <FranchiseLockNotice lock={lock} domain="recipes" />
 
         {!recipe.complete ? (
           <Callout tone="warn" title={t("recipes.incomplete")}>
@@ -511,6 +537,9 @@ function RecipeDrawer({
               count: versions.data?.length,
             },
             { value: "scale" as const, label: t("recipes.scaleTab") },
+            { value: "prep" as const, label: t("mnr.prep.title") },
+            { value: "nutrition" as const, label: t("mnr.nutrition.title") },
+            { value: "variants" as const, label: t("mnr.variant.title") },
           ]}
         />
 
@@ -572,6 +601,41 @@ function RecipeDrawer({
         ) : null}
 
         {tab === "scale" ? <RecipeScaling recipe={recipe} /> : null}
+
+        {/* FR-MNU-049: localised prep instructions and reference images */}
+        {tab === "prep" ? (
+          <AsyncPanel state={versions}>{(rows) => <PrepCardPanel recipe={recipe} version={currentVersion(rows)} />}</AsyncPanel>
+        ) : null}
+
+        {/* FR-MNU-050: nutrition per portion */}
+        {tab === "nutrition" ? (
+          <AsyncPanel state={versions}>{(rows) => <NutritionPanel recipe={recipe} version={currentVersion(rows)} />}</AsyncPanel>
+        ) : null}
+
+        {/* FR-MNU-047: branch variant recipes */}
+        {tab === "variants" ? (
+          <BranchVariantsPanel
+            recipe={recipe}
+            onOpenRecipe={(next) => {
+              setTab("components");
+              onOpenRecipe(next);
+            }}
+            onChanged={onChanged}
+          />
+        ) : null}
+
+        {newDraft ? (
+          <NewDraftDrawer
+            recipe={recipe}
+            base={currentVersion(versions.data)}
+            onClose={() => setNewDraft(false)}
+            onCreated={() => {
+              setNewDraft(false);
+              versions.reload();
+              onChanged(t("recipes.draftCreated"));
+            }}
+          />
+        ) : null}
 
         {tx(recipe.instructions) && tab === "versions" ? (
           <section>

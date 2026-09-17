@@ -25,6 +25,14 @@
  * carries `impersonatedBy`. Those sessions are surfaced at the top, not left
  * for somebody to discover in row 180: a tenant is entitled to know when the
  * vendor was inside its data, and for how long.
+ *
+ * ## Every field, and who looked (FR-AUD-002, FR-AUD-007)
+ *
+ * The entry drawer shows every FR-AUD-002 field — ULID, tenant and branch,
+ * actor, action, entity, before/after as a field-by-field diff, correlation,
+ * IP and device. Opening this screen, narrowing it, opening an entry and
+ * exporting are each written to the security event log, and "Who accessed
+ * this log" lists those events here.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -46,6 +54,8 @@ import { CellStack, DataTable, type Column } from "@/components/console/data-tab
 import { PageBody, PageHeader, SearchInput, Section, Toolbar } from "@/components/console/page";
 import { LiveNotice, TerminalLinks } from "@/components/console/live-panels";
 import { ErrorPanel, Gate } from "@/components/console/states";
+import { AuditDiff, AuditEntryFields, useAuditAccessLog } from "@/components/console/audit-entry-detail";
+import { SecurityEventLog } from "@/components/console/security-event-log";
 import { DateRangeField, SearchSelect, resolvePreset, type DateRange } from "@/components/console/fields";
 import {
   Badge,
@@ -127,6 +137,7 @@ function AuditScreen() {
   const [term, setTerm] = useState("");
   const [selected, setSelected] = useState<AuditEntry | null>(null);
   const [message, setMessage] = useTransientMessage();
+  const [showAccess, setShowAccess] = useState(false);
 
   const set = (patch: Partial<UiFilters>) => setFilters((current) => ({ ...current, ...patch }));
 
@@ -251,6 +262,16 @@ function AuditScreen() {
     filters.impersonatedOnly ? t("audit.supportOnly") : null,
   ].filter((chip): chip is string => chip !== null);
 
+  // FR-AUD-007 — viewing and narrowing the log is recorded.
+  const access = useAuditAccessLog(
+    `${structuredKey}|${filters.impersonatedOnly}`,
+    activeChips.join(" · ") || t("audit.allEntries"),
+  );
+  const openEntry = (entry: AuditEntry) => {
+    setSelected(entry);
+    access.opened(entry);
+  };
+
   const columns: Column<AuditEntry>[] = [
     {
       key: "occurredAt",
@@ -342,7 +363,11 @@ function AuditScreen() {
               summary={activeChips.join(" · ") || t("audit.allEntries")}
               allowed={canAll(["audit.view", "report.export"])}
               onDone={setMessage}
+              onExported={access.exported}
             />
+            <Button size="sm" variant={showAccess ? "secondary" : "ghost"} onClick={() => setShowAccess((open) => !open)} aria-expanded={showAccess}>
+              {t("aud2.accessLog")}
+            </Button>
             <TerminalLinks />
           </div>
         }
@@ -350,6 +375,16 @@ function AuditScreen() {
 
       <PageBody>
         <LiveNotice source={live ? "backend" : "device"} />
+
+        {showAccess ? (
+          <SecurityEventLog
+            kinds={["audit.viewed", "audit.entry_opened", "audit.exported"]}
+            title={t("aud2.accessLog")}
+            hint={t("aud2.accessLogHint")}
+            spec="FR-AUD-007"
+            canExport={canAll(["audit.view", "report.export"])}
+          />
+        ) : null}
 
         {recentSessions.length > 0 ? (
           <Callout tone="warn" icon={<ShieldAlert size={14} />} title={t("audit.supportAccessTitle")}>
@@ -499,7 +534,7 @@ function AuditScreen() {
           rows={rows}
           rowKey={(entry) => entry.id}
           loading={remote.loading && base.length === 0}
-          onRowClick={setSelected}
+          onRowClick={openEntry}
           activeRowKey={selected?.id ?? null}
           filtered={activeChips.length > 0 || term.trim().length > 0}
           onClearFilters={() => {
@@ -526,7 +561,7 @@ function AuditScreen() {
           entry={selected}
           known={base}
           onClose={() => setSelected(null)}
-          onOpen={setSelected}
+          onOpen={openEntry}
           onFilterChain={(id) => {
             set({ correlationId: id });
             setShowMore(true);
@@ -593,12 +628,14 @@ function AuditExport({
   summary,
   allowed,
   onDone,
+  onExported,
 }: {
   filters: AuditFilters;
   impersonatedOnly: boolean;
   summary: string;
   allowed: boolean;
   onDone: (message: string) => void;
+  onExported: (rows: number, format: string, filters: string) => void;
 }) {
   const { t, tx } = useI18n();
   const { session } = useSession();
@@ -642,6 +679,8 @@ function AuditExport({
         filters: summary,
         requestedBy: session?.user.email ?? null,
       });
+      // FR-AUD-007 — an export of the audit log is itself an audited access.
+      onExported(outcome.rowCount, format, summary);
       return outcome.rowCount;
     }, {
       onSuccess: (count) =>
@@ -748,60 +787,13 @@ function EntryDrawer({
         </Callout>
       ) : null}
 
-      <DescList>
-        <DescRow label={t("audit.occurred")}>{formatDateTime(entry.occurredAt, fmt)}</DescRow>
-        <DescRow label={t("audit.recorded")}>{formatDateTime(entry.recordedAt, fmt)}</DescRow>
-        <DescRow label={t("audit.actor")}>{tx(entry.actorName) || entry.actorId || "—"}</DescRow>
-        <DescRow label={t("audit.actorType")}>{tx(labelOf(ACTOR_TYPE, entry.actorType).label)}</DescRow>
-        {entry.branchName ? <DescRow label={t("common.branch")}>{tx(entry.branchName)}</DescRow> : null}
-        <DescRow label={t("audit.entityId")} mono>
-          {entry.entityId || "—"}
-        </DescRow>
-        {entry.reasonCode || entry.reasonText ? (
-          <DescRow label={t("shift.reason")}>{entry.reasonText ?? entry.reasonCode}</DescRow>
-        ) : null}
-        {entry.approverName ? <DescRow label={t("orders.approvedBy")}>{tx(entry.approverName)}</DescRow> : null}
-        {entry.terminalId ? (
-          <DescRow label={t("audit.terminal")} mono>
-            {entry.terminalId}
-          </DescRow>
-        ) : null}
-        {entry.ipAddress ? (
-          <DescRow label={t("audit.ip")} mono>
-            {entry.ipAddress}
-          </DescRow>
-        ) : null}
-        <DescRow label={t("audit.correlation")} mono>
-          {entry.correlationId}
-        </DescRow>
-        <DescRow label={t("audit.hash")} mono>
-          <span className="text-xs break-all">{entry.hash}</span>
-        </DescRow>
-        <DescRow label={t("audit.previousHash")} mono>
-          <span className="text-xs break-all">{entry.previousHash || "—"}</span>
-        </DescRow>
-      </DescList>
+      {/* FR-AUD-002 — every field the entry carries, including the empty ones. */}
+      <AuditEntryFields entry={entry} />
 
-      {entry.before || entry.after ? (
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          {entry.before ? (
-            <div>
-              <h3 className="text-fg mb-1.5 text-xs font-semibold">{t("audit.before")}</h3>
-              <pre className="bg-sunken border-line overflow-x-auto rounded-lg border p-3 text-xs">
-                {JSON.stringify(entry.before, null, 2)}
-              </pre>
-            </div>
-          ) : null}
-          {entry.after ? (
-            <div>
-              <h3 className="text-fg mb-1.5 text-xs font-semibold">{t("audit.after")}</h3>
-              <pre className="bg-sunken border-line overflow-x-auto rounded-lg border p-3 text-xs">
-                {JSON.stringify(entry.after, null, 2)}
-              </pre>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      <section className="mt-5">
+        <h3 className="text-fg mb-1.5 text-xs font-semibold">{t("aud2.diff")}</h3>
+        <AuditDiff before={entry.before} after={entry.after} />
+      </section>
 
       <section className="mt-6">
         <div className="mb-2 flex items-center justify-between gap-2">

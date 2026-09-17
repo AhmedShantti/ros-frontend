@@ -332,8 +332,12 @@ function OrderDrawer({ order, onClose }: { order: Order; onClose: () => void }) 
               </div>
               <div className="shrink-0 text-end">
                 <p className="text-fg text-sm tabular-nums">{formatMoney(line.lineSubtotal, fmt)}</p>
-                <p className="text-fg-subtle text-xs tabular-nums">
-                  {t("orders.cogs")} {formatMoney(line.unitCostSnapshot, fmt)}
+                {/* FR-CST-002 — COGS frozen on the line at sale time; never recomputed. */}
+                <p
+                  className="text-fg-subtle text-xs tabular-nums"
+                  title={t("cst.snapshotNote")}
+                >
+                  {t("cst.unitCostSnapshot")} {formatMoney(line.unitCostSnapshot, fmt)}
                 </p>
               </div>
             </div>
@@ -370,6 +374,7 @@ function OrderDrawer({ order, onClose }: { order: Order; onClose: () => void }) 
           {formatMoney(order.cogsTotal, fmt)}
         </DescRow>
       </DescList>
+      <p className="text-fg-subtle mt-2 text-xs leading-relaxed">{t("cst.snapshotNote")}</p>
 
       {order.payments.length > 0 ? (
         <>

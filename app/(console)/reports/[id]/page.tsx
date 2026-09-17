@@ -185,6 +185,10 @@ function Runner({ id }: { id: string }) {
         <Section title={t("rep.parameters")} spec="§19.3">
           <div className="space-y-4">
             <DateRangeField value={range} onChange={setRange} label={t("common.period")} />
+            {/* Honest grain and history note: the figures are aggregated from
+                the transactions at request time (no pre-built rollup), and
+                names come from what each transaction recorded when it happened. */}
+            <p className="text-fg-subtle text-xs">{t("rep.grainNote")}</p>
 
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label={t("common.branch")}>
