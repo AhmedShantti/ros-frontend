@@ -22,18 +22,15 @@
  */
 
 import { api } from "./endpoints";
-import { http } from "./client";
 import { ServiceError } from "../console/services/types";
 import { setDefaultCurrency } from "../console/services/map";
 import {
   clearSession,
-  clearTerminalIdentity,
   getActiveBranchId,
   getActiveSurface,
   getDeviceTenantId,
   getPosEmployee,
   getTenantId,
-  peekTerminalAccessTokens,
   setPosEmployee,
   setTenantId,
   setTokens,
@@ -53,52 +50,20 @@ export interface SignInResult {
 }
 
 /**
- * POS-CUSTODY — ends whatever PIN session(s) this device was left holding.
- *
- * Called on the way IN to a sign-in as well as on the way out, because a
- * till is not always left tidily: a tab closed mid-shift, a browser crash, a
- * cashier who simply walked away. Whatever the reason, a different person
- * authenticating is the end of the previous one's session(s), and the
- * token(s) they left behind must not still be sitting where `/pos`/`/kds`
- * reads them.
- *
- * POS-KDS-SESSION-ISOLATION-P0 — a console user reclaiming the device does
- * not know, and must not guess, whether a stray till session was POS's or
- * KDS's (or both) — so this ends both independently, never assuming one
- * implies the other.
- *
- * Revoking server-side is best-effort and explicitly credentialled: neither
- * token being revoked is the active surface's, so each is passed as an
- * explicit bearer rather than by switching the active surface out from under
- * whatever else is in flight. A failure here is not a reason to block a
- * sign-in — the local copies are gone either way, which is what closes the
- * leak on this device.
- */
-async function endTerminalSession(): Promise<void> {
-  const { pos, kds } = peekTerminalAccessTokens();
-  clearTerminalIdentity();
-  await Promise.all(
-    [pos, kds].map(async (token) => {
-      if (!token) return;
-      try {
-        await http.post("/auth/logout", { anonymous: true, bearer: token });
-      } catch {
-        // Already expired, already revoked, or offline. Nothing to recover.
-      }
-    }),
-  );
-}
-
-/**
  * Steps 1 and 2. When the account has several tenants, the token is left
  * unscoped and `tenantId` comes back null for the caller to resolve with
  * `selectTenant()`.
+ *
+ * CROSS-SURFACE-SESSION-ISOLATION-P0 — this must never touch a POS or KDS
+ * session on this device. A console user signing in is not "reclaiming the
+ * device" from whoever is on the till, and a stray/expired console session
+ * belonging to someone else is not a reason to sign a cashier or cook out of
+ * an active shift. Console, POS, and KDS credentials are independently
+ * persisted and independently revocable by design (`session.ts`'s
+ * `CONSOLE_KEYS`/`POS_KEYS`/`KDS_KEYS`) — this function must not call
+ * anything that reaches across that boundary.
  */
 export async function signIn(email: string, password: string): Promise<SignInResult> {
-  // Before the new credential exists, not after: a failed sign-in must still
-  // leave the previous employee's till session ended.
-  await endTerminalSession();
-
   const session = await api.auth.login({ email, password });
   setTokens(session);
 
@@ -248,6 +213,15 @@ export async function reauthenticateWithPin(pin: string): Promise<void> {
   });
 }
 
+/**
+ * CROSS-SURFACE-SESSION-ISOLATION-P0 — ends ONLY the console's own session.
+ * This used to also end any POS/KDS session on the device
+ * (`endTerminalSession()`, now removed) — that broke the SRS's own
+ * multi-surface scenarios (a Branch Manager on Dashboard+POS, a Head Chef on
+ * KDS+Dashboard): signing out of the dashboard silently signed the till or
+ * the kitchen display out too. Do not reintroduce a call here that revokes
+ * another surface's token.
+ */
 export async function signOut(): Promise<void> {
   try {
     await api.auth.logout();
@@ -256,9 +230,6 @@ export async function signOut(): Promise<void> {
   } finally {
     clearSession();
   }
-  // A console sign-out ends the till too. The two used to be independent,
-  // which is precisely how a signed-out Owner stayed signed on at the POS.
-  await endTerminalSession();
 }
 
 /**
