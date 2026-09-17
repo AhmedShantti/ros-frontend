@@ -306,7 +306,21 @@ function SessionProvider({
     if (storedRole && storedRole in ROLE_DEFINITIONS) {
       setRoleKey(storedRole as RoleKey);
     }
-    setAuthenticated(read(KEY_AUTH) === "true");
+    /**
+     * CONSOLE-RELOAD-SESSION-PERSISTENCE-P0 — `KEY_AUTH` is a SEPARATE,
+     * independently-written cache of "am I signed in", not derived from the
+     * real credential. Trusting it blindly here is what discarded a
+     * perfectly valid, still-good session on reload: nothing ever cross-
+     * checked it against `CONSOLE_KEYS` actually having a token in it, only
+     * a reactive listener (below) that syncs the ONE direction of "the real
+     * token just disappeared" — never "the real token is fine but this flag
+     * says otherwise". `isSignedIn()` (this surface's real credential
+     * presence, `CONSOLE_KEYS.access`) is the actual source of truth once
+     * there is a real backend to have one; demo mode has no such credential
+     * at all, so it keeps reading the cache, which is the only signal it
+     * has ever had.
+     */
+    setAuthenticated(DATA_MODE === "http" ? isSignedIn() : read(KEY_AUTH) === "true");
     setMfaSatisfied(read(KEY_MFA) === "true");
 
     const storedBrand = read(KEY_BRAND);
