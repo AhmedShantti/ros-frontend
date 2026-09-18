@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatMoney } from "@/lib/console/format";
-import { toOrder, toOrderLine, type OrderContext } from "./map";
+import { formatMoney, tx } from "@/lib/console/format";
+import { itemSnapshotName, toOrder, toOrderLine, toReceipt, toTicketLine, type OrderContext } from "./map";
 import type * as S from "@/lib/api/schema";
 
 /*
@@ -178,5 +178,209 @@ describe("Send/Pay enablement derives correctly once `order.lines` is real", () 
     const pending = order.lines.filter((line) => line.state === "pending");
     expect(pending.length === 0).toBe(true);
     expect(order.lines.length === 0).toBe(true);
+  });
+});
+
+/*
+ * ITEM-NAME-RENDERING-P0 — the backend's BR-POS-004 sale-time snapshot is
+ * `{ item: Localised, variant: Localised }`, never a flat `{en, ar}` — every
+ * frontend consumer expected the flat shape and silently rendered blank.
+ * `itemSnapshotName()` unwraps the real shape; these tests exercise it
+ * directly and through the three mappers (order line / receipt / KDS ticket)
+ * that feed POS, the receipt drawer, and the KDS ticket card.
+ */
+describe("itemSnapshotName — unwraps BR-POS-004's { item, variant } snapshot", () => {
+  it("renders the item name in EN", () => {
+    const name = itemSnapshotName({ item: { en: "Grilled Chicken", ar: "فراخ مشوية" } });
+    expect(tx(name, "en")).toBe("Grilled Chicken");
+  });
+
+  it("renders the item name in AR", () => {
+    const name = itemSnapshotName({ item: { en: "Grilled Chicken", ar: "فراخ مشوية" } });
+    expect(tx(name, "ar")).toBe("فراخ مشوية");
+  });
+
+  it("combines the variant name with the item name when a variant is present", () => {
+    const name = itemSnapshotName({
+      item: { en: "Chicken", ar: "فراخ" },
+      variant: { en: "Large", ar: "كبير" },
+    });
+    expect(tx(name, "en")).toBe("Chicken — Large");
+    expect(tx(name, "ar")).toBe("فراخ — كبير");
+  });
+
+  it("falls back to the item name alone when no variant is present", () => {
+    const name = itemSnapshotName({ item: { en: "Water", ar: "مياه" } });
+    expect(tx(name, "en")).toBe("Water");
+  });
+
+  it("falls back to the item name alone when variant carries no usable text", () => {
+    const name = itemSnapshotName({ item: { en: "Water", ar: "مياه" }, variant: {} });
+    expect(tx(name, "en")).toBe("Water");
+  });
+
+  it("preserves EN/AR cross-fallback: a name with only EN still resolves in AR", () => {
+    const name = itemSnapshotName({ item: { en: "Fries" } });
+    expect(tx(name, "ar")).toBe("Fries");
+  });
+
+  it("still handles a flat legacy { en, ar } value (demo/mock data path)", () => {
+    const name = itemSnapshotName({ en: "Burger", ar: "برجر" });
+    expect(tx(name, "en")).toBe("Burger");
+    expect(tx(name, "ar")).toBe("برجر");
+  });
+});
+
+describe("toOrderLine — POS line renders the real item name, not blank", () => {
+  it("EN", () => {
+    const line = toOrderLine(wireLine, "EGP");
+    expect(tx(line.itemNameSnapshot, "en")).toBe("test maqloba");
+  });
+
+  it("AR (falls back to EN when no Arabic snapshot was captured)", () => {
+    const line = toOrderLine(wireLine, "EGP");
+    expect(tx(line.itemNameSnapshot, "ar")).toBe("test maqloba");
+  });
+
+  it("includes the variant name when the snapshot carries one", () => {
+    const line = toOrderLine(
+      {
+        ...wireLine,
+        itemNameSnapshot: {
+          item: { en: "Chicken", ar: "فراخ" },
+          variant: { en: "Half", ar: "نص" },
+        },
+      },
+      "EGP",
+    );
+    expect(tx(line.itemNameSnapshot, "en")).toBe("Chicken — Half");
+    expect(tx(line.itemNameSnapshot, "ar")).toBe("فراخ — نص");
+  });
+});
+
+describe("toReceipt — receipt line renders the real item name, not blank", () => {
+  function wireReceiptLine(
+    itemNameSnapshot: unknown,
+  ): S.OrdersController_receiptResponse["lines"][number] {
+    return {
+      sequence: 1,
+      menuItemId: "item-1",
+      variantId: "variant-1",
+      itemNameSnapshot: itemNameSnapshot as Record<string, unknown>,
+      quantity: "1",
+      unitPrice: "30000",
+      modifiers: [],
+      modifierTotal: "0",
+      lineDiscount: "0",
+      lineSubtotal: "30000",
+      taxClassId: "tax-1",
+      taxAmount: "0",
+      lineTotal: "30000",
+    };
+  }
+
+  function wireReceipt(
+    lines: S.OrdersController_receiptResponse["lines"],
+  ): S.OrdersController_receiptResponse {
+    return {
+      documentType: "INTERNAL_NON_FISCAL_RECEIPT",
+      fiscal: false,
+      disclosureKey: "receipt.nonFiscal",
+      order: {
+        id: "order-1",
+        orderNumber: "B1-0001",
+        businessDay: "2026-09-14",
+        branchId: "branch-1",
+        terminalId: null,
+        orderType: "takeaway",
+        channel: "pos",
+        state: "completed",
+        completedAt: "2026-09-14T00:00:00.000Z",
+        currency: "EGP",
+        countryPackVersion: "EG-1",
+      },
+      lines,
+      totals: {
+        subtotal: "30000",
+        discountTotal: "0",
+        serviceChargeTotal: "0",
+        taxTotal: "0",
+        grandTotal: "30000",
+        paidTotal: "30000",
+        tipTotal: "0",
+        cashRoundingAdjustment: "0",
+      },
+      taxPresentation: "NOT_APPLICABLE",
+      payments: [],
+    };
+  }
+
+  it("shows the item name (EN)", () => {
+    const receipt = toReceipt(
+      wireReceipt([wireReceiptLine({ item: { en: "Grilled Chicken", ar: "فراخ مشوية" } })]),
+    );
+    expect(tx(receipt.lines[0].name, "en")).toBe("Grilled Chicken");
+  });
+
+  it("shows the item name (AR)", () => {
+    const receipt = toReceipt(
+      wireReceipt([wireReceiptLine({ item: { en: "Grilled Chicken", ar: "فراخ مشوية" } })]),
+    );
+    expect(tx(receipt.lines[0].name, "ar")).toBe("فراخ مشوية");
+  });
+
+  it("includes the variant name when present", () => {
+    const receipt = toReceipt(
+      wireReceipt([
+        wireReceiptLine({ item: { en: "Chicken", ar: "فراخ" }, variant: { en: "Large", ar: "كبير" } }),
+      ]),
+    );
+    expect(tx(receipt.lines[0].name, "en")).toBe("Chicken — Large");
+  });
+});
+
+describe("toTicketLine — KDS ticket card renders the real item name, not blank", () => {
+  function wireTicketLine(
+    itemNameSnapshot: unknown,
+  ): S.KitchenController_getStationQueueResponse["tickets"][number]["lines"][number] {
+    return {
+      id: "ticket-line-1",
+      orderLineId: "line-1",
+      itemNameSnapshot: itemNameSnapshot as Record<string, unknown>,
+      quantity: "1",
+      course: 1,
+      sequence: 1,
+      preparationNotes: null,
+      status: "queued",
+      firstViewedAt: null,
+      startedAt: null,
+      readyAt: null,
+      bumpedAt: null,
+      recalledAt: null,
+      cancelledAt: null,
+      modifiers: [],
+    };
+  }
+
+  it("shows the item name (EN)", () => {
+    const line = toTicketLine(
+      wireTicketLine({ item: { en: "Grilled Chicken", ar: "فراخ مشوية" } }),
+    );
+    expect(tx(line.name, "en")).toBe("Grilled Chicken");
+  });
+
+  it("shows the item name (AR)", () => {
+    const line = toTicketLine(
+      wireTicketLine({ item: { en: "Grilled Chicken", ar: "فراخ مشوية" } }),
+    );
+    expect(tx(line.name, "ar")).toBe("فراخ مشوية");
+  });
+
+  it("includes the variant name when present", () => {
+    const line = toTicketLine(
+      wireTicketLine({ item: { en: "Chicken", ar: "فراخ" }, variant: { en: "Half", ar: "نص" } }),
+    );
+    expect(tx(line.name, "en")).toBe("Chicken — Half");
+    expect(tx(line.name, "ar")).toBe("فراخ — نص");
   });
 });

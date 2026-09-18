@@ -120,6 +120,29 @@ export function localised(value: unknown, fallback: Localised = EMPTY): Localise
   return fallback;
 }
 
+/**
+ * BR-POS-004's sale-time name snapshot (`itemNameSnapshot` on an order line,
+ * a receipt line, and a KDS ticket line) is `{ item: Localised, variant:
+ * Localised }`, not the flat `{en, ar}` shape `localised()` expects on its
+ * own — passing it straight to `localised()` finds no `en`/`ar` keys, and
+ * since `item`/`variant` are objects (not strings) the rescue path also
+ * fails, silently rendering blank everywhere this snapshot is shown. Unwrap
+ * it here so every existing `tx(name)` call site keeps working unchanged.
+ */
+export function itemSnapshotName(value: unknown): Localised {
+  if (value !== null && typeof value === "object" && "item" in (value as Record<string, unknown>)) {
+    const record = value as Record<string, unknown>;
+    const item = localised(record.item);
+    const variant = record.variant ? localised(record.variant) : null;
+    if (!variant || (!variant.en && !variant.ar)) return item;
+    return {
+      en: variant.en ? `${item.en} — ${variant.en}` : item.en,
+      ar: variant.ar ? `${item.ar} — ${variant.ar}` : item.ar,
+    };
+  }
+  return localised(value);
+}
+
 /** The reverse, for request bodies that take a localised map. */
 export function toNameMap(value: Localised | string | undefined): Record<string, string> {
   if (!value) return { en: "", ar: "" };
@@ -1135,7 +1158,7 @@ export function toOrderLine(row: WireOrderLine, currency: Currency): OrderLine {
     sequence: row.sequence,
     menuItemId: row.menuItemId,
     variantId: row.variantId,
-    itemNameSnapshot: localised(row.itemNameSnapshot),
+    itemNameSnapshot: itemSnapshotName(row.itemNameSnapshot),
     quantity: numberOf(row.quantity),
     unitPrice: minorMoney(row.unitPrice, currency),
     modifiers: [], // gap: line modifiers are not returned with the order.
@@ -1241,7 +1264,7 @@ export function toReceipt(row: WireReceipt): Receipt {
     completedAt: row.order.completedAt,
     lines: row.lines.map((line) => ({
       menuItemId: line.menuItemId,
-      name: localised(line.itemNameSnapshot),
+      name: itemSnapshotName(line.itemNameSnapshot),
       quantity: numberOf(line.quantity),
       unitPrice: minorMoney(line.unitPrice, currency),
       modifiers: line.modifiers.map((modifier) => ({
@@ -1353,7 +1376,7 @@ const MODIFIER_KINDS: ModifierKind[] = ["addition", "removal", "substitution"];
 export function toTicketLine(row: WireTicketLine): TicketLine {
   return {
     id: row.id,
-    name: localised(row.itemNameSnapshot),
+    name: itemSnapshotName(row.itemNameSnapshot),
     quantity: numberOf(row.quantity),
     modifiers: (row.modifiers ?? []).map((modifier) => ({
       name: localised(modifier.nameSnapshot),
