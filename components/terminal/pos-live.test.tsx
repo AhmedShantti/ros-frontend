@@ -26,6 +26,7 @@ const {
   voidLine,
   voidLinePostFire,
   inventoryReasonCodes,
+  capturePayment,
 } = vi.hoisted(() => {
   class MockServiceError extends Error {
     code: string;
@@ -54,6 +55,7 @@ const {
     // so a regression that reintroduces the back-office call fails loudly
     // ("Cannot read properties of undefined") instead of silently passing.
     inventoryReasonCodes: vi.fn(),
+    capturePayment: vi.fn(),
   };
 });
 
@@ -73,6 +75,7 @@ vi.mock("@/lib/console/services", () => ({
         open: (...args: unknown[]) => openOrder(...args),
         voidLine: (...args: unknown[]) => voidLine(...args),
         voidLinePostFire: (...args: unknown[]) => voidLinePostFire(...args),
+        capturePayment: (...args: unknown[]) => capturePayment(...args),
       },
       reasonCodes: (...args: unknown[]) => salesReasonCodes(...args),
     },
@@ -675,5 +678,176 @@ describe("LivePos — prefire line void (LIVE-01-PREFIRE-LINE-VOID-P0, PREFIRE-V
     Session.setActiveSurface("kds");
     expect(Session.getAccessToken()).toBeNull();
     Session.setActiveSurface("pos");
+  });
+});
+
+/*
+ * PAYMENT-AMOUNT-ENTRY-P0 — the production `PaymentDrawer` (`pos-live.tsx`)
+ * is mounted once alongside its sibling drawers and only toggled via `open`;
+ * it never remounts. Its `amount` field was seeded from `outstanding` with a
+ * `useState` LAZY INITIALIZER, which only ever runs on that first-ever mount
+ * — so every later open (a fresh order, or the same order right after a
+ * partial payment already reduced the balance) kept showing whatever
+ * "amount" was first captured (often "", before the order's totals were
+ * known), forcing the cashier to type it by hand every time. Change due was
+ * never computed or displayed at all. These tests exercise the fix through
+ * the real `LivePos` screen, never a re-implementation of the drawer.
+ */
+describe("LivePos — payment amount entry (PAYMENT-AMOUNT-ENTRY-P0)", () => {
+  /** The task's own example: a single line totalling EGP 600.00, unpaid. */
+  function order600(overrides: Partial<Order> = {}): Order {
+    return makeOrder({
+      subtotal: money(60000),
+      grandTotal: money(60000),
+      lines: [
+        makeLine({ unitPrice: money(60000), lineSubtotal: money(60000), lineTotal: money(60000) }),
+      ],
+      ...overrides,
+    });
+  }
+
+  function changeDueText(dialog: HTMLElement): string {
+    const label = within(dialog).getByText("pos.changeDue");
+    const row = label.closest("div")!;
+    return row.querySelector("dd")?.textContent ?? "";
+  }
+
+  it("1. the drawer opens with Amount already equal to the current remaining balance", async () => {
+    const order = makeOrder(); // grandTotal 10000, paidTotal 0 -> outstanding 100.00
+    const user = await enterPosWithOrder(order);
+
+    await user.click(screen.getByRole("button", { name: "pos.pay" }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByLabelText(/orders\.amount/)).toHaveValue("100.00");
+  });
+
+  it("2. cash payment with a remaining balance of 600 defaults Amount to 600.00", async () => {
+    const user = await enterPosWithOrder(order600());
+
+    await user.click(screen.getByRole("button", { name: "pos.pay" }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByLabelText(/orders\.amount/)).toHaveValue("600.00");
+    expect(within(dialog).getByLabelText(/orders\.tendered/)).toHaveValue("");
+  });
+
+  it("3. entering a received amount of 700 shows change due of 100 (FR-POS-063)", async () => {
+    const user = await enterPosWithOrder(order600());
+
+    await user.click(screen.getByRole("button", { name: "pos.pay" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.type(within(dialog).getByLabelText(/orders\.tendered/), "700");
+
+    await waitFor(() => expect(changeDueText(dialog)).toMatch(/100\.00/));
+    expect(changeDueText(dialog)).toMatch(/EGP/);
+  });
+
+  it("4. a cashier can intentionally lower Amount below the remaining balance for a partial payment", async () => {
+    const order = order600();
+    const user = await enterPosWithOrder(order);
+
+    await user.click(screen.getByRole("button", { name: "pos.pay" }));
+    const dialog = await screen.findByRole("dialog");
+
+    const amountInput = within(dialog).getByLabelText(/orders\.amount/);
+    await user.clear(amountInput);
+    await user.type(amountInput, "300");
+    await user.type(within(dialog).getByLabelText(/orders\.tendered/), "300");
+
+    const submit = within(dialog).getByRole("button", { name: "pos.capturePayment" });
+    expect(submit).toBeEnabled();
+
+    capturePayment.mockResolvedValue({ ...order, paidTotal: money(30000), version: 2 });
+    await user.click(submit);
+
+    await waitFor(() =>
+      expect(capturePayment).toHaveBeenCalledWith(
+        order.businessDay,
+        order.id,
+        expect.objectContaining({
+          tender: "cash",
+          amountMinor: "30000",
+          tenderedAmountMinor: "30000",
+        }),
+        { ifMatch: 1 },
+      ),
+    );
+  });
+
+  it("never allows Amount to exceed the remaining balance", async () => {
+    const order = order600();
+    const user = await enterPosWithOrder(order);
+
+    await user.click(screen.getByRole("button", { name: "pos.pay" }));
+    const dialog = await screen.findByRole("dialog");
+
+    const amountInput = within(dialog).getByLabelText(/orders\.amount/);
+    await user.clear(amountInput);
+    await user.type(amountInput, "700");
+    await user.type(within(dialog).getByLabelText(/orders\.tendered/), "700");
+
+    expect(within(dialog).getByRole("button", { name: "pos.capturePayment" })).toBeDisabled();
+    expect(capturePayment).not.toHaveBeenCalled();
+  });
+
+  it("5. after a partial payment, reopening the drawer uses the new remaining balance", async () => {
+    const order = order600();
+    const user = await enterPosWithOrder(order);
+
+    await user.click(screen.getByRole("button", { name: "pos.pay" }));
+    let dialog = await screen.findByRole("dialog");
+
+    const amountInput = within(dialog).getByLabelText(/orders\.amount/);
+    await user.clear(amountInput);
+    await user.type(amountInput, "300");
+    await user.type(within(dialog).getByLabelText(/orders\.tendered/), "300");
+
+    capturePayment.mockResolvedValue({ ...order, paidTotal: money(30000), version: 2 });
+    await user.click(within(dialog).getByRole("button", { name: "pos.capturePayment" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "pos.pay" }));
+    dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByLabelText(/orders\.amount/)).toHaveValue("300.00");
+    // The previous payment's tendered amount must not linger either.
+    expect(within(dialog).getByLabelText(/orders\.tendered/)).toHaveValue("");
+  });
+
+  it("6. non-cash (manual card) behavior is unaffected: Amount still defaults, no change-due row, terminal reference in place of tendered", async () => {
+    const order = order600();
+    const user = await enterPosWithOrder(order);
+
+    await user.click(screen.getByRole("button", { name: "pos.pay" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await pickOption(user, dialog, /^orders\.tender$/, "orders.card");
+
+    expect(within(dialog).getByLabelText(/orders\.amount/)).toHaveValue("600.00");
+    expect(within(dialog).queryByText("pos.changeDue")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText(/orders\.tendered/)).not.toBeInTheDocument();
+
+    await user.type(within(dialog).getByLabelText(/orders\.terminalReference/), "REF123");
+    const submit = within(dialog).getByRole("button", { name: "pos.capturePayment" });
+    expect(submit).toBeEnabled();
+
+    capturePayment.mockResolvedValue({ ...order, paidTotal: money(60000), state: "completed" as const, version: 2 });
+    await user.click(submit);
+
+    await waitFor(() =>
+      expect(capturePayment).toHaveBeenCalledWith(
+        order.businessDay,
+        order.id,
+        expect.objectContaining({
+          tender: "manual_external_card",
+          amountMinor: "60000",
+          terminalReference: "REF123",
+        }),
+        { ifMatch: 1 },
+      ),
+    );
   });
 });

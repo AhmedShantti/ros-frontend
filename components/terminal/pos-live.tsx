@@ -61,7 +61,7 @@ import { useAsync, type AsyncState } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
 import type { ConsoleKey } from "@/locales";
-import { formatDateTime, formatMoney } from "@/lib/console/format";
+import { formatDateTime, formatMoney, minorFromInput } from "@/lib/console/format";
 import { ORDER_LINE_STATE, ORDER_TYPE, TENDER_TYPE, labelOf } from "@/lib/console/labels";
 import {
   clearTerminalIdentity,
@@ -2566,13 +2566,40 @@ function PaymentDrawer({
   const [tendered, setTendered] = useState("");
   const [terminalReference, setTerminalReference] = useState("");
 
+  /**
+   * This drawer is mounted once alongside its siblings and only toggled via
+   * `open` — it never remounts — so the `useState` initializers above run
+   * exactly once, for whatever `outstanding` was at that first render
+   * (often "0, order still loading"). Left alone, every later open — a new
+   * order, or the same order after a partial payment just reduced the
+   * balance — would keep showing that first, stale amount instead of the
+   * current one. Re-deriving it on every open (not on every render, so an
+   * intentional partial-amount edit made while the drawer stays open is
+   * never clobbered) is what actually keeps the default correct.
+   */
+  useEffect(() => {
+    if (!open) return;
+    setAmount(decimalOf(outstanding));
+    setTendered("");
+    setTerminalReference("");
+  }, [open, outstanding]);
+
   if (!open) return null;
 
   const minor = Math.round(Number(amount) * 100);
+  // FR-POS-063 — change is the physical cash handed back, computed from
+  // what the guest tendered against the amount actually being applied to
+  // the order, never a number the cashier has to work out themselves.
+  const tenderedMinor = tender === "cash" ? (minorFromInput(tendered) ?? 0) : 0;
+  const changeDue = tender === "cash" ? Math.max(0, tenderedMinor - minor) : 0;
+  const overBalance = minor > outstanding;
   const valid =
     amount.trim() !== "" &&
     Number.isFinite(minor) &&
     minor > 0 &&
+    // A payment can settle for less than the balance (partial/split), but
+    // never for more — there is no over-tender/tip concept on this form.
+    !overBalance &&
     (tender === "cash"
       ? tendered.trim() !== "" && Number.isFinite(Number(tendered))
       : terminalReference.trim() !== "");
@@ -2644,18 +2671,28 @@ function PaymentDrawer({
             dir="ltr"
             value={amount}
             onChange={(event) => setAmount(event.target.value)}
+            className={overBalance ? "border-bad" : undefined}
           />
         </Field>
 
         {tender === "cash" ? (
-          <Field label={t("orders.tendered")} hint={t("pos.tenderedHint")} required>
-            <Input
-              inputMode="decimal"
-              dir="ltr"
-              value={tendered}
-              onChange={(event) => setTendered(event.target.value)}
-            />
-          </Field>
+          <>
+            <Field label={t("orders.tendered")} hint={t("pos.tenderedHint")} required>
+              <Input
+                inputMode="decimal"
+                dir="ltr"
+                value={tendered}
+                onChange={(event) => setTendered(event.target.value)}
+              />
+            </Field>
+            <DescList>
+              <DescRow label={t("pos.changeDue")} mono>
+                <span className={cx("text-lg font-bold", changeDue > 0 ? "text-good" : "text-fg")}>
+                  {formatMoney({ amount: changeDue, currency: order.currency }, fmt)}
+                </span>
+              </DescRow>
+            </DescList>
+          </>
         ) : (
           <Field label={t("orders.terminalReference")} hint={t("pos.terminalRefHint")} required>
             <Input
