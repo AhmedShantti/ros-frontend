@@ -27,6 +27,7 @@ const {
   voidLinePostFire,
   inventoryReasonCodes,
   capturePayment,
+  salesReceipt,
 } = vi.hoisted(() => {
   class MockServiceError extends Error {
     code: string;
@@ -56,6 +57,7 @@ const {
     // ("Cannot read properties of undefined") instead of silently passing.
     inventoryReasonCodes: vi.fn(),
     capturePayment: vi.fn(),
+    salesReceipt: vi.fn(),
   };
 });
 
@@ -78,6 +80,7 @@ vi.mock("@/lib/console/services", () => ({
         capturePayment: (...args: unknown[]) => capturePayment(...args),
       },
       reasonCodes: (...args: unknown[]) => salesReasonCodes(...args),
+      receipt: (...args: unknown[]) => salesReceipt(...args),
     },
     inventory: {
       reasonCodes: (...args: unknown[]) => inventoryReasonCodes(...args),
@@ -849,5 +852,278 @@ describe("LivePos — payment amount entry (PAYMENT-AMOUNT-ENTRY-P0)", () => {
         { ifMatch: 1 },
       ),
     );
+  });
+});
+
+/*
+ * RECEIPT-CASH-TENDERED-AMOUNT-P0 (was: PAYMENT-AMOUNT-ENTRY-P0-REGRESSION).
+ *
+ * Prior investigation (PAYMENT-AMOUNT-ENTRY-P0-REGRESSION) proved the
+ * `capturePayment` payload was never wrong: `capture()` was untouched by
+ * 8dc3c09, and for a 2400.00 order paid with 2500.00 cash it always sent
+ * `amountMinor: "240000"`, `tenderedAmountMinor: "250000"`. The real bug was
+ * `ReceiptDrawer`'s "Cash" row rendering `payment.amount` (the amount
+ * applied to the order) instead of `payment.tenderedAmount` (the physical
+ * cash the guest handed over) — a pre-existing defect, byte-identical
+ * before and after 8dc3c09, that 8dc3c09 merely exposed by correctly
+ * capping Amount at the balance (removing the old workaround of typing the
+ * received cash straight into Amount, which had coincidentally masked it).
+ *
+ * This test — originally written to document that bug — now asserts the
+ * fix: the "Cash" row must show `payment.tenderedAmount ?? payment.amount`.
+ */
+describe("LivePos — receipt Cash row shows tendered cash, not the settled amount (RECEIPT-CASH-TENDERED-AMOUNT-P0)", () => {
+  /** The human report's exact figures: a 2400.00 EGP order. */
+  function order2400(overrides: Partial<Order> = {}): Order {
+    return makeOrder({
+      subtotal: money(240000),
+      grandTotal: money(240000),
+      lines: [
+        makeLine({ unitPrice: money(240000), lineSubtotal: money(240000), lineTotal: money(240000) }),
+      ],
+      ...overrides,
+    });
+  }
+
+  /** A minimal, valid mapped `Receipt` for `order`, with one overridable payment. */
+  function receiptFixture(
+    order: Order,
+    payment: {
+      tender?: "cash" | "manual_external_card";
+      amount: ReturnType<typeof money>;
+      tenderedAmount: ReturnType<typeof money> | null;
+      changeGiven: ReturnType<typeof money> | null;
+      cardLast4?: string | null;
+    },
+  ) {
+    return {
+      orderNumber: order.orderNumber,
+      orderType: order.orderType,
+      currency: order.currency,
+      completedAt: "2026-09-18T12:00:00Z",
+      lines: [
+        {
+          menuItemId: "item-1",
+          name: { en: "Burger", ar: "برجر" },
+          quantity: 1,
+          unitPrice: money(240000),
+          modifiers: [],
+          modifierTotal: money(0),
+          lineDiscount: money(0),
+          lineSubtotal: money(240000),
+          taxAmount: money(0),
+          lineTotal: money(240000),
+        },
+      ],
+      payments: [
+        {
+          id: "pay-1",
+          tender: payment.tender ?? ("cash" as const),
+          amount: payment.amount,
+          processedAt: "2026-09-18T12:00:00Z",
+          cardLast4: payment.cardLast4 ?? null,
+          changeGiven: payment.changeGiven,
+          tenderedAmount: payment.tenderedAmount,
+        },
+      ],
+      totals: {
+        subtotal: money(240000),
+        discountTotal: money(0),
+        taxTotal: money(0),
+        serviceChargeTotal: money(0),
+        tipTotal: money(0),
+        cashRoundingAdjustment: money(0),
+        grandTotal: money(240000),
+        paidTotal: money(240000),
+      },
+      taxPresentation: "NOT_APPLICABLE" as const,
+    };
+  }
+
+  it("capturePayment's split is correct (240000/250000); the receipt's Cash row shows the tendered cash (2500.00), not the settled amount", async () => {
+    const order = order2400();
+    const user = await enterPosWithOrder(order);
+
+    await user.click(screen.getByRole("button", { name: "pos.pay" }));
+    const payDialog = await screen.findByRole("dialog");
+
+    // Amount already auto-fills to the full balance — nothing typed here.
+    expect(within(payDialog).getByLabelText(/orders\.amount/)).toHaveValue("2400.00");
+    await user.type(within(payDialog).getByLabelText(/orders\.tendered/), "2500");
+
+    capturePayment.mockResolvedValue({
+      ...order,
+      state: "completed" as const,
+      paidTotal: money(240000),
+      version: 2,
+    });
+    await user.click(within(payDialog).getByRole("button", { name: "pos.capturePayment" }));
+
+    // (1) The request `capturePayment` actually receives is exactly right —
+    // proving this commit did not corrupt the payload.
+    await waitFor(() =>
+      expect(capturePayment).toHaveBeenCalledWith(
+        order.businessDay,
+        order.id,
+        expect.objectContaining({
+          tender: "cash",
+          amountMinor: "240000",
+          tenderedAmountMinor: "250000",
+        }),
+        { ifMatch: 1 },
+      ),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    // (2) The receipt's own data pipeline also carries the correct split —
+    // `payment.tenderedAmount` is 2500, `payment.changeGiven` is 100.
+    salesReceipt.mockResolvedValue(
+      receiptFixture(order, {
+        amount: money(240000),
+        tenderedAmount: money(250000),
+        changeGiven: money(10000),
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "pos.viewReceipt" }));
+    const receiptDialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(salesReceipt).toHaveBeenCalledWith(order.businessDay, order.id));
+
+    // Change due still renders correctly from the same payment object.
+    await waitFor(() =>
+      expect(within(receiptDialog).getByText("pos.receiptChange")).toBeInTheDocument(),
+    );
+    const changeRow = within(receiptDialog).getByText("pos.receiptChange").parentElement!;
+    expect(changeRow).toHaveTextContent(/100\.00/);
+
+    // RECEIPT-CASH-TENDERED-AMOUNT-P0 — the "Cash" row must show what the
+    // guest physically handed over (2,500.00), never the amount settled
+    // against the order (2,400.00).
+    const cashRow = within(receiptDialog).getByText("Cash").parentElement!;
+    expect(cashRow).toHaveTextContent(/2,500\.00/);
+    expect(cashRow).not.toHaveTextContent(/2,400\.00/);
+  });
+
+  it("cash with no change (tendered == amount) still displays correctly", async () => {
+    const order = order2400();
+    const user = await enterPosWithOrder(order);
+
+    await user.click(screen.getByRole("button", { name: "pos.pay" }));
+    const payDialog = await screen.findByRole("dialog");
+    await user.type(within(payDialog).getByLabelText(/orders\.tendered/), "2400");
+
+    capturePayment.mockResolvedValue({
+      ...order,
+      state: "completed" as const,
+      paidTotal: money(240000),
+      version: 2,
+    });
+    await user.click(within(payDialog).getByRole("button", { name: "pos.capturePayment" }));
+    await waitFor(() =>
+      expect(capturePayment).toHaveBeenCalledWith(
+        order.businessDay,
+        order.id,
+        expect.objectContaining({
+          tender: "cash",
+          amountMinor: "240000",
+          tenderedAmountMinor: "240000",
+        }),
+        { ifMatch: 1 },
+      ),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    // Realistic "no change" backend shape: `changeGiven` is `null`, not a
+    // zero `Money` — `toReceipt`/`ReceiptDrawer` both key off `!== null`.
+    salesReceipt.mockResolvedValue(
+      receiptFixture(order, {
+        amount: money(240000),
+        tenderedAmount: money(240000),
+        changeGiven: null,
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "pos.viewReceipt" }));
+    const receiptDialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(salesReceipt).toHaveBeenCalledWith(order.businessDay, order.id));
+
+    const cashRow = within(receiptDialog).getByText("Cash").parentElement!;
+    expect(cashRow).toHaveTextContent(/2,400\.00/);
+    // No change-given row when there is no change to give.
+    expect(within(receiptDialog).queryByText("pos.receiptChange")).not.toBeInTheDocument();
+  });
+
+  it("non-cash (manual card) receipt behavior is unchanged: the row shows payment.amount, tenderedAmount is null", async () => {
+    const order = order2400();
+    const user = await enterPosWithOrder(order);
+
+    await user.click(screen.getByRole("button", { name: "pos.pay" }));
+    const payDialog = await screen.findByRole("dialog");
+    await pickOption(user, payDialog, /^orders\.tender$/, "orders.card");
+    await user.type(within(payDialog).getByLabelText(/orders\.terminalReference/), "REF1");
+
+    capturePayment.mockResolvedValue({
+      ...order,
+      state: "completed" as const,
+      paidTotal: money(240000),
+      version: 2,
+    });
+    await user.click(within(payDialog).getByRole("button", { name: "pos.capturePayment" }));
+    await waitFor(() => expect(capturePayment).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    salesReceipt.mockResolvedValue(
+      receiptFixture(order, {
+        tender: "manual_external_card" as const,
+        amount: money(240000),
+        tenderedAmount: null,
+        changeGiven: null,
+        cardLast4: "4242",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "pos.viewReceipt" }));
+    const receiptDialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(salesReceipt).toHaveBeenCalledWith(order.businessDay, order.id));
+
+    // `tenderedAmount` is null for card — the `?? payment.amount` fallback
+    // means this row is completely unaffected by the fix.
+    const cardRow = within(receiptDialog).getByText(/orders\.card/).parentElement!;
+    expect(cardRow).toHaveTextContent(/2,400\.00/);
+    expect(cardRow).toHaveTextContent("4242");
+    expect(within(receiptDialog).queryByText("pos.receiptChange")).not.toBeInTheDocument();
+  });
+
+  it("item-name rendering on the receipt is unaffected by the Cash-row fix", async () => {
+    const order = order2400();
+    const user = await enterPosWithOrder(order);
+
+    await user.click(screen.getByRole("button", { name: "pos.pay" }));
+    const payDialog = await screen.findByRole("dialog");
+    await user.type(within(payDialog).getByLabelText(/orders\.tendered/), "2500");
+
+    capturePayment.mockResolvedValue({
+      ...order,
+      state: "completed" as const,
+      paidTotal: money(240000),
+      version: 2,
+    });
+    await user.click(within(payDialog).getByRole("button", { name: "pos.capturePayment" }));
+    await waitFor(() => expect(capturePayment).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    salesReceipt.mockResolvedValue(
+      receiptFixture(order, {
+        amount: money(240000),
+        tenderedAmount: money(250000),
+        changeGiven: money(10000),
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "pos.viewReceipt" }));
+    const receiptDialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(salesReceipt).toHaveBeenCalledWith(order.businessDay, order.id));
+
+    expect(within(receiptDialog).getByText(/Burger/)).toBeInTheDocument();
   });
 });

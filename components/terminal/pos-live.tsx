@@ -2508,7 +2508,9 @@ function ReceiptDrawer({
                       : t("orders.card")}
                     {payment.cardLast4 ? ` •••• ${payment.cardLast4}` : ""}
                   </span>
-                  <span className="text-fg font-mono">{formatMoney(payment.amount, fmt)}</span>
+                  <span className="text-fg font-mono">
+                    {formatMoney(payment.tenderedAmount ?? payment.amount, fmt)}
+                  </span>
                 </div>
               ))}
               {receipt.payments.some((payment) => payment.changeGiven) ? (
