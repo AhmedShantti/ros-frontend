@@ -171,6 +171,46 @@ describe("refreshSession resilience", () => {
     });
   }
 
+  /*
+   * REMOVE-POS-IDLE-LOGOUT-P0 — the frontend never measured POS idle time
+   * itself (only the backend did, via `AuthService.refreshPosOrKds()`); it
+   * only ever reacts to whatever `POST /auth/refresh` answers. So there is
+   * no frontend idle timer to remove — this test documents, explicitly,
+   * that a successful refresh keeps the POS session signed in regardless of
+   * how long the till sat untouched beforehand (the backend no longer fails
+   * this for POS at all; the frontend already handled "refresh succeeded"
+   * correctly before this task and still does, unchanged).
+   */
+  it("POS-KDS-SESSION-CONTINUITY-P0/REMOVE-POS-IDLE-LOGOUT-P0 — a POS session stays signed in when refresh succeeds after a long period of inactivity", async () => {
+    Session.setActiveSurface("pos");
+    Session.setTokens({ accessToken: "old-access", refreshToken: "refresh-1", expiresIn: 900 });
+    Session.setTenantId("tenant-1");
+
+    let requestCount = 0;
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const path = String(url);
+      // The backend accepts this refresh even though real elapsed idle time
+      // (simulated here — the frontend cannot and does not know this) is
+      // well past the old 15-minute POS default; it just returns 200, same
+      // shape as any other successful refresh.
+      if (path.includes("/auth/refresh")) {
+        return jsonResponse(200, {
+          accessToken: "pos-refreshed-after-idle",
+          refreshToken: "refresh-2",
+          expiresIn: 900,
+        });
+      }
+      requestCount += 1;
+      if (requestCount === 1) return jsonResponse(401, { message: "Unauthenticated" });
+      return jsonResponse(200, { ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(http.get("/foo")).resolves.toEqual({ ok: true });
+    expect(Session.isSignedIn()).toBe(true);
+    expect(Session.getAccessToken()).toBe("pos-refreshed-after-idle");
+  });
+
   it("the hard session lifetime cap ends the session even though the refresh token is still valid", async () => {
     Session.setTokens({ accessToken: "old-access", refreshToken: "still-good-refresh", expiresIn: 900 });
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + Session.HARD_SESSION_LIFETIME_MS + 1_000);
