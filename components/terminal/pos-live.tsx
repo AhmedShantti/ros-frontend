@@ -41,6 +41,7 @@ import {
   Banknote,
   Flame,
   Gift,
+  ListOrdered,
   Lock,
   Percent,
   Plus,
@@ -51,6 +52,7 @@ import {
 
 import type { MenuItem, Order } from "@/lib/console/types";
 import { services, ServiceError } from "@/lib/console/services";
+import type { Scope } from "@/lib/console/services/types";
 import { api } from "@/lib/api/endpoints";
 import {
   toPosMenu,
@@ -62,8 +64,8 @@ import { useAsync, type AsyncState } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
 import type { ConsoleKey } from "@/locales";
-import { formatDateTime, formatMoney, minorFromInput } from "@/lib/console/format";
-import { ORDER_LINE_STATE, ORDER_TYPE, TENDER_TYPE, labelOf } from "@/lib/console/labels";
+import { formatDateTime, formatMoney, formatRelative, minorFromInput, money } from "@/lib/console/format";
+import { ORDER_LINE_STATE, ORDER_STATE, ORDER_TYPE, TENDER_TYPE, labelOf } from "@/lib/console/labels";
 import {
   clearTerminalIdentity,
   getOpenCashSession,
@@ -86,7 +88,7 @@ import {
   reconcileWithServer,
   sameEmployee,
 } from "@/lib/console/cash-session-reconcile";
-import { AsyncPanel, ErrorPanel } from "@/components/console/states";
+import { AsyncPanel, EmptyPanel, ErrorPanel } from "@/components/console/states";
 import { onCloseShiftRequested } from "@/components/terminal/chrome";
 import { DrawerSheet } from "@/components/terminal/pos-drawer";
 import {
@@ -124,6 +126,8 @@ export function LivePos() {
   const [order, setOrder] = useState<Order | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
+  /** POS-OPEN-ORDERS-RESUME-P1 — the open-orders picker, see below. */
+  const [openOrders, setOpenOrders] = useState(false);
 
   /**
    * POS-OWN-SHIFT-CLOSE-ENTRY-P0-FIX — the sign-off warning (in `chrome.tsx`,
@@ -453,13 +457,23 @@ export function LivePos() {
         {order ? (
           <MenuPane order={order} onOrder={setOrder} onMessage={setMessage} />
         ) : (
-          <NewOrderPane
-            branchId={scope.branchId}
-            onOpened={(next) => {
-              setOrder(next);
-              setMessage(t("pos.orderOpened"));
-            }}
-          />
+          <div className="mx-auto w-full max-w-md space-y-3">
+            <Button
+              variant="secondary"
+              className="w-full"
+              icon={<ListOrdered size={14} />}
+              onClick={() => setOpenOrders(true)}
+            >
+              {t("pos.openOrders")}
+            </Button>
+            <NewOrderPane
+              branchId={scope.branchId}
+              onOpened={(next) => {
+                setOrder(next);
+                setMessage(t("pos.orderOpened"));
+              }}
+            />
+          </div>
         )}
       </div>
 
@@ -489,8 +503,139 @@ export function LivePos() {
         }}
       />
 
+      <OpenOrdersDrawer
+        open={openOrders}
+        scope={scope}
+        onClose={() => setOpenOrders(false)}
+        onResumed={(resumed) => {
+          setOrder(resumed);
+          setOpenOrders(false);
+          setMessage(t("pos.orderOpened"));
+        }}
+      />
+
       <Toast message={message} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * POS-OPEN-ORDERS-RESUME-P1 — resume an order this till lost from its own
+ * state (a reload, a navigation away) but the server never lost at all.
+ *
+ * `GET /orders` already exists and is already Cashier-safe — it is gated on
+ * `pos.order.create`, the same permission that opens an order in the first
+ * place (`orders.controller.ts:511/453`) — so this needed no backend work,
+ * only a picker. Lists only the resumable states (draft/open/held/parked/
+ * partially_paid — `OPEN_STATES`, `lib/console/services/http.ts`); a
+ * completed or cancelled order never appears here, matching the same rule
+ * the console's own `/operations/open-orders` page already enforces.
+ *
+ * Resuming re-fetches the order fresh (`GET /orders/{day}/{id}`) rather than
+ * reusing the summary row from the list, so the till's optimistic-concurrency
+ * `version` — and every line/payment/discount — reflects whatever the order
+ * actually holds right now, not what it held when the list was fetched.
+ */
+function OpenOrdersDrawer({
+  open,
+  scope,
+  onClose,
+  onResumed,
+}: {
+  open: boolean;
+  scope: Scope;
+  onClose: () => void;
+  onResumed: (order: Order) => void;
+}) {
+  const { t, tx, fmt } = useI18n();
+  const action = useAction();
+
+  const state = useAsync(
+    () =>
+      open && scope.branchId
+        ? services.operations
+            .openOrders({ scope, limit: 100, sort: "openedAt" })
+            .then((page) => page.rows)
+        : Promise.resolve([] as Order[]),
+    [open, scope.branchId],
+  );
+
+  async function resume(row: Order) {
+    await action.run(() => services.sales.orders.get(`${row.businessDay}/${row.id}`), {
+      onSuccess: (fresh) => {
+        if (fresh) onResumed(fresh);
+      },
+    });
+  }
+
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      title={t("pos.openOrders")}
+      subtitle={t("pos.startPrompt")}
+    >
+      <div className="space-y-3">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <AsyncPanel
+          state={state}
+          skeleton={<Spinner />}
+          isEmpty={(rows) => rows.length === 0}
+          empty={<EmptyPanel compact />}
+        >
+          {(rows) => (
+            <ul className="divide-line -mx-1 divide-y">
+              {rows.map((row) => {
+                const outstanding = money(
+                  row.grandTotal.amount - row.paidTotal.amount,
+                  row.currency,
+                );
+                const fired = row.firstFiredAt !== null;
+                return (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      disabled={action.pending}
+                      onClick={() => void resume(row)}
+                      className="hover:bg-sunken/60 focus:bg-sunken flex w-full flex-col gap-1 rounded-md px-2 py-2.5 text-start disabled:opacity-60"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-sm font-medium">{row.orderNumber}</span>
+                        <span className="text-fg-subtle text-xs">
+                          {formatRelative(row.openedAt, fmt)}
+                        </span>
+                      </div>
+
+                      <div className="text-fg-muted flex flex-wrap items-center gap-1.5 text-xs">
+                        <Badge tone={ORDER_STATE[row.state].tone}>
+                          {tx(ORDER_STATE[row.state].label)}
+                        </Badge>
+                        <span>{tx(labelOf(ORDER_TYPE, row.orderType).label)}</span>
+                        {row.tableLabel ? <span>· {row.tableLabel}</span> : null}
+                        <Badge tone={fired ? "accent" : "muted"}>
+                          {fired ? t("pos.fired") : t("pos.fire")}
+                        </Badge>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="text-fg-subtle">{formatDateTime(row.openedAt, fmt)}</span>
+                        <span className="font-mono tabular-nums">
+                          {t("common.total")} {formatMoney(row.grandTotal, fmt)} ·{" "}
+                          {t("pos.balance")} {formatMoney(outstanding, fmt)}
+                        </span>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </AsyncPanel>
+      </div>
+    </Drawer>
   );
 }
 

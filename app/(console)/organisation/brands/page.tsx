@@ -43,10 +43,12 @@ export default function BrandsPage() {
   );
 }
 
-function BrandsScreen() {
+export function BrandsScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
-  const canManage = usePermission("org.manage");
+  // `org.manage` has no backend counterpart (FRONTEND-REAL-UX-BATCH-1A) —
+  // the real permission guarding brand create/update is `settings.tenant.manage`.
+  const canManage = usePermission("settings.tenant.manage");
   const [selected, setSelected] = useState<Brand | null>(null);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();

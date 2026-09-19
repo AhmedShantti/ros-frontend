@@ -84,6 +84,7 @@ import type {
   KitchenService,
   OperationsService,
   OrganisationService,
+  PlatformService,
   PosReasonPurpose,
   ReadonlyCollectionService,
   SalesService,
@@ -110,6 +111,7 @@ import {
 import type { WorkforceService } from "./types";
 import type { Employee } from "../types";
 import * as map from "./map";
+import { REAL_REPORT_CATALOGUE } from "../reports/real-catalogue";
 
 // ---------------------------------------------------------------------------
 // Coverage
@@ -2984,6 +2986,23 @@ const security: SecurityService = {
 };
 
 // ---------------------------------------------------------------------------
+// Platform
+// ---------------------------------------------------------------------------
+
+/**
+ * `countryPacks`/`integrations` stay unsupported — no backend resource for
+ * either. `reports` used to be a fetch against a backend "report catalogue"
+ * that has never existed (`notImplemented`, FRONTEND-REAL-UX-BATCH-1A);
+ * it is now the static, real-only catalogue in `reports/real-catalogue.ts`.
+ */
+const platform: PlatformService = {
+  ...unsupportedPlatform,
+  async reports() {
+    return REAL_REPORT_CATALOGUE;
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
 
@@ -3695,7 +3714,7 @@ export const httpServices: ServiceRegistry = {
   purchasing: unsupportedPurchasing,
   costing: unsupportedCosting,
   workforce,
-  platform: unsupportedPlatform,
+  platform,
 
   // Live for the audit trail; still absent for approvals, anomaly flags and
   // SoD analysis. See the `governance` const above.

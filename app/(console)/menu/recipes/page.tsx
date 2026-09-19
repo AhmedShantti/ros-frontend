@@ -665,9 +665,13 @@ function RecipeScaling({ recipe }: { recipe: Recipe }) {
  * A substitute group lets a recipe line say "any of these three oils" rather
  * than pinning one, so a stock-out does not make the recipe uncostable.
  */
-function SubstituteGroups({ onChanged }: { onChanged: (message: string) => void }) {
+export function SubstituteGroups({ onChanged }: { onChanged: (message: string) => void }) {
   const { t, tx } = useI18n();
-  const canManage = usePermission("recipe.manage");
+  // `recipe.manage` does not exist in the backend — only recipe.view/edit/
+  // publish do, and substitute-group operations fall under `recipe.edit`
+  // (production.permissions.ts). `recipe.manage` was permanently ungrantable,
+  // so this UI was disabled for every real session (FRONTEND-REAL-UX-BATCH-1A).
+  const canManage = usePermission("recipe.edit");
   const [creating, setCreating] = useState(false);
   const [addingTo, setAddingTo] = useState<string | null>(null);
 

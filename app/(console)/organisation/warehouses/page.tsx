@@ -36,7 +36,7 @@ export default function WarehousesPage() {
   );
 }
 
-function WarehousesScreen() {
+export function WarehousesScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope, availableBranches } = useSession();
   // Branch names come from the session, which is the real list against a
@@ -45,7 +45,9 @@ function WarehousesScreen() {
     () => new Map(availableBranches.map((branch) => [branch.id, branch])),
     [availableBranches],
   );
-  const canManage = usePermission("org.manage");
+  // `org.manage` has no backend counterpart (FRONTEND-REAL-UX-BATCH-1A) —
+  // the real permission guarding warehouse create/update is `settings.tenant.manage`.
+  const canManage = usePermission("settings.tenant.manage");
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();
 

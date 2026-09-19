@@ -17,15 +17,15 @@
 
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import type { CentralKitchen } from "@/lib/console/types";
+import type { CentralKitchen, Warehouse } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatNumber } from "@/lib/console/format";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
-import { Gate } from "@/components/console/states";
+import { EmptyPanel, ErrorPanel, Gate, LoadingPanel } from "@/components/console/states";
 import {
   Badge,
   Button,
@@ -45,10 +45,13 @@ export default function CentralKitchensPage() {
   );
 }
 
-function CentralKitchensScreen() {
+export function CentralKitchensScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
-  const canManage = usePermission("org.manage");
+  // A central kitchen has no `org.manage` code anywhere in the backend
+  // (FRONTEND-REAL-UX-BATCH-1A) — the real permission guarding this create
+  // route is `settings.tenant.manage` (ORGANISATION_PERMISSIONS.TENANT_MANAGE).
+  const canManage = usePermission("settings.tenant.manage");
   const [selected, setSelected] = useState<CentralKitchen | null>(null);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useTransientMessage();
@@ -56,6 +59,26 @@ function CentralKitchensScreen() {
   const collection = useCollection<CentralKitchen>(
     (query) => services.organisation.centralKitchens.list(query),
     { scope, initialSort: "name", pageSize: 25 },
+  );
+
+  // The create form's required `warehouseId` (the warehouse that holds this
+  // kitchen's stock — `services.organisation.centralKitchens.create` throws
+  // BAD_REQUEST without it). Fetched here, not hardcoded, so the picker
+  // always reflects the real, current warehouse list for this scope.
+  const warehouses = useAsync<Warehouse[]>(
+    () =>
+      services.organisation.warehouses
+        .list({ scope, limit: 200 })
+        .then((page) => page.rows.filter((row) => row.active)),
+    [scope?.tenantId, scope?.brandId, scope?.branchId],
+  );
+  const warehouseOptions = useMemo(
+    () =>
+      (warehouses.data ?? []).map((row) => ({
+        value: row.id,
+        label: `${tx(row.name)} · ${row.code}`,
+      })),
+    [warehouses.data, tx],
   );
 
   const totals = useMemo(() => {
@@ -172,12 +195,31 @@ function CentralKitchensScreen() {
       <RecordDrawer
         open={creating}
         title={t("org.newKitchen")}
-        fields={[{ name: "name", label: t("common.name"), required: true, maxLength: 120 }]}
+        note={
+          warehouses.loading ? (
+            <LoadingPanel compact />
+          ) : warehouses.error ? (
+            <ErrorPanel error={warehouses.error} onRetry={warehouses.reload} compact />
+          ) : warehouseOptions.length === 0 ? (
+            <EmptyPanel title={t("nav.warehouses")} body={t("org.warehouseNote")} compact />
+          ) : null
+        }
+        fields={[
+          { name: "name", label: t("common.name"), required: true, maxLength: 120 },
+          {
+            name: "warehouseId",
+            label: t("nav.warehouses"),
+            kind: "select",
+            required: true,
+            options: warehouseOptions,
+          },
+        ]}
         onClose={() => setCreating(false)}
         onSubmit={(values) =>
           services.organisation.centralKitchens.create({
             name: { en: values.name.trim(), ar: values.name.trim() },
-          })
+            warehouseId: values.warehouseId,
+          } as Partial<CentralKitchen> & { warehouseId: string })
         }
         onDone={() => {
           setCreating(false);
