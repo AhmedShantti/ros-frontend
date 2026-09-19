@@ -108,7 +108,25 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/orders", labelKey: "nav.orders", icon: ReceiptText, permissions: ["pos.order.view"], matchPrefix: true },
       { href: "/operations/open-orders", labelKey: "nav.openOrders", icon: ClipboardList, permissions: ["ops.live.view", "pos.order.view"] },
-      { href: "/operations/tables", labelKey: "nav.tables", icon: Table2, permissions: ["ops.live.view"] },
+      /**
+       * TABLES-SIDEBAR-PRODUCTION-PERMISSION-CORRECTION-P0 — was
+       * `["ops.live.view"]`, a string this console's own catalogue
+       * (`lib/console/permissions.ts`) defines for its role-heuristic
+       * fallback, but that the real backend NEVER issues (confirmed: no
+       * `*.permissions.ts` constant anywhere in the canonical backend
+       * contains "live"). On a live session this item is invisible the
+       * moment `useSession().can` starts trusting the real granted set
+       * (`lib/console/providers.tsx`'s `granted` memo) instead of the
+       * demo/role-heuristic fallback — which is the ordinary case for any
+       * signed-in production user, not an edge case. `settings.branch.read`
+       * / `settings.branch.manage` are the REAL codes
+       * (`ORGANISATION_PERMISSIONS.BRANCH_READ`/`BRANCH_MANAGE`) the
+       * backend actually requires for `GET`/`POST`/`PATCH
+       * branches/:branchId/tables`, and are what this page's own
+       * Table Definitions section is gated on — an OR of the two (canAny)
+       * is the least-privilege pair that exactly matches real route access.
+       */
+      { href: "/operations/tables", labelKey: "nav.tables", icon: Table2, permissions: ["settings.branch.read", "settings.branch.manage"] },
       { href: "/operations/kitchen", labelKey: "nav.kitchen", icon: ChefHat, permissions: ["kds.operate"] },
       { href: "/operations/terminals", labelKey: "nav.terminals", icon: MonitorSmartphone, permissions: ["ops.terminal.view"] },
       { href: "/operations/stations", labelKey: "nav.stations", icon: Layers, permissions: ["settings.branch.manage"] },

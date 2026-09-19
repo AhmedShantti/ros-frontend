@@ -3,16 +3,31 @@ import { NAV_SECTIONS } from "./nav";
 import { ROLE_DEFINITIONS } from "./permissions";
 
 /*
- * TABLE-MANAGEMENT-AND-POS-OPEN-ORDERS-CORRECTION-P0
+ * TABLE-MANAGEMENT-AND-POS-OPEN-ORDERS-CORRECTION-P0,
+ * TABLES-SIDEBAR-PRODUCTION-PERMISSION-CORRECTION-P0
  *
  * Proves the "Console → Operations → Tables" navigation path an Owner or
- * Branch Manager actually needs exists and is reachable. This was never the
- * bug — the item is already correctly present and gated on a permission
- * both roles hold — the real gap was downstream, inside the page itself
- * (see `app/(console)/operations/tables/page.test.tsx`): Create/Edit was
- * gated on a permission (`ops.live.manage`) that existed nowhere, in this
- * catalogue or the backend, so nobody could ever manage a table once they
- * arrived. This test documents that the navigation half was never broken.
+ * Branch Manager actually needs exists and is reachable via the
+ * ROLE-HEURISTIC permission model (`ROLE_DEFINITIONS`, this catalogue's own
+ * demo/fallback role→permission lists).
+ *
+ * This is deliberately NOT the whole story: the first pass at this task
+ * concluded the nav item "was never broken" from exactly this kind of
+ * heuristic-only check, which is what let the real production bug through
+ * — the item's gate (`ops.live.view`, replaced by
+ * `settings.branch.read`/`settings.branch.manage` under
+ * TABLES-SIDEBAR-PRODUCTION-PERMISSION-CORRECTION-P0) was a string the real
+ * backend never issues, so on a LIVE session (`useSession().can` trusting
+ * `GET /auth/permissions`'s real granted set instead of this heuristic) it
+ * was unconditionally invisible. See
+ * `nav-live-permissions.test.tsx` for the test that actually proves
+ * production visibility, against a simulated real granted-permission set,
+ * not this file's role heuristic.
+ *
+ * The Create/Edit gap TABLE-MANAGEMENT-AND-POS-OPEN-ORDERS-CORRECTION-P0
+ * fixed (`app/(console)/operations/tables/page.test.tsx`) — a permission,
+ * `ops.live.manage`, that existed nowhere at all — is a separate,
+ * already-fixed bug from this sidebar-visibility one.
  */
 describe("Console navigation — Operations > Tables discoverability", () => {
   it("has a Tables item under the Operations section, pointing at /operations/tables", () => {
