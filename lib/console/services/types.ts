@@ -910,6 +910,19 @@ export interface OrderMutationService {
     },
     options?: { ifMatch?: number },
   ): Promise<Order>;
+
+  /**
+   * FR-POS-070/075, BR-POS-003 — cancel an entire order before payment.
+   * Only surfaced today for pre-fire orders (an abandoned Draft never sent
+   * to the kitchen); a produced/bumped line's elevated
+   * `pos.order.cancel_after_production` approval path is not wired here.
+   */
+  cancel(
+    businessDay: IsoDate,
+    orderId: Id,
+    input: { reasonCodeId: Id },
+    options?: { ifMatch?: number },
+  ): Promise<Order>;
 }
 
 /** One settled payment, as the receipt reports it — enough to refund against. */

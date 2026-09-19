@@ -599,6 +599,9 @@ const orderMutations: OrderMutationService = {
   async refund() {
     noBackend("Issuing a refund");
   },
+  async cancel() {
+    noBackend("Cancelling an order");
+  },
 };
 
 const sales: SalesService = {

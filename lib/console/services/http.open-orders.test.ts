@@ -14,10 +14,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * pattern as `http.test.ts` — the real `http.ts` logic runs.
  */
 
-const { listBranches, getAccessibleScope, salesList } = vi.hoisted(() => ({
+const { listBranches, getAccessibleScope, salesList, salesCancel } = vi.hoisted(() => ({
   listBranches: vi.fn(),
   getAccessibleScope: vi.fn(),
   salesList: vi.fn(),
+  salesCancel: vi.fn(),
 }));
 
 vi.mock("@/lib/api/endpoints", () => ({
@@ -28,6 +29,7 @@ vi.mock("@/lib/api/endpoints", () => ({
     },
     sales: {
       list: (...args: unknown[]) => salesList(...args),
+      cancel: (...args: unknown[]) => salesCancel(...args),
     },
   },
 }));
@@ -123,5 +125,46 @@ describe("http.ts — operations.openOrders (POS Open Orders/Resume)", () => {
     expect(page.rows.map((row) => row.id).sort()).toEqual(["1", "2", "3", "4", "5"]);
     expect(page.rows.some((row) => row.state === "completed")).toBe(false);
     expect(page.rows.some((row) => row.state === "cancelled")).toBe(false);
+  });
+
+  it("newest-first sort (-openedAt) puts today's orders ahead of stale ones, not buried behind them", async () => {
+    salesList.mockResolvedValue({
+      orders: [
+        { ...wireOrder("old", "draft"), businessDay: "2026-09-10", openedAt: "2026-09-10T09:00:00.000Z" },
+        { ...wireOrder("new", "open"), businessDay: "2026-09-19", openedAt: "2026-09-19T09:00:00.000Z" },
+      ],
+      nextCursor: null,
+    });
+
+    const page = await httpServices.operations.openOrders({
+      scope: { tenantId: TENANT_ID, brandId: null, branchId: BRANCH_ID },
+      sort: "-openedAt",
+    });
+
+    expect(page.rows.map((row) => row.id)).toEqual(["new", "old"]);
+  });
+});
+
+describe("http.ts — orders.mutations.cancel (Open Orders — abandoned Draft cancellation)", () => {
+  it("calls the real POST /orders/{day}/{id}/cancel with only reasonCodeId, never fabricating manager/disposition fields", async () => {
+    salesCancel.mockResolvedValue({
+      order: wireOrder("9", "cancelled"),
+      postFireVoidRecords: [],
+    });
+
+    const result = await httpServices.sales.mutations.cancel(
+      "2026-09-19",
+      "9",
+      { reasonCodeId: "reason-1" },
+      { ifMatch: 3 },
+    );
+
+    expect(salesCancel).toHaveBeenCalledWith(
+      "2026-09-19",
+      "9",
+      { reasonCodeId: "reason-1" },
+      { ifMatch: 3 },
+    );
+    expect(result.state).toBe("cancelled");
   });
 });

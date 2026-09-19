@@ -54,6 +54,7 @@ vi.mock("@/lib/console/providers", () => ({
   }),
   useSession: () => ({
     scope: { tenantId: "tenant-1", brandId: null, branchId: "branch-1" },
+    can: () => false,
   }),
 }));
 

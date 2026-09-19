@@ -2255,6 +2255,23 @@ const orderMutations: import("./types").OrderMutationService = {
     );
     return hydrateOrder(response.order);
   },
+
+  /**
+   * POS-OPEN-ORDERS-CORRECTION-P0 — cancel an order before payment
+   * (FR-POS-070/075, BR-POS-003). The till only ever calls this on a
+   * pre-fire order (never a produced/bumped line), so no line dispositions
+   * and no manager-approval fields are sent — the server would refuse the
+   * elevated path anyway without them, and this call never needs it.
+   */
+  async cancel(businessDay, orderId, input, options = {}) {
+    const response = await api.sales.cancel(
+      businessDay,
+      orderId,
+      { reasonCodeId: input.reasonCodeId },
+      { ifMatch: options.ifMatch },
+    );
+    return hydrateOrder(response.order);
+  },
 };
 
 /**

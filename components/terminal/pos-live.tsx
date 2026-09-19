@@ -25,6 +25,8 @@
  *   POST   /orders/{day}/{id}/lines/{l}/comp     comp one line
  *   POST   /orders/{day}/{id}/lines/{l}/void-postfire  void a fired line
  *   POST   /orders/{day}/{id}/refunds            refund a settled payment
+ *   POST   /orders/{day}/{id}/cancel             cancel a pre-payment order
+ *   GET    /orders                               list orders (Open Orders/resume)
  *
  * Bridging the simulator onto that surface would mean a screen where half
  * the controls silently do nothing to the server — a till that looks like
@@ -537,6 +539,15 @@ export function LivePos() {
  * reusing the summary row from the list, so the till's optimistic-concurrency
  * `version` — and every line/payment/discount — reflects whatever the order
  * actually holds right now, not what it held when the list was fetched.
+ *
+ * TABLE-MANAGEMENT-AND-POS-OPEN-ORDERS-CORRECTION-P0 — this used to be one
+ * flat list sorted OLDEST-first (`sort: "openedAt"`), so a branch carrying
+ * even a handful of genuinely-still-open orders from days ago pushed every
+ * one of today's orders below them. Fetching newest-first and splitting on
+ * the most recent `businessDay` actually present in the page (not today's
+ * calendar date — a trading day can run past midnight, FR-FIN-024) puts the
+ * operationally relevant orders first and keeps older-but-still-resumable
+ * ones reachable, collapsed, rather than either hiding or dominating.
  */
 function OpenOrdersDrawer({
   open,
@@ -551,12 +562,15 @@ function OpenOrdersDrawer({
 }) {
   const { t, tx, fmt } = useI18n();
   const action = useAction();
+  const canCancel = useSession().can("pos.order.cancel");
+  const [showOlder, setShowOlder] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<Order | null>(null);
 
   const state = useAsync(
     () =>
       open && scope.branchId
         ? services.operations
-            .openOrders({ scope, limit: 100, sort: "openedAt" })
+            .openOrders({ scope, limit: 100, sort: "-openedAt" })
             .then((page) => page.rows)
         : Promise.resolve([] as Order[]),
     [open, scope.branchId],
@@ -568,6 +582,73 @@ function OpenOrdersDrawer({
         if (fresh) onResumed(fresh);
       },
     });
+  }
+
+  /** Cancel always acts on a freshly-fetched order, never the summary row — same rule as resume. */
+  async function openCancel(row: Order) {
+    await action.run(() => services.sales.orders.get(`${row.businessDay}/${row.id}`), {
+      onSuccess: (fresh) => {
+        if (fresh) setCancelTarget(fresh);
+      },
+    });
+  }
+
+  function renderRow(row: Order) {
+    const outstanding = money(row.grandTotal.amount - row.paidTotal.amount, row.currency);
+    const fired = row.firstFiredAt !== null;
+    return (
+      <li key={row.id} className="flex items-stretch gap-1">
+        <button
+          type="button"
+          disabled={action.pending}
+          onClick={() => void resume(row)}
+          className="hover:bg-sunken/60 focus:bg-sunken flex w-full flex-col gap-1 rounded-md px-2 py-2.5 text-start disabled:opacity-60"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-mono text-sm font-medium">{row.orderNumber}</span>
+            <span className="text-fg-subtle text-xs">{formatRelative(row.openedAt, fmt)}</span>
+          </div>
+
+          <div className="text-fg-muted flex flex-wrap items-center gap-1.5 text-xs">
+            <Badge tone={ORDER_STATE[row.state].tone}>{tx(ORDER_STATE[row.state].label)}</Badge>
+            <span>{tx(labelOf(ORDER_TYPE, row.orderType).label)}</span>
+            {row.tableLabel ? <span>· {row.tableLabel}</span> : null}
+            <Badge tone={fired ? "accent" : "muted"}>
+              {fired ? t("pos.fired") : t("pos.fire")}
+            </Badge>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="text-fg-subtle">{formatDateTime(row.openedAt, fmt)}</span>
+            <span className="font-mono tabular-nums">
+              {t("common.total")} {formatMoney(row.grandTotal, fmt)} ·{" "}
+              {t("pos.balance")} {formatMoney(outstanding, fmt)}
+            </span>
+          </div>
+        </button>
+
+        {/*
+         * Only for `draft` orders: BR-POS-003's elevated
+         * `pos.order.cancel_after_production` path is for a produced/bumped
+         * line, which a draft — by definition never fired — cannot have.
+         * This is the real, existing `POST .../cancel` action (FR-POS-075),
+         * never a local delete: an abandoned draft stays visible in Older
+         * Open Orders, unauthorised users included, until someone who
+         * actually holds `pos.order.cancel` explicitly closes it.
+         */}
+        {canCancel && row.state === "draft" ? (
+          <Button
+            variant="danger"
+            size="sm"
+            disabled={action.pending}
+            onClick={() => void openCancel(row)}
+            className="shrink-0 self-center"
+          >
+            {t("pos.cancelOrder")}
+          </Button>
+        ) : null}
+      </li>
+    );
   }
 
   return (
@@ -586,52 +667,145 @@ function OpenOrdersDrawer({
           isEmpty={(rows) => rows.length === 0}
           empty={<EmptyPanel compact />}
         >
-          {(rows) => (
-            <ul className="divide-line -mx-1 divide-y">
-              {rows.map((row) => {
-                const outstanding = money(
-                  row.grandTotal.amount - row.paidTotal.amount,
-                  row.currency,
-                );
-                const fired = row.firstFiredAt !== null;
-                return (
-                  <li key={row.id}>
+          {(rows) => {
+            const latestDay = rows.reduce(
+              (max, row) => (row.businessDay > max ? row.businessDay : max),
+              rows[0]!.businessDay,
+            );
+            const current = rows.filter((row) => row.businessDay === latestDay);
+            const older = rows.filter((row) => row.businessDay !== latestDay);
+
+            return (
+              <>
+                <div>
+                  <h3 className="text-fg-subtle mb-1.5 px-2 text-xs font-semibold tracking-wide uppercase">
+                    {t("pos.openOrdersCurrent")}
+                  </h3>
+                  <ul className="divide-line -mx-1 divide-y">{current.map(renderRow)}</ul>
+                </div>
+
+                {older.length > 0 ? (
+                  <div className="border-line border-t pt-2">
                     <button
                       type="button"
-                      disabled={action.pending}
-                      onClick={() => void resume(row)}
-                      className="hover:bg-sunken/60 focus:bg-sunken flex w-full flex-col gap-1 rounded-md px-2 py-2.5 text-start disabled:opacity-60"
+                      onClick={() => setShowOlder((v) => !v)}
+                      className="text-fg-subtle flex w-full items-center justify-between px-2 py-1 text-xs font-semibold tracking-wide uppercase"
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono text-sm font-medium">{row.orderNumber}</span>
-                        <span className="text-fg-subtle text-xs">
-                          {formatRelative(row.openedAt, fmt)}
-                        </span>
-                      </div>
-
-                      <div className="text-fg-muted flex flex-wrap items-center gap-1.5 text-xs">
-                        <Badge tone={ORDER_STATE[row.state].tone}>
-                          {tx(ORDER_STATE[row.state].label)}
-                        </Badge>
-                        <span>{tx(labelOf(ORDER_TYPE, row.orderType).label)}</span>
-                        {row.tableLabel ? <span>· {row.tableLabel}</span> : null}
-                        <Badge tone={fired ? "accent" : "muted"}>
-                          {fired ? t("pos.fired") : t("pos.fire")}
-                        </Badge>
-                      </div>
-
-                      <div className="flex items-center justify-between gap-2 text-xs">
-                        <span className="text-fg-subtle">{formatDateTime(row.openedAt, fmt)}</span>
-                        <span className="font-mono tabular-nums">
-                          {t("common.total")} {formatMoney(row.grandTotal, fmt)} ·{" "}
-                          {t("pos.balance")} {formatMoney(outstanding, fmt)}
-                        </span>
-                      </div>
+                      <span>
+                        {t("pos.openOrdersOlder")} · {older.length}
+                      </span>
+                      <span>{showOlder ? "▲" : "▼"}</span>
                     </button>
-                  </li>
-                );
-              })}
-            </ul>
+                    {showOlder ? (
+                      <ul className="divide-line -mx-1 divide-y">{older.map(renderRow)}</ul>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            );
+          }}
+        </AsyncPanel>
+      </div>
+
+      {/*
+       * Nested INSIDE this Drawer's own children, not as a sibling after
+       * it — `useDismissable`'s outside-click check is `ref.current.
+       * contains(event.target)` against THIS Drawer's own root div. A
+       * sibling Drawer's clicks would register as "outside" and close
+       * this one out from under it the instant the reason picker or the
+       * confirm button was touched.
+       */}
+      {cancelTarget ? (
+        <CancelDraftOrderSheet
+          order={cancelTarget}
+          onClose={() => setCancelTarget(null)}
+          onCancelled={() => {
+            setCancelTarget(null);
+            state.reload();
+          }}
+        />
+      ) : null}
+    </Drawer>
+  );
+}
+
+/**
+ * ZERO-VALUE OLD DRAFTS — the real, existing `POST /orders/{day}/{id}/cancel`
+ * action, scoped here to pre-fire `draft` orders only (see the docblock on
+ * `OpenOrdersDrawer` above). FR-POS-075 requires a reason on every
+ * cancellation; `order_cancel` is a real, gated purpose on the same
+ * `GET /orders/reason-codes` route every other POS reason-picker already
+ * uses (`services.sales.reasonCodes`).
+ */
+function CancelDraftOrderSheet({
+  order,
+  onClose,
+  onCancelled,
+}: {
+  order: Order;
+  onClose: () => void;
+  onCancelled: () => void;
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const [reasonCodeId, setReasonCodeId] = useState("");
+
+  const reasons = useAsync(() => services.sales.reasonCodes("order_cancel"), []);
+
+  async function submit() {
+    if (!reasonCodeId) return;
+    await action.run(
+      () =>
+        services.sales.mutations.cancel(
+          order.businessDay,
+          order.id,
+          { reasonCodeId },
+          { ifMatch: orderVersion(order) },
+        ),
+      { onSuccess: onCancelled },
+    );
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={`${t("pos.cancelOrder")} · ${order.orderNumber}`}
+      footer={
+        <div className="flex gap-2">
+          <Button
+            variant="danger"
+            loading={action.pending}
+            disabled={!reasonCodeId}
+            onClick={() => void submit()}
+          >
+            {t("pos.cancelOrder")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+        <AsyncPanel
+          state={reasons}
+          isEmpty={(rows) => rows.length === 0}
+          empty={<Callout tone="warn">{t("pos.noReasonCodes")}</Callout>}
+        >
+          {(rows) => (
+            <Field label={t("pos.cancelReason")} required>
+              <Select value={reasonCodeId} onChange={(event) => setReasonCodeId(event.target.value)}>
+                <option value="">—</option>
+                {rows.map((reason) => (
+                  <option key={reason.id} value={reason.id}>
+                    {tx(reason.label)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
           )}
         </AsyncPanel>
       </div>

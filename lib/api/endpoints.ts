@@ -77,6 +77,10 @@ export const sales = {
   issueRefund: (businessDay: string, id: string, body: S.IssueRefundDto, options: { ifMatch?: string | number } = {}) =>
     http.post<S.OrdersController_issueRefundResponse>("/orders/{businessDay}/{id}/refunds", { params: { businessDay, id }, body, ifMatch: options.ifMatch, idempotent: true }),
 
+  /** `POST /orders/{businessDay}/{id}/cancel` — Cancel an entire order (before payment). — The cancelled order and the disposition record for every line that had already been sent to production. */
+  cancel: (businessDay: string, id: string, body: S.CancelOrderDto, options: { ifMatch?: string | number } = {}) =>
+    http.post<S.OrdersController_cancelResponse>("/orders/{businessDay}/{id}/cancel", { params: { businessDay, id }, body, ifMatch: options.ifMatch, idempotent: true }),
+
 };
 
 // ---------------------------------------------------------------------------

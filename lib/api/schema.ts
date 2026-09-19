@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 153 paths, 107 request DTOs.
+ * `api/openapi.json`. 154 paths, 109 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -867,6 +867,21 @@ export interface ErrorResponse {
 
 export interface SetBranchKdsConfigDto {
   fallbackStationId: string | null;
+}
+
+export interface CancelOrderLineDispositionDto {
+  orderLineId: string;
+  disposition: "returned_to_stock" | "wasted" | "given_to_staff";
+}
+
+export interface CancelOrderDto {
+  /** REQUIRED — FR-POS-075: cancellation must never succeed without a reason. */
+  reasonCodeId: string;
+  lineDispositions?: CancelOrderLineDispositionDto[];
+  managerEmployeeCode?: string;
+  managerPin?: string;
+  approvalRequestId?: string;
+  approvalDecisionId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -6050,6 +6065,110 @@ export type OrganisationController_setBranchKdsConfigResponse = {
 
 export type OrganisationController_setBranchKdsConfigBody = SetBranchKdsConfigDto;
 
+/** `POST /orders/{businessDay}/{id}/cancel` — Cancel an entire order (before payment). — The cancelled order and the disposition record for every line that had already been sent to production. */
+export type OrdersController_cancelResponse = {
+  order: {
+    id: string;
+    branchId: string;
+    terminalId: string | null;
+    orderNumber: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
+    channel: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
+    state: "draft" | "open" | "held" | "parked" | "partially_paid" | "completed" | "cancelled" | "partially_refunded" | "refunded";
+    tableId: string | null;
+    guestCount: number | null;
+    openedBy: string;
+    servedBy: string | null;
+    closedBy: string | null;
+    /** ISO 4217 currency code. */
+    currency: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    subtotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discountTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    serviceChargeTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    roundingAdjustment: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grandTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    paidTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    tipTotal: string;
+    openedAt: string;
+    firstFiredAt: string | null;
+    completedAt: string | null;
+    originDeviceTime: string;
+    /** FR-LOC-021 — the pack version this order was priced under, pinned. */
+    countryPackVersion: string;
+    notes: string | null;
+    /** Optimistic-concurrency version; also the ETag validator (§24.6.4). */
+    version: number;
+    createdAt: string;
+    updatedAt: string;
+    /** Present only where the endpoint populates line snapshots. */
+    lines: ({
+      id: string;
+      sequence: number;
+      menuItemId: string;
+      variantId: string;
+      /** Opaque localized-name snapshot (locale -> name), persisted at capture time. */
+      itemNameSnapshot: Record<string, unknown>;
+      /** Decimal quantity as a string (preserves exact precision). */
+      quantity: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      unitPrice: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      modifierTotal: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineDiscount: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineSubtotal: string;
+      taxClassId: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      taxAmount: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineTotal: string;
+      /** Decimal quantity as a string (preserves exact precision). */
+      unitCostSnapshot: string | null;
+      recipeVersionId: string | null;
+      priceListId: string | null;
+      priceEntryId: string | null;
+      /** Opaque pricing-rule provenance snapshot. */
+      priceRule: string | null;
+      course: number | null;
+      seatNumber: number | null;
+      state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
+      firedAt: string | null;
+      readyAt: string | null;
+      isComp: boolean;
+      notes: string | null;
+      createdAt: string;
+    })[];
+  };
+  postFireVoidRecords: ({
+    id: string;
+    orderId: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    orderLineId: string;
+    disposition: "returned_to_stock" | "wasted" | "given_to_staff";
+    reasonCodeId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    financialAmountRemoved: string;
+    inventoryMovementIds: string[];
+    actorUserId: string;
+    createdAt: string;
+  })[];
+};
+
+export type OrdersController_cancelBody = CancelOrderDto;
+
 // ---------------------------------------------------------------------------
 // Route table
 // ---------------------------------------------------------------------------
@@ -6257,6 +6376,7 @@ export const ROUTES = {
   CatalogueController_listBranchTaxClasses: { method: "GET", path: "/catalogue/branches/{branchId}/tax-classes" },
   OrganisationController_getBranchKdsConfig: { method: "GET", path: "/org/branches/{branchId}/kds-config" },
   OrganisationController_setBranchKdsConfig: { method: "PATCH", path: "/org/branches/{branchId}/kds-config" },
+  OrdersController_cancel: { method: "POST", path: "/orders/{businessDay}/{id}/cancel" },
 } as const;
 
 /** Every operation the document describes. */

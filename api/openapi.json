@@ -33122,6 +33122,539 @@
           "organisation"
         ]
       }
+    },
+    "/orders/{businessDay}/{id}/cancel": {
+      "post": {
+        "operationId": "OrdersController_cancel",
+        "tags": [
+          "sales"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+            }
+          },
+          {
+            "name": "businessDay",
+            "required": true,
+            "in": "path",
+            "description": "`sales.orders` is partitioned by `business_day` and its primary key is\n(id, business_day), so a read needs both. It is a locator, not a claim\nabout the order's content.",
+            "schema": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "if-match",
+            "required": true,
+            "in": "header",
+            "description": "See addLine.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "description": "See addLine.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelOrderDto"
+              }
+            }
+          }
+        },
+        "summary": "Cancel an entire order (before payment).",
+        "responses": {
+          "200": {
+            "description": "The cancelled order and the disposition record for every line that had already been sent to production.",
+            "headers": {
+              "ETag": {
+                "description": "Weak validator W/\"<orderId>.<version>\" for this order \u2014 send back as If-Match on the next mutation.",
+                "schema": {
+                  "type": "string",
+                  "example": "W/\"3fa85f64-5717-4562-b3fc-2c963f66afa6.4\""
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "order": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                        },
+                        "branchId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                        },
+                        "terminalId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "uuid",
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                        },
+                        "orderNumber": {
+                          "type": "string"
+                        },
+                        "businessDay": {
+                          "type": "string",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23"
+                        },
+                        "orderType": {
+                          "type": "string",
+                          "enum": [
+                            "dine_in",
+                            "takeaway",
+                            "delivery",
+                            "drive_thru",
+                            "pickup",
+                            "aggregator"
+                          ]
+                        },
+                        "channel": {
+                          "type": "string",
+                          "enum": [
+                            "pos",
+                            "kiosk",
+                            "qr",
+                            "aggregator",
+                            "phone",
+                            "api"
+                          ]
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "draft",
+                            "open",
+                            "held",
+                            "parked",
+                            "partially_paid",
+                            "completed",
+                            "cancelled",
+                            "partially_refunded",
+                            "refunded"
+                          ]
+                        },
+                        "tableId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "uuid",
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                        },
+                        "guestCount": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "openedBy": {
+                          "type": "string",
+                          "format": "uuid",
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                        },
+                        "servedBy": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "uuid",
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                        },
+                        "closedBy": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "uuid",
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                        },
+                        "currency": {
+                          "type": "string",
+                          "description": "ISO 4217 currency code.",
+                          "example": "AED"
+                        },
+                        "subtotal": {
+                          "type": "string",
+                          "pattern": "^-?\\d+$",
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250"
+                        },
+                        "discountTotal": {
+                          "type": "string",
+                          "pattern": "^-?\\d+$",
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250"
+                        },
+                        "serviceChargeTotal": {
+                          "type": "string",
+                          "pattern": "^-?\\d+$",
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250"
+                        },
+                        "taxTotal": {
+                          "type": "string",
+                          "pattern": "^-?\\d+$",
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250"
+                        },
+                        "roundingAdjustment": {
+                          "type": "string",
+                          "pattern": "^-?\\d+$",
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250"
+                        },
+                        "grandTotal": {
+                          "type": "string",
+                          "pattern": "^-?\\d+$",
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250"
+                        },
+                        "paidTotal": {
+                          "type": "string",
+                          "pattern": "^-?\\d+$",
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250"
+                        },
+                        "tipTotal": {
+                          "type": "string",
+                          "pattern": "^-?\\d+$",
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250"
+                        },
+                        "openedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "example": "2026-08-23T14:30:00.000Z"
+                        },
+                        "firstFiredAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time",
+                          "example": "2026-08-23T14:30:00.000Z"
+                        },
+                        "completedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time",
+                          "example": "2026-08-23T14:30:00.000Z"
+                        },
+                        "originDeviceTime": {
+                          "type": "string",
+                          "format": "date-time",
+                          "example": "2026-08-23T14:30:00.000Z"
+                        },
+                        "countryPackVersion": {
+                          "type": "string",
+                          "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned."
+                        },
+                        "notes": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "version": {
+                          "type": "integer",
+                          "description": "Optimistic-concurrency version; also the ETag validator (\u00a724.6.4)."
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "example": "2026-08-23T14:30:00.000Z"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "example": "2026-08-23T14:30:00.000Z"
+                        },
+                        "lines": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                              },
+                              "sequence": {
+                                "type": "integer"
+                              },
+                              "menuItemId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                              },
+                              "variantId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                              },
+                              "itemNameSnapshot": {
+                                "type": "object",
+                                "description": "Opaque localized-name snapshot (locale -> name), persisted at capture time."
+                              },
+                              "quantity": {
+                                "type": "string",
+                                "pattern": "^-?\\d+(\\.\\d+)?$",
+                                "description": "Decimal quantity as a string (preserves exact precision).",
+                                "example": "2.5"
+                              },
+                              "unitPrice": {
+                                "type": "string",
+                                "pattern": "^-?\\d+$",
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250"
+                              },
+                              "modifierTotal": {
+                                "type": "string",
+                                "pattern": "^-?\\d+$",
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250"
+                              },
+                              "lineDiscount": {
+                                "type": "string",
+                                "pattern": "^-?\\d+$",
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250"
+                              },
+                              "lineSubtotal": {
+                                "type": "string",
+                                "pattern": "^-?\\d+$",
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250"
+                              },
+                              "taxClassId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                              },
+                              "taxAmount": {
+                                "type": "string",
+                                "pattern": "^-?\\d+$",
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250"
+                              },
+                              "lineTotal": {
+                                "type": "string",
+                                "pattern": "^-?\\d+$",
+                                "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                "example": "1250"
+                              },
+                              "unitCostSnapshot": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "pattern": "^-?\\d+(\\.\\d+)?$",
+                                "description": "Decimal quantity as a string (preserves exact precision).",
+                                "example": "2.5"
+                              },
+                              "recipeVersionId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "format": "uuid",
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                              },
+                              "priceListId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "format": "uuid",
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                              },
+                              "priceEntryId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "format": "uuid",
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                              },
+                              "priceRule": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "description": "Opaque pricing-rule provenance snapshot."
+                              },
+                              "course": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
+                              "seatNumber": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
+                              "state": {
+                                "type": "string",
+                                "enum": [
+                                  "pending",
+                                  "fired",
+                                  "preparing",
+                                  "ready",
+                                  "served",
+                                  "voided",
+                                  "comped"
+                                ]
+                              },
+                              "firedAt": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "format": "date-time",
+                                "example": "2026-08-23T14:30:00.000Z"
+                              },
+                              "readyAt": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "format": "date-time",
+                                "example": "2026-08-23T14:30:00.000Z"
+                              },
+                              "isComp": {
+                                "type": "boolean"
+                              },
+                              "notes": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "example": "2026-08-23T14:30:00.000Z"
+                              }
+                            }
+                          },
+                          "description": "Present only where the endpoint populates line snapshots."
+                        }
+                      }
+                    },
+                    "postFireVoidRecords": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                          },
+                          "orderId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                          },
+                          "businessDay": {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                            "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                            "example": "2026-08-23"
+                          },
+                          "orderLineId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                          },
+                          "disposition": {
+                            "type": "string",
+                            "enum": [
+                              "returned_to_stock",
+                              "wasted",
+                              "given_to_staff"
+                            ]
+                          },
+                          "reasonCodeId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                          },
+                          "financialAmountRemoved": {
+                            "type": "string",
+                            "pattern": "^-?\\d+$",
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250"
+                          },
+                          "inventoryMovementIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "actorUserId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "example": "2026-08-23T14:30:00.000Z"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing pos.order.cancel, or a produced/bumped line is involved and no (valid) pos.order.cancel_after_production approval was supplied."
+          },
+          "422": {
+            "description": "The order already has a captured payment or is otherwise not in a cancellable state, an invalid/waste-only/missing reason code, or a produced/fired line is missing its required disposition."
+          }
+        }
+      }
     }
   },
   "info": {
@@ -36050,6 +36583,59 @@
           "fallbackStationId"
         ],
         "type": "object"
+      },
+      "CancelOrderLineDispositionDto": {
+        "type": "object",
+        "properties": {
+          "orderLineId": {
+            "type": "string"
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "returned_to_stock",
+              "wasted",
+              "given_to_staff"
+            ]
+          }
+        },
+        "required": [
+          "orderLineId",
+          "disposition"
+        ]
+      },
+      "CancelOrderDto": {
+        "type": "object",
+        "properties": {
+          "reasonCodeId": {
+            "type": "string",
+            "description": "REQUIRED \u2014 FR-POS-075: cancellation must never succeed without a reason."
+          },
+          "lineDispositions": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/CancelOrderLineDispositionDto"
+            }
+          },
+          "managerEmployeeCode": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "managerPin": {
+            "type": "string",
+            "pattern": "^\\d{4,8}$"
+          },
+          "approvalRequestId": {
+            "type": "string"
+          },
+          "approvalDecisionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reasonCodeId"
+        ]
       }
     }
   }

@@ -153,7 +153,18 @@ export default function TablesPage() {
 function TableDefinitions() {
   const { t, tx, fmt } = useI18n();
   const { scope, availableBranches } = useSession();
-  const canManage = usePermission("ops.live.manage");
+  /**
+   * TABLE-MANAGEMENT-AND-POS-OPEN-ORDERS-CORRECTION-P0 — was
+   * `usePermission("ops.live.manage")`, a permission that exists in
+   * neither this console's own catalogue (`lib/console/permissions.ts`)
+   * nor the backend's real codes, so it NEVER matched on a live session and
+   * silently hid Create/Edit for every role, Owner included. Table
+   * create/update is authorised server-side by
+   * `settings.branch.manage` (`organisation.controller.ts`'s
+   * `BRANCH_MANAGE`) — the same code already gates the Drawers and
+   * Cash-Close-Policy management affordances in `lib/console/nav.ts`.
+   */
+  const canManage = usePermission("settings.branch.manage");
 
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<RestaurantTable | null>(null);

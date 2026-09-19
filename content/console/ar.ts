@@ -1309,6 +1309,8 @@ export const consoleAr: ConsoleCopy = {
   "pos.orderType": "نوع الطلب",
   "pos.floorPlan": "الصالة",
   "pos.openOrders": "الطلبات المفتوحة",
+  "pos.openOrdersCurrent": "الحالية / الأحدث",
+  "pos.openOrdersOlder": "طلبات مفتوحة أقدم",
   "pos.menu": "القائمة",
   "pos.searchItems": "ابحث بالاسم أو الباركود أو رمز الصنف",
   "pos.searchNote": "البحث العربي يتجاهل التشكيل ويعامل أ إ آ ا حرفًا واحدًا.",

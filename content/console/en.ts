@@ -1312,6 +1312,8 @@ export const consoleEn = {
   "pos.orderType": "Order type",
   "pos.floorPlan": "Floor",
   "pos.openOrders": "Open orders",
+  "pos.openOrdersCurrent": "Current / recent",
+  "pos.openOrdersOlder": "Older open orders",
   "pos.menu": "Menu",
   "pos.searchItems": "Search items, barcode or PLU",
   "pos.searchNote": "Arabic search ignores tashkeel and treats أ إ آ ا as one letter.",
