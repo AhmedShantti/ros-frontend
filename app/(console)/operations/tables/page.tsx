@@ -1,298 +1,244 @@
 "use client";
 
 /**
- * Table status — SRS FR-POS-081/083.
+ * Table Management — FR-BRN-020.
  *
- * The floor as the manager sees it: state per table and time since seated,
- * which is the number service pacing is judged on.
+ * The branch's real, backend-configured tables: label, section, seat
+ * capacity. Nothing about a table's live occupancy (seated, bill
+ * requested, needs cleaning) lives here — that is order-driven, high-churn
+ * state ADR 0008 D-05 deliberately keeps out of Organisation's table
+ * configuration aggregate, and the backend has no endpoint for it at all.
+ *
+ * TABLE-MANAGEMENT-REAL-UI-CORRECTION-P0 — this page used to lead with a
+ * "Table status" grid of `T01`..`T16`-labelled cards, sourced entirely from
+ * `lib/console/mock/org.ts`'s seeded fixture via `lib/console/live/*`
+ * (device-only, behind an explicit "This device only" warning banner), with
+ * this real, backend-wired Create/Edit section buried underneath it. That
+ * made production look like a device-status screen with no obvious way to
+ * add, edit, or manage a table. The fixture grid is removed from this page
+ * entirely, not hidden behind a toggle — it has no real backend counterpart
+ * to stand in for, and this page's whole purpose is to be the source of
+ * truth for a branch's tables, not a demo of what one might look like.
+ *
+ * No delete/deactivate/archive action exists here: the canonical backend
+ * (`TablesService`, `organisation.controller.ts`) exposes exactly three
+ * operations on a table — create, list, update — and no DB column, service
+ * method or route for removing or deactivating one. Faking that locally
+ * would silently diverge from the real record; it is not implemented.
  */
 
-import { useMemo, useState } from "react";
-import type { RestaurantTable, TableState } from "@/lib/console/types";
+import { useState } from "react";
+import type { RestaurantTable } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useAsync, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
-import { elapsedSince, useLive, useNow } from "@/lib/console/live/store";
-import { tablesOf } from "@/lib/console/live/reducer";
-import { formatElapsed, formatMoney, formatNumber } from "@/lib/console/format";
-import { TABLE_STATE } from "@/lib/console/labels";
-import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/page";
-import { LiveNotice, TerminalLinks } from "@/components/console/live-panels";
+import { formatNumber } from "@/lib/console/format";
+import { PageBody, PageHeader, Section } from "@/components/console/page";
+import { AsyncPanel, Gate } from "@/components/console/states";
 import { Plus } from "lucide-react";
-import { MetricTile } from "@/components/console/charts";
-import { Badge, Button, Callout, Card, CardHeader, Toast, cx } from "@/components/console/ui";
+import { Button, Callout, Card, CardHeader, Field, Select, Toast } from "@/components/console/ui";
 import { DataTable } from "@/components/console/data-table";
-import { AsyncPanel } from "@/components/console/states";
 import { RecordDrawer } from "@/components/console/record-drawer";
 
-const TONE: Record<TableState, string> = {
-  available: "border-line bg-raised",
-  seated: "border-accent/50 bg-accent-soft",
-  ordered: "border-accent bg-accent-soft",
-  food_served: "border-good/50 bg-good-soft",
-  bill_requested: "border-warn/60 bg-warn-soft",
-  payment_in_progress: "border-warn bg-warn-soft",
-  needs_cleaning: "border-line bg-sunken",
-};
-
 export default function TablesPage() {
-  const { t, tx, fmt } = useI18n();
-  const { state } = useLive();
-  const now = useNow(10_000);
-
-  const tables = useMemo(() => tablesOf(state), [state]);
-
-  const byArea = useMemo(() => {
-    const groups = new Map<string, typeof tables>();
-    for (const table of tables) {
-      const list = groups.get(table.area.en) ?? [];
-      list.push(table);
-      groups.set(table.area.en, list);
-    }
-    return [...groups.entries()];
-  }, [tables]);
-
-  const occupied = tables.filter(
-    (table) => table.state !== "available" && table.state !== "needs_cleaning",
-  );
-  const seats = tables.reduce((s, table) => s + table.capacity, 0);
-  const occupiedSeats = occupied.reduce((s, table) => s + table.capacity, 0);
-
   return (
-    <>
-      <PageHeader
-        title={t("nav.tables")}
-        subtitle={t("orders.openOrdersSubtitle")}
-        spec="FR-POS-081"
-        actions={<TerminalLinks />}
-      />
-
-      <PageBody>
-        <LiveNotice />
-
-        <TileGrid columns={3}>
-          <MetricTile label={t("nav.tables")} value={`${occupied.length} / ${tables.length}`} />
-          <MetricTile
-            label={t("pos.seats")}
-            value={`${occupiedSeats} / ${seats}`}
-            footer={
-              <span className="text-fg-subtle text-xs">
-                {seats > 0 ? `${Math.round((occupiedSeats / seats) * 100)}%` : "—"}
-              </span>
-            }
-          />
-          <MetricTile
-            label={tx(TABLE_STATE.needs_cleaning.label)}
-            value={String(tables.filter((table) => table.state === "needs_cleaning").length)}
-          />
-        </TileGrid>
-
-        {byArea.map(([areaKey, list]) => (
-          <Section key={areaKey} title={tx(list[0]!.area)}>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-6">
-              {list.map((table) => {
-                const seated = table.seatedAt ? elapsedSince(table.seatedAt, now) : null;
-                const order = table.orderId ? state.orders[table.orderId] : null;
-                return (
-                  <Card
-                    key={table.id}
-                    padded={false}
-                    className={cx("border p-3", TONE[table.state])}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-fg text-sm font-bold">{table.label}</span>
-                      <span className="text-fg-subtle text-xs tabular-nums">{table.capacity}</span>
-                    </div>
-                    <p className="text-fg-muted mt-1 text-xs">{tx(TABLE_STATE[table.state].label)}</p>
-                    {seated !== null ? (
-                      <p className="text-fg-subtle mt-1 text-xs tabular-nums">
-                        {formatElapsed(seated)}
-                      </p>
-                    ) : null}
-                    {order ? (
-                      <p className="text-fg mt-1 font-mono text-[0.68rem]">
-                        {order.orderNumber} · {formatMoney(order.grandTotal, fmt, true)}
-                      </p>
-                    ) : null}
-                  </Card>
-                );
-              })}
-            </div>
-          </Section>
-        ))}
-
-        <Card>
-          <CardHeader title={t("common.status")} spec="FR-POS-083" />
-          <div className="flex flex-wrap gap-2">
-            {(Object.keys(TABLE_STATE) as TableState[]).map((key) => (
-              <Badge key={key} tone={TABLE_STATE[key].tone} dot>
-                {tx(TABLE_STATE[key].label)} ·{" "}
-                {tables.filter((table) => table.state === key).length}
-              </Badge>
-            ))}
-          </div>
-        </Card>
-
-        <TableDefinitions />
-      </PageBody>
-    </>
+    <Gate permissions={["settings.branch.read", "settings.branch.manage"]}>
+      <TablesScreen />
+    </Gate>
   );
 }
 
-// ---------------------------------------------------------------------------
-
-/**
- * The floor plan itself — the tables a branch has, not what is happening on
- * them right now.
- *
- * Live occupancy (seated, bill requested, needs cleaning) has no endpoint:
- * the API models a table's label, section and seat count and nothing about
- * its current state. So the grid above stays on the local engine and this
- * section edits the part the backend actually owns.
- */
-function TableDefinitions() {
+function TablesScreen() {
   const { t, tx, fmt } = useI18n();
-  const { scope, availableBranches } = useSession();
-  /**
-   * TABLE-MANAGEMENT-AND-POS-OPEN-ORDERS-CORRECTION-P0 — was
-   * `usePermission("ops.live.manage")`, a permission that exists in
-   * neither this console's own catalogue (`lib/console/permissions.ts`)
-   * nor the backend's real codes, so it NEVER matched on a live session and
-   * silently hid Create/Edit for every role, Owner included. Table
-   * create/update is authorised server-side by
-   * `settings.branch.manage` (`organisation.controller.ts`'s
-   * `BRANCH_MANAGE`) — the same code already gates the Drawers and
-   * Cash-Close-Policy management affordances in `lib/console/nav.ts`.
-   */
+  const { scope, branch, availableBranches } = useSession();
   const canManage = usePermission("settings.branch.manage");
 
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<RestaurantTable | null>(null);
   const [message, setMessage] = useTransientMessage();
 
-  const branchId = scope.branchId ?? availableBranches[0]?.id ?? "";
+  /**
+   * Table definitions are branch-scoped — never fetched or managed against
+   * "All branches" (`scope.branchId === null` fans `services.operations
+   * .tables()` out across every accessible branch and merges the result,
+   * exactly the "manage tables against All branches" this page must not
+   * do). A branch is only ever considered selected when:
+   *  - the Console's own top-bar scope already names one (an explicit
+   *    choice the user already made elsewhere), or
+   *  - exactly one branch is authorised at all, so there is no real choice
+   *    to make, or
+   *  - the user actively picks one from the selector below.
+   * Never a silent default to "the first branch in the list."
+   */
+  const singleAuthorizedBranch = availableBranches.length === 1 ? availableBranches[0]! : null;
+  const contextBranchId = scope.branchId ?? singleAuthorizedBranch?.id ?? null;
+  const [pickedBranchId, setPickedBranchId] = useState("");
+  const branchId = contextBranchId ?? (pickedBranchId || null);
+
+  const selectedBranch =
+    branch ??
+    singleAuthorizedBranch ??
+    availableBranches.find((b) => b.id === branchId) ??
+    null;
 
   const tables = useAsync(
-    () => services.operations.tables({ scope, limit: 500 }),
-    [scope.tenantId, scope.branchId],
+    () =>
+      branchId
+        ? services.operations.tables({ scope: { ...scope, branchId }, limit: 500 })
+        : Promise.resolve({ rows: [] as RestaurantTable[], total: 0, cursor: null }),
+    [branchId, scope.tenantId],
   );
 
   return (
-    <Section title={t("ops.tableDefinitions")}>
-      <Card>
-        <CardHeader
-          title={t("ops.tableDefinitions")}
-          hint={t("ops.tableDefinitionsNote")}
-          spec="FR-BRN-020"
-          action={
-            canManage && branchId ? (
-              <Button variant="ghost" icon={<Plus size={13} />} onClick={() => setCreating(true)}>
-                {t("common.new")}
-              </Button>
-            ) : null
-          }
-        />
+    <>
+      <PageHeader
+        title={t("nav.tables")}
+        subtitle={t("ops.tableManagementSubtitle")}
+        spec="FR-BRN-020"
+        meta={
+          selectedBranch ? (
+            <span>
+              {t("common.branch")}: {tx(selectedBranch.name)}
+            </span>
+          ) : null
+        }
+      />
 
-        <AsyncPanel
-          state={tables}
-          isEmpty={(page) => page.rows.length === 0}
-          empty={<Callout tone="muted">{t("ops.noTables")}</Callout>}
-        >
-          {(page) => (
-            <DataTable
-              columns={[
+      <PageBody>
+        {!contextBranchId && availableBranches.length > 1 ? (
+          <Field label={t("common.branch")}>
+            <Select value={pickedBranchId} onChange={(event) => setPickedBranchId(event.target.value)}>
+              <option value="">—</option>
+              {availableBranches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {tx(b.name)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+
+        {!branchId ? (
+          <Callout tone="muted">{t("ops.selectBranchToManageTables")}</Callout>
+        ) : (
+          <Section title={t("ops.tableDefinitions")}>
+            <Card>
+              <CardHeader
+                title={t("ops.tableDefinitions")}
+                hint={t("ops.tableDefinitionsNote")}
+                spec="FR-BRN-020"
+                action={
+                  canManage ? (
+                    <Button variant="ghost" icon={<Plus size={13} />} onClick={() => setCreating(true)}>
+                      {t("common.new")}
+                    </Button>
+                  ) : null
+                }
+              />
+
+              <AsyncPanel
+                state={tables}
+                isEmpty={(page) => page.rows.length === 0}
+                empty={<Callout tone="muted">{t("ops.noTables")}</Callout>}
+              >
+                {(page) => (
+                  <DataTable
+                    columns={[
+                      {
+                        key: "label",
+                        header: t("ops.tableLabel"),
+                        render: (row) => <span className="text-fg text-sm">{row.label}</span>,
+                      },
+                      {
+                        key: "area",
+                        header: t("ops.section"),
+                        secondary: true,
+                        render: (row) => tx(row.area),
+                      },
+                      {
+                        key: "capacity",
+                        header: t("pos.seats"),
+                        numeric: true,
+                        render: (row) => formatNumber(row.capacity, fmt),
+                      },
+                    ]}
+                    rows={page.rows}
+                    rowKey={(row) => row.id}
+                    caption={t("ops.tableDefinitions")}
+                    onRowClick={canManage ? setEditing : undefined}
+                    dense
+                  />
+                )}
+              </AsyncPanel>
+            </Card>
+
+            <RecordDrawer
+              open={creating}
+              title={t("ops.newTable")}
+              fields={[
+                { name: "label", label: t("ops.tableLabel"), required: true, maxLength: 24 },
+                { name: "section", label: t("ops.section"), maxLength: 48 },
+                { name: "capacity", label: t("pos.seats"), kind: "number", initial: "4" },
+              ]}
+              onClose={() => setCreating(false)}
+              onSubmit={(values) =>
+                services.operations.createTable(branchId, {
+                  label: values.label.trim(),
+                  area: { en: values.section.trim(), ar: values.section.trim() },
+                  capacity: Number(values.capacity) || 0,
+                })
+              }
+              onDone={() => {
+                setCreating(false);
+                setMessage(t("ops.tableCreated"));
+                tables.reload();
+              }}
+            />
+
+            <RecordDrawer
+              open={editing !== null}
+              title={editing?.label ?? ""}
+              submitLabel={t("common.save")}
+              fields={[
                 {
-                  key: "label",
-                  header: t("ops.tableLabel"),
-                  render: (row) => <span className="text-fg text-sm">{row.label}</span>,
+                  name: "label",
+                  label: t("ops.tableLabel"),
+                  required: true,
+                  maxLength: 24,
+                  initial: editing?.label ?? "",
                 },
                 {
-                  key: "area",
-                  header: t("ops.section"),
-                  secondary: true,
-                  render: (row) => tx(row.area),
+                  name: "section",
+                  label: t("ops.section"),
+                  maxLength: 48,
+                  initial: editing ? tx(editing.area) : "",
                 },
                 {
-                  key: "capacity",
-                  header: t("pos.seats"),
-                  numeric: true,
-                  render: (row) => formatNumber(row.capacity, fmt),
+                  name: "capacity",
+                  label: t("pos.seats"),
+                  kind: "number",
+                  initial: String(editing?.capacity ?? 0),
                 },
               ]}
-              rows={page.rows}
-              rowKey={(row) => row.id}
-              caption={t("ops.tableDefinitions")}
-              onRowClick={canManage ? setEditing : undefined}
-              dense
+              onClose={() => setEditing(null)}
+              onSubmit={(values) =>
+                services.operations.updateTable(editing?.id ?? "", {
+                  label: values.label.trim(),
+                  area: { en: values.section.trim(), ar: values.section.trim() },
+                  capacity: Number(values.capacity) || 0,
+                })
+              }
+              onDone={() => {
+                setEditing(null);
+                setMessage(t("ops.tableUpdated"));
+                tables.reload();
+              }}
             />
-          )}
-        </AsyncPanel>
-      </Card>
-
-      <RecordDrawer
-        open={creating}
-        title={t("ops.newTable")}
-        fields={[
-          { name: "label", label: t("ops.tableLabel"), required: true, maxLength: 24 },
-          { name: "section", label: t("ops.section"), maxLength: 48 },
-          { name: "capacity", label: t("pos.seats"), kind: "number", initial: "4" },
-        ]}
-        onClose={() => setCreating(false)}
-        onSubmit={(values) =>
-          services.operations.createTable(branchId, {
-            label: values.label.trim(),
-            area: { en: values.section.trim(), ar: values.section.trim() },
-            capacity: Number(values.capacity) || 0,
-          })
-        }
-        onDone={() => {
-          setCreating(false);
-          setMessage(t("ops.tableCreated"));
-          tables.reload();
-        }}
-      />
-
-      <RecordDrawer
-        open={editing !== null}
-        title={editing?.label ?? ""}
-        submitLabel={t("common.save")}
-        fields={[
-          {
-            name: "label",
-            label: t("ops.tableLabel"),
-            required: true,
-            maxLength: 24,
-            initial: editing?.label ?? "",
-          },
-          {
-            name: "section",
-            label: t("ops.section"),
-            maxLength: 48,
-            initial: editing ? tx(editing.area) : "",
-          },
-          {
-            name: "capacity",
-            label: t("pos.seats"),
-            kind: "number",
-            initial: String(editing?.capacity ?? 0),
-          },
-        ]}
-        onClose={() => setEditing(null)}
-        onSubmit={(values) =>
-          services.operations.updateTable(editing?.id ?? "", {
-            label: values.label.trim(),
-            area: { en: values.section.trim(), ar: values.section.trim() },
-            capacity: Number(values.capacity) || 0,
-          })
-        }
-        onDone={() => {
-          setEditing(null);
-          setMessage(t("ops.tableUpdated"));
-          tables.reload();
-        }}
-      />
+          </Section>
+        )}
+      </PageBody>
 
       <Toast message={message} />
-    </Section>
+    </>
   );
 }
