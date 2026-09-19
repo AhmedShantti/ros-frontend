@@ -61,6 +61,30 @@ import { useEffect, useRef, useState } from "react";
 const TRIGGER =
   "border-line bg-raised text-fg hover:bg-sunken inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors";
 
+/**
+ * POS-OWN-SHIFT-CLOSE-ENTRY-P0-FIX — a way for the sign-off warning (here)
+ * to open the close-shift flow it owns nothing of: `DrawerSheet` is mounted
+ * and controlled by `LivePos`, a sibling under `(terminal)/pos/page.tsx`,
+ * not a child of this bar. Rather than lift `DrawerSheet`'s state up into
+ * the page (touching a file outside this fix's scope) or thread props
+ * through an unrelated parent, this mirrors the exact `Listener`/`Set`
+ * pub-sub `lib/api/session.ts`'s `onSessionChange` already uses for the
+ * identical cross-component-signal shape.
+ */
+type CloseShiftListener = () => void;
+const closeShiftListeners = new Set<CloseShiftListener>();
+
+/** Ask whoever owns the close-shift flow (`LivePos`) to open it. */
+export function requestCloseShift(): void {
+  for (const listener of closeShiftListeners) listener();
+}
+
+/** Subscribe to close-shift requests. Returns an unsubscribe function. */
+export function onCloseShiftRequested(listener: CloseShiftListener): () => void {
+  closeShiftListeners.add(listener);
+  return () => closeShiftListeners.delete(listener);
+}
+
 export function TerminalBar() {
   const { t, tx, locale, fmt } = useI18n();
   const { state, dispatch, reset } = useLive();
@@ -221,7 +245,7 @@ export function TerminalBar() {
  * out loud before the button takes effect rather than discovering it at the
  * close.
  */
-function SignedOnCashier() {
+export function SignedOnCashier() {
   const { t } = useI18n();
   const [cashier, setCashier] = useState<PosEmployee | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -283,9 +307,24 @@ function SignedOnCashier() {
           {t("shift.signOffConfirm").replace("{name}", cashier.name)}
         </p>
         {drawerOpen ? (
-          <Callout tone="warn" className="mt-3">
-            {t("shift.signOffDrawerOpen")}
-          </Callout>
+          <>
+            <Callout tone="warn" className="mt-3">
+              {t("shift.signOffDrawerOpen")}
+            </Callout>
+            <Button
+              variant="primary"
+              className="mt-3 w-full"
+              onClick={() => {
+                // Leaves the sign-off path entirely — this never signs the
+                // cashier out, it only hands off to the close flow `LivePos`
+                // owns (see `requestCloseShift`'s own doc, above).
+                setConfirming(false);
+                requestCloseShift();
+              }}
+            >
+              {t("shift.closeShiftFirst")}
+            </Button>
+          </>
         ) : null}
       </Modal>
     </>

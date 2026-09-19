@@ -112,6 +112,7 @@ import { signInWithPin, signOffTerminal } from "@/lib/api/auth";
 import * as Session from "@/lib/api/session";
 import type { Order, OrderLine } from "@/lib/console/types";
 import type { UserEvent } from "@testing-library/user-event";
+import { SignedOnCashier } from "./chrome";
 import { LivePos } from "./pos-live";
 
 const BRANCH_ID = "branch-1";
@@ -1125,5 +1126,143 @@ describe("LivePos — receipt Cash row shows tendered cash, not the settled amou
     await waitFor(() => expect(salesReceipt).toHaveBeenCalledWith(order.businessDay, order.id));
 
     expect(within(receiptDialog).getByText(/Burger/)).toBeInTheDocument();
+  });
+});
+
+/*
+ * POS-OWN-SHIFT-CLOSE-ENTRY-P0-FIX — root cause was pure discoverability
+ * (a prior investigation, not repeated here): the own-shift close flow
+ * already existed, unconditionally, behind a button labelled only "Drawer".
+ * These tests prove the fix adds an explicitly-labelled "Close shift" CTA
+ * beside it (never a second close implementation — both open the exact same
+ * `DrawerSheet`), and that the sign-off warning gains a "Close shift first"
+ * action wired to that same sheet via `chrome.tsx`'s `requestCloseShift`/
+ * `onCloseShiftRequested` — the only way to reach it, since `SignedOnCashier`
+ * and `LivePos` are unrelated siblings under `(terminal)/pos/page.tsx`, not
+ * parent/child.
+ */
+describe("LivePos — explicit Close Shift CTA and Sign-Off hand-off (POS-OWN-SHIFT-CLOSE-ENTRY-P0-FIX)", () => {
+  const openCloseContext = () => ({
+    cashSessionId: "cs-1",
+    status: "open" as const,
+    countMode: "blind" as const,
+    currency: "EGP" as const,
+    openingFloat: money(50000),
+    tolerance: money(2000),
+    expectedCash: null,
+    countedCash: null,
+    variance: null,
+    approvalRequired: null,
+    closedAt: null,
+    frozen: false,
+  });
+
+  it("1/3 — with a cash session open, both an explicit 'Close shift' CTA and the existing 'Drawer' (pay-in/out) button are visible", async () => {
+    getCurrentSession.mockResolvedValue({
+      cashSessionId: "cs-1",
+      shiftId: "sh-1",
+      drawerId: "drawer-1",
+      status: "open",
+    });
+    closeContext.mockResolvedValue(openCloseContext());
+
+    const cashierCode = signOnAs("EMP01", "Amina");
+    Session.setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
+    Session.setPosEmployee({ code: cashierCode, name: "Amina" });
+
+    render(<LivePos />);
+
+    expect(await screen.findByRole("button", { name: "pos.closeShift" })).toBeInTheDocument();
+    // The original control survives — this is an addition, not a replacement.
+    expect(screen.getByRole("button", { name: "shift.drawerOps" })).toBeInTheDocument();
+  });
+
+  it("2/3 — clicking 'Close shift' opens the existing DrawerSheet, where normal drawer operations (pay-in/out) remain reachable alongside the close form", async () => {
+    getCurrentSession.mockResolvedValue({
+      cashSessionId: "cs-1",
+      shiftId: "sh-1",
+      drawerId: "drawer-1",
+      status: "open",
+    });
+    closeContext.mockResolvedValue(openCloseContext());
+
+    const cashierCode = signOnAs("EMP01", "Amina");
+    Session.setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
+    Session.setPosEmployee({ code: cashierCode, name: "Amina" });
+
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+
+    render(<LivePos />);
+
+    await user.click(await screen.findByRole("button", { name: "pos.closeShift" }));
+
+    // Not a new sheet: the SAME DrawerSheet, carrying both capabilities.
+    await waitFor(() => expect(screen.getByRole("button", { name: "shift.record" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "shift.declare" })).toBeInTheDocument();
+  });
+
+  it("4/5 — Sign Off with an open session shows the warning plus a 'Close shift first' action, which opens the close flow and does NOT sign the cashier out", async () => {
+    getCurrentSession.mockResolvedValue({
+      cashSessionId: "cs-1",
+      shiftId: "sh-1",
+      drawerId: "drawer-1",
+      status: "open",
+    });
+    closeContext.mockResolvedValue(openCloseContext());
+
+    const cashierCode = signOnAs("EMP01", "Amina");
+    Session.setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
+    Session.setPosEmployee({ code: cashierCode, name: "Amina" });
+
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+
+    render(
+      <>
+        <SignedOnCashier />
+        <LivePos />
+      </>,
+    );
+
+    // Wait for LivePos's own reconciliation to record the open session
+    // locally — the same signal SignedOnCashier's warning reads.
+    await waitFor(() => expect(Session.getOpenCashSession()).not.toBeNull());
+
+    await user.click(screen.getByTitle("shift.signOff"));
+
+    expect(await screen.findByText("shift.signOffDrawerOpen")).toBeInTheDocument();
+    const closeFirst = screen.getByRole("button", { name: "shift.closeShiftFirst" });
+
+    await user.click(closeFirst);
+
+    // Leaves the sign-off path — never signs out.
+    expect(signOffTerminal).not.toHaveBeenCalled();
+    // ...and lands on the real close flow (DrawerSheet), owned by LivePos.
+    await waitFor(() => expect(screen.getByRole("button", { name: "shift.declare" })).toBeInTheDocument());
+  });
+
+  it("6 — Sign Off with NO open session is unchanged: no warning, no 'Close shift first' action, and the ordinary Sign off button still works", async () => {
+    getCurrentSession.mockResolvedValue(null);
+
+    const cashierCode = signOnAs("EMP01", "Amina");
+    Session.setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
+    Session.setPosEmployee({ code: cashierCode, name: "Amina" });
+
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+
+    render(<SignedOnCashier />);
+
+    await waitFor(() => expect(Session.getOpenCashSession()).toBeNull());
+
+    await user.click(screen.getByTitle("shift.signOff"));
+
+    expect(await screen.findByText(/shift\.signOffConfirm/)).toBeInTheDocument();
+    expect(screen.queryByText("shift.signOffDrawerOpen")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "shift.closeShiftFirst" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "shift.signOff" }));
+    await waitFor(() => expect(signOffTerminal).toHaveBeenCalledTimes(1));
   });
 });

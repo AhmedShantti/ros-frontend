@@ -41,6 +41,7 @@ import {
   Banknote,
   Flame,
   Gift,
+  Lock,
   Percent,
   Plus,
   Receipt,
@@ -86,6 +87,7 @@ import {
   sameEmployee,
 } from "@/lib/console/cash-session-reconcile";
 import { AsyncPanel, ErrorPanel } from "@/components/console/states";
+import { onCloseShiftRequested } from "@/components/terminal/chrome";
 import { DrawerSheet } from "@/components/terminal/pos-drawer";
 import {
   Badge,
@@ -122,6 +124,15 @@ export function LivePos() {
   const [order, setOrder] = useState<Order | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
+
+  /**
+   * POS-OWN-SHIFT-CLOSE-ENTRY-P0-FIX — the sign-off warning (in `chrome.tsx`,
+   * a sibling under `(terminal)/pos/page.tsx`, not a child of this
+   * component) has no state of its own to open — this is the same
+   * `DrawerSheet`/`drawer` this screen already opens from `OrderPane`'s own
+   * close-shift CTA below, never a second close implementation.
+   */
+  useEffect(() => onCloseShiftRequested(() => setDrawer(true)), []);
 
   /**
    * Both the terminal binding and the open drawer live in `localStorage`,
@@ -1465,10 +1476,29 @@ function OrderPane({
 
   // The drawer outlives any one order, so its control sits outside the
   // "no order open" branch — a cashier still has to pay out and close.
+  //
+  // POS-OWN-SHIFT-CLOSE-ENTRY-P0-FIX — "Drawer" alone read as a cash-
+  // management submenu, not "how do I end my shift"; a cashier looking for
+  // the latter had no reason to click it. "Close shift" is a second,
+  // explicitly-labelled CTA beside it — both open the exact same
+  // `DrawerSheet` (`onDrawer`), which already contains pay-in/pay-out/
+  // safe-drop AND the close-the-drawer form, so neither button is a new
+  // close implementation and normal drawer operations stay reachable from
+  // either one.
   const drawerButton = (
-    <Button variant="ghost" className="w-full" icon={<Banknote size={14} />} onClick={onDrawer}>
-      {t("shift.drawerOps")}
-    </Button>
+    <div className="flex w-full gap-2">
+      <Button
+        variant="secondary"
+        className="flex-1"
+        icon={<Lock size={14} />}
+        onClick={onDrawer}
+      >
+        {t("pos.closeShift")}
+      </Button>
+      <Button variant="ghost" className="flex-1" icon={<Banknote size={14} />} onClick={onDrawer}>
+        {t("shift.drawerOps")}
+      </Button>
+    </div>
   );
 
   if (!order) {
