@@ -183,14 +183,16 @@ async function refreshSession(): Promise<RefreshOutcome> {
       const refreshToken = getRefreshToken();
       if (!refreshToken) return "expired";
 
-      // POS-KDS-SESSION-LIFETIME-POLICY-P0 — a shift ends even if the
-      // refresh token would still be honoured. Checked here, ahead of the
-      // network call, so it applies to every path that refreshes: the
-      // request-time retry below AND the proactive timer. UNCHANGED by
-      // POS-KDS-SESSION-CONTINUITY-P0 — this client-side 12h ceiling is
-      // orthogonal to the backend's FR-SEC-026 idle model (an absolute cap,
-      // not an idle timeout) and is left exactly as-is; see that task's own
-      // report for the follow-up reconciliation this still needs.
+      // POS-KDS-SESSION-LIFETIME-POLICY-P0 — a KDS/console shift ends even
+      // if the refresh token would still be honoured. Checked here, ahead
+      // of the network call, so it applies to every path that refreshes:
+      // the request-time retry below AND the proactive timer.
+      // REMOVE-POS-ABSOLUTE-SESSION-CAP-P0 — POS is now exempt from this
+      // check entirely (`isSessionOverHardLimit()` itself returns `false`
+      // for the `pos` surface — see its own docblock in `session.ts`);
+      // this call site is otherwise unchanged, still orthogonal to the
+      // backend's FR-SEC-026 idle model, and still governs KDS/console
+      // exactly as before.
       if (isSessionOverHardLimit()) {
         clearSession();
         return "expired";

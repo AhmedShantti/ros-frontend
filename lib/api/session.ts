@@ -438,8 +438,22 @@ export function msUntilAccessTokenStale(): number {
  * (or a `console` session, which never wrote `sessionStart` before this
  * fix landed): rather than treat an already-open session as instantly over
  * the limit the moment this ships, the clock starts on the first read.
+ *
+ * REMOVE-POS-ABSOLUTE-SESSION-CAP-P0 — POS is exempt: it never trips this
+ * cap, no matter how much wall-clock time has passed, so long as its
+ * refresh token itself is still honoured server-side (rotation, reuse
+ * detection, and every live employee/branch/membership/tenant
+ * revalidation in `AuthService.refreshPosOrKds()` — see
+ * REMOVE-POS-IDLE-LOGOUT-P0 — are untouched and still the only things that
+ * can end it). `sessionStart` is still written for `pos` on sign-on (kept,
+ * unused for enforcement, in case a future governance decision reinstates
+ * a POS bound) so this stays the single, narrow exemption rather than a
+ * second code path. KDS and console are UNCHANGED: both still trip the
+ * 12h cap exactly as before.
  */
 export function isSessionOverHardLimit(): boolean {
+  if (activeSurface === "pos") return false;
+
   const keys = identityKeys();
   const startedRaw = read(keys.sessionStart);
   if (!startedRaw) {

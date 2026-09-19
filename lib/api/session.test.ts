@@ -356,60 +356,96 @@ describe("migrateLegacyPosKdsDeviceState — FRONTEND-REMOVE-DEVICE-UX-P1", () =
   });
 });
 
-describe("isSessionOverHardLimit — POS-KDS-SESSION-LIFETIME-POLICY-P0", () => {
-  it("is not over the limit right after sign-on", () => {
-    setTokens({ accessToken: "a", refreshToken: "r", expiresIn: 900 });
-    expect(isSessionOverHardLimit()).toBe(false);
+describe("isSessionOverHardLimit — POS-KDS-SESSION-LIFETIME-POLICY-P0, as amended by REMOVE-POS-ABSOLUTE-SESSION-CAP-P0", () => {
+  describe("KDS — UNCHANGED, the 12h cap still applies exactly as before", () => {
+    beforeEach(() => setActiveSurface("kds"));
+
+    it("is not over the limit right after sign-on", () => {
+      setTokens({ accessToken: "a", refreshToken: "r", expiresIn: 900 });
+      expect(isSessionOverHardLimit()).toBe(false);
+    });
+
+    it("trips once the session has run longer than the hard cap, even with a live refresh token", () => {
+      setTokens({ accessToken: "a", refreshToken: "r", expiresIn: 900 });
+      vi.spyOn(Date, "now").mockReturnValue(Date.now() + HARD_SESSION_LIFETIME_MS + 1_000);
+      expect(isSessionOverHardLimit()).toBe(true);
+    });
+
+    it("a silent token refresh does not reset the clock", () => {
+      // `silent: true` is what a background refresh passes — see
+      // `client.ts`'s `refreshSession()`. If this reset the clock, a session
+      // refreshed every ~14 minutes would never actually hit the hard cap.
+      setTokens({ accessToken: "a", refreshToken: "r", expiresIn: 900 });
+      const startedAt = window.localStorage.getItem("ros.kds.sessionStartedAt");
+
+      setTokens({ accessToken: "a2", expiresIn: 900 }, { silent: true });
+
+      expect(window.localStorage.getItem("ros.kds.sessionStartedAt")).toBe(startedAt);
+    });
+
+    it("a genuine re-sign-on (not silent) does reset the clock", () => {
+      setTokens({ accessToken: "a", refreshToken: "r", expiresIn: 900 });
+      const startedAt = Number(window.localStorage.getItem("ros.kds.sessionStartedAt"));
+
+      vi.spyOn(Date, "now").mockReturnValue(startedAt + 5_000);
+      setTokens({ accessToken: "a2", refreshToken: "r2", expiresIn: 900 });
+
+      expect(Number(window.localStorage.getItem("ros.kds.sessionStartedAt"))).toBe(startedAt + 5_000);
+    });
+
+    it("self-heals a session written before this cap existed, instead of treating it as instantly over", () => {
+      window.localStorage.setItem("ros.kds.accessToken", "a");
+      window.localStorage.setItem("ros.kds.refreshToken", "r");
+      window.localStorage.setItem("ros.kds.expiresAt", String(Date.now() + 900_000));
+
+      expect(isSessionOverHardLimit()).toBe(false);
+      expect(window.localStorage.getItem("ros.kds.sessionStartedAt")).not.toBeNull();
+    });
   });
 
-  it("trips once the session has run longer than the hard cap, even with a live refresh token", () => {
-    setTokens({ accessToken: "a", refreshToken: "r", expiresIn: 900 });
-    vi.spyOn(Date, "now").mockReturnValue(Date.now() + HARD_SESSION_LIFETIME_MS + 1_000);
-    expect(isSessionOverHardLimit()).toBe(true);
+  describe("POS — REMOVE-POS-ABSOLUTE-SESSION-CAP-P0: exempt, never trips", () => {
+    it("is not over the limit right after sign-on (unchanged)", () => {
+      setActiveSurface("pos");
+      setTokens({ accessToken: "a", refreshToken: "r", expiresIn: 900 });
+      expect(isSessionOverHardLimit()).toBe(false);
+    });
+
+    it("never trips, no matter how far past the old 12h cap the session's wall-clock age is", () => {
+      setActiveSurface("pos");
+      setTokens({ accessToken: "a", refreshToken: "r", expiresIn: 900 });
+      vi.spyOn(Date, "now").mockReturnValue(Date.now() + HARD_SESSION_LIFETIME_MS + 1_000);
+      expect(isSessionOverHardLimit()).toBe(false);
+
+      // Much further still — days, not hours — same result.
+      vi.spyOn(Date, "now").mockReturnValue(Date.now() + 5 * HARD_SESSION_LIFETIME_MS);
+      expect(isSessionOverHardLimit()).toBe(false);
+    });
+
+    it("a session written before this exemption existed is exempt too, not merely self-healed", () => {
+      window.localStorage.setItem("ros.pos.accessToken", "a");
+      window.localStorage.setItem("ros.pos.refreshToken", "r");
+      window.localStorage.setItem("ros.pos.expiresAt", String(Date.now() + 900_000));
+      setActiveSurface("pos");
+
+      expect(isSessionOverHardLimit()).toBe(false);
+    });
   });
 
-  it("a silent token refresh does not reset the clock", () => {
-    // `silent: true` is what a background refresh passes — see
-    // `client.ts`'s `refreshSession()`. If this reset the clock, a session
-    // refreshed every ~14 minutes would never actually hit the hard cap.
-    setTokens({ accessToken: "a", refreshToken: "r", expiresIn: 900 });
-    const startedAt = window.localStorage.getItem("ros.pos.sessionStartedAt");
+  it("POS and KDS remain independent: exempting POS never leaks into KDS's own still-enforced clock", () => {
+    const t0 = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(t0);
 
-    setTokens({ accessToken: "a2", expiresIn: 900 }, { silent: true });
-
-    expect(window.localStorage.getItem("ros.pos.sessionStartedAt")).toBe(startedAt);
-  });
-
-  it("a genuine re-sign-on (not silent) does reset the clock", () => {
-    setTokens({ accessToken: "a", refreshToken: "r", expiresIn: 900 });
-    const startedAt = Number(window.localStorage.getItem("ros.pos.sessionStartedAt"));
-
-    vi.spyOn(Date, "now").mockReturnValue(startedAt + 5_000);
-    setTokens({ accessToken: "a2", refreshToken: "r2", expiresIn: 900 });
-
-    expect(Number(window.localStorage.getItem("ros.pos.sessionStartedAt"))).toBe(startedAt + 5_000);
-  });
-
-  it("self-heals a session written before this cap existed, instead of treating it as instantly over", () => {
-    window.localStorage.setItem("ros.pos.accessToken", "a");
-    window.localStorage.setItem("ros.pos.refreshToken", "r");
-    window.localStorage.setItem("ros.pos.expiresAt", String(Date.now() + 900_000));
-
-    expect(isSessionOverHardLimit()).toBe(false);
-    expect(window.localStorage.getItem("ros.pos.sessionStartedAt")).not.toBeNull();
-  });
-
-  it("POS and KDS track their own clocks independently", () => {
     setActiveSurface("pos");
     setTokens({ accessToken: "pos-a", refreshToken: "pos-r", expiresIn: 900 });
 
     setActiveSurface("kds");
-    vi.spyOn(Date, "now").mockReturnValue(Date.now() + HARD_SESSION_LIFETIME_MS + 1_000);
     setTokens({ accessToken: "kds-a", refreshToken: "kds-r", expiresIn: 900 });
-
     expect(isSessionOverHardLimit()).toBe(false); // KDS just signed on
 
+    vi.spyOn(Date, "now").mockReturnValue(t0 + HARD_SESSION_LIFETIME_MS + 1_000);
+    expect(isSessionOverHardLimit()).toBe(true); // KDS's own clock, still enforced, 12h+ since it signed on
+
     setActiveSurface("pos");
-    expect(isSessionOverHardLimit()).toBe(true); // POS's clock, unaffected by KDS's
+    expect(isSessionOverHardLimit()).toBe(false); // POS: exempt regardless, same instant
   });
 });

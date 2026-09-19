@@ -211,7 +211,8 @@ describe("refreshSession resilience", () => {
     expect(Session.getAccessToken()).toBe("pos-refreshed-after-idle");
   });
 
-  it("the hard session lifetime cap ends the session even though the refresh token is still valid", async () => {
+  it("KDS UNCHANGED — the hard session lifetime cap still ends the session even though the refresh token is still valid", async () => {
+    Session.setActiveSurface("kds");
     Session.setTokens({ accessToken: "old-access", refreshToken: "still-good-refresh", expiresIn: 900 });
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + Session.HARD_SESSION_LIFETIME_MS + 1_000);
 
@@ -225,6 +226,70 @@ describe("refreshSession resilience", () => {
     // before the call, not learned from a rejection.
     const refreshCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/refresh"));
     expect(refreshCalls).toHaveLength(0);
+  });
+
+  /*
+   * REMOVE-POS-ABSOLUTE-SESSION-CAP-P0
+   */
+  it("POS — the old 12h hard session lifetime cap no longer ends the session; refresh proceeds to the network and succeeds", async () => {
+    Session.setActiveSurface("pos");
+    Session.setTokens({ accessToken: "old-access", refreshToken: "still-good-refresh", expiresIn: 900 });
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + Session.HARD_SESSION_LIFETIME_MS + 1_000);
+
+    let requestCount = 0;
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      if (String(url).includes("/auth/refresh")) {
+        return jsonResponse(200, {
+          accessToken: "pos-refreshed-past-12h",
+          refreshToken: "refresh-2",
+          expiresIn: 900,
+        });
+      }
+      requestCount += 1;
+      if (requestCount === 1) return jsonResponse(401, { message: "Unauthenticated" });
+      return jsonResponse(200, { ok: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(http.get("/foo")).resolves.toEqual({ ok: true });
+    expect(Session.isSignedIn()).toBe(true);
+    expect(Session.getAccessToken()).toBe("pos-refreshed-past-12h");
+
+    // Unlike the old behaviour, this DID reach the network — the cap never
+    // short-circuited it. (The access token being long expired by the same
+    // mocked clock can trigger more than one refresh attempt — a proactive
+    // one plus the request-time retry; the count isn't the point here, that
+    // it reaches the network at all, and succeeds, is.)
+    const refreshCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes("/auth/refresh"));
+    expect(refreshCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("POS — manual Sign Off still clears the session even when the (now-unenforced) 12h mark has long passed", async () => {
+    Session.setActiveSurface("pos");
+    Session.setTokens({ accessToken: "old-access", refreshToken: "still-good-refresh", expiresIn: 900 });
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3 * Session.HARD_SESSION_LIFETIME_MS);
+
+    Session.clearSession();
+
+    expect(Session.isSignedIn()).toBe(false);
+    expect(Session.getAccessToken()).toBeNull();
+  });
+
+  it("POS — a genuine auth rejection still clears the session even when the (now-unenforced) 12h mark has long passed", async () => {
+    Session.setActiveSurface("pos");
+    Session.setTokens({ accessToken: "old-access", refreshToken: "dead-refresh", expiresIn: 900 });
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3 * Session.HARD_SESSION_LIFETIME_MS);
+
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      if (String(url).includes("/auth/refresh")) {
+        return jsonResponse(401, { message: "Invalid refresh token", error: "Unauthorized" });
+      }
+      return jsonResponse(401, { message: "Unauthenticated" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(http.get("/foo")).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
+    expect(Session.isSignedIn()).toBe(false);
   });
 });
 
