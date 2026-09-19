@@ -984,6 +984,19 @@ export interface PosReasonCode {
   label: Localised;
 }
 
+/**
+ * POS-SAFE-TABLES-DINEIN-P0 — a dine-in table, as the POS table picker needs
+ * it. Deliberately not the Organisation admin `RestaurantTable` shape (no
+ * `branchId` — always the caller's own branch; no management fields).
+ * `org.tables` carries no active/usable column, so none is faked here.
+ */
+export interface PosTable {
+  id: Id;
+  label: string;
+  section: string | null;
+  seatCapacity: number | null;
+}
+
 export interface SalesService {
   orders: ReadonlyCollectionService<Order>;
   /** The write half of the order lifecycle. */
@@ -1012,6 +1025,16 @@ export interface SalesService {
    * workflows, unrelated to order-line actions.
    */
   reasonCodes(purpose: PosReasonPurpose): Promise<PosReasonCode[]>;
+  /**
+   * POS-SAFE-TABLES-DINEIN-P0 — the caller's own branch's dine-in tables
+   * (`GET /orders/tables`, class-level `@AllowPosSession()` on
+   * `OrdersController`, same as `reasonCodes` above). NEVER
+   * `OrganisationService.tables` (`GET /org/branches/{id}/tables`) — that
+   * needs `settings.branch.read`, which Cashier deliberately does not hold,
+   * and a PIN(POS) session is refused outright before permissions are even
+   * checked, exactly like `reasonCodes`' own back-office counterpart.
+   */
+  tables(): Promise<PosTable[]>;
 }
 
 /** FR-POS-091 — the three ways cash moves without a sale. */

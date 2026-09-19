@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 152 paths, 107 request DTOs.
+ * `api/openapi.json`. 153 paths, 107 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -1062,6 +1062,15 @@ export type OrdersController_listReasonCodesResponse = ({
   id: string;
   /** Opaque localized-label object (locale -> label). */
   label: Record<string, unknown>;
+})[];
+
+/** `GET /orders/tables` — The caller's own branch's dine-in tables, for the POS table picker. — Tables at this POS session's own branch. */
+export type OrdersController_listTablesResponse = ({
+  /** The value to send back as tableId when opening a dine-in order. */
+  id: string;
+  label: string;
+  section: string | null;
+  seatCapacity: number | null;
 })[];
 
 /** `GET /orders/{businessDay}/{id}` — One order, with its persisted line snapshots. — The order, including its lines. */
@@ -6049,6 +6058,7 @@ export const ROUTES = {
   OrdersController_list: { method: "GET", path: "/orders" },
   OrdersController_create: { method: "POST", path: "/orders" },
   OrdersController_listReasonCodes: { method: "GET", path: "/orders/reason-codes" },
+  OrdersController_listTables: { method: "GET", path: "/orders/tables" },
   OrdersController_findOne: { method: "GET", path: "/orders/{businessDay}/{id}" },
   OrdersController_receipt: { method: "GET", path: "/orders/{businessDay}/{id}/receipt" },
   OrdersController_addLine: { method: "POST", path: "/orders/{businessDay}/{id}/lines" },

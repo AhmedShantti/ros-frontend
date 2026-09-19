@@ -29,6 +29,10 @@ export const sales = {
   listReasonCodes: (options: { purpose?: "void_prefire" | "discount" | "comp" | "void_postfire" | "refund" | "order_cancel" } = {}) =>
     http.get<S.OrdersController_listReasonCodesResponse>("/orders/reason-codes", { query: { purpose: options.purpose } }),
 
+  /** `GET /orders/tables` — The caller's own branch's dine-in tables, for the POS table picker. — Tables at this POS session's own branch. */
+  listTables: () =>
+    http.get<S.OrdersController_listTablesResponse>("/orders/tables"),
+
   /** `GET /orders/{businessDay}/{id}` — One order, with its persisted line snapshots. — The order, including its lines. */
   findOne: (businessDay: string, id: string) =>
     http.get<S.OrdersController_findOneResponse>("/orders/{businessDay}/{id}", { params: { businessDay, id } }),

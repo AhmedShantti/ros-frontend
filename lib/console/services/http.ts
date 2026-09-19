@@ -2300,7 +2300,18 @@ async function reasonCodes(purpose: PosReasonPurpose) {
   }));
 }
 
-const sales: SalesService = { orders, mutations: orderMutations, receipt, reasonCodes };
+/** POS-SAFE-TABLES-DINEIN-P0 — `GET /orders/tables`, this session's own branch only. */
+async function tables() {
+  const rows = await api.sales.listTables();
+  return rows.map((row) => ({
+    id: row.id,
+    label: row.label,
+    section: row.section,
+    seatCapacity: row.seatCapacity,
+  }));
+}
+
+const sales: SalesService = { orders, mutations: orderMutations, receipt, reasonCodes, tables };
 
 // ---------------------------------------------------------------------------
 // Treasury

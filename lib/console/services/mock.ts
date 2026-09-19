@@ -610,6 +610,9 @@ const sales: SalesService = {
   async reasonCodes() {
     noBackend("Reading POS reason codes");
   },
+  async tables() {
+    noBackend("Reading POS dine-in tables");
+  },
 };
 
 /**
