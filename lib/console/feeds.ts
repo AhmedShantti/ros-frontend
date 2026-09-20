@@ -21,15 +21,24 @@
  * says so rather than implying a link that does not exist.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import { DATA_MODE } from "@/lib/api/config";
 import { services } from "./services";
 import { ServiceError } from "./services";
 import type { Scope } from "./services/types";
-import { useAsync } from "./hooks";
+import { useAsync, useStations } from "./hooks";
 import { useLive } from "./live/store";
-import type { AuditEntry, KitchenTicket, Order, StockMovement, WasteRecord } from "./types";
+import type {
+  AuditEntry,
+  Id,
+  KitchenQueueSnapshot,
+  KitchenQueueStation,
+  KitchenQueueTicket,
+  Order,
+  StockMovement,
+  WasteRecord,
+} from "./types";
 
 /** How many rows a device-facing screen asks the backend for. */
 const FEED_LIMIT = 200;
@@ -261,43 +270,111 @@ export function useAuditFeed(scope?: Scope): Feed<AuditEntry> {
   return fromRemote(remote, live, state.audit, ready);
 }
 
+/** How often the Dashboard Kitchen Queue re-polls — an operational screen, not a terminal; 5s (the KDS terminal's own interval) would hammer Render for no benefit a manager needs. */
+const KITCHEN_QUEUE_POLL_MS = 15_000;
+
+export interface KitchenQueueFeed {
+  ready: boolean;
+  error: ServiceError | Error | null;
+  live: boolean;
+  reload: () => void;
+  /** Null until a concrete branch is selected, or before the first load settles. */
+  snapshot: KitchenQueueSnapshot | null;
+}
+
 /**
- * SRS ch.9 — the tickets on the station displays.
+ * KITCHEN-QUEUE-MANAGER-REAL-BACKEND-P0 — SRS ch.9's Dashboard read.
  *
- * `GET /kds/stations/{id}/queue` exists, but it is terminal-bound: a KDS
- * terminal is bound to one station, and *every* other caller — including
- * this console screen, regardless of scope or role — is refused on every
- * station, every time. That is not a fan-out worth attempting; it is a
- * deterministic contract mismatch, so this fails without ever sending the
- * request rather than polling an endpoint no console session can pass.
+ * `GET /kitchen/branches/{branchId}/queue` (`kitchen.queue.view`) is the
+ * manager-safe twin of the KDS terminal's own `GET /kds/stations/{id}/queue`
+ * — this is NOT that route, and does not fan out over stations trying to
+ * pass a `kds.operate`/KDS-session check it was never going to pass (the
+ * fan-out `services.operations.kitchenQueue` still exists, unchanged, for
+ * `lib/console/reports/engine.ts`'s own analytics use — this hook does not
+ * call it).
  *
- * The `TERMINAL_ONLY` code lets `KitchenPage` show that specifically,
- * rather than the generic retry-invites-more-of-the-same error panel.
+ * Requires a CONCRETE branch — `branchId === null` (the "All branches"
+ * scope) returns `snapshot: null` without ever sending a request, exactly
+ * like the "no station chosen yet" case on the KDS terminal: a kitchen queue
+ * is one branch's queue, and silently picking one, or merging several,
+ * would show a manager tickets that are not where they think they are.
+ *
+ * Polling mirrors `kds-live.tsx`'s own pattern (`useAsync` + `setInterval`
+ * calling its stable `reload`, torn down on unmount/branch change) — no
+ * mutation ever runs from this screen, so there is no in-flight action to
+ * pause the interval for.
  */
-export function useKitchenFeed(scope?: Scope): Feed<KitchenTicket> {
+export function useKitchenQueue(branchId: Id | null, scope?: Scope): KitchenQueueFeed {
   const live = DATA_MODE === "http";
   const { state, ready } = useLive();
-  const key = scopeKey(scope);
 
-  const remote = useAsync<KitchenTicket[]>(async () => {
-    if (!live) return [];
-    throw new ServiceError(
-      "TERMINAL_ONLY",
-      "The live kitchen queue can only be read from a KDS terminal.",
-      403,
-      "GET /kds/stations/{stationId}/queue requires a terminal-bound session; every console caller is refused on every station.",
-    );
-  }, [live, key]);
-
-  const local = useMemo(
-    () =>
-      state.ticketIds
-        .map((id) => state.tickets[id]!)
-        .filter((ticket) => ticket && ticket.branchId === state.branchId),
-    [state.ticketIds, state.tickets, state.branchId],
+  const remote = useAsync<KitchenQueueSnapshot | null>(
+    async () => (live && branchId ? services.kitchen.branchQueue(branchId) : null),
+    [live, branchId],
   );
 
-  return fromRemote(remote, live, local, ready);
+  const reload = remote.reload;
+  useEffect(() => {
+    if (!live || !branchId) return;
+    const timer = window.setInterval(reload, KITCHEN_QUEUE_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [live, branchId, reload]);
+
+  const stations = useStations(scope);
+  const local = useMemo<KitchenQueueSnapshot | null>(() => {
+    if (live) return null;
+    const branch = branchId ?? state.branchId;
+    if (!branch) return null;
+
+    const tickets = state.ticketIds
+      .map((id) => state.tickets[id]!)
+      .filter((ticket) => ticket && ticket.branchId === branch);
+
+    const byStation = new Map<Id, KitchenQueueTicket[]>();
+    for (const ticket of tickets) {
+      const delayed = ticket.urgency === "exceeded" || ticket.urgency === "critical";
+      const bucket = byStation.get(ticket.stationId);
+      const row = { ...ticket, delayed };
+      if (bucket) bucket.push(row);
+      else byStation.set(ticket.stationId, [row]);
+    }
+
+    const stationRows: KitchenQueueStation[] = stations
+      .filter((station) => station.branchId === branch)
+      .map((station) => {
+        const stationTickets = byStation.get(station.id) ?? [];
+        return {
+          stationId: station.id,
+          stationName: station.name,
+          colour: station.colour,
+          queueDepth: stationTickets.length,
+          tickets: stationTickets,
+        };
+      });
+
+    const active = [...byStation.values()].flat();
+    return {
+      branchId: branch,
+      dataAsOf: new Date().toISOString(),
+      stations: stationRows,
+      totalActiveTickets: active.length,
+      averageWaitSeconds:
+        active.length === 0
+          ? null
+          : Math.round(active.reduce((sum, t) => sum + t.elapsedSeconds, 0) / active.length),
+    };
+  }, [live, branchId, state.branchId, state.ticketIds, state.tickets, stations]);
+
+  if (!live) {
+    return { snapshot: local, ready, error: null, live: false, reload: () => {} };
+  }
+  return {
+    snapshot: remote.data ?? null,
+    ready: !remote.loading || remote.data !== null,
+    error: remote.error,
+    live: true,
+    reload,
+  };
 }
 
 /**

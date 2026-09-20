@@ -104,8 +104,17 @@ export const PERMISSION_CATALOGUE = [
     "Reopen a completed order. Highly restricted.", "إعادة فتح طلب مكتمل. مقيّد للغاية.", true),
 
   // -- Kitchen and live operations -----------------------------------------
-  def("kds.operate", "kitchen", "View kitchen queue", "عرض طابور المطبخ",
-    "See station queues and ticket timing.", "الاطلاع على طوابير المحطات وتوقيت التذاكر."),
+  // `kds.operate` is the KDS TERMINAL's own operate code (station queue,
+  // bump/start/recall) — a PIN-session grant, never a Dashboard one.
+  def("kds.operate", "kitchen", "Operate KDS terminal", "تشغيل شاشة المطبخ",
+    "See station queues and operate the kitchen display (terminal session).", "الاطلاع على طوابير المحطات وتشغيل شاشة المطبخ (جلسة الجهاز)."),
+  // KITCHEN-QUEUE-MANAGER-REAL-BACKEND-P0 — the real backend's
+  // `kitchen.queue.view` (`kitchen.queue.view` Ratification, 2026-09-20): a
+  // SEPARATE, Dashboard-only, read-only permission for Operations -> Kitchen
+  // queue. Deliberately not `kds.operate` — see that ratification for why.
+  def("kitchen.queue.view", "kitchen", "View kitchen queue (dashboard)", "عرض طابور المطبخ (لوحة التحكم)",
+    "Read the branch kitchen queue from the dashboard — no terminal session required.",
+    "الاطلاع على طابور المطبخ من لوحة التحكم — دون الحاجة لجلسة جهاز."),
   def("kds.station.manage", "kitchen", "Manage stations", "إدارة المحطات",
     "Configure stations, routing rules, and capacity.", "ضبط المحطات وقواعد التوجيه والسعة."),
   def("ops.live.view", "kitchen", "Live operations", "العمليات المباشرة",
@@ -520,7 +529,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
       "pos.order.void_line_postfire", "pos.order.cancel", "pos.discount.apply",
       "pos.discount.approve", "pos.comp.apply", "pos.price.override", "pos.refund.issue",
       "pos.reprint.receipt", "pos.order.transfer",
-      "kds.operate", "kds.station.manage", "ops.live.view", "ops.terminal.view",
+      "kds.operate", "kds.station.manage", "kitchen.queue.view", "ops.live.view", "ops.terminal.view",
       "cash.session.view", "cash.session.open", "cash.session.close",
       "cash.session.close_other", "cash.drawer.open_no_sale", "cash.payin", "cash.payout",
       "cash.safedrop", "cash.variance.approve", "cash.day.close",
@@ -624,7 +633,13 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
     defaultScope: "branch_set",
     permissions: [
       "pos.order.view",
-      "kds.operate", "kds.station.manage", "ops.live.view",
+      // `kitchen.queue.view` — SRS intent records "Head Chef has KDS +
+      // Dashboard access", but the real backend has no seeded "Head Chef"
+      // canonical role/template to grant it to (see the `kitchen.queue.view`
+      // Ratification's "Future standard-role intent" clause) — this DEMO
+      // catalogue entry is presentation-only (FR-SEC-045) and does not
+      // reflect a live backend grant for this role.
+      "kds.operate", "kds.station.manage", "kitchen.queue.view", "ops.live.view",
       "inventory.view", "inventory.count.perform", "inventory.waste.record",
       "inventory.cost.view",
       "menu.item.read", "menu.availability.read", "menu.availability.toggle",

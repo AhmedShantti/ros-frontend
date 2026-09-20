@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 158 paths, 109 request DTOs.
+ * `api/openapi.json`. 159 paths, 109 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -6545,6 +6545,65 @@ export type OrdersController_preBillResponse = {
   };
 };
 
+/** `GET /kitchen/branches/{branchId}/queue` — Manager-safe branch kitchen queue (read-only, Dashboard session, every station) — NOT the KDS terminal surface. — The branch kitchen queue, grouped by station. */
+export type KitchenQueueController_getBranchQueueResponse = {
+  branchId: string;
+  dataAsOf: string;
+  stations: ({
+    stationId: string;
+    stationName: string;
+    displayColour: string | null;
+    queueDepth: number;
+    tickets: ({
+      id: string;
+      stationId: string;
+      orderId: string;
+      businessDay: string;
+      orderNumber: string;
+      orderType: string;
+      serviceReference: string | null;
+      routedAt: string;
+      elapsedSeconds: number;
+      targetReadyAt: string | null;
+      status: string;
+      firstViewedAt: string | null;
+      startedAt: string | null;
+      readyAt: string | null;
+      bumpedAt: string | null;
+      recalledAt: string | null;
+      recallCount: number;
+      delayed: boolean;
+      lines: ({
+        id: string;
+        orderLineId: string;
+        /** Opaque localized-name object, as stored at Fire time. */
+        itemNameSnapshot: Record<string, unknown>;
+        /** DECIMAL(12,3) rendered as a string, never a JS number. */
+        quantity: string;
+        course: number | null;
+        sequence: number;
+        preparationNotes: string | null;
+        status: string;
+        firstViewedAt: string | null;
+        startedAt: string | null;
+        readyAt: string | null;
+        bumpedAt: string | null;
+        recalledAt: string | null;
+        cancelledAt: string | null;
+        modifiers: ({
+          id: string;
+          /** Opaque localized-name object, as stored at Fire time. */
+          nameSnapshot: Record<string, unknown>;
+          kind: "addition" | "removal" | "substitution";
+          quantity: number;
+        })[];
+      })[];
+    })[];
+  })[];
+  totalActiveTickets: number;
+  averageWaitSeconds: number | null;
+};
+
 // ---------------------------------------------------------------------------
 // Route table
 // ---------------------------------------------------------------------------
@@ -6757,6 +6816,7 @@ export const ROUTES = {
   OrganisationController_setBranchKdsConfig: { method: "PATCH", path: "/org/branches/{branchId}/kds-config" },
   OrdersController_cancel: { method: "POST", path: "/orders/{businessDay}/{id}/cancel" },
   OrdersController_preBill: { method: "GET", path: "/orders/{businessDay}/{id}/pre-bill" },
+  KitchenQueueController_getBranchQueue: { method: "GET", path: "/kitchen/branches/{branchId}/queue" },
 } as const;
 
 /** Every operation the document describes. */

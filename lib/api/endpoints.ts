@@ -38,6 +38,14 @@ export const sales = {
    * `PREFIRE-VOID-NO-REASON-P0` already hit and worked around the same way.
    * Verified correct against the real, live backend route
    * (`ListOrderHistoryQueryDto`, `src/modules/sales/sales.dto.ts`).
+   *
+   * KITCHEN-QUEUE-MANAGER-REAL-BACKEND-P0 — re-hand-patched after
+   * regenerating `endpoints.ts`/`schema.ts` for the new
+   * `GET /kitchen/branches/{branchId}/queue` route (this run's own
+   * `api/openapi.json` merge added only that ONE new path, leaving
+   * `/orders/history`'s entry exactly as already committed — unchanged,
+   * `state`-less — so a plain regen reproduces this same gap; nothing about
+   * the `state` filter's own backend behavior changed).
    */
   history: (options: { branchId?: string; cursorId?: string; cursorBusinessDay?: string; limit?: number; state?: "open" } = {}) =>
     http.get<S.OrdersController_historyResponse>("/orders/history", { query: { branchId: options.branchId, cursorId: options.cursorId, cursorBusinessDay: options.cursorBusinessDay, limit: options.limit, state: options.state } }),
@@ -949,6 +957,10 @@ export const kitchen = {
   /** `POST /kds/tickets/{ticketId}/recall` — Recall a bumped ticket back to active work. — The recalled ticket. */
   recall: (ticketId: string, options: { stationId?: string } = {}) =>
     http.post<S.KitchenController_recallResponse>("/kds/tickets/{ticketId}/recall", { params: { ticketId }, query: { stationId: options.stationId }, idempotent: true }),
+
+  /** `GET /kitchen/branches/{branchId}/queue` — Manager-safe branch kitchen queue (read-only, Dashboard session, every station) — NOT the KDS terminal surface. — The branch kitchen queue, grouped by station. */
+  getBranchQueue: (branchId: string) =>
+    http.get<S.KitchenQueueController_getBranchQueueResponse>("/kitchen/branches/{branchId}/queue", { params: { branchId } }),
 
 };
 

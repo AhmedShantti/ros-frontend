@@ -2126,6 +2126,9 @@ const kitchen: KitchenService = {
   async queue() {
     noBackend("Reading a station queue through the service layer");
   },
+  async branchQueue() {
+    noBackend("Reading the Dashboard branch kitchen queue through the service layer");
+  },
   async acknowledgeViewed() {
     noBackend("Acknowledging tickets as viewed");
   },

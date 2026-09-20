@@ -44,6 +44,9 @@ import type {
   EmploymentType,
   Id,
   IsoDate,
+  KitchenQueueSnapshot,
+  KitchenQueueStation,
+  KitchenQueueTicket,
   KitchenTicket,
   Localised,
   Menu,
@@ -1501,6 +1504,53 @@ export function toKitchenTicket(row: WireTicket, context: TicketContext): Kitche
     // `firedAt` between polls so the clock keeps running.
     elapsedSeconds: row.elapsedSeconds,
     lines,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Kitchen queue (Dashboard) — KITCHEN-QUEUE-MANAGER-REAL-BACKEND-P0
+// ---------------------------------------------------------------------------
+
+type WireBranchQueue = S.KitchenQueueController_getBranchQueueResponse;
+type WireBranchQueueStation = WireBranchQueue["stations"][number];
+
+/**
+ * `WireBranchQueueStation["tickets"][number]` is `WireTicket` plus one extra
+ * field (`delayed`) — structurally compatible with `toKitchenTicket`'s own
+ * `WireTicket` parameter, so the existing ticket/line mapping (state
+ * derivation, modifier mapping, `orderTypeOf`) is reused unchanged rather
+ * than duplicated for this second route.
+ */
+function toKitchenQueueTicket(
+  row: WireBranchQueueStation["tickets"][number],
+  context: TicketContext,
+): KitchenQueueTicket {
+  return { ...toKitchenTicket(row, context), delayed: row.delayed };
+}
+
+function toKitchenQueueStation(
+  row: WireBranchQueueStation,
+  branchId: Id,
+): KitchenQueueStation {
+  const stationName = localised(row.stationName);
+  const context: TicketContext = { branchId, stationName };
+  const tickets = row.tickets.map((ticket) => toKitchenQueueTicket(ticket, context));
+  return {
+    stationId: row.stationId,
+    stationName,
+    colour: colourOf(row.displayColour),
+    queueDepth: row.queueDepth,
+    tickets,
+  };
+}
+
+export function toKitchenQueueSnapshot(row: WireBranchQueue): KitchenQueueSnapshot {
+  return {
+    branchId: row.branchId,
+    dataAsOf: row.dataAsOf,
+    stations: row.stations.map((station) => toKitchenQueueStation(station, row.branchId)),
+    totalActiveTickets: row.totalActiveTickets,
+    averageWaitSeconds: row.averageWaitSeconds,
   };
 }
 

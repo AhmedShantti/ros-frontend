@@ -44,6 +44,7 @@ import type {
   Integration,
   IsoDate,
   IsoDateTime,
+  KitchenQueueSnapshot,
   KitchenTicket,
   ListQuery,
   Localised,
@@ -167,6 +168,14 @@ export interface KitchenService {
   stations(): Promise<Pick<Station, "id" | "name" | "colour">[]>;
   /** FR-KDS-020 — the FIFO queue for one station. */
   queue(stationId: Id): Promise<StationQueue>;
+  /**
+   * KITCHEN-QUEUE-MANAGER-REAL-BACKEND-P0 — `GET /kitchen/branches/{branchId}
+   * /queue`, the manager-facing Dashboard read: every active ticket in the
+   * named branch, grouped by station. Requires `kitchen.queue.view`, never a
+   * KDS session — a SEPARATE, Dashboard-only route from `queue(stationId)`
+   * above, which stays terminal-bound and unchanged.
+   */
+  branchQueue(branchId: Id): Promise<KitchenQueueSnapshot>;
   /**
    * FR-KDS-021 — record that these tickets have been seen on this station.
    * Write-once per ticket; returns how many were newly acknowledged.

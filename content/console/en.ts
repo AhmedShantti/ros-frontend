@@ -1492,6 +1492,14 @@ export const consoleEn = {
   "kds.bottleneck": "Busiest station",
   "kds.avgTicket": "Average ticket time",
 
+  // The Dashboard manager read — `app/(console)/operations/kitchen/page.tsx`.
+  "kds.dashboardSubtitle": "The manager's view of the branch kitchen queue — read-only.",
+  "kds.selectBranch": "Select a branch to view its kitchen queue.",
+  "kds.avgWait": "Average current wait",
+  "kds.delayed": "Delayed",
+  "kds.emptyBranch": "No active tickets at this branch right now.",
+  "kds.dashboardUnsupported": "This backend session cannot read a live kitchen queue.",
+
   // The live display — `components/terminal/kds-live.tsx`.
   "kds.pickStation": "Which station is this screen?",
   "kds.pickStationNote": "A kitchen display is bound to one station on the server, and it will refuse to read any other. Chosen once; this screen comes back to it after a reload.",

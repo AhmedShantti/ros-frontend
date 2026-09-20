@@ -1,103 +1,70 @@
 "use client";
 
 /**
- * Kitchen queue — SRS ch.9.
+ * Kitchen queue — SRS ch.9, KITCHEN-QUEUE-MANAGER-REAL-BACKEND-P0.
  *
- * The manager's view of the same tickets the cooks are looking at, plus the
- * two derived numbers worth acting on: which station is the bottleneck
- * (FR-KDS-043) and what ticket time is running at (FR-KDS-042).
+ * The manager's READ-ONLY view of the branch's active kitchen queue —
+ * NOT the KDS terminal. Backed by `GET /kitchen/branches/{branchId}/queue`
+ * (`kitchen.queue.view`), a Dashboard-session route deliberately separate
+ * from the KDS terminal's own `GET /kds/stations/{id}/queue`
+ * (`kds.operate`, KDS-session-bound) — see `kitchen-queue.permissions.ts`
+ * in the backend for why. No bump/start/recall exists here; that stays the
+ * KDS terminal's job.
  *
- * The rows come from `useKitchenFeed`, which reads the terminals on this
- * device against the demo build. Against a live backend there is no console
- * read of this at all: `GET /kds/stations/{id}/queue` is terminal-bound, so
- * this screen shows `UnsupportedPanel` instead of a queue it can never
- * actually fetch — see `useKitchenFeed` for why that is a route this
- * console session can never pass, not a request worth retrying.
+ * Branch selection mirrors `operations/tables/page.tsx`'s own rule (never
+ * `cash-sessions/page.tsx`'s auto-default-to-first-branch one): a branch is
+ * only ever considered selected when the Console's own top-bar scope
+ * already names one, or exactly one branch is authorised at all (nothing to
+ * choose), or the actor actively picks one below — NEVER a silent default
+ * to "the first branch in the list" while the scope is genuinely
+ * "All branches". A kitchen queue is one branch's queue; silently picking
+ * one, or merging several, would show a manager tickets that are not where
+ * they think they are.
  */
 
-import { useMemo } from "react";
-import type { KitchenTicket } from "@/lib/console/types";
+import { useMemo, useState } from "react";
+import type { KitchenQueueTicket } from "@/lib/console/types";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { elapsedSince, useNow } from "@/lib/console/live/store";
-import { useKitchenFeed } from "@/lib/console/feeds";
-import { useStations } from "@/lib/console/hooks";
-import { ServiceError } from "@/lib/console/services";
-import { urgencyFor } from "@/lib/console/live/engine";
-import { formatDuration, formatElapsed } from "@/lib/console/format";
-import { ORDER_TYPE, TICKET_STATE, TICKET_URGENCY } from "@/lib/console/labels";
+import { useKitchenQueue } from "@/lib/console/feeds";
+import { formatElapsed } from "@/lib/console/format";
+import { ORDER_TYPE, TICKET_STATE } from "@/lib/console/labels";
 import { CellStack, DataTable, type Column } from "@/components/console/data-table";
 import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/page";
-import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
+import { LiveEmpty, LiveNotice } from "@/components/console/live-panels";
 import { MetricTile } from "@/components/console/charts";
-import { ErrorPanel, LoadingPanel, UnsupportedPanel } from "@/components/console/states";
-import { Badge, Card, CardHeader, Meter } from "@/components/console/ui";
+import { ErrorPanel, Gate, LoadingPanel } from "@/components/console/states";
+import { Badge, Callout, Card, CardHeader, Field, Select } from "@/components/console/ui";
 
 export default function KitchenPage() {
+  return (
+    <Gate permissions={["kitchen.queue.view"]}>
+      <KitchenQueueScreen />
+    </Gate>
+  );
+}
+
+function KitchenQueueScreen() {
   const { t, tx, fmt } = useI18n();
-  const { scope } = useSession();
+  const { scope, availableBranches } = useSession();
   const now = useNow(1000);
 
-  const feed = useKitchenFeed(scope);
-  const stations = useStations(scope);
+  const singleAuthorizedBranch = availableBranches.length === 1 ? availableBranches[0]! : null;
+  const contextBranchId = scope.branchId ?? singleAuthorizedBranch?.id ?? null;
+  const [pickedBranchId, setPickedBranchId] = useState("");
+  const branchId = contextBranchId ?? (pickedBranchId || null);
 
-  /** See `useKitchenFeed` — there is no fan-out to retry here, only a route
-   * this console session can never pass. */
-  const unavailable = feed.error instanceof ServiceError && feed.error.code === "TERMINAL_ONLY";
+  const feed = useKitchenQueue(branchId, scope);
+  const snapshot = feed.snapshot;
 
-  const active = useMemo(
-    () => feed.rows.filter((ticket) => ticket.state !== "bumped"),
-    [feed.rows],
-  );
+  const tickets = useMemo<KitchenQueueTicket[]>(() => {
+    if (!snapshot) return [];
+    return snapshot.stations
+      .flatMap((station) => station.tickets)
+      .sort((a, b) => new Date(a.firedAt).getTime() - new Date(b.firedAt).getTime());
+  }, [snapshot]);
 
-  const bumped = useMemo(
-    () => feed.rows.filter((ticket) => ticket.state === "bumped"),
-    [feed.rows],
-  );
-
-  /**
-   * FR-KDS-042 — bump time minus fire time, over the tickets that finished.
-   *
-   * Read from the ticket's own `bumpedAt` rather than from an order line's
-   * `readyAt`: it is the same instant, it is what both sources actually
-   * carry, and the backend's queue does not ship the order behind a ticket.
-   */
-  const averageTicket = useMemo(() => {
-    const times = bumped
-      .map((ticket) =>
-        ticket.bumpedAt
-          ? (new Date(ticket.bumpedAt).getTime() - new Date(ticket.firedAt).getTime()) / 1000
-          : null,
-      )
-      .filter((v): v is number => v !== null && Number.isFinite(v) && v >= 0);
-    if (times.length === 0) return null;
-    return times.reduce((a, b) => a + b, 0) / times.length;
-  }, [bumped]);
-
-  /** FR-KDS-043 — queue depth against the station's hourly throughput. */
-  const load = useMemo(
-    () =>
-      stations
-        .map((station) => {
-          const queue = active.filter((ticket) => ticket.stationId === station.id);
-          const items = queue.reduce(
-            (s, ticket) =>
-              s + ticket.lines.filter((l) => l.state !== "ready" && l.state !== "voided").length,
-            0,
-          );
-          return {
-            station,
-            tickets: queue.length,
-            items,
-            pressure: station.capacityPerHour > 0 ? (items / station.capacityPerHour) * 100 : 0,
-          };
-        })
-        .sort((a, b) => b.pressure - a.pressure),
-    [stations, active],
-  );
-
-  const bottleneck = load.find((row) => row.items > 0) ?? null;
-
-  const columns: Column<KitchenTicket>[] = [
+  const columns: Column<KitchenQueueTicket>[] = [
     {
       key: "orderNumber",
       header: t("orders.number"),
@@ -121,9 +88,7 @@ export default function KitchenPage() {
       render: (ticket) => (
         <CellStack
           primary={ticket.lines.map((l) => `${l.quantity}× ${tx(l.name)}`).join(", ")}
-          secondary={
-            ticket.course > 1 ? `${t("orders.course")} ${ticket.course}` : undefined
-          }
+          secondary={ticket.course > 1 ? `${t("orders.course")} ${ticket.course}` : undefined}
         />
       ),
     },
@@ -139,88 +104,83 @@ export default function KitchenPage() {
       header: t("kds.elapsed"),
       numeric: true,
       render: (ticket) => {
-        const elapsed = elapsedSince(ticket.firedAt, now) ?? 0;
-        const urgency = urgencyFor(elapsed, ticket.targetSeconds);
+        const elapsed = elapsedSince(ticket.firedAt, now) ?? ticket.elapsedSeconds;
         return (
           <span className="inline-flex items-center gap-2">
             <span className="tabular-nums">{formatElapsed(elapsed)}</span>
-            <Badge tone={TICKET_URGENCY[urgency].tone}>{tx(TICKET_URGENCY[urgency].label)}</Badge>
+            {ticket.delayed ? <Badge tone="bad">{t("kds.delayed")}</Badge> : null}
           </span>
         );
       },
-    },
-    {
-      key: "target",
-      header: t("kds.target"),
-      numeric: true,
-      secondary: true,
-      render: (ticket) => formatElapsed(ticket.targetSeconds),
     },
   ];
 
   return (
     <>
-      <PageHeader
-        title={t("kds.title")}
-        subtitle={t("kds.noTicketsNote")}
-        spec="ch.9"
-        actions={<TerminalLinks />}
-      />
+      <PageHeader title={t("kds.title")} subtitle={t("kds.dashboardSubtitle")} spec="ch.9" />
 
       <PageBody>
         <LiveNotice source={feed.live ? "backend" : "device"} />
 
-        {unavailable ? (
-          <UnsupportedPanel detail="GET /kds/stations/{stationId}/queue requires a terminal-bound KDS session; a console session is refused on every station. Open a KDS terminal (above) to see the live queue." />
+        {!contextBranchId && availableBranches.length > 1 ? (
+          <Field label={t("common.branch")}>
+            <Select value={pickedBranchId} onChange={(event) => setPickedBranchId(event.target.value)}>
+              <option value="">—</option>
+              {availableBranches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {tx(b.name)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+
+        {!branchId ? (
+          <Callout tone="muted">{t("kds.selectBranch")}</Callout>
+        ) : feed.error ? (
+          <ErrorPanel error={feed.error} onRetry={feed.reload} />
+        ) : !feed.ready || !snapshot ? (
+          <LoadingPanel />
         ) : (
           <>
-            <TileGrid columns={3}>
-              <MetricTile label={t("kds.queue")} value={String(active.length)} spec="FR-KDS-020" />
+            <TileGrid columns={2}>
               <MetricTile
-                label={t("kds.avgTicket")}
-                value={averageTicket === null ? "—" : formatDuration(Math.round(averageTicket), fmt)}
-                spec="FR-KDS-042"
+                label={t("kds.queue")}
+                value={String(snapshot.totalActiveTickets)}
+                spec="FR-KDS-020"
               />
               <MetricTile
-                label={t("kds.bottleneck")}
-                value={bottleneck ? tx(bottleneck.station.name) : "—"}
-                spec="FR-KDS-043"
+                label={t("kds.avgWait")}
+                value={
+                  snapshot.averageWaitSeconds === null
+                    ? "—"
+                    : formatElapsed(snapshot.averageWaitSeconds)
+                }
+                spec="FR-RPT-033"
               />
             </TileGrid>
 
-            {stations.length > 0 ? (
+            {snapshot.stations.length > 0 ? (
               <Card>
-                <CardHeader title={t("term.allStations")} spec="FR-KDS-045" />
+                <CardHeader title={t("term.allStations")} spec="FR-KDS-020" />
                 <ul className="space-y-2.5">
-                  {load.map((row) => (
-                    <li key={row.station.id}>
-                      <div className="mb-1 flex items-center justify-between gap-3 text-xs">
-                        <span className="text-fg font-medium">{tx(row.station.name)}</span>
-                        <span className="text-fg-muted tabular-nums">
-                          {row.items} · {row.station.capacityPerHour}/h
-                        </span>
-                      </div>
-                      <Meter
-                        value={row.pressure}
-                        tone={row.pressure > 80 ? "bad" : row.pressure > 45 ? "warn" : "good"}
-                      />
+                  {snapshot.stations.map((station) => (
+                    <li key={station.stationId} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-fg font-medium">{tx(station.stationName)}</span>
+                      <span className="text-fg-muted tabular-nums">{station.queueDepth}</span>
                     </li>
                   ))}
                 </ul>
               </Card>
             ) : null}
 
-            {feed.error ? (
-              <ErrorPanel error={feed.error} onRetry={feed.reload} />
-            ) : !feed.ready ? (
-              <LoadingPanel />
-            ) : active.length === 0 ? (
-              <LiveEmpty title={t("kds.noTickets")} />
+            {tickets.length === 0 ? (
+              <LiveEmpty title={t("kds.emptyBranch")} />
             ) : (
               <Section title={t("kds.queue")}>
                 <DataTable
                   columns={columns}
-                  rows={active}
+                  rows={tickets}
                   rowKey={(ticket) => ticket.id}
                   caption={t("kds.queue")}
                 />

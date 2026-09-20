@@ -2897,6 +2897,10 @@ const kitchen: KitchenService = {
     };
   },
 
+  async branchQueue(branchId) {
+    return map.toKitchenQueueSnapshot(await api.kitchen.getBranchQueue(branchId));
+  },
+
   async acknowledgeViewed(stationId, ticketIds) {
     // The DTO requires between 1 and 200 unique ids; sending an empty array
     // is a 400, and the honest answer to "acknowledge nothing" is zero.

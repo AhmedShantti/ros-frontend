@@ -35545,6 +35545,348 @@
           "sales"
         ]
       }
+    },
+    "/kitchen/branches/{branchId}/queue": {
+      "get": {
+        "description": "Active tickets only (kitchen.tickets.status NOT IN (bumped, served) \u2014 the SAME active-queue definition `GET /kds/stations/{stationId}/queue` uses), grouped by station, across the WHOLE named branch. Requires `kitchen.queue.view` on an assignment whose scope covers this branch \u2014 no KDS session, no station binding, no mutation route exists here.",
+        "operationId": "KitchenQueueController_getBranchQueue",
+        "parameters": [
+          {
+            "name": "branchId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The branch kitchen queue, grouped by station.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "branchId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                    },
+                    "dataAsOf": {
+                      "type": "string",
+                      "format": "date-time",
+                      "example": "2026-08-23T14:30:00.000Z"
+                    },
+                    "stations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "stationId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                          },
+                          "stationName": {
+                            "type": "string"
+                          },
+                          "displayColour": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "queueDepth": {
+                            "type": "integer"
+                          },
+                          "tickets": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "description": "Same shape as a KDS TicketCardDto, plus `delayed` (server-computed from targetReadyAt \u2014 always false until FR-KDS-044 [S] populates that column).",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                },
+                                "stationId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                },
+                                "orderId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                },
+                                "businessDay": {
+                                  "type": "string",
+                                  "format": "date"
+                                },
+                                "orderNumber": {
+                                  "type": "string"
+                                },
+                                "orderType": {
+                                  "type": "string"
+                                },
+                                "serviceReference": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "routedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "example": "2026-08-23T14:30:00.000Z"
+                                },
+                                "elapsedSeconds": {
+                                  "type": "integer"
+                                },
+                                "targetReadyAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "format": "date-time",
+                                  "example": "2026-08-23T14:30:00.000Z"
+                                },
+                                "status": {
+                                  "type": "string"
+                                },
+                                "firstViewedAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "format": "date-time",
+                                  "example": "2026-08-23T14:30:00.000Z"
+                                },
+                                "startedAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "format": "date-time",
+                                  "example": "2026-08-23T14:30:00.000Z"
+                                },
+                                "readyAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "format": "date-time",
+                                  "example": "2026-08-23T14:30:00.000Z"
+                                },
+                                "bumpedAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "format": "date-time",
+                                  "example": "2026-08-23T14:30:00.000Z"
+                                },
+                                "recalledAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "format": "date-time",
+                                  "example": "2026-08-23T14:30:00.000Z"
+                                },
+                                "recallCount": {
+                                  "type": "integer"
+                                },
+                                "delayed": {
+                                  "type": "boolean"
+                                },
+                                "lines": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "format": "uuid",
+                                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                      },
+                                      "orderLineId": {
+                                        "type": "string",
+                                        "format": "uuid",
+                                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                      },
+                                      "itemNameSnapshot": {
+                                        "type": "object",
+                                        "description": "Opaque localized-name object, as stored at Fire time."
+                                      },
+                                      "quantity": {
+                                        "type": "string",
+                                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                                        "description": "DECIMAL(12,3) rendered as a string, never a JS number.",
+                                        "example": "2"
+                                      },
+                                      "course": {
+                                        "type": [
+                                          "integer",
+                                          "null"
+                                        ]
+                                      },
+                                      "sequence": {
+                                        "type": "integer"
+                                      },
+                                      "preparationNotes": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "status": {
+                                        "type": "string"
+                                      },
+                                      "firstViewedAt": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ],
+                                        "format": "date-time",
+                                        "example": "2026-08-23T14:30:00.000Z"
+                                      },
+                                      "startedAt": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ],
+                                        "format": "date-time",
+                                        "example": "2026-08-23T14:30:00.000Z"
+                                      },
+                                      "readyAt": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ],
+                                        "format": "date-time",
+                                        "example": "2026-08-23T14:30:00.000Z"
+                                      },
+                                      "bumpedAt": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ],
+                                        "format": "date-time",
+                                        "example": "2026-08-23T14:30:00.000Z"
+                                      },
+                                      "recalledAt": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ],
+                                        "format": "date-time",
+                                        "example": "2026-08-23T14:30:00.000Z"
+                                      },
+                                      "cancelledAt": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ],
+                                        "format": "date-time",
+                                        "example": "2026-08-23T14:30:00.000Z"
+                                      },
+                                      "modifiers": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "id": {
+                                              "type": "string",
+                                              "format": "uuid",
+                                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                            },
+                                            "nameSnapshot": {
+                                              "type": "object",
+                                              "description": "Opaque localized-name object, as stored at Fire time."
+                                            },
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": [
+                                                "addition",
+                                                "removal",
+                                                "substitution"
+                                              ]
+                                            },
+                                            "quantity": {
+                                              "type": "integer"
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "totalActiveTickets": {
+                      "type": "integer"
+                    },
+                    "averageWaitSeconds": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A KDS/POS session; no active tenant context; kitchen.queue.view is not held by an assignment covering this branch; or the branch is not active.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "branchId is unknown or belongs to another tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Manager-safe branch kitchen queue (read-only, Dashboard session, every station) \u2014 NOT the KDS terminal surface.",
+        "tags": [
+          "kitchen"
+        ]
+      }
     }
   },
   "info": {

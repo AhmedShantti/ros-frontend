@@ -144,7 +144,7 @@ export const NAV_SECTIONS: NavSection[] = [
        * is the least-privilege pair that exactly matches real route access.
        */
       { href: "/operations/tables", labelKey: "nav.tables", icon: Table2, permissions: ["settings.branch.read", "settings.branch.manage"] },
-      { href: "/operations/kitchen", labelKey: "nav.kitchen", icon: ChefHat, permissions: ["kds.operate"] },
+      { href: "/operations/kitchen", labelKey: "nav.kitchen", icon: ChefHat, permissions: ["kitchen.queue.view"] },
       { href: "/operations/terminals", labelKey: "nav.terminals", icon: MonitorSmartphone, permissions: ["ops.terminal.view"] },
       { href: "/operations/stations", labelKey: "nav.stations", icon: Layers, permissions: ["settings.branch.manage"] },
       { href: "/operations/drawers", labelKey: "nav.drawers", icon: Banknote, permissions: ["settings.branch.manage"] },

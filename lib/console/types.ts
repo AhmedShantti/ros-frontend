@@ -1407,6 +1407,36 @@ export interface KitchenTicket {
   lines: TicketLine[];
 }
 
+/**
+ * KITCHEN-QUEUE-MANAGER-REAL-BACKEND-P0 — `GET /kitchen/branches/{branchId}
+ * /queue`, the manager-facing Dashboard read. The SAME ticket `KitchenTicket`
+ * already models, plus `delayed` — server-computed (live mode) from the real
+ * `targetReadyAt` column, or derived from the local urgency engine (device
+ * mode) — never a fabricated threshold.
+ */
+export interface KitchenQueueTicket extends KitchenTicket {
+  delayed: boolean;
+}
+
+export interface KitchenQueueStation {
+  stationId: Id;
+  stationName: Localised;
+  colour: string;
+  /** `tickets.length` — kept as its own field so an empty array and "not
+   *  fetched yet" are never confused by a caller reading depth alone. */
+  queueDepth: number;
+  tickets: KitchenQueueTicket[];
+}
+
+export interface KitchenQueueSnapshot {
+  branchId: Id;
+  dataAsOf: IsoDateTime;
+  stations: KitchenQueueStation[];
+  totalActiveTickets: number;
+  /** Average `elapsedSeconds` across every active ticket; `null` when empty. */
+  averageWaitSeconds: number | null;
+}
+
 // ---------------------------------------------------------------------------
 // Workforce — SRS ch.14
 // ---------------------------------------------------------------------------
