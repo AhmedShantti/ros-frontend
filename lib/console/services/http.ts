@@ -2308,6 +2308,15 @@ async function receipt(businessDay: IsoDate, orderId: Id) {
   return map.toReceipt(row);
 }
 
+/**
+ * POS-DINEIN-PREBILL-PRINT-P0 — SRS UC-POS-01. Always a fresh `GET`; the
+ * caller (the "Print bill" UI) never reuses a cached order for this.
+ */
+async function preBill(businessDay: IsoDate, orderId: Id) {
+  const row = await api.sales.preBill(businessDay, orderId);
+  return map.toPreBill(row);
+}
+
 async function reasonCodes(purpose: PosReasonPurpose) {
   const rows = await api.sales.listReasonCodes({ purpose });
   return rows.map((row) => ({
@@ -2328,7 +2337,14 @@ async function tables() {
   }));
 }
 
-const sales: SalesService = { orders, mutations: orderMutations, receipt, reasonCodes, tables };
+const sales: SalesService = {
+  orders,
+  mutations: orderMutations,
+  receipt,
+  preBill,
+  reasonCodes,
+  tables,
+};
 
 // ---------------------------------------------------------------------------
 // Treasury

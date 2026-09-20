@@ -298,6 +298,9 @@ describe("toReceipt — receipt line renders the real item name, not blank", () 
         completedAt: "2026-09-14T00:00:00.000Z",
         currency: "EGP",
         countryPackVersion: "EG-1",
+        tableId: null,
+        guestCount: null,
+        tableLabel: null,
       },
       lines,
       totals: {

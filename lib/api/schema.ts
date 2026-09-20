@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 154 paths, 109 request DTOs.
+ * `api/openapi.json`. 155 paths, 109 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -1199,6 +1199,12 @@ export type OrdersController_receiptResponse = {
     currency: string;
     /** FR-LOC-021 — the pack version this order was priced under, pinned. Provenance only; never re-resolved. */
     countryPackVersion: string;
+    /** Present only for a dine_in order with a table assigned. */
+    tableId: string | null;
+    /** The party size recorded at Open, when known. */
+    guestCount: number | null;
+    /** POS-DINEIN-PREBILL-PRINT-P0 — the table's CURRENT display label (e.g. "T07"), resolved live through Organisation's table-display contract at read time — NOT a frozen sale-time snapshot (no such column exists on the order). Could in principle read differently from what was on the table at sale time if the table was renamed since — a known, accepted risk, not a historical guarantee. Null for a non-dine-in order, or a dine-in order whose table no longer resolves. */
+    tableLabel: string | null;
   };
   lines: ({
     sequence: number;
@@ -6169,6 +6175,109 @@ export type OrdersController_cancelResponse = {
 
 export type OrdersController_cancelBody = CancelOrderDto;
 
+/** `GET /orders/{businessDay}/{id}/pre-bill` — A non-fiscal PRE-BILL for an order still in progress (SRS UC-POS-01). — The pre-bill document, reflecting the order exactly as it currently stands. */
+export type OrdersController_preBillResponse = {
+  /** Localization key for the visible non-fiscal disclosure text. */
+  disclosureKey: string;
+  /** Primary machine-readable non-fiscal classification. */
+  documentType: "PRE_BILL_NON_FISCAL";
+  /** Always false. This is never a fiscal document. */
+  fiscal: false;
+  lines: ({
+    /** Opaque localized-name snapshot (locale -> name), persisted at capture time. Never re-resolved from Catalogue. */
+    itemNameSnapshot: Record<string, unknown>;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineDiscount: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineSubtotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    lineTotal: string;
+    menuItemId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    modifierTotal: string;
+    modifiers: ({
+      modifierId: string;
+      /** Opaque localized-name snapshot (locale -> name), persisted at capture time. Never re-resolved from Catalogue. */
+      nameSnapshot: Record<string, unknown>;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      priceDelta: string;
+      quantity: number;
+    })[];
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sequence: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxAmount: string;
+    /** The tax-class identity, resolved at line capture. */
+    taxClassId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitPrice: string;
+    variantId: string;
+  })[];
+  order: {
+    branchId: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    channel: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
+    /** FR-LOC-021 — the pack version this order is being priced under. Provenance only; never re-resolved. */
+    countryPackVersion: string;
+    /** ISO 4217 currency code. */
+    currency: string;
+    /** The party size recorded at Open, when known. */
+    guestCount: number | null;
+    id: string;
+    openedAt: string;
+    /** FR-POS-002 operational order number. NOT a fiscal invoice sequence. */
+    orderNumber: string;
+    orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
+    /** Never a finalised state — a pre-bill cannot be produced for a completed, cancelled, partially_refunded or refunded order. */
+    state: "draft" | "open" | "held" | "parked" | "partially_paid";
+    /** Present only for a dine_in order with a table assigned. */
+    tableId: string | null;
+    /** The table's CURRENT display label (e.g. "T07"), resolved live through Organisation's table-display contract — not a frozen sale-time snapshot (no such column exists). Null for a non-dine-in order, or a dine-in order whose table no longer resolves. */
+    tableLabel: string | null;
+    terminalId: string | null;
+  };
+  payments: ({
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    amount: string;
+    cardLast4: string | null;
+    cardScheme: string | null;
+    /** CASH only. Null for manual_external_card. */
+    changeGiven: string | null;
+    /** ISO 4217 currency code. */
+    currency: string;
+    id: string;
+    /** Server clock at capture. */
+    processedAt: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    roundingAdjustment: string;
+    tender: "cash" | "manual_external_card";
+    /** CASH only. Null for manual_external_card. */
+    tenderedAmount: string | null;
+  })[];
+  /** FR-FIN-031 — whether the pinned country pack is pricing this order tax-inclusive or tax-exclusive, derived from the current order totals only. NOT_APPLICABLE when taxTotal is zero. */
+  taxPresentation: "INCLUSIVE" | "EXCLUSIVE" | "NOT_APPLICABLE" | "UNDETERMINED";
+  totals: {
+    /** A separate cash-drawer-reconciliation figure. Never part of grandTotal or paidTotal. */
+    cashRoundingAdjustment: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discountTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grandTotal: string;
+    /** Any amount ALREADY captured on this order (e.g. a prior partial payment) — zero for a fresh, unpaid order. */
+    paidTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    serviceChargeTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    subtotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    tipTotal: string;
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Route table
 // ---------------------------------------------------------------------------
@@ -6377,6 +6486,7 @@ export const ROUTES = {
   OrganisationController_getBranchKdsConfig: { method: "GET", path: "/org/branches/{branchId}/kds-config" },
   OrganisationController_setBranchKdsConfig: { method: "PATCH", path: "/org/branches/{branchId}/kds-config" },
   OrdersController_cancel: { method: "POST", path: "/orders/{businessDay}/{id}/cancel" },
+  OrdersController_preBill: { method: "GET", path: "/orders/{businessDay}/{id}/pre-bill" },
 } as const;
 
 /** Every operation the document describes. */

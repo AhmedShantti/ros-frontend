@@ -81,6 +81,10 @@ export const sales = {
   cancel: (businessDay: string, id: string, body: S.CancelOrderDto, options: { ifMatch?: string | number } = {}) =>
     http.post<S.OrdersController_cancelResponse>("/orders/{businessDay}/{id}/cancel", { params: { businessDay, id }, body, ifMatch: options.ifMatch, idempotent: true }),
 
+  /** `GET /orders/{businessDay}/{id}/pre-bill` — A non-fiscal PRE-BILL for an order still in progress (SRS UC-POS-01). — The pre-bill document, reflecting the order exactly as it currently stands. */
+  preBill: (businessDay: string, id: string) =>
+    http.get<S.OrdersController_preBillResponse>("/orders/{businessDay}/{id}/pre-bill", { params: { businessDay, id } }),
+
 };
 
 // ---------------------------------------------------------------------------

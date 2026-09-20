@@ -22,7 +22,7 @@
  *     such spot is marked `// gap:` and listed in BACKEND_INTEGRATION.md.
  */
 
-import type { ModifierRecipeEffect, Receipt } from "./types";
+import type { ModifierRecipeEffect, PreBill, Receipt } from "./types";
 
 import type {
   ActorType,
@@ -1262,6 +1262,70 @@ export function toReceipt(row: WireReceipt): Receipt {
     orderType: row.order.orderType,
     currency,
     completedAt: row.order.completedAt,
+    tableId: row.order.tableId,
+    guestCount: row.order.guestCount,
+    tableLabel: row.order.tableLabel,
+    lines: row.lines.map((line) => ({
+      menuItemId: line.menuItemId,
+      name: itemSnapshotName(line.itemNameSnapshot),
+      quantity: numberOf(line.quantity),
+      unitPrice: minorMoney(line.unitPrice, currency),
+      modifiers: line.modifiers.map((modifier) => ({
+        modifierId: modifier.modifierId,
+        name: localised(modifier.nameSnapshot),
+        priceDelta: minorMoney(modifier.priceDelta, currency),
+        quantity: modifier.quantity,
+      })),
+      modifierTotal: minorMoney(line.modifierTotal, currency),
+      lineDiscount: minorMoney(line.lineDiscount, currency),
+      lineSubtotal: minorMoney(line.lineSubtotal, currency),
+      taxAmount: minorMoney(line.taxAmount, currency),
+      lineTotal: minorMoney(line.lineTotal, currency),
+    })),
+    payments: row.payments.map((payment) => ({
+      id: payment.id,
+      tender: payment.tender,
+      amount: minorMoney(payment.amount, currency),
+      processedAt: payment.processedAt,
+      cardLast4: payment.cardLast4,
+      changeGiven: payment.changeGiven !== null ? minorMoney(payment.changeGiven, currency) : null,
+      tenderedAmount:
+        payment.tenderedAmount !== null ? minorMoney(payment.tenderedAmount, currency) : null,
+    })),
+    totals: {
+      subtotal: minorMoney(row.totals.subtotal, currency),
+      discountTotal: minorMoney(row.totals.discountTotal, currency),
+      taxTotal: minorMoney(row.totals.taxTotal, currency),
+      serviceChargeTotal: minorMoney(row.totals.serviceChargeTotal, currency),
+      tipTotal: minorMoney(row.totals.tipTotal, currency),
+      cashRoundingAdjustment: minorMoney(row.totals.cashRoundingAdjustment, currency),
+      grandTotal: minorMoney(row.totals.grandTotal, currency),
+      paidTotal: minorMoney(row.totals.paidTotal, currency),
+    },
+    taxPresentation: row.taxPresentation,
+  };
+}
+
+type WirePreBill = S.OrdersController_preBillResponse;
+
+/**
+ * POS-DINEIN-PREBILL-PRINT-P0 — SRS UC-POS-01. Mirrors `toReceipt` above
+ * field-for-field (the same non-fiscal document family, reused) — the only
+ * differences are `state`/`openedAt` in place of a fixed `completedAt`, and
+ * `tableId`/`guestCount`/`tableLabel` are always present here (not an
+ * addition, since a pre-bill's order was never completed to begin with).
+ */
+export function toPreBill(row: WirePreBill): PreBill {
+  const currency = currencyOf(row.order.currency);
+  return {
+    orderNumber: row.order.orderNumber,
+    orderType: row.order.orderType,
+    currency,
+    state: row.order.state,
+    openedAt: row.order.openedAt,
+    tableId: row.order.tableId,
+    guestCount: row.order.guestCount,
+    tableLabel: row.order.tableLabel,
     lines: row.lines.map((line) => ({
       menuItemId: line.menuItemId,
       name: itemSnapshotName(line.itemNameSnapshot),

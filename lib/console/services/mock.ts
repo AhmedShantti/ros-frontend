@@ -610,6 +610,9 @@ const sales: SalesService = {
   async receipt() {
     noBackend("Reading an order receipt");
   },
+  async preBill() {
+    noBackend("Reading an order pre-bill");
+  },
   async reasonCodes() {
     noBackend("Reading POS reason codes");
   },

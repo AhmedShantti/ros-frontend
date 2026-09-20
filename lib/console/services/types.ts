@@ -963,6 +963,50 @@ export interface Receipt {
   orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
   currency: Currency;
   completedAt: IsoDateTime;
+  /** POS-DINEIN-PREBILL-PRINT-P0 — present only for a dine_in order. */
+  tableId: Id | null;
+  guestCount: number | null;
+  /**
+   * The table's CURRENT display label, resolved live at read time — NOT a
+   * frozen sale-time snapshot (the order carries no such column). Null for
+   * a non-dine-in order, or a dine-in order whose table no longer resolves.
+   */
+  tableLabel: string | null;
+  lines: ReceiptLine[];
+  payments: OrderPaymentSummary[];
+  totals: {
+    subtotal: Money;
+    discountTotal: Money;
+    taxTotal: Money;
+    serviceChargeTotal: Money;
+    tipTotal: Money;
+    cashRoundingAdjustment: Money;
+    grandTotal: Money;
+    paidTotal: Money;
+  };
+  taxPresentation: "INCLUSIVE" | "EXCLUSIVE" | "NOT_APPLICABLE" | "UNDETERMINED";
+}
+
+/**
+ * POS-DINEIN-PREBILL-PRINT-P0 — SRS UC-POS-01: "Customer requests bill.
+ * Waiter prints the pre-bill (non-fiscal)." Payment begins only afterward.
+ *
+ * Deliberately the same field family as `Receipt` above (this is the one
+ * non-fiscal document architecture, reused, not a second one) — the real
+ * differences are that `state` is never a finalised value, `openedAt`
+ * stands in for `completedAt` (the order has not been completed), and
+ * `payments` reports whatever has genuinely already been captured (e.g. a
+ * prior partial payment), never one this read creates.
+ */
+export interface PreBill {
+  orderNumber: string;
+  orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
+  currency: Currency;
+  state: "draft" | "open" | "held" | "parked" | "partially_paid";
+  openedAt: IsoDateTime;
+  tableId: Id | null;
+  guestCount: number | null;
+  tableLabel: string | null;
   lines: ReceiptLine[];
   payments: OrderPaymentSummary[];
   totals: {
@@ -1024,6 +1068,15 @@ export interface SalesService {
    * also what a refund's payment picker reads from.
    */
   receipt(businessDay: IsoDate, orderId: Id): Promise<Receipt>;
+  /**
+   * POS-DINEIN-PREBILL-PRINT-P0 — SRS UC-POS-01: the pre-payment PRE-BILL
+   * for an order still in progress. Available for any non-finalised order
+   * state; refused (the service throws) once the order is completed,
+   * cancelled, partially_refunded or refunded — print the receipt instead.
+   * Always reads the order fresh from the server at call time; never built
+   * from a cached/local order.
+   */
+  preBill(businessDay: IsoDate, orderId: Id): Promise<PreBill>;
   /**
    * LIVE-01-PREFIRE-LINE-VOID-P0 — reason codes valid for one POS action,
    * scoped server-side to whichever ONE of the five reason-requiring action

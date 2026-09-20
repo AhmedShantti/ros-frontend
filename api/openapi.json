@@ -1748,6 +1748,30 @@
                         "countryPackVersion": {
                           "type": "string",
                           "description": "FR-LOC-021 \u2014 the pack version this order was priced under, pinned. Provenance only; never re-resolved."
+                        },
+                        "tableId": {
+                          "description": "Present only for a dine_in order with a table assigned.",
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "guestCount": {
+                          "description": "The party size recorded at Open, when known.",
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "tableLabel": {
+                          "description": "POS-DINEIN-PREBILL-PRINT-P0 \u2014 the table's CURRENT display label (e.g. \"T07\"), resolved live through Organisation's table-display contract at read time \u2014 NOT a frozen sale-time snapshot (no such column exists on the order). Could in principle read differently from what was on the table at sale time if the table was renamed since \u2014 a known, accepted risk, not a historical guarantee. Null for a non-dine-in order, or a dine-in order whose table no longer resolves.",
+                          "example": "T07",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         }
                       }
                     },
@@ -33654,6 +33678,458 @@
             "description": "The order already has a captured payment or is otherwise not in a cancellable state, an invalid/waste-only/missing reason code, or a produced/fired line is missing its required disposition."
           }
         }
+      }
+    },
+    "/orders/{businessDay}/{id}/pre-bill": {
+      "get": {
+        "operationId": "OrdersController_preBill",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "`sales.orders` is partitioned by `business_day` and its primary key is\n(id, business_day), so a read needs both. It is a locator, not a claim\nabout the order's content.",
+            "in": "path",
+            "name": "businessDay",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "A non-fiscal, pre-payment PRE-BILL for an order still in progress (SRS UC-POS-01). Not a payment, not a fiscal receipt, not a reservation of any kind: it is a read-only representation of the order's CURRENT server-authoritative state and can look different the next time it is requested if the order changes in between. Makes no claim of legal or fiscal invoice compliance: no tax registration number, invoice sequence, country-pack-mandated tax breakdown, fiscal QR, fiscal signature or tax-authority submission status is present or derivable from this document.",
+                  "properties": {
+                    "disclosureKey": {
+                      "description": "Localization key for the visible non-fiscal disclosure text.",
+                      "example": "receipt.preBill.nonFiscal",
+                      "type": "string"
+                    },
+                    "documentType": {
+                      "description": "Primary machine-readable non-fiscal classification.",
+                      "enum": [
+                        "PRE_BILL_NON_FISCAL"
+                      ],
+                      "type": "string"
+                    },
+                    "fiscal": {
+                      "description": "Always false. This is never a fiscal document.",
+                      "enum": [
+                        false
+                      ],
+                      "type": "boolean"
+                    },
+                    "lines": {
+                      "items": {
+                        "properties": {
+                          "itemNameSnapshot": {
+                            "description": "Opaque localized-name snapshot (locale -> name), persisted at capture time. Never re-resolved from Catalogue.",
+                            "type": "object"
+                          },
+                          "lineDiscount": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "lineSubtotal": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "lineTotal": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "menuItemId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "modifierTotal": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "modifiers": {
+                            "items": {
+                              "properties": {
+                                "modifierId": {
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                  "format": "uuid",
+                                  "type": "string"
+                                },
+                                "nameSnapshot": {
+                                  "description": "Opaque localized-name snapshot (locale -> name), persisted at capture time. Never re-resolved from Catalogue.",
+                                  "type": "object"
+                                },
+                                "priceDelta": {
+                                  "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                                  "example": "1250",
+                                  "pattern": "^-?\\d+$",
+                                  "type": "string"
+                                },
+                                "quantity": {
+                                  "type": "integer"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "type": "integer"
+                          },
+                          "taxAmount": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "taxClassId": {
+                            "description": "The tax-class identity, resolved at line capture.",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "unitPrice": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "variantId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "order": {
+                      "properties": {
+                        "branchId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "businessDay": {
+                          "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                          "example": "2026-08-23",
+                          "format": "date",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "type": "string"
+                        },
+                        "channel": {
+                          "enum": [
+                            "pos",
+                            "kiosk",
+                            "qr",
+                            "aggregator",
+                            "phone",
+                            "api"
+                          ],
+                          "type": "string"
+                        },
+                        "countryPackVersion": {
+                          "description": "FR-LOC-021 \u2014 the pack version this order is being priced under. Provenance only; never re-resolved.",
+                          "type": "string"
+                        },
+                        "currency": {
+                          "description": "ISO 4217 currency code.",
+                          "example": "AED",
+                          "type": "string"
+                        },
+                        "guestCount": {
+                          "description": "The party size recorded at Open, when known.",
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "openedAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "orderNumber": {
+                          "description": "FR-POS-002 operational order number. NOT a fiscal invoice sequence.",
+                          "type": "string"
+                        },
+                        "orderType": {
+                          "enum": [
+                            "dine_in",
+                            "takeaway",
+                            "delivery",
+                            "drive_thru",
+                            "pickup",
+                            "aggregator"
+                          ],
+                          "type": "string"
+                        },
+                        "state": {
+                          "description": "Never a finalised state \u2014 a pre-bill cannot be produced for a completed, cancelled, partially_refunded or refunded order.",
+                          "enum": [
+                            "draft",
+                            "open",
+                            "held",
+                            "parked",
+                            "partially_paid"
+                          ],
+                          "type": "string"
+                        },
+                        "tableId": {
+                          "description": "Present only for a dine_in order with a table assigned.",
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "tableLabel": {
+                          "description": "The table's CURRENT display label (e.g. \"T07\"), resolved live through Organisation's table-display contract \u2014 not a frozen sale-time snapshot (no such column exists). Null for a non-dine-in order, or a dine-in order whose table no longer resolves.",
+                          "example": "T07",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "terminalId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "payments": {
+                      "items": {
+                        "description": "A real, already-captured payment on this order (e.g. a prior partial payment) \u2014 never a payment this read creates.",
+                        "properties": {
+                          "amount": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "cardLast4": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "cardScheme": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "changeGiven": {
+                            "description": "CASH only. Null for manual_external_card.",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "currency": {
+                            "description": "ISO 4217 currency code.",
+                            "example": "AED",
+                            "type": "string"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "processedAt": {
+                            "description": "Server clock at capture.",
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "roundingAdjustment": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "tender": {
+                            "enum": [
+                              "cash",
+                              "manual_external_card"
+                            ],
+                            "type": "string"
+                          },
+                          "tenderedAmount": {
+                            "description": "CASH only. Null for manual_external_card.",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "taxPresentation": {
+                      "description": "FR-FIN-031 \u2014 whether the pinned country pack is pricing this order tax-inclusive or tax-exclusive, derived from the current order totals only. NOT_APPLICABLE when taxTotal is zero.",
+                      "enum": [
+                        "INCLUSIVE",
+                        "EXCLUSIVE",
+                        "NOT_APPLICABLE",
+                        "UNDETERMINED"
+                      ],
+                      "type": "string"
+                    },
+                    "totals": {
+                      "properties": {
+                        "cashRoundingAdjustment": {
+                          "description": "A separate cash-drawer-reconciliation figure. Never part of grandTotal or paidTotal.",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "discountTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "grandTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "paidTotal": {
+                          "description": "Any amount ALREADY captured on this order (e.g. a prior partial payment) \u2014 zero for a fresh, unpaid order.",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "serviceChargeTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "subtotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "taxTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "tipTotal": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The pre-bill document, reflecting the order exactly as it currently stands."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown or cross-tenant resource."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The order is already finalised (completed, cancelled, partially_refunded or refunded) \u2014 a pre-bill no longer applies; use the receipt instead."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "A non-fiscal PRE-BILL for an order still in progress (SRS UC-POS-01).",
+        "tags": [
+          "sales"
+        ]
       }
     }
   },

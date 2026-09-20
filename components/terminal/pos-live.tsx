@@ -27,6 +27,7 @@
  *   POST   /orders/{day}/{id}/refunds            refund a settled payment
  *   POST   /orders/{day}/{id}/cancel             cancel a pre-payment order
  *   GET    /orders                               list orders (Open Orders/resume)
+ *   GET    /orders/{day}/{id}/pre-bill           non-fiscal pre-bill (SRS UC-POS-01)
  *
  * Bridging the simulator onto that surface would mean a screen where half
  * the controls silently do nothing to the server — a till that looks like
@@ -1929,6 +1930,14 @@ function OrderPane({
     order.state === "completed" ||
     order.state === "partially_refunded" ||
     order.state === "refunded";
+  /**
+   * POS-DINEIN-PREBILL-PRINT-P0 — SRS UC-POS-01: "Customer requests bill.
+   * Waiter prints the pre-bill (non-fiscal)." Payment begins only
+   * afterward. The exact complement of `hasReceipt` (minus `cancelled`,
+   * which has neither document): every state
+   * `PreBillService.findCurrentOrderPreBill` actually accepts.
+   */
+  const hasPreBill = !hasReceipt && order.state !== "cancelled";
 
   async function fire() {
     await action.run(
@@ -2112,6 +2121,19 @@ function OrderPane({
           </Button>
         ) : null}
 
+        {hasPreBill ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="w-full"
+            icon={<Receipt size={13} />}
+            disabled={order.lines.length === 0}
+            onClick={() => setSheet({ kind: "preBill" })}
+          >
+            {t("pos.printBill")}
+          </Button>
+        ) : null}
+
         <div className="grid grid-cols-2 gap-2">
           <Button variant="ghost" onClick={onClear}>
             {t("pos.closeOrder")}
@@ -2172,6 +2194,12 @@ function OrderPane({
         onClose={() => setSheet(null)}
       />
 
+      <PreBillDrawer
+        order={order}
+        open={sheet?.kind === "preBill"}
+        onClose={() => setSheet(null)}
+      />
+
       <PaymentDrawer
         order={order}
         open={paying}
@@ -2198,6 +2226,7 @@ type PosSheet =
   | { kind: "comp"; lineId: string }
   | { kind: "refund" }
   | { kind: "receipt" }
+  | { kind: "preBill" }
   | null;
 
 // ---------------------------------------------------------------------------
@@ -2895,6 +2924,12 @@ function ReceiptDrawer({
                 {tx(labelOf(ORDER_TYPE, receipt.orderType).label)} ·{" "}
                 {formatDateTime(receipt.completedAt, fmt)}
               </p>
+              {/* POS-DINEIN-PREBILL-PRINT-P0 — a human-readable table reference, never the opaque tableId. */}
+              {receipt.tableLabel ? (
+                <p className="text-fg-subtle text-xs">
+                  {t("pos.tableLabel")} {receipt.tableLabel}
+                </p>
+              ) : null}
             </div>
 
             <ul className="divide-line divide-y">
@@ -2970,6 +3005,142 @@ function ReceiptDrawer({
 
             <p className="text-fg-subtle text-center text-[0.65rem]">
               {t("pos.receiptNonFiscalNotice")}
+            </p>
+          </div>
+        )}
+      </AsyncPanel>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * POS-DINEIN-PREBILL-PRINT-P0 — SRS UC-POS-01: "Customer requests bill.
+ * Waiter prints the pre-bill (non-fiscal)." Payment begins only afterward.
+ *
+ * Read-only, exactly like `ReceiptDrawer` above — nothing here mutates the
+ * order, creates a payment, or produces a fiscal document. Fetches fresh
+ * from the server every time it opens (never a cached/local order), so a
+ * second "Print bill" always reflects whatever has actually been rung up
+ * since the first. "Print" hands the drawer's own content to the browser's
+ * print dialog — the same, only, print mechanism `ReceiptDrawer` uses;
+ * there is no separate/fiscal-printer integration to target instead.
+ */
+function PreBillDrawer({
+  order,
+  open,
+  onClose,
+}: {
+  order: Order;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { t, tx, fmt } = useI18n();
+
+  const preBillState = useAsync(
+    async () => (open ? services.sales.preBill(order.businessDay, order.id) : null),
+    [open, order.businessDay, order.id],
+  );
+
+  if (!open) return null;
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={t("pos.preBill")}
+      footer={
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            disabled={!preBillState.data}
+            onClick={() => window.print()}
+          >
+            {t("pos.printBill")}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.close")}
+          </Button>
+        </div>
+      }
+    >
+      <AsyncPanel state={preBillState as AsyncState<Awaited<ReturnType<typeof services.sales.preBill>>>}>
+        {(preBill) => (
+          <div className="space-y-4">
+            {/* Unmissable, both on screen and on the printed page: this is a
+             * pre-payment bill review, never the fiscal/customer receipt. */}
+            <Callout tone="warn">
+              <p className="font-semibold">{t("pos.preBillTitle")}</p>
+              <p>{t("pos.preBillNonFiscalNotice")}</p>
+            </Callout>
+
+            <div className="text-center">
+              <p className="text-fg text-sm font-bold">{preBill.orderNumber}</p>
+              <p className="text-fg-subtle text-xs">
+                {tx(labelOf(ORDER_TYPE, preBill.orderType).label)} ·{" "}
+                {formatDateTime(preBill.openedAt, fmt)}
+              </p>
+              {preBill.tableLabel ? (
+                <p className="text-fg-subtle text-xs">
+                  {t("pos.tableLabel")} {preBill.tableLabel}
+                </p>
+              ) : null}
+              {preBill.guestCount !== null ? (
+                <p className="text-fg-subtle text-xs">
+                  {t("pos.guests")}: {preBill.guestCount}
+                </p>
+              ) : null}
+            </div>
+
+            <ul className="divide-line divide-y">
+              {preBill.lines.map((line, index) => (
+                <li key={`${line.menuItemId}-${index}`} className="py-2">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-fg text-sm">
+                      {line.quantity} × {tx(line.name)}
+                    </span>
+                    <span className="text-fg font-mono text-sm">
+                      {formatMoney(line.lineTotal, fmt)}
+                    </span>
+                  </div>
+                  {line.modifiers.map((modifier) => (
+                    <div
+                      key={modifier.modifierId}
+                      className="text-fg-subtle ps-4 flex justify-between gap-2 text-xs"
+                    >
+                      <span>+ {tx(modifier.name)}</span>
+                      <span className="font-mono">{formatMoney(modifier.priceDelta, fmt)}</span>
+                    </div>
+                  ))}
+                </li>
+              ))}
+            </ul>
+
+            <DescList>
+              <DescRow label={t("orders.net")} mono>
+                {formatMoney(preBill.totals.subtotal, fmt)}
+              </DescRow>
+              {preBill.totals.discountTotal.amount > 0 ? (
+                <DescRow label={t("pos.discountTotal")} mono>
+                  <span className="text-bad">−{formatMoney(preBill.totals.discountTotal, fmt)}</span>
+                </DescRow>
+              ) : null}
+              <DescRow label={t("orders.tax")} mono>
+                {formatMoney(preBill.totals.taxTotal, fmt)}
+              </DescRow>
+              <DescRow label={t("orders.grandTotal")} mono>
+                {formatMoney(preBill.totals.grandTotal, fmt)}
+              </DescRow>
+              {preBill.totals.paidTotal.amount > 0 ? (
+                <DescRow label={t("orders.paid")} mono>
+                  {formatMoney(preBill.totals.paidTotal, fmt)}
+                </DescRow>
+              ) : null}
+            </DescList>
+
+            <p className="text-fg-subtle text-center text-[0.65rem]">
+              {t("pos.preBillNonFiscalNotice")}
             </p>
           </div>
         )}
