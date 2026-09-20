@@ -2880,8 +2880,12 @@ function RefundDrawer({
  * Read-only — nothing here mutates the order. "Print" hands the drawer's
  * own content to the browser's print dialog, the standard mechanism; there
  * is no fiscal-printer integration to target instead.
+ *
+ * ORDERS-MODULE-COMPREHENSIVE-P0 — exported so the Order History page's
+ * "Reprint receipt" action can reuse this SAME renderer against a
+ * completed historical order, rather than building a second one.
  */
-function ReceiptDrawer({
+export function ReceiptDrawer({
   order,
   open,
   onClose,
@@ -2923,7 +2927,18 @@ function ReceiptDrawer({
         {(receipt) => (
           <div className="space-y-4">
             <div className="text-center">
-              <p className="text-fg text-sm font-bold">{receipt.orderNumber}</p>
+              <p className="text-fg text-sm font-bold">
+                {t("pos.orderNo")} {receipt.orderNumber}
+              </p>
+              {/*
+                ORDERS-MODULE-COMPREHENSIVE-P0 — the permanent Order
+                Reference (orders.id). Never replaces the Order Number
+                above; this IS the support/history lookup value, so the
+                full ULID is shown, not an abbreviation.
+              */}
+              <p className="text-fg-subtle font-mono text-[0.65rem]">
+                {t("pos.orderReference")} {receipt.id}
+              </p>
               <p className="text-fg-subtle text-xs">
                 {tx(labelOf(ORDER_TYPE, receipt.orderType).label)} ·{" "}
                 {formatDateTime(receipt.completedAt, fmt)}
@@ -3080,7 +3095,17 @@ function PreBillDrawer({
             </Callout>
 
             <div className="text-center">
-              <p className="text-fg text-sm font-bold">{preBill.orderNumber}</p>
+              <p className="text-fg text-sm font-bold">
+                {t("pos.orderNo")} {preBill.orderNumber}
+              </p>
+              {/* ORDERS-MODULE-COMPREHENSIVE-P0 — included here too for
+                * consistency with the final receipt; the pre-bill is not
+                * the MUST requirement, but the same permanent id is
+                * already on the wire, so showing it costs nothing and a
+                * guest who kept the pre-bill can still quote it later. */}
+              <p className="text-fg-subtle font-mono text-[0.65rem]">
+                {t("pos.orderReference")} {preBill.id}
+              </p>
               <p className="text-fg-subtle text-xs">
                 {tx(labelOf(ORDER_TYPE, preBill.orderType).label)} ·{" "}
                 {formatDateTime(preBill.openedAt, fmt)}

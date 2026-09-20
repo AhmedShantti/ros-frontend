@@ -9,11 +9,15 @@
  * charged today.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, Copy } from "lucide-react";
 import type { Order } from "@/lib/console/types";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { useOrderFeed } from "@/lib/console/feeds";
-import { formatMoney, formatTime, money, percentOf } from "@/lib/console/format";
+import { useBranches } from "@/lib/console/hooks";
+import { services } from "@/lib/console/services";
+import { ServiceError } from "@/lib/console/services/types";
+import { formatDate, formatMoney, formatTime, money, percentOf } from "@/lib/console/format";
 import {
   ORDER_CHANNEL,
   ORDER_LINE_STATE,
@@ -27,9 +31,35 @@ import { PageBody, PageHeader, Section, TileGrid } from "@/components/console/pa
 import { LiveEmpty, LiveNotice, TerminalLinks } from "@/components/console/live-panels";
 import { ErrorPanel } from "@/components/console/states";
 import { MetricTile } from "@/components/console/charts";
-import { Badge, Callout, Drawer, DescList, DescRow, SpecTag, Tabs } from "@/components/console/ui";
+import {
+  Badge,
+  Button,
+  Callout,
+  Drawer,
+  DescList,
+  DescRow,
+  Field,
+  IconButton,
+  Input,
+  Select,
+  SegmentedControl,
+  SpecTag,
+  Tabs,
+} from "@/components/console/ui";
+import { ReceiptDrawer } from "@/components/terminal/pos-live";
 
 type Filter = "all" | "open" | "completed" | "cancelled";
+
+/** The server's own keyset cursor, synthesised from the last (oldest, since
+ * `list()` orders DESC) row of a page this page already has — exactly the
+ * `{businessDay, id}` of that row, which is byte-identical to what the
+ * server's own `nextCursor` would have been had that row been the page
+ * boundary (see `OrdersService.list`: `next.businessDay`/`next.id` of the
+ * last row of ITS page). Never re-derived from anywhere else. */
+function cursorAfter(rows: Order[]): { businessDay: string; id: string } | null {
+  const last = rows[rows.length - 1];
+  return last ? { businessDay: last.businessDay, id: last.id } : null;
+}
 
 export default function OrdersPage() {
   const { t, tx, fmt } = useI18n();
@@ -40,8 +70,79 @@ export default function OrdersPage() {
   // The tenant's ledger when there is a backend, this device's when there is
   // not — see `lib/console/feeds.ts` for why the screen does not choose.
   const feed = useOrderFeed(scope);
-  const orders = feed.rows;
-  const ready = feed.ready;
+  const branches = useBranches(scope);
+
+  // ORDERS-MODULE-COMPREHENSIVE-P0 — a REAL branch filter (`GET /orders`'s
+  // own `branchId` query param), not a client-side narrowing of whatever
+  // the feed already fetched: selecting a branch here re-queries the server
+  // for that branch's own order history.
+  const [branchId, setBranchId] = useState<string>("");
+  const [branchRows, setBranchRows] = useState<Order[] | null>(null);
+  const [branchLoading, setBranchLoading] = useState(false);
+
+  // ORDERS-MODULE-COMPREHENSIVE-P0 — real cursor pagination: `extraRows`
+  // holds pages fetched by "Load older orders", `moreCursor` the server's
+  // own `nextCursor` from the last such fetch (or a synthesised one for the
+  // very first click — see `cursorAfter`), `moreExhausted` once a fetch
+  // comes back with none. All three reset when the branch filter changes,
+  // since that changes which server-side history is being paged through.
+  const [extraRows, setExtraRows] = useState<Order[]>([]);
+  const [moreCursor, setMoreCursor] = useState<{ businessDay: string; id: string } | null>(null);
+  const [moreExhausted, setMoreExhausted] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    setExtraRows([]);
+    setMoreCursor(null);
+    setMoreExhausted(false);
+    setLoadMoreError(null);
+    if (!branchId) {
+      setBranchRows(null);
+      return;
+    }
+    let cancelled = false;
+    setBranchLoading(true);
+    services.sales
+      .listOrderHistoryPage({ branchId, limit: 200 })
+      .then((page) => {
+        if (cancelled) return;
+        setBranchRows(page.orders);
+      })
+      .catch(() => {
+        if (!cancelled) setBranchRows([]);
+      })
+      .finally(() => {
+        if (!cancelled) setBranchLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [branchId]);
+
+  const baseOrders = branchId ? (branchRows ?? []) : feed.rows;
+  const orders = useMemo(() => [...baseOrders, ...extraRows], [baseOrders, extraRows]);
+  const ready = branchId ? !branchLoading : feed.ready;
+
+  async function handleLoadMore() {
+    setLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const seed = moreCursor ?? cursorAfter(orders);
+      const page = await services.sales.listOrderHistoryPage({
+        branchId: branchId || undefined,
+        cursor: seed,
+        limit: 50,
+      });
+      setExtraRows((prev) => [...prev, ...page.orders]);
+      setMoreCursor(page.nextCursor);
+      if (!page.nextCursor) setMoreExhausted(true);
+    } catch (err) {
+      setLoadMoreError(err instanceof Error ? err : new Error(String(err)));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   const rows = useMemo(() => {
     if (filter === "all") return orders;
@@ -86,6 +187,27 @@ export default function OrdersPage() {
       ),
     },
     {
+      // ORDERS-MODULE-COMPREHENSIVE-P0 — the permanent Order Reference
+      // (orders.id), distinct from the human, branch/day-scoped Order
+      // Number above. Abbreviated here; the full ULID is one click away.
+      key: "reference",
+      header: t("orders.reference"),
+      secondary: true,
+      render: (order) => <ReferenceCell id={order.id} />,
+    },
+    {
+      key: "businessDay",
+      header: t("fin.businessDay"),
+      secondary: true,
+      render: (order) => formatDate(order.businessDay, fmt),
+    },
+    {
+      key: "branch",
+      header: t("common.branch"),
+      secondary: true,
+      render: (order) => tx(order.branchName),
+    },
+    {
       key: "type",
       header: t("orders.type"),
       render: (order) => (
@@ -128,6 +250,16 @@ export default function OrdersPage() {
         ),
     },
     {
+      key: "outstanding",
+      header: t("orders.outstanding"),
+      numeric: true,
+      secondary: true,
+      render: (order) => {
+        const due = order.grandTotal.amount + order.roundingAdjustment.amount - order.paidTotal.amount;
+        return due > 0 ? formatMoney(money(due, order.currency), fmt) : "—";
+      },
+    },
+    {
       key: "margin",
       header: t("orders.margin"),
       numeric: true,
@@ -152,6 +284,8 @@ export default function OrdersPage() {
 
       <PageBody>
         <LiveNotice source={feed.live ? "backend" : "device"} />
+
+        <FindOrderPanel onFound={setSelected} />
 
         <TileGrid>
           <MetricTile
@@ -180,7 +314,7 @@ export default function OrdersPage() {
           <LiveEmpty source={feed.live ? "backend" : "device"} />
         ) : (
           <Section title={t("orders.title")}>
-            <div className="mb-3">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <Tabs
                 value={filter}
                 onChange={setFilter}
@@ -192,6 +326,21 @@ export default function OrdersPage() {
                   { value: "cancelled", label: tx(ORDER_STATE.cancelled.label) },
                 ]}
               />
+              {branches.length > 1 ? (
+                <Select
+                  aria-label={t("common.branch")}
+                  value={branchId}
+                  onChange={(e) => setBranchId(e.target.value)}
+                  className="w-48"
+                >
+                  <option value="">{t("orders.allBranches")}</option>
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {tx(branch.name)}
+                    </option>
+                  ))}
+                </Select>
+              ) : null}
             </div>
             <DataTable
               columns={columns}
@@ -201,6 +350,16 @@ export default function OrdersPage() {
               activeRowKey={selected?.id ?? null}
               caption={t("orders.title")}
             />
+            {/* ORDERS-MODULE-COMPREHENSIVE-P0 — real cursor pagination: never
+             * loads the whole tenant's history into the browser at once. */}
+            {!moreExhausted ? (
+              <div className="mt-3 flex flex-col items-center gap-2">
+                {loadMoreError ? <ErrorPanel error={loadMoreError} onRetry={handleLoadMore} /> : null}
+                <Button variant="ghost" onClick={handleLoadMore} disabled={loadingMore}>
+                  {loadingMore ? t("common.loading") : t("orders.loadMore")}
+                </Button>
+              </div>
+            ) : null}
           </Section>
         )}
       </PageBody>
@@ -209,6 +368,143 @@ export default function OrdersPage() {
         <OrderDrawer order={selected} onClose={() => setSelected(null)} />
       ) : null}
     </>
+  );
+}
+
+/**
+ * ORDERS-MODULE-COMPREHENSIVE-P0 — abbreviated Order Reference with the full
+ * permanent ULID one click away (title tooltip + copy-to-clipboard), never
+ * silently truncated with no way to get the real value back out.
+ */
+function ReferenceCell({ id }: { id: string }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-fg-subtle font-mono text-xs" title={id}>
+        {id.slice(0, 8)}…
+      </span>
+      <IconButton
+        label={copied ? t("common.copied") : t("common.copy")}
+        icon={copied ? <Check size={12} /> : <Copy size={12} />}
+        className="h-6 w-6"
+        onClick={async (e) => {
+          e.stopPropagation();
+          await navigator.clipboard.writeText(id);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+      />
+    </div>
+  );
+}
+
+type SearchMode = "reference" | "number";
+
+/**
+ * ORDERS-MODULE-COMPREHENSIVE-P0 — the exact support/history lookups: the
+ * permanent Order Reference (exact, single-order) and the human Order
+ * Number (NOT globally unique — only within branch + business day, so an
+ * ambiguous match is shown as a list to choose from, never guessed at).
+ */
+function FindOrderPanel({ onFound }: { onFound: (order: Order) => void }) {
+  const { t, tx, fmt } = useI18n();
+  const [mode, setMode] = useState<SearchMode>("reference");
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [matches, setMatches] = useState<Order[] | null>(null);
+  const [notFound, setNotFound] = useState(false);
+
+  async function runSearch() {
+    const value = query.trim();
+    if (!value) return;
+    setSearching(true);
+    setError(null);
+    setMatches(null);
+    setNotFound(false);
+    try {
+      if (mode === "reference") {
+        const order = await services.sales.findOrderByReference(value);
+        if (order) onFound(order);
+        else setNotFound(true);
+      } else {
+        const found = await services.sales.searchOrdersByNumber(value);
+        if (found.length === 1) onFound(found[0]!);
+        else if (found.length === 0) setNotFound(true);
+        else setMatches(found);
+      }
+    } catch (err) {
+      if (err instanceof ServiceError && err.status === 404) setNotFound(true);
+      else setError(err instanceof Error ? err : new Error(String(err)));
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  return (
+    <Section title={t("orders.findOrder")}>
+      <div className="flex flex-wrap items-end gap-3">
+        <SegmentedControl
+          value={mode}
+          onChange={(next) => {
+            setMode(next);
+            setQuery("");
+            setMatches(null);
+            setNotFound(false);
+            setError(null);
+          }}
+          options={[
+            { value: "reference", label: t("orders.searchByReference") },
+            { value: "number", label: t("orders.searchByNumber") },
+          ]}
+        />
+        <div className="min-w-[16rem] flex-1">
+          <Field label={mode === "reference" ? t("orders.searchByReference") : t("orders.searchByNumber")}>
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={
+                mode === "reference" ? t("orders.referencePlaceholder") : t("orders.numberPlaceholder")
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") runSearch();
+              }}
+            />
+          </Field>
+        </div>
+        <Button variant="primary" onClick={runSearch} disabled={searching || !query.trim()}>
+          {searching ? t("common.loading") : t("common.search")}
+        </Button>
+      </div>
+
+      {error ? <ErrorPanel error={error} onRetry={runSearch} /> : null}
+      {notFound ? <Callout tone="warn">{t("orders.noMatch")}</Callout> : null}
+
+      {matches ? (
+        <div className="mt-3">
+          <Callout tone="warn">{t("orders.multipleMatches")}</Callout>
+          <ul className="divide-line border-line mt-2 divide-y rounded-lg border">
+            {matches.map((order) => (
+              <li key={order.id}>
+                <button
+                  type="button"
+                  onClick={() => onFound(order)}
+                  className="hover:bg-sunken flex w-full items-center justify-between gap-3 px-3 py-2 text-start"
+                >
+                  <CellStack
+                    primary={<span className="font-mono font-medium">{order.orderNumber}</span>}
+                    secondary={tx(order.branchName)}
+                  />
+                  <span className="text-fg-subtle text-xs">{formatDate(order.businessDay, fmt)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </Section>
   );
 }
 
@@ -257,8 +553,22 @@ function CancelledOrderInfo({ order }: { order: Order }) {
   );
 }
 
+/**
+ * ORDERS-MODULE-COMPREHENSIVE-P0 — FR-POS-104 (reprint duplicate-marking /
+ * audit) is NOT implemented anywhere in the current backend (confirmed: it
+ * exists only as an aspirational doc-comment on `OrdersController`, no
+ * actual marking/logging code). This reuses the SAME `ReceiptDrawer`
+ * `services.sales.receipt` already prints from — never a second renderer —
+ * but that only re-prints the document; it does not, and cannot yet,
+ * satisfy real reprint governance. `orders.reprintNotAudited` says so.
+ */
+const RECEIPT_ELIGIBLE_STATES: Order["state"][] = ["completed", "partially_refunded", "refunded"];
+
 function OrderDrawer({ order, onClose }: { order: Order; onClose: () => void }) {
   const { t, tx, fmt } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const [reprintOpen, setReprintOpen] = useState(false);
+  const canReprint = RECEIPT_ELIGIBLE_STATES.includes(order.state);
 
   return (
     <Drawer
@@ -274,8 +584,35 @@ function OrderDrawer({ order, onClose }: { order: Order; onClose: () => void }) 
           <SpecTag id="BR-POS-004" />
         </span>
       }
+      footer={
+        canReprint ? (
+          <div>
+            <Button variant="ghost" onClick={() => setReprintOpen(true)}>
+              {t("orders.reprintReceipt")}
+            </Button>
+            <p className="text-fg-subtle mt-1 text-xs">{t("orders.reprintNotAudited")}</p>
+          </div>
+        ) : undefined
+      }
     >
       <DescList>
+        <DescRow label={t("orders.reference")} mono>
+          <span className="inline-flex items-center gap-1">
+            {order.id}
+            <IconButton
+              label={copied ? t("common.copied") : t("common.copy")}
+              icon={copied ? <Check size={12} /> : <Copy size={12} />}
+              className="h-6 w-6"
+              onClick={async () => {
+                await navigator.clipboard.writeText(order.id);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+            />
+          </span>
+        </DescRow>
+        <DescRow label={t("fin.businessDay")}>{formatDate(order.businessDay, fmt)}</DescRow>
+        <DescRow label={t("common.branch")}>{tx(order.branchName)}</DescRow>
         <DescRow label={t("orders.opened")}>{formatTime(order.openedAt, fmt)}</DescRow>
         {order.firstFiredAt ? (
           <DescRow label={t("pos.fired")}>{formatTime(order.firstFiredAt, fmt)}</DescRow>
@@ -408,6 +745,10 @@ function OrderDrawer({ order, onClose }: { order: Order; onClose: () => void }) 
             ))}
           </DescList>
         </>
+      ) : null}
+
+      {canReprint ? (
+        <ReceiptDrawer order={order} open={reprintOpen} onClose={() => setReprintOpen(false)} />
       ) : null}
     </Drawer>
   );

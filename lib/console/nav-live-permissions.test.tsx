@@ -121,6 +121,10 @@ function tablesLinkVisible(): boolean {
   return document.querySelector('a[href="/operations/tables"]') !== null;
 }
 
+function linkVisible(href: string): boolean {
+  return document.querySelector(`a[href="${href}"]`) !== null;
+}
+
 describe("Sidebar — Operations > Tables visibility from REAL live-granted permissions", () => {
   it("Owner-shaped live permission set (includes settings.branch.read/manage): Tables IS visible", async () => {
     simulatedGrantedCodes = [
@@ -184,5 +188,61 @@ describe("Sidebar — Operations > Tables visibility from REAL live-granted perm
     await screen.findByTestId("dashboard-content");
     expect(simulatedGrantedCodes).not.toContain("ops.live.view");
     expect(tablesLinkVisible()).toBe(true);
+  });
+});
+
+/*
+ * ORDERS-MODULE-COMPREHENSIVE-P0
+ *
+ * The same phantom-permission bug found (and fixed here) a 4th time in this
+ * area: `/orders` and `/operations/open-orders` were gated on
+ * `pos.order.view` (the open-orders item ALSO on `ops.live.view`) — two more
+ * strings this console's local role-heuristic catalogue defines but the real
+ * backend never issues. On a live session (any real signed-in user, not an
+ * edge case) both items were unconditionally invisible. `pos.order.create`
+ * is the real code every order-reading route requires.
+ */
+describe("Sidebar — Orders / Open Orders visibility from REAL live-granted permissions", () => {
+  it("a real Cashier-shaped granted set (pos.order.create, no settings.branch.*) sees BOTH Orders and Open Orders", async () => {
+    simulatedGrantedCodes = [
+      "pos.order.create",
+      "pos.order.void_line_prefire",
+      "cash.session.open",
+      "cash.session.close",
+    ];
+    seedConsoleSession("cashier");
+    installFetchMock();
+
+    await mountConsole();
+
+    await screen.findByTestId("dashboard-content");
+    expect(linkVisible("/orders")).toBe(true);
+    expect(linkVisible("/operations/open-orders")).toBe(true);
+  });
+
+  it("the OLD gate would have failed this exact scenario — regression guard: a real granted set with NEITHER 'pos.order.view' NOR 'ops.live.view' anywhere still shows both links given pos.order.create", async () => {
+    simulatedGrantedCodes = ["pos.order.create", "settings.branch.read"];
+    seedConsoleSession("branch_manager");
+    installFetchMock();
+
+    await mountConsole();
+
+    await screen.findByTestId("dashboard-content");
+    expect(simulatedGrantedCodes).not.toContain("pos.order.view");
+    expect(simulatedGrantedCodes).not.toContain("ops.live.view");
+    expect(linkVisible("/orders")).toBe(true);
+    expect(linkVisible("/operations/open-orders")).toBe(true);
+  });
+
+  it("a granted set with NO pos.order.create at all (e.g. inventory-only) hides both — least privilege still holds, this is not an always-on link", async () => {
+    simulatedGrantedCodes = ["inventory.item.read", "inventory.count.perform"];
+    seedConsoleSession("storekeeper");
+    installFetchMock();
+
+    await mountConsole();
+
+    await screen.findByTestId("dashboard-content");
+    expect(linkVisible("/orders")).toBe(false);
+    expect(linkVisible("/operations/open-orders")).toBe(false);
   });
 });

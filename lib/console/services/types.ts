@@ -959,6 +959,13 @@ export interface ReceiptLine {
 
 /** FR-FIN-020 — the itemized, non-fiscal receipt of a completed order (POS-FIN-1). */
 export interface Receipt {
+  /**
+   * ORDERS-MODULE-COMPREHENSIVE-P0 — the permanent Order Reference
+   * (`orders.id`), unlike `orderNumber` (e.g. "MAIN-7"), which is unique
+   * only within a branch and business day. This is the exact, tenant-wide
+   * value a customer support lookup or `GET /orders/by-reference` needs.
+   */
+  id: Id;
   orderNumber: string;
   orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
   currency: Currency;
@@ -999,6 +1006,8 @@ export interface Receipt {
  * prior partial payment), never one this read creates.
  */
 export interface PreBill {
+  /** ORDERS-MODULE-COMPREHENSIVE-P0 — see `Receipt.id`; same permanent value. */
+  id: Id;
   orderNumber: string;
   orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
   currency: Currency;
@@ -1101,6 +1110,38 @@ export interface SalesService {
    * checked, exactly like `reasonCodes`' own back-office counterpart.
    */
   tables(): Promise<PosTable[]>;
+  /**
+   * ORDERS-MODULE-COMPREHENSIVE-P0 — exact Order Reference (permanent
+   * `orders.id`) lookup, without a business day: the whole point of a
+   * support/history lookup is that the caller does not already know one.
+   * Null when the order does not exist, or exists in another tenant — the
+   * server keeps those two indistinguishable (`GET /orders/by-reference`
+   * answers a tenant-safe 404 for both). A real order that exists but sits
+   * outside the caller's authorized branch scope is a 403 and is thrown,
+   * not returned as null — that is a permission failure, not "not found".
+   */
+  findOrderByReference(orderId: Id): Promise<Order | null>;
+  /**
+   * ORDERS-MODULE-COMPREHENSIVE-P0 — Order Number search (FR-POS-002, e.g.
+   * "MAIN-7"). NOT globally unique — only within (branch, business day) —
+   * so every match visible to the caller is returned (bounded server-side)
+   * for the caller to disambiguate by business day and branch; this layer
+   * never assumes one match is THE order.
+   */
+  searchOrdersByNumber(orderNumber: string, branchId?: Id): Promise<Order[]>;
+  /**
+   * ORDERS-MODULE-COMPREHENSIVE-P0 — one real page of order history,
+   * exposing the backend's actual keyset cursor. Unlike `orders.list`
+   * (which walks that same cursor internally, hidden, to fill a fixed
+   * offset window for the existing recent-orders view), this is for a
+   * genuine "Load more" control over full history — never an unbounded
+   * fetch of the whole tenant's orders into the browser.
+   */
+  listOrderHistoryPage(options?: {
+    branchId?: Id;
+    cursor?: { businessDay: IsoDate; id: Id } | null;
+    limit?: number;
+  }): Promise<{ orders: Order[]; nextCursor: { businessDay: IsoDate; id: Id } | null }>;
 }
 
 /** FR-POS-091 — the three ways cash moves without a sale. */

@@ -619,6 +619,26 @@ const sales: SalesService = {
   async tables() {
     noBackend("Reading POS dine-in tables");
   },
+  // ORDERS-MODULE-COMPREHENSIVE-P0 — pure filters over the SAME fixed local
+  // `orders` array `ordersCollection` above already reads, exactly like
+  // `orders.list`/`orders.get` do in this demo mode. Unlike receipt/pre-bill
+  // (which need server-computed document fields this device never has), a
+  // reference/number lookup is nothing more than finding a row this device
+  // already holds.
+  async findOrderByReference(orderId) {
+    return ordersCollection.get(orderId);
+  },
+  async searchOrdersByNumber(orderNumber, branchId) {
+    return orders.filter(
+      (o) => o.orderNumber === orderNumber && (!branchId || o.branchId === branchId),
+    );
+  },
+  // The demo's order list is a small, fixed fixture, never a growing
+  // tenant history — so one page is the whole thing, with no next cursor.
+  async listOrderHistoryPage(options = {}) {
+    const rows = options.branchId ? orders.filter((o) => o.branchId === options.branchId) : orders;
+    return { orders: rows, nextCursor: null };
+  },
 };
 
 /**

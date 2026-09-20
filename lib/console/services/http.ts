@@ -2337,6 +2337,73 @@ async function tables() {
   }));
 }
 
+/**
+ * ORDERS-MODULE-COMPREHENSIVE-P0 — exact Order Reference lookup. A 404 (the
+ * order does not exist, or exists in another tenant — the server keeps
+ * those indistinguishable) resolves to `null`; anything else, including a
+ * 403 (a real order outside the caller's authorized branch scope), is a
+ * genuine failure and propagates.
+ */
+async function findOrderByReference(orderId: string): Promise<Order | null> {
+  const { branchesById, tenantId } = await orderContext();
+  try {
+    const row = await api.sales.byReference({ id: orderId });
+    return map.toOrder(row as S.OrdersController_findOneResponse, {
+      tenantId,
+      branchName: branchesById.get(row.branchId)?.name,
+    });
+  } catch (err) {
+    if (err instanceof ServiceError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/**
+ * ORDERS-MODULE-COMPREHENSIVE-P0 — Order Number search. Every visible match
+ * comes back (bounded to 50 server-side); this never assumes the number is
+ * unique.
+ */
+async function searchOrdersByNumber(orderNumber: string, branchId?: string): Promise<Order[]> {
+  const { branchesById, tenantId } = await orderContext();
+  const rows = await api.sales.search({ orderNumber, branchId });
+  return rows.map((row) =>
+    map.toOrder(row as S.OrdersController_findOneResponse, {
+      tenantId,
+      branchName: branchesById.get(row.branchId)?.name,
+    }),
+  );
+}
+
+/**
+ * ORDERS-MODULE-COMPREHENSIVE-P0 — one real page of order history, with the
+ * server's actual keyset cursor surfaced (never walked/hidden the way
+ * `orders.list` above does for the fixed-window recent-orders view).
+ */
+async function listOrderHistoryPage(
+  options: {
+    branchId?: string;
+    cursor?: { businessDay: string; id: string } | null;
+    limit?: number;
+  } = {},
+): Promise<{ orders: Order[]; nextCursor: { businessDay: string; id: string } | null }> {
+  const { branchesById, tenantId } = await orderContext();
+  const response = await api.sales.list({
+    branchId: options.branchId,
+    limit: options.limit,
+    cursorId: options.cursor?.id,
+    cursorBusinessDay: options.cursor?.businessDay,
+  });
+  return {
+    orders: response.orders.map((row) =>
+      map.toOrder(row as S.OrdersController_findOneResponse, {
+        tenantId,
+        branchName: branchesById.get(row.branchId)?.name,
+      }),
+    ),
+    nextCursor: response.nextCursor ?? null,
+  };
+}
+
 const sales: SalesService = {
   orders,
   mutations: orderMutations,
@@ -2344,6 +2411,9 @@ const sales: SalesService = {
   preBill,
   reasonCodes,
   tables,
+  findOrderByReference,
+  searchOrdersByNumber,
+  listOrderHistoryPage,
 };
 
 // ---------------------------------------------------------------------------

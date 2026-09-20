@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatMoney, tx } from "@/lib/console/format";
-import { itemSnapshotName, toOrder, toOrderLine, toReceipt, toTicketLine, type OrderContext } from "./map";
+import { itemSnapshotName, toOrder, toOrderLine, toPreBill, toReceipt, toTicketLine, type OrderContext } from "./map";
 import type * as S from "@/lib/api/schema";
 
 /*
@@ -339,6 +339,56 @@ describe("toReceipt — receipt line renders the real item name, not blank", () 
       ]),
     );
     expect(tx(receipt.lines[0].name, "en")).toBe("Chicken — Large");
+  });
+
+  it("ORDERS-MODULE-COMPREHENSIVE-P0 — carries the permanent Order Reference (orders.id) through, distinct from the human orderNumber", () => {
+    const receipt = toReceipt(wireReceipt([]));
+    expect(receipt.id).toBe("order-1");
+    expect(receipt.orderNumber).toBe("B1-0001");
+    expect(receipt.id).not.toBe(receipt.orderNumber);
+  });
+});
+
+describe("toPreBill — ORDERS-MODULE-COMPREHENSIVE-P0", () => {
+  it("carries the permanent Order Reference (orders.id) through, same as toReceipt", () => {
+    const wire: S.OrdersController_preBillResponse = {
+      disclosureKey: "receipt.preBill.nonFiscal",
+      documentType: "PRE_BILL_NON_FISCAL",
+      fiscal: false,
+      lines: [],
+      order: {
+        branchId: "branch-1",
+        businessDay: "2026-09-14",
+        channel: "pos",
+        countryPackVersion: "EG-1",
+        currency: "EGP",
+        guestCount: null,
+        id: "order-1",
+        openedAt: "2026-09-14T00:00:00.000Z",
+        orderNumber: "B1-0001",
+        orderType: "takeaway",
+        state: "open",
+        tableId: null,
+        tableLabel: null,
+        terminalId: null,
+      },
+      payments: [],
+      taxPresentation: "NOT_APPLICABLE",
+      totals: {
+        cashRoundingAdjustment: "0",
+        discountTotal: "0",
+        grandTotal: "30000",
+        paidTotal: "0",
+        serviceChargeTotal: "0",
+        subtotal: "30000",
+        taxTotal: "0",
+        tipTotal: "0",
+      },
+    };
+    const preBill = toPreBill(wire);
+    expect(preBill.id).toBe("order-1");
+    expect(preBill.orderNumber).toBe("B1-0001");
+    expect(preBill.id).not.toBe(preBill.orderNumber);
   });
 });
 

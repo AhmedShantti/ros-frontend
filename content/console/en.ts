@@ -374,6 +374,19 @@ export const consoleEn = {
   "orders.approvedBy": "Approved by",
   "orders.openOrdersTitle": "Open orders",
   "orders.openOrdersSubtitle": "Orders still on the floor: drafts, held, parked and partially paid.",
+  // ORDERS-MODULE-COMPREHENSIVE-P0
+  "orders.reference": "Reference",
+  "orders.findOrder": "Find an order",
+  "orders.searchByReference": "Order Reference",
+  "orders.searchByNumber": "Order Number",
+  "orders.referencePlaceholder": "Paste the full Order Reference",
+  "orders.numberPlaceholder": "e.g. MAIN-7",
+  "orders.noMatch": "No matching order found.",
+  "orders.multipleMatches": "More than one order has this number — pick the one you mean.",
+  "orders.reprintReceipt": "Reprint receipt",
+  "orders.reprintNotAudited": "Printed again from history. Not separately logged as a duplicate.",
+  "orders.loadMore": "Load older orders",
+  "orders.allBranches": "All branches",
 
   // Tables
   "tables.title": "Table status",
@@ -1424,6 +1437,11 @@ export const consoleEn = {
   "pos.preBillTitle": "PRE-BILL — NOT A FISCAL RECEIPT",
   "pos.preBillNonFiscalNotice": "For the guest's review before payment only. Not a receipt, not proof of payment, and not a fiscal document.",
   "pos.tableLabel": "Table:",
+  // ORDERS-MODULE-COMPREHENSIVE-P0 — the permanent Order Reference
+  // (orders.id ULID), distinct from the human, branch/day-scoped Order
+  // Number shown just above it.
+  "pos.orderNo": "Order No:",
+  "pos.orderReference": "Order Reference:",
   "pos.recent": "Completed today",
   "pos.priceFrom": "Priced from {source}",
   "pos.priceBase": "base price",

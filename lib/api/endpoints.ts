@@ -25,6 +25,14 @@ export const sales = {
   create: (body: S.CreateOrderDto) =>
     http.post<S.OrdersController_createResponse>("/orders", { body, idempotent: true }),
 
+  /** `GET /orders/by-reference` — One order by its permanent Order Reference (orders.id), without needing a business day. — The order, including its lines. */
+  byReference: (options: { id?: string } = {}) =>
+    http.get<S.OrdersController_byReferenceResponse>("/orders/by-reference", { query: { id: options.id } }),
+
+  /** `GET /orders/search` — Search orders by their (non-globally-unique) human Order Number. — Every matching order visible to the caller (bounded to 50), for the caller to disambiguate by business day and branch. */
+  search: (options: { orderNumber?: string; branchId?: string } = {}) =>
+    http.get<S.OrdersController_searchResponse>("/orders/search", { query: { orderNumber: options.orderNumber, branchId: options.branchId } }),
+
   /** `GET /orders/reason-codes` — Reason codes valid for a POS action (purpose-scoped, action-permission-authorised). — Reason codes usable for the given purpose. */
   listReasonCodes: (options: { purpose?: "void_prefire" | "discount" | "comp" | "void_postfire" | "refund" | "order_cancel" } = {}) =>
     http.get<S.OrdersController_listReasonCodesResponse>("/orders/reason-codes", { query: { purpose: options.purpose } }),

@@ -1258,6 +1258,7 @@ type WireReceipt = S.OrdersController_receiptResponse;
 export function toReceipt(row: WireReceipt): Receipt {
   const currency = currencyOf(row.order.currency);
   return {
+    id: row.order.id,
     orderNumber: row.order.orderNumber,
     orderType: row.order.orderType,
     currency,
@@ -1318,6 +1319,7 @@ type WirePreBill = S.OrdersController_preBillResponse;
 export function toPreBill(row: WirePreBill): PreBill {
   const currency = currencyOf(row.order.currency);
   return {
+    id: row.order.id,
     orderNumber: row.order.orderNumber,
     orderType: row.order.orderType,
     currency,
