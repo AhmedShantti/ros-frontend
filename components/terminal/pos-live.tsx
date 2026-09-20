@@ -1931,13 +1931,17 @@ function OrderPane({
     order.state === "partially_refunded" ||
     order.state === "refunded";
   /**
-   * POS-DINEIN-PREBILL-PRINT-P0 — SRS UC-POS-01: "Customer requests bill.
-   * Waiter prints the pre-bill (non-fiscal)." Payment begins only
-   * afterward. The exact complement of `hasReceipt` (minus `cancelled`,
-   * which has neither document): every state
-   * `PreBillService.findCurrentOrderPreBill` actually accepts.
+   * PREBILL-DINEIN-ONLY-CORRECTION-P0 — SRS UC-POS-01 describes the
+   * dine-in "customer requests the bill at the table" flow specifically;
+   * the backend `pre-bill` endpoint accepts any non-finalised order type
+   * (it has no product reason to refuse takeaway/pickup/delivery/
+   * drive_thru/aggregator), but exposing the UI action for those was
+   * broader than the requested product flow. Restricted here, UI-only —
+   * `PreBillService`'s own state semantics (any non-finalised state) are
+   * unchanged; a dine-in order in any of those states still shows it.
    */
-  const hasPreBill = !hasReceipt && order.state !== "cancelled";
+  const hasPreBill =
+    order.orderType === "dine_in" && !hasReceipt && order.state !== "cancelled";
 
   async function fire() {
     await action.run(

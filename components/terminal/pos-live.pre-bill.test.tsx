@@ -4,14 +4,21 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 /*
  * POS-DINEIN-PREBILL-PRINT-P0 — SRS UC-POS-01: "Customer requests bill.
  * Waiter prints the pre-bill (non-fiscal)." Payment begins only afterward.
+ * PREBILL-DINEIN-ONLY-CORRECTION-P0 — the UI action is restricted to
+ * dine_in orders only (the backend `pre-bill` endpoint itself still
+ * accepts any non-finalised order type; only this screen's visibility is
+ * narrowed, matching the actual product flow UC-POS-01 describes).
  *
- * Proves: the "Print bill" action is reachable on an active order before
- * payment, never initiates payment, always fresh-fetches
- * (`services.sales.preBill`, never a cached/local order), renders the real
- * current lines/totals and a human-readable table label, is explicitly
- * marked non-fiscal, and never marks the order completed. Also proves the
- * existing payment flow and the final receipt (now carrying the same table
- * label) both still work afterward, and that takeaway is unaffected.
+ * Proves: the "Print bill" action is reachable on an active DINE-IN order
+ * before payment and only there (hidden for takeaway/pickup and every
+ * other non-dine-in type, and for a finalised dine-in order), never
+ * initiates payment, always fresh-fetches (`services.sales.preBill`,
+ * never a cached/local order), renders the real current lines/totals and
+ * a human-readable table label, is explicitly marked non-fiscal, and
+ * never marks the order completed. Also proves the existing payment flow
+ * and the final receipt (now carrying the same table label) both still
+ * work afterward, and that takeaway's own order flow (fire/pay/receipt)
+ * is unaffected by this restriction.
  *
  * Mocked only at the transport boundary: `@/lib/console/services` and
  * `@/lib/api/auth`. The REAL `@/lib/api/session.ts` runs against jsdom's
@@ -453,9 +460,77 @@ describe("LivePos — Print bill (POS-DINEIN-PREBILL-PRINT-P0)", () => {
     expect(dialog.textContent).not.toContain("pos.tableLabel");
   });
 
-  it("11. takeaway Print bill still works — flow is not broken by the dine-in table label logic", async () => {
+  it("11. takeaway's own order flow (fire/pay) is unaffected by the Print bill restriction — no Print bill button, but pay still reachable", async () => {
     const order = makeOrder({ orderType: "takeaway", tableId: null, guestCount: null });
-    salesPreBill.mockResolvedValue({ ...preBillFixture(order), tableId: null, tableLabel: null, guestCount: null });
+    const user = await enterPosWithOrder(order);
+
+    expect(screen.queryByRole("button", { name: "pos.printBill" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "pos.pay" })).toBeEnabled();
+    expect(salesPreBill).not.toHaveBeenCalled();
+  });
+});
+
+describe("LivePos — Print bill is dine-in only (PREBILL-DINEIN-ONLY-CORRECTION-P0)", () => {
+  it("dine-in active order shows Print bill", async () => {
+    const order = makeOrder({ orderType: "dine_in" });
+    await enterPosWithOrder(order);
+
+    expect(screen.getByRole("button", { name: "pos.printBill" })).toBeInTheDocument();
+  });
+
+  it("takeaway active order does not show Print bill", async () => {
+    const order = makeOrder({ orderType: "takeaway", tableId: null, guestCount: null });
+    await enterPosWithOrder(order);
+
+    expect(screen.queryByRole("button", { name: "pos.printBill" })).not.toBeInTheDocument();
+  });
+
+  it("pickup active order does not show Print bill", async () => {
+    const order = makeOrder({ orderType: "pickup", tableId: null, guestCount: null });
+    await enterPosWithOrder(order);
+
+    expect(screen.queryByRole("button", { name: "pos.printBill" })).not.toBeInTheDocument();
+  });
+
+  it("delivery active order does not show Print bill", async () => {
+    const order = makeOrder({ orderType: "delivery", tableId: null, guestCount: null });
+    await enterPosWithOrder(order);
+
+    expect(screen.queryByRole("button", { name: "pos.printBill" })).not.toBeInTheDocument();
+  });
+
+  it("drive_thru active order does not show Print bill", async () => {
+    const order = makeOrder({ orderType: "drive_thru", tableId: null, guestCount: null });
+    await enterPosWithOrder(order);
+
+    expect(screen.queryByRole("button", { name: "pos.printBill" })).not.toBeInTheDocument();
+  });
+
+  it("aggregator active order does not show Print bill", async () => {
+    const order = makeOrder({ orderType: "aggregator", tableId: null, guestCount: null });
+    await enterPosWithOrder(order);
+
+    expect(screen.queryByRole("button", { name: "pos.printBill" })).not.toBeInTheDocument();
+  });
+
+  it("finalised (completed) dine-in order does not show Print bill — the real receipt exists instead", async () => {
+    const order = makeOrder({ orderType: "dine_in", state: "completed", paidTotal: money(10000) });
+    await enterPosWithOrder(order);
+
+    expect(screen.queryByRole("button", { name: "pos.printBill" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "pos.viewReceipt" })).toBeInTheDocument();
+  });
+
+  it("cancelled dine-in order does not show Print bill either (no document for a cancelled order)", async () => {
+    const order = makeOrder({ orderType: "dine_in", state: "cancelled" });
+    await enterPosWithOrder(order);
+
+    expect(screen.queryByRole("button", { name: "pos.printBill" })).not.toBeInTheDocument();
+  });
+
+  it("5. the existing dine-in pre-bill open/print flow still works end to end", async () => {
+    const order = makeOrder({ orderType: "dine_in" });
+    salesPreBill.mockResolvedValue(preBillFixture(order));
     const user = await enterPosWithOrder(order);
 
     await user.click(screen.getByRole("button", { name: "pos.printBill" }));
@@ -464,6 +539,10 @@ describe("LivePos — Print bill (POS-DINEIN-PREBILL-PRINT-P0)", () => {
     await waitFor(() =>
       expect(salesPreBill).toHaveBeenCalledWith(order.businessDay, order.id),
     );
-    expect(dialog.textContent).not.toContain("pos.tableLabel");
+    expect(dialog.textContent).toContain("pos.preBillTitle");
+    expect(dialog.textContent).toContain("T07");
+
+    const printButton = within(dialog).getByRole("button", { name: "pos.printBill" });
+    expect(printButton).toBeEnabled();
   });
 });
