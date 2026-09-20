@@ -1149,6 +1149,17 @@ export interface SalesService {
     branchId?: Id;
     cursor?: { businessDay: IsoDate; id: Id } | null;
     limit?: number;
+    /**
+     * ORDERS-HISTORY-LIMIT-CONTRACT-FIX-P0 — restricts the (still
+     * cursor-paginated) page to FR-POS-001's "still on the floor" states,
+     * server-side. `GET /orders/history`'s default ordering is pure
+     * recency with no state filter, so a manager-safe caller needing a
+     * complete, truthful "what is open right now" answer cannot get one
+     * from a client-side filter over a bounded recent-history page once
+     * total order volume exceeds one page — this makes that a real
+     * server-side answer instead.
+     */
+    state?: "open";
   }): Promise<{ orders: Order[]; nextCursor: { businessDay: IsoDate; id: Id } | null }>;
 }
 

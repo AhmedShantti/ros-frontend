@@ -2396,6 +2396,7 @@ async function listOrderHistoryPage(
     branchId?: string;
     cursor?: { businessDay: string; id: string } | null;
     limit?: number;
+    state?: "open";
   } = {},
 ): Promise<{ orders: Order[]; nextCursor: { businessDay: string; id: string } | null }> {
   const { branchesById, tenantId } = await orderContext();
@@ -2404,6 +2405,7 @@ async function listOrderHistoryPage(
     limit: options.limit,
     cursorId: options.cursor?.id,
     cursorBusinessDay: options.cursor?.businessDay,
+    state: options.state,
   });
   return {
     orders: response.orders.map((row) =>

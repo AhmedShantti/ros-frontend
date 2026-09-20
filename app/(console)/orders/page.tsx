@@ -13,7 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import type { Order } from "@/lib/console/types";
 import { useI18n, useSession } from "@/lib/console/providers";
-import { useOrderFeed } from "@/lib/console/feeds";
+import { ORDER_HISTORY_FEED_LIMIT, useOrderFeed } from "@/lib/console/feeds";
 import { useBranches } from "@/lib/console/hooks";
 import { services } from "@/lib/console/services";
 import { ServiceError } from "@/lib/console/services/types";
@@ -103,7 +103,7 @@ export default function OrdersPage() {
     let cancelled = false;
     setBranchLoading(true);
     services.sales
-      .listOrderHistoryPage({ branchId, limit: 200 })
+      .listOrderHistoryPage({ branchId, limit: ORDER_HISTORY_FEED_LIMIT })
       .then((page) => {
         if (cancelled) return;
         setBranchRows(page.orders);

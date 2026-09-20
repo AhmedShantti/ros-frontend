@@ -226,4 +226,33 @@ describe("http.ts — sales.listOrderHistoryPage", () => {
 
     expect(page.nextCursor).toBeNull();
   });
+
+  // ------------------------------------- ORDERS-HISTORY-LIMIT-CONTRACT-FIX-P0
+
+  it("state: 'open' is forwarded to GET /orders/history as a real query param — never dropped or renamed", async () => {
+    salesHistory.mockResolvedValue({ orders: [], nextCursor: null });
+
+    await httpServices.sales.listOrderHistoryPage({
+      branchId: BRANCH_ID,
+      state: "open",
+      limit: 100,
+    });
+
+    expect(salesHistory).toHaveBeenCalledWith({
+      branchId: BRANCH_ID,
+      limit: 100,
+      cursorId: undefined,
+      cursorBusinessDay: undefined,
+      state: "open",
+    });
+  });
+
+  it("omitting state never sends the param at all (the POS-shared GET /orders route is untouched by this option's mere existence)", async () => {
+    salesHistory.mockResolvedValue({ orders: [], nextCursor: null });
+
+    await httpServices.sales.listOrderHistoryPage({ branchId: BRANCH_ID, limit: 50 });
+
+    const call = salesHistory.mock.calls[0]![0] as Record<string, unknown>;
+    expect(call.state).toBeUndefined();
+  });
 });

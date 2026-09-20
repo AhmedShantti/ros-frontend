@@ -34,6 +34,16 @@ import type { AuditEntry, KitchenTicket, Order, StockMovement, WasteRecord } fro
 /** How many rows a device-facing screen asks the backend for. */
 const FEED_LIMIT = 200;
 
+/**
+ * ORDERS-HISTORY-LIMIT-CONTRACT-FIX-P0 — `GET /orders/history`'s own
+ * contract caps `limit` at 100 (`ListOrdersQueryDto`,
+ * `src/modules/sales/sales.dto.ts`); asking for more is a 400, not a
+ * larger page. A dedicated constant, not a change to the shared
+ * `FEED_LIMIT` above, which other feeds (movements/waste/audit) hit
+ * different, unverified-here endpoints through.
+ */
+export const ORDER_HISTORY_FEED_LIMIT = 100;
+
 export interface Feed<T> {
   rows: T[];
   /** False until the first load settles, either way. */
@@ -90,7 +100,7 @@ export function useOrderFeed(scope?: Scope): Feed<Order> {
         ? (
             await services.sales.listOrderHistoryPage({
               branchId: scope?.branchId ?? undefined,
-              limit: FEED_LIMIT,
+              limit: ORDER_HISTORY_FEED_LIMIT,
             })
           ).orders
         : [],
@@ -109,34 +119,66 @@ export function useOrderFeed(scope?: Scope): Feed<Order> {
  * FR-POS-001 — what is still open, for the Dashboard
  * `/operations/open-orders` page.
  *
- * The backend has no dedicated "open orders" endpoint; this filters
- * `useOrderFeed`'s own manager-safe history read by state client-side
- * (state filtering is not a security boundary — the same pattern the
- * Orders page's own Tabs filter already uses). ORDERS-MODULE-ACCEPTANCE-
- * CORRECTION-P0 BLOCKER A — deliberately NOT `services.operations
- * .openOrders` (`GET /orders`, `pos.order.create`): that call is the POS
- * terminal's own Resume/Open-Orders picker contract, and routing this
- * DASHBOARD page through it would hand Cashier the same back-office access
- * BLOCKER A exists to remove. `services.operations.openOrders` itself, and
- * everything under `pos-live.tsx`, is unchanged.
+ * ORDERS-HISTORY-LIMIT-CONTRACT-FIX-P0 — `GET /orders/history` orders
+ * purely by recency, with no state filter, unbounded by total order
+ * volume. A single bounded page (even a full `limit=100` one), filtered
+ * for open states CLIENT-side, cannot promise completeness: once a
+ * branch/tenant has processed more orders (of any state) than one page
+ * holds since an older order was opened, that still-open order falls off
+ * the page entirely and silently vanishes from this screen — the "still
+ * on the floor" list is what managers use to find problems, so a silent
+ * gap there is a real operational-truth defect, not a cosmetic one. This
+ * now asks the backend to filter server-side instead (`state: "open"`,
+ * `ListOrderHistoryQueryDto`) and WALKS every page to exhaustion — that is
+ * NOT "loading the entire history client-side" (explicitly out of scope):
+ * every row returned is already a genuinely open order, so the total
+ * fetched is bounded by how many orders are actually open right now, a
+ * small, real, operationally-bounded set, never by total history size.
+ * `MAX_OPEN_ORDER_PAGES` is a defensive backstop against a runaway loop
+ * only (e.g. a future server bug always returning a `nextCursor`), not a
+ * real-world limit: at 100 open orders per page it would take literally
+ * thousands of orders open AT ONCE to hit it.
+ *
+ * `services.operations.openOrders` (`GET /orders`, `pos.order.create`) is
+ * deliberately NOT used here — that call is the POS terminal's own
+ * Resume/Open-Orders picker contract (ORDERS-MODULE-ACCEPTANCE-
+ * CORRECTION-P0 BLOCKER A), and routing this DASHBOARD page through it
+ * would hand Cashier the same back-office access BLOCKER A exists to
+ * remove. `services.operations.openOrders` itself, and everything under
+ * `pos-live.tsx`, is unchanged.
  */
+const MAX_OPEN_ORDER_PAGES = 50;
+
+/**
+ * The walk itself, pulled out of the hook so it is directly unit-testable
+ * (`feeds.open-orders.test.ts`) without React hook-testing machinery —
+ * matches this codebase's own preference for testing plain async functions
+ * at the service boundary (e.g. `http.open-orders.test.ts`).
+ */
+export async function fetchAllOpenOrders(branchId?: string): Promise<Order[]> {
+  const collected: Order[] = [];
+  let cursor: { businessDay: string; id: string } | null = null;
+  for (let page = 0; page < MAX_OPEN_ORDER_PAGES; page += 1) {
+    const result = await services.sales.listOrderHistoryPage({
+      branchId,
+      state: "open",
+      limit: ORDER_HISTORY_FEED_LIMIT,
+      cursor,
+    });
+    collected.push(...result.orders);
+    if (!result.nextCursor) break;
+    cursor = result.nextCursor;
+  }
+  return collected;
+}
+
 export function useOpenOrderFeed(scope?: Scope): Feed<Order> {
   const live = DATA_MODE === "http";
   const { state, ready } = useLive();
   const key = scopeKey(scope);
 
   const remote = useAsync<Order[]>(
-    async () =>
-      live
-        ? (
-            await services.sales.listOrderHistoryPage({
-              branchId: scope?.branchId ?? undefined,
-              limit: FEED_LIMIT,
-            })
-          ).orders.filter((order) =>
-            ["draft", "open", "held", "parked", "partially_paid"].includes(order.state),
-          )
-        : [],
+    async () => (live ? fetchAllOpenOrders(scope?.branchId ?? undefined) : []),
     [live, key],
   );
 

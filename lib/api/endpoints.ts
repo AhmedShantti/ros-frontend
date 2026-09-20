@@ -25,9 +25,22 @@ export const sales = {
   create: (body: S.CreateOrderDto) =>
     http.post<S.OrdersController_createResponse>("/orders", { body, idempotent: true }),
 
-  /** `GET /orders/history` — List orders, cursor-paginated — the back-office/Dashboard read, never granted to Cashier merely by pos.order.create. — A page of orders (no line snapshots) plus an opaque cursor for the next page. */
-  history: (options: { branchId?: string; cursorId?: string; cursorBusinessDay?: string; limit?: number } = {}) =>
-    http.get<S.OrdersController_historyResponse>("/orders/history", { query: { branchId: options.branchId, cursorId: options.cursorId, cursorBusinessDay: options.cursorBusinessDay, limit: options.limit } }),
+  /**
+   * `GET /orders/history` — List orders, cursor-paginated — the back-office/Dashboard read, never granted to Cashier merely by pos.order.create. — A page of orders (no line snapshots) plus an opaque cursor for the next page.
+   *
+   * ORDERS-HISTORY-LIMIT-CONTRACT-FIX-P0 — `state` hand-patched onto this
+   * one generated function (not a full `npm run api:types` regen): the
+   * backend's checked-in `docs/api/openapi.json` this script's local
+   * `api/openapi.json` copy is regenerated from already carries a
+   * pre-existing, unrelated `sales.cancel` operationId collision
+   * (`OrdersController_cancel` vs `ServiceChargePolicyController_cancel`)
+   * that aborts the full codegen script outright — the same blocker
+   * `PREFIRE-VOID-NO-REASON-P0` already hit and worked around the same way.
+   * Verified correct against the real, live backend route
+   * (`ListOrderHistoryQueryDto`, `src/modules/sales/sales.dto.ts`).
+   */
+  history: (options: { branchId?: string; cursorId?: string; cursorBusinessDay?: string; limit?: number; state?: "open" } = {}) =>
+    http.get<S.OrdersController_historyResponse>("/orders/history", { query: { branchId: options.branchId, cursorId: options.cursorId, cursorBusinessDay: options.cursorBusinessDay, limit: options.limit, state: options.state } }),
 
   /** `GET /orders/by-reference` — One order by its permanent Order Reference (orders.id), without needing a business day. — The order, including its lines. */
   byReference: (options: { id?: string } = {}) =>

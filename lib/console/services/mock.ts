@@ -636,7 +636,12 @@ const sales: SalesService = {
   // The demo's order list is a small, fixed fixture, never a growing
   // tenant history — so one page is the whole thing, with no next cursor.
   async listOrderHistoryPage(options = {}) {
-    const rows = options.branchId ? orders.filter((o) => o.branchId === options.branchId) : orders;
+    let rows = options.branchId ? orders.filter((o) => o.branchId === options.branchId) : orders;
+    if (options.state === "open") {
+      rows = rows.filter((o) =>
+        ["draft", "open", "held", "parked", "partially_paid"].includes(o.state),
+      );
+    }
     return { orders: rows, nextCursor: null };
   },
 };
