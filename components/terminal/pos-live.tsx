@@ -2881,11 +2881,14 @@ function RefundDrawer({
  * own content to the browser's print dialog, the standard mechanism; there
  * is no fiscal-printer integration to target instead.
  *
- * ORDERS-MODULE-COMPREHENSIVE-P0 — exported so the Order History page's
- * "Reprint receipt" action can reuse this SAME renderer against a
- * completed historical order, rather than building a second one.
+ * ORDERS-MODULE-ACCEPTANCE-CORRECTION-P0 — briefly exported so the Order
+ * History page could reuse it for a "Reprint receipt" action; that action
+ * was REMOVED (FR-POS-104 duplicate-marking/audit is not implemented — see
+ * `app/(console)/orders/page.tsx`'s `OrderDrawer` doc comment), so this is
+ * private again. POS's own use here (during an active POS session) is
+ * unaffected.
  */
-export function ReceiptDrawer({
+function ReceiptDrawer({
   order,
   open,
   onClose,

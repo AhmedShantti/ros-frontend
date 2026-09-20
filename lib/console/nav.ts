@@ -107,23 +107,24 @@ export const NAV_SECTIONS: NavSection[] = [
     icon: ReceiptText,
     items: [
       /**
-       * ORDERS-MODULE-COMPREHENSIVE-P0 — both of these were gated on
-       * `pos.order.view` (and this one ALSO on `ops.live.view`), two more
-       * strings this console's own local catalogue
-       * (`lib/console/permissions.ts`) defines for its role-heuristic
-       * fallback but that the real backend never issues (confirmed: no
-       * `*.permissions.ts` constant anywhere in the canonical backend
-       * contains "live" or "order.view" — order reads sit behind
-       * `pos.order.create`, per that module's own docblock, §15.2 defines
-       * no separate read permission). Both items were therefore invisible
-       * to EVERY real production session the moment `granted` starts
-       * trusting the real `GET /auth/permissions` set — not an edge case.
-       * `pos.order.create` is the real code every order-reading route in
-       * this module (list, detail, receipt, pre-bill, by-reference,
-       * search) actually requires.
+       * ORDERS-MODULE-COMPREHENSIVE-P0 first gated both of these on the
+       * phantom `pos.order.view`/`ops.live.view` (invisible to every real
+       * session — see TABLES-SIDEBAR-PRODUCTION-PERMISSION-CORRECTION-P0's
+       * own note below for that class of bug). The immediate follow-up fix
+       * used `pos.order.create` instead — but that is Cashier's ordinary
+       * POS grant, and both of these are DASHBOARD/back-office order-
+       * history surfaces, not POS ones: gating them on `pos.order.create`
+       * silently handed every Cashier back-office order history the moment
+       * these pages existed (ORDERS-MODULE-ACCEPTANCE-CORRECTION-P0
+       * BLOCKER A). `pos.order.view_history` is the real, separate
+       * back-office code these two pages' own backend routes
+       * (`GET /orders/history`, `/orders/by-reference`, `/orders/search`)
+       * actually require — `GET /orders` (`pos.order.create`) remains the
+       * POS terminal's own Resume/Open-Orders contract, unchanged, and is
+       * NEVER what these two console pages call.
        */
-      { href: "/orders", labelKey: "nav.orders", icon: ReceiptText, permissions: ["pos.order.create"], matchPrefix: true },
-      { href: "/operations/open-orders", labelKey: "nav.openOrders", icon: ClipboardList, permissions: ["pos.order.create"] },
+      { href: "/orders", labelKey: "nav.orders", icon: ReceiptText, permissions: ["pos.order.view_history"], matchPrefix: true },
+      { href: "/operations/open-orders", labelKey: "nav.openOrders", icon: ClipboardList, permissions: ["pos.order.view_history"] },
       /**
        * TABLES-SIDEBAR-PRODUCTION-PERMISSION-CORRECTION-P0 — was
        * `["ops.live.view"]`, a string this console's own catalogue

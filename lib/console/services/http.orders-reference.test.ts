@@ -1,34 +1,45 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /*
- * ORDERS-MODULE-COMPREHENSIVE-P0
+ * ORDERS-MODULE-COMPREHENSIVE-P0 / ACCEPTANCE-CORRECTION-P0
  *
  * `services.sales.findOrderByReference` / `searchOrdersByNumber` /
  * `listOrderHistoryPage` against the real `http.ts` logic — mocked only at
  * the transport boundary (`@/lib/api/endpoints`), same pattern as
  * `http.open-orders.test.ts`. Proves:
  *   - exact Order Reference lookup maps the real wire shape correctly;
- *   - a 404 (order absent, or another tenant's — the server keeps those
- *     indistinguishable) becomes `null`, never a thrown error the caller
- *     has to specifically catch;
- *   - a 403 (a real order outside the caller's authorized branch scope, per
- *     the backend's own resourceTarget lattice) is NOT swallowed — it
- *     propagates, because that is a permission failure, not "not found";
+ *   - a 404 (order absent, another tenant's, or — per ACCEPTANCE-
+ *     CORRECTION-P0 BLOCKER B — a real order outside the caller's
+ *     authorized branch scope; the backend folds all three into the same
+ *     404 now) becomes `null`, never a thrown error the caller has to
+ *     specifically catch;
+ *   - a 403 (the caller lacks `pos.order.view_history` entirely) is NOT
+ *     swallowed — it propagates, because that is a genuine permission
+ *     failure, not "not found";
  *   - Order Number search never assumes one match — every match the
  *     backend returns comes back mapped;
- *   - `listOrderHistoryPage` passes the real keyset cursor through both
- *     ways, unlike `orders.list` which hides it.
+ *   - `listOrderHistoryPage` calls `GET /orders/history`
+ *     (`pos.order.view_history`) — NEVER `GET /orders` (`pos.order.create`,
+ *     `orders.list`'s own route, which the POS terminal's Resume/Open-
+ *     Orders picker also calls) — and passes the real keyset cursor
+ *     through both ways.
  */
 
-const { salesByReference, salesSearch, salesList, listBranches, getAccessibleScope } = vi.hoisted(
-  () => ({
-    salesByReference: vi.fn(),
-    salesSearch: vi.fn(),
-    salesList: vi.fn(),
-    listBranches: vi.fn(),
-    getAccessibleScope: vi.fn(),
-  }),
-);
+const {
+  salesByReference,
+  salesSearch,
+  salesList,
+  salesHistory,
+  listBranches,
+  getAccessibleScope,
+} = vi.hoisted(() => ({
+  salesByReference: vi.fn(),
+  salesSearch: vi.fn(),
+  salesList: vi.fn(),
+  salesHistory: vi.fn(),
+  listBranches: vi.fn(),
+  getAccessibleScope: vi.fn(),
+}));
 
 vi.mock("@/lib/api/endpoints", () => ({
   api: {
@@ -40,6 +51,7 @@ vi.mock("@/lib/api/endpoints", () => ({
       byReference: (...args: unknown[]) => salesByReference(...args),
       search: (...args: unknown[]) => salesSearch(...args),
       list: (...args: unknown[]) => salesList(...args),
+      history: (...args: unknown[]) => salesHistory(...args),
     },
   },
 }));
@@ -148,12 +160,12 @@ describe("http.ts — sales.findOrderByReference", () => {
     expect(order).toBeNull();
   });
 
-  it("a 403 (a real order outside the caller's authorized branch scope) propagates — NOT converted to null", async () => {
+  it("a 403 (the caller holds no pos.order.view_history grant at all) propagates — NOT converted to null", async () => {
     salesByReference.mockRejectedValue(
-      new ServiceError("FORBIDDEN", "Insufficient permission for this scope.", 403),
+      new ServiceError("FORBIDDEN", "'pos.order.view_history' is required.", 403),
     );
 
-    await expect(httpServices.sales.findOrderByReference("out-of-scope")).rejects.toMatchObject({
+    await expect(httpServices.sales.findOrderByReference("no-permission")).rejects.toMatchObject({
       status: 403,
     });
   });
@@ -184,8 +196,8 @@ describe("http.ts — sales.searchOrdersByNumber", () => {
 });
 
 describe("http.ts — sales.listOrderHistoryPage", () => {
-  it("surfaces the server's real keyset cursor both ways, unlike orders.list (which hides it behind an offset window)", async () => {
-    salesList.mockResolvedValue({
+  it("calls GET /orders/history (pos.order.view_history), NEVER GET /orders (pos.order.create) — BLOCKER A", async () => {
+    salesHistory.mockResolvedValue({
       orders: [wireOrder({ id: "a" }), wireOrder({ id: "b" })],
       nextCursor: { businessDay: "2026-09-01", id: "b" },
     });
@@ -196,18 +208,19 @@ describe("http.ts — sales.listOrderHistoryPage", () => {
       limit: 50,
     });
 
-    expect(salesList).toHaveBeenCalledWith({
+    expect(salesHistory).toHaveBeenCalledWith({
       branchId: BRANCH_ID,
       limit: 50,
       cursorId: "z",
       cursorBusinessDay: "2026-09-19",
     });
+    expect(salesList).not.toHaveBeenCalled();
     expect(page.orders.map((o) => o.id)).toEqual(["a", "b"]);
     expect(page.nextCursor).toEqual({ businessDay: "2026-09-01", id: "b" });
   });
 
   it("a null nextCursor from the server means exhausted — never fabricated as more available", async () => {
-    salesList.mockResolvedValue({ orders: [wireOrder()], nextCursor: null });
+    salesHistory.mockResolvedValue({ orders: [wireOrder()], nextCursor: null });
 
     const page = await httpServices.sales.listOrderHistoryPage({});
 

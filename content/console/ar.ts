@@ -382,8 +382,6 @@ export const consoleAr: ConsoleCopy = {
   "orders.numberPlaceholder": "مثال: MAIN-7",
   "orders.noMatch": "لم يتم العثور على طلب مطابق.",
   "orders.multipleMatches": "أكثر من طلب يحمل هذا الرقم — اختر المقصود.",
-  "orders.reprintReceipt": "إعادة طباعة الإيصال",
-  "orders.reprintNotAudited": "طُبع مجددًا من السجل التاريخي. لا يُسجَّل كنسخة مكررة بشكل منفصل.",
   "orders.loadMore": "تحميل طلبات أقدم",
   "orders.allBranches": "كل الفروع",
 

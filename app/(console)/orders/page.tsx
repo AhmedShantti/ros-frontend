@@ -46,7 +46,6 @@ import {
   SpecTag,
   Tabs,
 } from "@/components/console/ui";
-import { ReceiptDrawer } from "@/components/terminal/pos-live";
 
 type Filter = "all" | "open" | "completed" | "cancelled";
 
@@ -554,21 +553,23 @@ function CancelledOrderInfo({ order }: { order: Order }) {
 }
 
 /**
- * ORDERS-MODULE-COMPREHENSIVE-P0 — FR-POS-104 (reprint duplicate-marking /
- * audit) is NOT implemented anywhere in the current backend (confirmed: it
- * exists only as an aspirational doc-comment on `OrdersController`, no
- * actual marking/logging code). This reuses the SAME `ReceiptDrawer`
- * `services.sales.receipt` already prints from — never a second renderer —
- * but that only re-prints the document; it does not, and cannot yet,
- * satisfy real reprint governance. `orders.reprintNotAudited` says so.
+ * ORDERS-MODULE-ACCEPTANCE-CORRECTION-P0 — REPRINT DECISION (option B).
+ * FR-POS-104 (reprint duplicate-marking/audit) is NOT implemented anywhere
+ * in the current backend (confirmed: it exists only as an aspirational
+ * doc-comment on `OrdersController`, no actual marking/logging code).
+ * ORDERS-MODULE-COMPREHENSIVE-P0 had added a "Reprint receipt" action here
+ * that reused `ReceiptDrawer`'s `window.print()` — truthful about the
+ * governance gap in a caption, but still presenting an ungoverned reprint
+ * as a shipped feature. That action is REMOVED here, not fixed: Order
+ * Detail's own historical VIEW (full line/total/payment detail, below)
+ * remains completely intact, and POS's own normal receipt printing
+ * (`pos-live.tsx`'s `ReceiptDrawer`, used during an active POS session) is
+ * untouched. Reprint returns once FR-POS-104 has its own implementation
+ * task — permission, duplicate marking, and audit trail — not before.
  */
-const RECEIPT_ELIGIBLE_STATES: Order["state"][] = ["completed", "partially_refunded", "refunded"];
-
 function OrderDrawer({ order, onClose }: { order: Order; onClose: () => void }) {
   const { t, tx, fmt } = useI18n();
   const [copied, setCopied] = useState(false);
-  const [reprintOpen, setReprintOpen] = useState(false);
-  const canReprint = RECEIPT_ELIGIBLE_STATES.includes(order.state);
 
   return (
     <Drawer
@@ -583,16 +584,6 @@ function OrderDrawer({ order, onClose }: { order: Order; onClose: () => void }) 
           {order.tableLabel ? <span>· {order.tableLabel}</span> : null}
           <SpecTag id="BR-POS-004" />
         </span>
-      }
-      footer={
-        canReprint ? (
-          <div>
-            <Button variant="ghost" onClick={() => setReprintOpen(true)}>
-              {t("orders.reprintReceipt")}
-            </Button>
-            <p className="text-fg-subtle mt-1 text-xs">{t("orders.reprintNotAudited")}</p>
-          </div>
-        ) : undefined
       }
     >
       <DescList>
@@ -745,10 +736,6 @@ function OrderDrawer({ order, onClose }: { order: Order; onClose: () => void }) 
             ))}
           </DescList>
         </>
-      ) : null}
-
-      {canReprint ? (
-        <ReceiptDrawer order={order} open={reprintOpen} onClose={() => setReprintOpen(false)} />
       ) : null}
     </Drawer>
   );

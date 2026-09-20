@@ -25,6 +25,10 @@ export const sales = {
   create: (body: S.CreateOrderDto) =>
     http.post<S.OrdersController_createResponse>("/orders", { body, idempotent: true }),
 
+  /** `GET /orders/history` — List orders, cursor-paginated — the back-office/Dashboard read, never granted to Cashier merely by pos.order.create. — A page of orders (no line snapshots) plus an opaque cursor for the next page. */
+  history: (options: { branchId?: string; cursorId?: string; cursorBusinessDay?: string; limit?: number } = {}) =>
+    http.get<S.OrdersController_historyResponse>("/orders/history", { query: { branchId: options.branchId, cursorId: options.cursorId, cursorBusinessDay: options.cursorBusinessDay, limit: options.limit } }),
+
   /** `GET /orders/by-reference` — One order by its permanent Order Reference (orders.id), without needing a business day. — The order, including its lines. */
   byReference: (options: { id?: string } = {}) =>
     http.get<S.OrdersController_byReferenceResponse>("/orders/by-reference", { query: { id: options.id } }),

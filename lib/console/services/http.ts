@@ -2338,11 +2338,14 @@ async function tables() {
 }
 
 /**
- * ORDERS-MODULE-COMPREHENSIVE-P0 — exact Order Reference lookup. A 404 (the
- * order does not exist, or exists in another tenant — the server keeps
- * those indistinguishable) resolves to `null`; anything else, including a
- * 403 (a real order outside the caller's authorized branch scope), is a
- * genuine failure and propagates.
+ * ORDERS-MODULE-COMPREHENSIVE-P0 / ACCEPTANCE-CORRECTION-P0 — exact Order
+ * Reference lookup. A 404 resolves to `null` — the backend now folds THREE
+ * cases into that same 404 (order absent, another tenant's, or a real
+ * order outside the caller's authorized branch/brand scope; BLOCKER B —
+ * this was a 403 for the third case before the correction, which made the
+ * endpoint an existence oracle for a caller who already holds the
+ * permission). A 403 means the caller holds no `pos.order.view_history`
+ * grant at all — a genuine permission failure — and propagates.
  */
 async function findOrderByReference(orderId: string): Promise<Order | null> {
   const { branchesById, tenantId } = await orderContext();
@@ -2375,9 +2378,18 @@ async function searchOrdersByNumber(orderNumber: string, branchId?: string): Pro
 }
 
 /**
- * ORDERS-MODULE-COMPREHENSIVE-P0 — one real page of order history, with the
- * server's actual keyset cursor surfaced (never walked/hidden the way
- * `orders.list` above does for the fixed-window recent-orders view).
+ * ORDERS-MODULE-COMPREHENSIVE-P0 / ACCEPTANCE-CORRECTION-P0 — one real page
+ * of order history, with the server's actual keyset cursor surfaced (never
+ * walked/hidden the way `orders.list` above does for the fixed-window
+ * recent-orders view).
+ *
+ * Calls `GET /orders/history` (`pos.order.view_history`), NEVER
+ * `GET /orders` (`pos.order.create` — `orders.list` above, which the POS
+ * terminal's own Resume/Open-Orders picker also calls). Cashier holds
+ * `pos.order.create` but not `pos.order.view_history`, so routing the
+ * Dashboard Orders/Open-Orders pages through the SAME call `orders.list`
+ * uses would silently hand Cashier back-office history access the moment
+ * those pages existed (BLOCKER A of ORDERS-MODULE-ACCEPTANCE-CORRECTION-P0).
  */
 async function listOrderHistoryPage(
   options: {
@@ -2387,7 +2399,7 @@ async function listOrderHistoryPage(
   } = {},
 ): Promise<{ orders: Order[]; nextCursor: { businessDay: string; id: string } | null }> {
   const { branchesById, tenantId } = await orderContext();
-  const response = await api.sales.list({
+  const response = await api.sales.history({
     branchId: options.branchId,
     limit: options.limit,
     cursorId: options.cursor?.id,

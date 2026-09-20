@@ -67,7 +67,18 @@ function fromRemote<T>(
   };
 }
 
-/** SRS ch.8 — the order ledger. `GET /orders` is a real keyset cursor. */
+/**
+ * SRS ch.8 — the order ledger, for the Dashboard `/orders` page.
+ *
+ * ORDERS-MODULE-ACCEPTANCE-CORRECTION-P0 BLOCKER A — this calls
+ * `services.sales.listOrderHistoryPage` (`GET /orders/history`,
+ * `pos.order.view_history`), NEVER `services.sales.orders.list`
+ * (`GET /orders`, `pos.order.create`). Cashier holds the latter as an
+ * ordinary POS grant; routing this DASHBOARD feed through that same call
+ * would silently hand Cashier back-office order history. The POS
+ * terminal's own Resume/Open-Orders picker (`pos-live.tsx`) calls
+ * `services.operations.openOrders` directly and is unaffected.
+ */
 export function useOrderFeed(scope?: Scope): Feed<Order> {
   const live = DATA_MODE === "http";
   const { state, ready } = useLive();
@@ -75,7 +86,14 @@ export function useOrderFeed(scope?: Scope): Feed<Order> {
 
   const remote = useAsync<Order[]>(
     async () =>
-      live ? (await services.sales.orders.list({ scope, limit: FEED_LIMIT })).rows : [],
+      live
+        ? (
+            await services.sales.listOrderHistoryPage({
+              branchId: scope?.branchId ?? undefined,
+              limit: FEED_LIMIT,
+            })
+          ).orders
+        : [],
     [live, key],
   );
 
@@ -88,11 +106,19 @@ export function useOrderFeed(scope?: Scope): Feed<Order> {
 }
 
 /**
- * FR-POS-001 — what is still open.
+ * FR-POS-001 — what is still open, for the Dashboard
+ * `/operations/open-orders` page.
  *
- * The backend has no "open orders" endpoint of its own; `operations.openOrders`
- * filters the order list by state, which is why this is a separate feed from
- * `useOrderFeed` rather than a filter over it.
+ * The backend has no dedicated "open orders" endpoint; this filters
+ * `useOrderFeed`'s own manager-safe history read by state client-side
+ * (state filtering is not a security boundary — the same pattern the
+ * Orders page's own Tabs filter already uses). ORDERS-MODULE-ACCEPTANCE-
+ * CORRECTION-P0 BLOCKER A — deliberately NOT `services.operations
+ * .openOrders` (`GET /orders`, `pos.order.create`): that call is the POS
+ * terminal's own Resume/Open-Orders picker contract, and routing this
+ * DASHBOARD page through it would hand Cashier the same back-office access
+ * BLOCKER A exists to remove. `services.operations.openOrders` itself, and
+ * everything under `pos-live.tsx`, is unchanged.
  */
 export function useOpenOrderFeed(scope?: Scope): Feed<Order> {
   const live = DATA_MODE === "http";
@@ -101,7 +127,16 @@ export function useOpenOrderFeed(scope?: Scope): Feed<Order> {
 
   const remote = useAsync<Order[]>(
     async () =>
-      live ? (await services.operations.openOrders({ scope, limit: FEED_LIMIT })).rows : [],
+      live
+        ? (
+            await services.sales.listOrderHistoryPage({
+              branchId: scope?.branchId ?? undefined,
+              limit: FEED_LIMIT,
+            })
+          ).orders.filter((order) =>
+            ["draft", "open", "held", "parked", "partially_paid"].includes(order.state),
+          )
+        : [],
     [live, key],
   );
 

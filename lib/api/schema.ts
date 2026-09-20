@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 157 paths, 109 request DTOs.
+ * `api/openapi.json`. 158 paths, 109 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -1070,6 +1070,100 @@ export type OrdersController_createResponse = {
 };
 
 export type OrdersController_createBody = CreateOrderDto;
+
+/** `GET /orders/history` — List orders, cursor-paginated — the back-office/Dashboard read, never granted to Cashier merely by pos.order.create. — A page of orders (no line snapshots) plus an opaque cursor for the next page. */
+export type OrdersController_historyResponse = {
+  /** Pass businessDay as cursorBusinessDay and id as cursorId to fetch the next page. Null on the last page. */
+  nextCursor: {
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    id: string;
+  } | null;
+  orders: ({
+    branchId: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    channel: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
+    closedBy: string | null;
+    completedAt: string | null;
+    /** FR-LOC-021 — the pack version this order was priced under, pinned. */
+    countryPackVersion: string;
+    createdAt: string;
+    /** ISO 4217 currency code. */
+    currency: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discountTotal: string;
+    firstFiredAt: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grandTotal: string;
+    guestCount: number | null;
+    id: string;
+    /** Present only where the endpoint populates line snapshots. */
+    lines: ({
+      course: number | null;
+      createdAt: string;
+      firedAt: string | null;
+      id: string;
+      isComp: boolean;
+      /** Opaque localized-name snapshot (locale -> name), persisted at capture time. */
+      itemNameSnapshot: Record<string, unknown>;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineDiscount: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineSubtotal: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineTotal: string;
+      menuItemId: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      modifierTotal: string;
+      notes: string | null;
+      priceEntryId: string | null;
+      priceListId: string | null;
+      /** Opaque pricing-rule provenance snapshot. */
+      priceRule: string | null;
+      /** Decimal quantity as a string (preserves exact precision). */
+      quantity: string;
+      readyAt: string | null;
+      recipeVersionId: string | null;
+      seatNumber: number | null;
+      sequence: number;
+      state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      taxAmount: string;
+      taxClassId: string;
+      /** Decimal quantity as a string (preserves exact precision). */
+      unitCostSnapshot: string | null;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      unitPrice: string;
+      variantId: string;
+    })[];
+    notes: string | null;
+    openedAt: string;
+    openedBy: string;
+    orderNumber: string;
+    orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
+    originDeviceTime: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    paidTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    roundingAdjustment: string;
+    servedBy: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    serviceChargeTotal: string;
+    state: "draft" | "open" | "held" | "parked" | "partially_paid" | "completed" | "cancelled" | "partially_refunded" | "refunded";
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    subtotal: string;
+    tableId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+    terminalId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    tipTotal: string;
+    updatedAt: string;
+    /** Optimistic-concurrency version; also the ETag validator (§24.6.4). */
+    version: number;
+  })[];
+};
 
 /** `GET /orders/by-reference` — One order by its permanent Order Reference (orders.id), without needing a business day. — The order, including its lines. */
 export type OrdersController_byReferenceResponse = {
@@ -6458,6 +6552,7 @@ export type OrdersController_preBillResponse = {
 export const ROUTES = {
   OrdersController_list: { method: "GET", path: "/orders" },
   OrdersController_create: { method: "POST", path: "/orders" },
+  OrdersController_history: { method: "GET", path: "/orders/history" },
   OrdersController_byReference: { method: "GET", path: "/orders/by-reference" },
   OrdersController_search: { method: "GET", path: "/orders/search" },
   OrdersController_listReasonCodes: { method: "GET", path: "/orders/reason-codes" },

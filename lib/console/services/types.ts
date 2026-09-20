@@ -1111,31 +1111,39 @@ export interface SalesService {
    */
   tables(): Promise<PosTable[]>;
   /**
-   * ORDERS-MODULE-COMPREHENSIVE-P0 — exact Order Reference (permanent
-   * `orders.id`) lookup, without a business day: the whole point of a
-   * support/history lookup is that the caller does not already know one.
-   * Null when the order does not exist, or exists in another tenant — the
-   * server keeps those two indistinguishable (`GET /orders/by-reference`
-   * answers a tenant-safe 404 for both). A real order that exists but sits
-   * outside the caller's authorized branch scope is a 403 and is thrown,
-   * not returned as null — that is a permission failure, not "not found".
+   * ORDERS-MODULE-COMPREHENSIVE-P0 / ACCEPTANCE-CORRECTION-P0 — exact
+   * Order Reference (permanent `orders.id`) lookup, without a business
+   * day: the whole point of a support/history lookup is that the caller
+   * does not already know one. Requires `pos.order.view_history` — NEVER
+   * `pos.order.create` (Cashier's ordinary POS grant; BLOCKER A). Null
+   * when the order does not exist, exists in another tenant, OR is a real
+   * order outside the caller's authorized branch/brand scope — the server
+   * folds all three into the SAME 404 (BLOCKER B: the branch-scope case
+   * used to be a distinguishable 403, which made this an existence
+   * oracle). A caller holding no `pos.order.view_history` grant at all
+   * gets a genuine 403, thrown, not returned as null.
    */
   findOrderByReference(orderId: Id): Promise<Order | null>;
   /**
-   * ORDERS-MODULE-COMPREHENSIVE-P0 — Order Number search (FR-POS-002, e.g.
-   * "MAIN-7"). NOT globally unique — only within (branch, business day) —
-   * so every match visible to the caller is returned (bounded server-side)
-   * for the caller to disambiguate by business day and branch; this layer
-   * never assumes one match is THE order.
+   * ORDERS-MODULE-COMPREHENSIVE-P0 / ACCEPTANCE-CORRECTION-P0 — Order
+   * Number search (FR-POS-002, e.g. "MAIN-7"). NOT globally unique — only
+   * within (branch, business day) — so every match visible to the caller
+   * is returned (bounded server-side) for the caller to disambiguate by
+   * business day and branch; this layer never assumes one match is THE
+   * order. Requires `pos.order.view_history`, never `pos.order.create`
+   * (BLOCKER A).
    */
   searchOrdersByNumber(orderNumber: string, branchId?: Id): Promise<Order[]>;
   /**
-   * ORDERS-MODULE-COMPREHENSIVE-P0 — one real page of order history,
-   * exposing the backend's actual keyset cursor. Unlike `orders.list`
-   * (which walks that same cursor internally, hidden, to fill a fixed
-   * offset window for the existing recent-orders view), this is for a
-   * genuine "Load more" control over full history — never an unbounded
-   * fetch of the whole tenant's orders into the browser.
+   * ORDERS-MODULE-COMPREHENSIVE-P0 / ACCEPTANCE-CORRECTION-P0 — one real
+   * page of order history, exposing the backend's actual keyset cursor.
+   * Calls `GET /orders/history` (`pos.order.view_history`) — NEVER
+   * `orders.list` (`GET /orders`, `pos.order.create` — the POS terminal's
+   * own Resume/Open-Orders picker's contract; BLOCKER A). Unlike
+   * `orders.list` (which also walks that cursor internally, hidden, to
+   * fill a fixed offset window), this is for a genuine "Load more" control
+   * over full history — never an unbounded fetch of the whole tenant's
+   * orders into the browser.
    */
   listOrderHistoryPage(options?: {
     branchId?: Id;

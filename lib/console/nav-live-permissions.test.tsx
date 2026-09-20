@@ -192,18 +192,22 @@ describe("Sidebar — Operations > Tables visibility from REAL live-granted perm
 });
 
 /*
- * ORDERS-MODULE-COMPREHENSIVE-P0
- *
- * The same phantom-permission bug found (and fixed here) a 4th time in this
- * area: `/orders` and `/operations/open-orders` were gated on
- * `pos.order.view` (the open-orders item ALSO on `ops.live.view`) — two more
- * strings this console's local role-heuristic catalogue defines but the real
- * backend never issues. On a live session (any real signed-in user, not an
- * edge case) both items were unconditionally invisible. `pos.order.create`
- * is the real code every order-reading route requires.
+ * ORDERS-MODULE-COMPREHENSIVE-P0 first found (and fixed) a 4th instance of
+ * the phantom-permission bug in this area: `/orders` and
+ * `/operations/open-orders` were gated on `pos.order.view` (the
+ * open-orders item ALSO on `ops.live.view`) — two more strings this
+ * console's local role-heuristic catalogue defines but the real backend
+ * never issues. That first fix moved both to `pos.order.create` — but
+ * `pos.order.create` is Cashier's ORDINARY POS grant, so that fix
+ * accidentally handed every Cashier back-office order-history nav access
+ * (ORDERS-MODULE-ACCEPTANCE-CORRECTION-P0 BLOCKER A). Both items are now
+ * gated on the real, separate `pos.order.view_history` — never granted to
+ * Cashier — while `pos.order.create` keeps working for the POS terminal's
+ * OWN Resume/Open-Orders picker (a different call, unaffected by nav
+ * gating).
  */
 describe("Sidebar — Orders / Open Orders visibility from REAL live-granted permissions", () => {
-  it("a real Cashier-shaped granted set (pos.order.create, no settings.branch.*) sees BOTH Orders and Open Orders", async () => {
+  it("BLOCKER A — a real Cashier-shaped granted set (pos.order.create, no pos.order.view_history) sees NEITHER Orders nor Open Orders", async () => {
     simulatedGrantedCodes = [
       "pos.order.create",
       "pos.order.void_line_prefire",
@@ -216,25 +220,24 @@ describe("Sidebar — Orders / Open Orders visibility from REAL live-granted per
     await mountConsole();
 
     await screen.findByTestId("dashboard-content");
-    expect(linkVisible("/orders")).toBe(true);
-    expect(linkVisible("/operations/open-orders")).toBe(true);
+    expect(linkVisible("/orders")).toBe(false);
+    expect(linkVisible("/operations/open-orders")).toBe(false);
   });
 
-  it("the OLD gate would have failed this exact scenario — regression guard: a real granted set with NEITHER 'pos.order.view' NOR 'ops.live.view' anywhere still shows both links given pos.order.create", async () => {
-    simulatedGrantedCodes = ["pos.order.create", "settings.branch.read"];
+  it("a real Branch-Manager-shaped granted set (pos.order.view_history, no pos.order.create) sees BOTH Orders and Open Orders", async () => {
+    simulatedGrantedCodes = ["pos.order.view_history", "settings.branch.read"];
     seedConsoleSession("branch_manager");
     installFetchMock();
 
     await mountConsole();
 
     await screen.findByTestId("dashboard-content");
-    expect(simulatedGrantedCodes).not.toContain("pos.order.view");
-    expect(simulatedGrantedCodes).not.toContain("ops.live.view");
+    expect(simulatedGrantedCodes).not.toContain("pos.order.create");
     expect(linkVisible("/orders")).toBe(true);
     expect(linkVisible("/operations/open-orders")).toBe(true);
   });
 
-  it("a granted set with NO pos.order.create at all (e.g. inventory-only) hides both — least privilege still holds, this is not an always-on link", async () => {
+  it("a granted set with NEITHER pos.order.create NOR pos.order.view_history (e.g. inventory-only) hides both", async () => {
     simulatedGrantedCodes = ["inventory.item.read", "inventory.count.perform"];
     seedConsoleSession("storekeeper");
     installFetchMock();

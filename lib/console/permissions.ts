@@ -66,6 +66,14 @@ export const PERMISSION_CATALOGUE = [
     "See the order list and order detail.", "الاطلاع على قائمة الطلبات وتفاصيلها."),
   def("pos.order.create", "sales", "Create orders", "إنشاء الطلبات",
     "Create and modify orders.", "إنشاء الطلبات وتعديلها."),
+  // ORDERS-MODULE-ACCEPTANCE-CORRECTION-P0 — the real back-office/dashboard
+  // order-history permission (`SALES_PERMISSIONS.ORDER_VIEW_HISTORY` in the
+  // canonical backend). Deliberately separate from `pos.order.create`
+  // above: Cashier holds that as an ordinary POS grant and must NOT gain
+  // Dashboard Orders/Open-Orders history merely by holding it.
+  def("pos.order.view_history", "sales", "View order history (dashboard)", "عرض سجل الطلبات (لوحة التحكم)",
+    "Read back-office order history — never granted merely by pos.order.create.",
+    "الاطلاع على سجل الطلبات في لوحة التحكم — لا يُمنح تلقائيًا بامتلاك صلاحية إنشاء الطلبات."),
   def("pos.order.void_line_prefire", "sales", "Void line before firing", "إلغاء صنف قبل الإرسال",
     "Void a line before it reaches the kitchen.", "إلغاء صنف قبل وصوله إلى المطبخ."),
   def("pos.order.void_line_postfire", "sales", "Void line after firing", "إلغاء صنف بعد الإرسال",
@@ -456,7 +464,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
     },
     defaultScope: "brand",
     permissions: [
-      "pos.order.view", "pos.order.cancel", "pos.discount.approve", "pos.refund.issue",
+      "pos.order.view", "pos.order.view_history", "pos.order.cancel", "pos.discount.approve", "pos.refund.issue",
       "pos.order.reopen", "pos.reprint.receipt",
       "kds.operate", "kds.station.manage", "ops.live.view", "ops.terminal.view", "ops.terminal.manage",
       "cash.session.view", "cash.session.close_other", "cash.variance.approve", "cash.day.close",
@@ -508,7 +516,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
     },
     defaultScope: "branch",
     permissions: [
-      "pos.order.view", "pos.order.create", "pos.order.void_line_prefire",
+      "pos.order.view", "pos.order.view_history", "pos.order.create", "pos.order.void_line_prefire",
       "pos.order.void_line_postfire", "pos.order.cancel", "pos.discount.apply",
       "pos.discount.approve", "pos.comp.apply", "pos.price.override", "pos.refund.issue",
       "pos.reprint.receipt", "pos.order.transfer",

@@ -383,8 +383,6 @@ export const consoleEn = {
   "orders.numberPlaceholder": "e.g. MAIN-7",
   "orders.noMatch": "No matching order found.",
   "orders.multipleMatches": "More than one order has this number — pick the one you mean.",
-  "orders.reprintReceipt": "Reprint receipt",
-  "orders.reprintNotAudited": "Printed again from history. Not separately logged as a duplicate.",
   "orders.loadMore": "Load older orders",
   "orders.allBranches": "All branches",
 
