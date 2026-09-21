@@ -55,7 +55,7 @@ import {
 
 import type { MenuItem, Order } from "@/lib/console/types";
 import { services, ServiceError } from "@/lib/console/services";
-import type { PosTable, Scope } from "@/lib/console/services/types";
+import type { Scope, SelectedTable } from "@/lib/console/services/types";
 import { api } from "@/lib/api/endpoints";
 import {
   toPosMenu,
@@ -94,6 +94,7 @@ import {
 import { AsyncPanel, EmptyPanel, ErrorPanel } from "@/components/console/states";
 import { onCloseShiftRequested } from "@/components/terminal/chrome";
 import { DrawerSheet } from "@/components/terminal/pos-drawer";
+import { DineInTableSelector } from "@/components/terminal/pos-tables";
 import {
   Badge,
   Button,
@@ -127,6 +128,14 @@ export function LivePos() {
   const [held, setHeld] = useState<OpenCashSession | null>(null);
   const [cashier, setCashier] = useState<PosEmployee | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
+  /**
+   * DINE-IN-TABLE-SELECTOR-RESUME-P0 — the order type the New Order pane last
+   * showed. Kept here (in memory only — never storage, never occupancy) so a
+   * dine-in till returns to the table surface after an order is closed or
+   * paid instead of resetting to Takeaway every time. The table list itself
+   * is always fetched fresh when that surface mounts.
+   */
+  const [newOrderType, setNewOrderType] = useState<NewOrderType>("takeaway");
   const [message, setMessage] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
   /** POS-OPEN-ORDERS-RESUME-P1 — the open-orders picker, see below. */
@@ -471,9 +480,17 @@ export function LivePos() {
             </Button>
             <NewOrderPane
               branchId={scope.branchId}
+              orderType={newOrderType}
+              onOrderType={setNewOrderType}
               onOpened={(next) => {
                 setOrder(next);
                 setMessage(t("pos.orderOpened"));
+              }}
+              onTableSelected={({ outcome, order: selected }) => {
+                // The backend's own `created` / `resumed` answer — the same
+                // canonical Order either way, hydrated with its real lines.
+                setOrder(selected);
+                setMessage(t(outcome === "resumed" ? "pos.orderResumed" : "pos.orderOpened"));
               }}
             />
           </div>
@@ -1178,46 +1195,42 @@ function OpenDrawer({
 
 // ---------------------------------------------------------------------------
 
+type NewOrderType = "dine_in" | "takeaway" | "pickup";
+
 function NewOrderPane({
   branchId,
+  orderType,
+  onOrderType,
   onOpened,
+  onTableSelected,
 }: {
   branchId: string | null;
+  orderType: NewOrderType;
+  onOrderType: (next: NewOrderType) => void;
   onOpened: (order: Order) => void;
+  onTableSelected: (result: SelectedTable) => void;
 }) {
   const { t, tx } = useI18n();
   const action = useAction();
-  // Takeaway by default: it needs no table, so a fresh order is always
-  // immediately fireable.
-  const [orderType, setOrderType] = useState<"dine_in" | "takeaway" | "pickup">("takeaway");
-  const [guestCount, setGuestCount] = useState("2");
-  const [tableId, setTableId] = useState<string | null>(null);
 
   const dineInAvailable = true;
+  const dineIn = orderType === "dine_in";
 
   /**
-   * POS-SAFE-TABLES-DINEIN-P0 — `GET /orders/tables`, fetched only once
-   * Dine-in is actually selected (no point loading a picker nobody asked
-   * for). Session-derived, branch-scoped server-side; never
-   * `services.operations.tables` (`GET /org/branches/{id}/tables`, still
-   * `BRANCH_READ`-gated, still unreachable from a Cashier session).
+   * Takeaway/pickup only. Dine-in never reaches here: the table surface below
+   * opens or resumes its order through the atomic
+   * `POST /orders/tables/{id}/select`, never a direct `POST /orders`.
+   *
+   * No guest count on any order type: the POS does not collect one, so none
+   * is sent — not a typed value, not a default.
    */
-  const tablesState = useAsync(
-    () => (orderType === "dine_in" ? services.sales.tables() : Promise.resolve([])),
-    [orderType],
-  );
-
-  const canOpen = orderType !== "dine_in" || tableId !== null;
-
   async function open() {
-    if (!canOpen) return;
+    if (dineIn) return;
     await action.run(
       () =>
         services.sales.mutations.open({
           orderType,
           channel: "pos",
-          guestCount: Number(guestCount) || undefined,
-          tableId: orderType === "dine_in" ? (tableId ?? undefined) : undefined,
         }),
       { onSuccess: onOpened },
     );
@@ -1235,11 +1248,7 @@ function NewOrderPane({
           <Field label={t("orders.type")}>
             <Select
               value={orderType}
-              onChange={(event) => {
-                const next = event.target.value as "dine_in" | "takeaway" | "pickup";
-                setOrderType(next);
-                if (next !== "dine_in") setTableId(null);
-              }}
+              onChange={(event) => onOrderType(event.target.value as NewOrderType)}
             >
               {(["dine_in", "takeaway", "pickup"] as const).map((value) => (
                 <option key={value} value={value} disabled={value === "dine_in" && !dineInAvailable}>
@@ -1249,122 +1258,31 @@ function NewOrderPane({
             </Select>
           </Field>
 
-          {orderType === "dine_in" ? (
-            // Deliberately not `Field` (which wraps its children in a
-            // `<label>`) — a `<label>` may only ever associate with ONE
-            // control, and this holds a whole grid of table buttons, each
-            // of which needs its own accessible name (the table label), not
-            // the picker's own heading absorbed into every one of them.
-            <div>
-              <p className="text-fg mb-1.5 text-xs font-medium">{t("pos.selectTable")}</p>
-              {tablesState.error ? (
-                <Callout tone="bad">
-                  {t("pos.tablesAuthError")}{" "}
-                  <button type="button" className="underline" onClick={tablesState.reload}>
-                    {t("state.errorRetry")}
-                  </button>
-                </Callout>
-              ) : (
-                <AsyncPanel
-                  state={tablesState}
-                  skeleton={<Spinner />}
-                  isEmpty={(rows) => rows.length === 0}
-                  empty={<Callout tone="warn">{t("ops.noTables")}</Callout>}
-                >
-                  {(tableRows) => <TablePicker rows={tableRows} selected={tableId} onSelect={setTableId} />}
-                </AsyncPanel>
-              )}
-            </div>
-          ) : null}
-
-          <Field label={t("pos.guests")}>
-            <Input
-              inputMode="numeric"
-              dir="ltr"
-              value={guestCount}
-              onChange={(event) => setGuestCount(event.target.value)}
-            />
-          </Field>
-
-          <Button
-            variant="primary"
-            className="w-full"
-            loading={action.pending}
-            disabled={!canOpen}
-            icon={<Plus size={14} />}
-            onClick={open}
-          >
-            {t("pos.openOrder")}
-          </Button>
+          {dineIn ? (
+            // `GET /orders/tables` is fetched only once Dine-in is actually
+            // selected (this subtree mounts then), and again on every return
+            // to it. Deliberately not `Field` (a `<label>` may associate with
+            // ONE control; this holds a whole grid of table buttons, each with
+            // its own accessible name). Session-derived, branch-scoped
+            // server-side; never `services.operations.tables`
+            // (`GET /org/branches/{id}/tables`, `BRANCH_READ`-gated,
+            // unreachable from a Cashier session).
+            <DineInTableSelector onSelected={onTableSelected} />
+          ) : (
+            <Button
+              variant="primary"
+              className="w-full"
+              loading={action.pending}
+              icon={<Plus size={14} />}
+              onClick={open}
+            >
+              {t("pos.openOrder")}
+            </Button>
+          )}
         </div>
       </Card>
 
       <UnsupportedNotice />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
-/**
- * POS-SAFE-TABLES-DINEIN-P0 — touch-friendly table picker, grouped by
- * section/area when the branch defines one (`org.tables.section`, optional).
- * Shows only what `GET /orders/tables` truthfully reports: label and seat
- * capacity. No occupancy/state — the backend does not persist that.
- */
-function TablePicker({
-  rows,
-  selected,
-  onSelect,
-}: {
-  rows: PosTable[];
-  selected: string | null;
-  onSelect: (tableId: string) => void;
-}) {
-  const { t } = useI18n();
-  const sections = new Map<string, PosTable[]>();
-  for (const row of rows) {
-    const key = row.section ?? "";
-    const list = sections.get(key) ?? [];
-    list.push(row);
-    sections.set(key, list);
-  }
-
-  return (
-    <div className="space-y-3">
-      {[...sections.entries()].map(([section, sectionRows]) => (
-        <div key={section || "_"}>
-          {section ? (
-            <p className="text-fg-subtle mb-1.5 text-xs font-medium">{section}</p>
-          ) : null}
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {sectionRows.map((row) => {
-              const isSelected = row.id === selected;
-              return (
-                <button
-                  key={row.id}
-                  type="button"
-                  aria-pressed={isSelected}
-                  onClick={() => onSelect(row.id)}
-                  className={cx(
-                    "flex min-h-16 flex-col items-center justify-center gap-0.5 rounded-lg border px-2 py-2.5 text-sm font-medium transition-colors",
-                    isSelected
-                      ? "border-accent bg-accent/10 text-accent"
-                      : "border-line bg-raised text-fg hover:bg-sunken",
-                  )}
-                >
-                  <span className="font-mono">{row.label}</span>
-                  {row.seatCapacity !== null ? (
-                    <span className="text-fg-subtle text-xs font-normal">
-                      {row.seatCapacity} {t("pos.seats")}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ))}
     </div>
   );
 }

@@ -81,7 +81,6 @@ export function PosFloor() {
                     type: "ORDER_NEW",
                     orderType: type,
                     tableId: null,
-                    guestCount: null,
                   })
             }
           >
@@ -188,12 +187,11 @@ export function PosFloor() {
         <SeatSheet
           preselected={seatIntent.tableId}
           onClose={() => setSeatIntent(null)}
-          onConfirm={(tableId, guests) => {
+          onConfirm={(tableId) => {
             dispatch({
               type: "ORDER_NEW",
               orderType: "dine_in",
               tableId,
-              guestCount: guests,
             });
             setSeatIntent(null);
           }}
@@ -234,7 +232,7 @@ function SeatSheet({
   onClose,
 }: {
   preselected: Id | null;
-  onConfirm: (tableId: Id, guests: number) => void;
+  onConfirm: (tableId: Id) => void;
   onClose: () => void;
 }) {
   const { t, tx } = useI18n();
@@ -246,7 +244,6 @@ function SeatSheet({
   );
 
   const [tableId, setTableId] = useState<Id>(preselected ?? free[0]?.id ?? "");
-  const [guests, setGuests] = useState(2);
 
   return (
     <Modal
@@ -256,7 +253,7 @@ function SeatSheet({
       footer={
         <>
           <Button onClick={onClose}>{t("common.cancel")}</Button>
-          <Button variant="primary" disabled={!tableId} onClick={() => onConfirm(tableId, guests)}>
+          <Button variant="primary" disabled={!tableId} onClick={() => onConfirm(tableId)}>
             {t("pos.newOrder")}
           </Button>
         </>
@@ -272,25 +269,6 @@ function SeatSheet({
               </option>
             ))}
           </Select>
-        </Field>
-        <Field label={t("pos.guests")}>
-          <div className="flex flex-wrap gap-1.5">
-            {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => setGuests(n)}
-                className={cx(
-                  "h-10 w-10 rounded-lg border text-sm tabular-nums",
-                  guests === n
-                    ? "border-accent bg-accent-soft text-accent font-semibold"
-                    : "border-line bg-raised text-fg-muted",
-                )}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
         </Field>
       </div>
     </Modal>

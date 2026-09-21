@@ -32,7 +32,6 @@ function openOrder() {
     at: AT,
     orderType: "dine_in",
     tableId: null,
-    guestCount: 2,
   });
   const orderId = state.activeOrderId!;
   return { state, orderId };

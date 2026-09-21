@@ -141,10 +141,8 @@ export type LiveAction =
       at: IsoDateTime;
       orderType: OrderType;
       tableId: Id | null;
-      guestCount: number | null;
     }
   | { type: "ORDER_SELECT"; at: IsoDateTime; orderId: Id | null }
-  | { type: "ORDER_SET_GUESTS"; at: IsoDateTime; orderId: Id; guestCount: number }
   | { type: "ORDER_PARK"; at: IsoDateTime; orderId: Id }
   | { type: "ORDER_RESUME"; at: IsoDateTime; orderId: Id }
   | { type: "ORDER_CANCEL"; at: IsoDateTime; orderId: Id; reason: string }
@@ -1050,7 +1048,8 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         state: "draft",
         tableId: action.tableId,
         tableLabel: table?.label ?? null,
-        guestCount: action.guestCount,
+        // The POS collects no guest count. Not a default: there is no value.
+        guestCount: null,
         customerId: null,
         customerName: null,
         openedBy: operator.id,
@@ -1110,12 +1109,6 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
 
     case "ORDER_SELECT":
       return { ...state, activeOrderId: action.orderId };
-
-    case "ORDER_SET_GUESTS": {
-      const order = state.orders[action.orderId];
-      if (!order) return state;
-      return putOrder(state, { ...order, guestCount: action.guestCount });
-    }
 
     case "ORDER_NOTE": {
       const order = state.orders[action.orderId];

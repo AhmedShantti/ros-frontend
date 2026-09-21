@@ -1346,6 +1346,20 @@ export const consoleAr: ConsoleCopy = {
   "pos.noRecipe": "بلا وصفة",
   "pos.selectTable": "اختر طاولة",
   "pos.tablesAuthError": "لا يمكن لهذه الجلسة عرض الطاولات. استخدم طلب خارجي، أو سجّل الدخول مرة أخرى.",
+  // DINE-IN-TABLE-SELECTOR-RESUME-P0 — table cards + select-table outcomes.
+  "pos.tablesLoadError": "تعذّر تحميل الطاولات.",
+  "pos.tableAvailable": "متاحة",
+  "pos.tableOccupied": "مشغولة",
+  "pos.tableResumeOrder": "استئناف الطلب",
+  "pos.tableConflict": "تعارض في الطاولة",
+  "pos.tableConflictHint": "عدة طلبات نشطة — يجب أن يعالج مدير أو مسؤول هذه الطاولة.",
+  "pos.tableAmbiguous":
+    "هذه الطاولة عليها عدة طلبات نشطة ولا يمكن فتحها حتى يتم حل التعارض.",
+  "pos.tableSelectForbidden": "لا تملك صلاحية فتح هذه الطاولة من هذا الجهاز.",
+  "pos.tableNotFound": "هذه الطاولة لم تعد موجودة. تم تحديث القائمة.",
+  "pos.tableNetworkError":
+    "تعذّر الوصول إلى الخادم، لذا حالة هذه الطاولة غير معروفة. حدّث الطاولات ثم أعد المحاولة.",
+  "pos.orderResumed": "تم استئناف الطلب.",
   "pos.tableRequired": "طلب الصالة يحتاج طاولة قبل إرساله إلى المطبخ.",
   "pos.guests": "عدد الضيوف",
   "pos.area": "المنطقة",

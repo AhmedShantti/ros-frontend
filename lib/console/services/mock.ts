@@ -619,6 +619,9 @@ const sales: SalesService = {
   async tables() {
     noBackend("Reading POS dine-in tables");
   },
+  async selectTable() {
+    noBackend("Selecting a POS dine-in table");
+  },
   // ORDERS-MODULE-COMPREHENSIVE-P0 — pure filters over the SAME fixed local
   // `orders` array `ordersCollection` above already reads, exactly like
   // `orders.list`/`orders.get` do in this demo mode. Unlike receipt/pre-bill

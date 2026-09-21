@@ -1348,8 +1348,22 @@ export const consoleEn = {
     "A manager has cleared this item for the open order. The 86 is still in force everywhere else.",
   "pos.remaining": "{n} left",
   "pos.noRecipe": "No recipe",
-  "pos.selectTable": "Pick a table",
+  "pos.selectTable": "Select a table",
   "pos.tablesAuthError": "This session cannot list tables. Use takeaway, or sign on again.",
+  // DINE-IN-TABLE-SELECTOR-RESUME-P0 — table cards + select-table outcomes.
+  "pos.tablesLoadError": "The tables could not be loaded.",
+  "pos.tableAvailable": "Available",
+  "pos.tableOccupied": "Occupied",
+  "pos.tableResumeOrder": "Resume order",
+  "pos.tableConflict": "Table conflict",
+  "pos.tableConflictHint": "Multiple active orders — a manager or admin must repair this table.",
+  "pos.tableAmbiguous":
+    "This table has multiple active orders and cannot be opened until the conflict is resolved.",
+  "pos.tableSelectForbidden": "You are not authorized to open this table from this till.",
+  "pos.tableNotFound": "This table no longer exists. The list has been refreshed.",
+  "pos.tableNetworkError":
+    "Could not reach the server, so this table's status is unknown. Refresh the tables, then try again.",
+  "pos.orderResumed": "Order resumed.",
   "pos.tableRequired": "A dine-in order needs a table before it can be fired.",
   "pos.guests": "Guests",
   "pos.area": "Area",

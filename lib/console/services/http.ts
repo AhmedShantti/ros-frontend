@@ -2101,7 +2101,6 @@ const orderMutations: import("./types").OrderMutationService = {
       orderType: input.orderType,
       channel: input.channel ?? "pos",
       tableId: input.tableId,
-      guestCount: input.guestCount,
       notes: input.notes,
       // No terminalId: POS is a branch/employee application session, and the
       // branch already comes from the token. `CreateOrderDto.terminalId`
@@ -2330,12 +2329,64 @@ async function reasonCodes(purpose: PosReasonPurpose) {
 /** POS-SAFE-TABLES-DINEIN-P0 — `GET /orders/tables`, this session's own branch only. */
 async function tables() {
   const rows = await api.sales.listTables();
+  // DINE-IN-TABLE-SELECTOR-RESUME-P0 — occupancy is the backend's derived
+  // truth, passed through untouched. Nothing here (or anywhere client-side)
+  // decides whether a table is free.
   return rows.map((row) => ({
     id: row.id,
     label: row.label,
     section: row.section,
     seatCapacity: row.seatCapacity,
+    occupancy: row.occupancy,
+    activeOrder: row.activeOrder ? toTableOrderRef(row.activeOrder) : null,
+    conflictingOrders: (row.conflictingOrders ?? []).map(toTableOrderRef),
   }));
+}
+
+function toTableOrderRef(order: {
+  id: string;
+  businessDay: string;
+  orderNumber: string;
+  state: string;
+  version: number;
+}) {
+  return {
+    id: order.id,
+    businessDay: order.businessDay,
+    orderNumber: order.orderNumber,
+    state: order.state,
+    version: order.version,
+  };
+}
+
+/**
+ * DINE-IN-TABLE-SELECTOR-RESUME-P0 — `POST /orders/tables/{tableId}/select`.
+ *
+ * The backend atomically creates the table's one active order (201,
+ * `created`) or returns the SAME existing one (200, `resumed`); this function
+ * never decides which, and never falls back to `POST /orders` — a failure
+ * (409 ambiguous, 403, 404, network) propagates as a `ServiceError` with no
+ * order fabricated. The returned Order carries its persisted line snapshots,
+ * mapped by the exact same `map.toOrder` `orders.get` uses.
+ *
+ * `id` is the device-minted order id (FR-OFF-015); the server uses it only
+ * when this call creates. The `Idempotency-Key` is minted per call by the API
+ * client (`idempotent: true`), so two different tables never share one.
+ */
+async function selectTable(tableId: string) {
+  const { branchesById, tenantId } = await orderContext();
+  const response = await api.sales.selectDineInTable(tableId, {
+    id: deviceId(),
+    channel: "pos",
+    originDeviceTime: new Date().toISOString(),
+  });
+  return {
+    outcome: response.outcome,
+    order: map.toOrder(response.order, {
+      tenantId,
+      branchName: branchesById.get(response.order.branchId)?.name,
+    }),
+  };
 }
 
 /**
@@ -2426,6 +2477,7 @@ const sales: SalesService = {
   preBill,
   reasonCodes,
   tables,
+  selectTable,
   findOrderByReference,
   searchOrdersByNumber,
   listOrderHistoryPage,

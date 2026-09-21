@@ -1,27 +1,35 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 
 /*
- * POS-SAFE-TABLES-DINEIN-P0 — integration-oriented proof.
+ * DINE-IN-TABLE-SELECTOR-RESUME-P0 — end-to-end proof, driven through the real
+ * `LivePos` component tree (mocked only at the transport boundary).
  *
- * The full flow the task asks for, driven entirely through the real
- * `LivePos` component tree (mocked only at the transport boundary):
+ * The regression the task names:
  *
- *   PIN login -> choose Dine-in -> select a real table -> create the order
- *   -> add an item -> fire -> leave/reload -> Open Orders -> resume the
- *   same Dine-in order -> continue (the resumed order still shows its table
- *   and its fired line).
+ *   1. Table 4 has Order MAIN-10.
+ *   2. Burger was already fired.
+ *   3. The operator leaves the order.
+ *   4. The operator later selects Table 4 again.
+ *   5. MAIN-10 must reopen with Burger still present (and still fired).
+ *   6. The operator adds Fries.
+ *   7. Fire.
  *
- * "Leave/reload" is simulated the same way `pos-live.open-orders.test.tsx`
- * simulates it: unmount and render a fresh `<LivePos />`, exactly what a
- * real page reload does to React state (real `@/lib/api/session.ts` keeps
- * the signed-on session in `localStorage` across that, same as production).
+ * Expected: Burger is not fired again, no second order appears, and only the
+ * new/unfired work follows the existing Fire path. The client sends Fire with
+ * no line list at all — the backend fires the order's pending lines — and the
+ * Fire control is only enabled while a `pending` line exists.
+ *
+ * Also proved here: a table-resumed order and the same order resumed from Open
+ * Orders are the same canonical Order, and hopping between tables never loses
+ * server data (every open re-reads the server's Order; nothing is cached).
  */
 
 const {
   getCurrentSession,
   listSessionDrawers,
   tables,
+  selectTable,
   openOrder,
   getPosMenu,
   addLine,
@@ -32,6 +40,7 @@ const {
   getCurrentSession: vi.fn(),
   listSessionDrawers: vi.fn(),
   tables: vi.fn(),
+  selectTable: vi.fn(),
   openOrder: vi.fn(),
   getPosMenu: vi.fn(),
   addLine: vi.fn(),
@@ -47,11 +56,11 @@ vi.mock("@/lib/console/services", () => ({
       listSessionDrawers: (...args: unknown[]) => listSessionDrawers(...args),
     },
     operations: {
-      tables: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
       openOrders: (...args: unknown[]) => openOrders(...args),
     },
     sales: {
       tables: (...args: unknown[]) => tables(...args),
+      selectTable: (...args: unknown[]) => selectTable(...args),
       orders: { get: (...args: unknown[]) => ordersGet(...args) },
       mutations: {
         open: (...args: unknown[]) => openOrder(...args),
@@ -93,6 +102,7 @@ vi.mock("@/lib/api/auth", () => ({
 
 import { signInWithPin } from "@/lib/api/auth";
 import * as Session from "@/lib/api/session";
+import type { PosTable } from "@/lib/console/services/types";
 import type { Order, OrderLine } from "@/lib/console/types";
 import { LivePos } from "./pos-live";
 
@@ -101,7 +111,6 @@ const TENANT_ID = "tenant-1";
 const ONE_DRAWER = [
   { id: "drawer-1", branchId: BRANCH_ID, name: "Front drawer", terminalId: null, isActive: true },
 ];
-const TABLE_ID = "t-7";
 
 function seedDevice() {
   Session.setActiveSurface("pos");
@@ -122,7 +131,7 @@ const money = (amount: number) => ({ amount, currency: "EGP" as const });
 
 function makeLine(overrides: Partial<OrderLine> = {}): OrderLine {
   return {
-    id: "line-1",
+    id: "line-burger",
     sequence: 1,
     menuItemId: "item-1",
     variantId: "variant-1",
@@ -139,9 +148,9 @@ function makeLine(overrides: Partial<OrderLine> = {}): OrderLine {
     recipeVersionId: null,
     course: 1,
     seatNumber: null,
-    state: "pending",
+    state: "fired",
     stationId: null,
-    firedAt: null,
+    firedAt: "2026-09-19T10:05:00Z",
     readyAt: null,
     voidReason: null,
     isComp: false,
@@ -150,21 +159,37 @@ function makeLine(overrides: Partial<OrderLine> = {}): OrderLine {
   };
 }
 
+const FRIES_ID = "line-fries";
+const friesLine = (overrides: Partial<OrderLine> = {}) =>
+  makeLine({
+    id: FRIES_ID,
+    sequence: 2,
+    menuItemId: "item-2",
+    variantId: "variant-2",
+    itemNameSnapshot: { en: "Fries", ar: "بطاطس" },
+    unitPrice: money(4000),
+    lineSubtotal: money(4000),
+    lineTotal: money(4000),
+    state: "pending",
+    firedAt: null,
+    ...overrides,
+  });
+
 function makeOrder(overrides: Partial<Order> = {}): Order {
   return {
-    id: "order-9",
+    id: "order-perm-10",
     tenantId: TENANT_ID,
     branchId: BRANCH_ID,
     branchName: { en: "Front Branch", ar: "الفرع" },
     terminalId: "terminal-1",
     terminalName: "Front Till",
-    orderNumber: "ORD-9",
+    orderNumber: "MAIN-10",
     businessDay: "2026-09-19",
     orderType: "dine_in",
     channel: "pos",
     state: "open",
-    tableId: TABLE_ID,
-    tableLabel: "7",
+    tableId: "table-4",
+    tableLabel: null,
     guestCount: 2,
     customerId: null,
     customerName: null,
@@ -194,10 +219,46 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
     syncedAt: "2026-09-19T10:00:00Z",
     aggregatorRef: null,
     notes: null,
-    version: 1,
+    version: 4,
     ...overrides,
   };
 }
+
+/** MAIN-10 exactly as the server holds it after Burger was fired. */
+const MAIN_10_BURGER_FIRED = () =>
+  makeOrder({
+    lines: [makeLine()],
+    subtotal: money(10000),
+    grandTotal: money(10000),
+    firstFiredAt: "2026-09-19T10:05:00Z",
+    version: 4,
+  });
+
+const MAIN_10_REF = {
+  id: "order-perm-10",
+  businessDay: "2026-09-19",
+  orderNumber: "MAIN-10",
+  state: "open",
+  version: 4,
+};
+
+const table = (overrides: Partial<PosTable>): PosTable => ({
+  id: "table-1",
+  label: "1",
+  section: null,
+  seatCapacity: 4,
+  occupancy: "available",
+  activeOrder: null,
+  conflictingOrders: [],
+  ...overrides,
+});
+
+const TABLE_4_OCCUPIED = table({
+  id: "table-4",
+  label: "4",
+  occupancy: "occupied",
+  activeOrder: MAIN_10_REF,
+});
 
 const POS_MENU_WIRE = {
   branchId: BRANCH_ID,
@@ -230,12 +291,37 @@ const POS_MENU_WIRE = {
       ],
       modifierGroups: [],
     },
+    {
+      id: "item-2",
+      names: { en: "Fries", ar: "بطاطس" },
+      description: null,
+      allergens: [],
+      dietaryTags: [],
+      sortOrder: 2,
+      colour: null,
+      barcodePlu: null,
+      isOpenPrice: false,
+      isWeighed: false,
+      isAvailable: true,
+      variants: [
+        {
+          id: "variant-2",
+          name: { en: "Regular", ar: "عادي" },
+          barcode: null,
+          sortOrder: 1,
+          isAvailable: true,
+          price: { amountMinorUnits: "4000", currency: "EGP" },
+          priceAmbiguous: false,
+        },
+      ],
+      modifierGroups: [],
+    },
   ],
   ambiguousMenuPriority: false,
   warning: null,
 };
 
-async function signOnAndReachDineIn() {
+async function enterDineInTables() {
   const { default: userEvent } = await import("@testing-library/user-event");
   const user = userEvent.setup();
 
@@ -256,16 +342,20 @@ async function signOnAndReachDineIn() {
   await user.click(screen.getByLabelText("orders.type"));
   await user.click(screen.getByRole("option", { name: "Dine In" }));
   await waitFor(() => expect(tables).toHaveBeenCalled());
-  await user.click(await screen.findByRole("button", { name: /^7/ }));
-
   return user;
+}
+
+const card = (label: string) => screen.findByRole("button", { name: new RegExp(`^${label},`) });
+
+/** The order pane's line list is the only `<ul>` of order lines on screen. */
+function orderLines() {
+  return screen.getAllByRole("listitem");
 }
 
 beforeEach(() => {
   window.localStorage.clear();
   vi.clearAllMocks();
   listSessionDrawers.mockResolvedValue(ONE_DRAWER);
-  tables.mockResolvedValue([{ id: TABLE_ID, label: "7", section: "Patio", seatCapacity: 4 }]);
   getPosMenu.mockResolvedValue(POS_MENU_WIRE);
   seedDevice();
 });
@@ -274,79 +364,183 @@ afterEach(() => {
   cleanup();
 });
 
-describe("LivePos — Dine-in end-to-end: create, fire, reload, resume", () => {
-  it("PIN login -> Dine-in -> select table -> create -> add item -> fire -> reload -> Open Orders -> resume the same order", async () => {
-    const opened = makeOrder();
-    openOrder.mockResolvedValue(opened);
+describe("LivePos — Dine-In resume: fired order, new line, fire", () => {
+  it("re-selecting an occupied table reopens the SAME order with its fired line; adding Fries and firing does not re-fire Burger", async () => {
+    tables.mockResolvedValue([TABLE_4_OCCUPIED]);
+    const user = await enterDineInTables();
 
-    const user = await signOnAndReachDineIn();
+    // -- resume: table 4 -> MAIN-10, exactly as the server holds it ---------
+    selectTable.mockResolvedValue({ outcome: "resumed", order: MAIN_10_BURGER_FIRED() });
+    await user.click(await card("4"));
 
-    // -- create --------------------------------------------------------
-    const openButton = screen.getByRole("button", { name: "pos.openOrder" });
-    await waitFor(() => expect(openButton).toBeEnabled());
-    await user.click(openButton);
+    await waitFor(() => expect(selectTable).toHaveBeenCalledTimes(1));
+    expect(selectTable.mock.calls[0]).toEqual(["table-4"]);
+    expect(await screen.findByText("MAIN-10")).toBeInTheDocument();
+    expect(openOrder).not.toHaveBeenCalled();
 
-    await waitFor(() => expect(openOrder).toHaveBeenCalled());
-    expect(openOrder.mock.calls[0][0]).toMatchObject({ orderType: "dine_in", tableId: TABLE_ID });
-    await screen.findByText("ORD-9");
+    // Burger is present, still FIRED, and nothing is queued to fire.
+    const before = orderLines();
+    expect(before).toHaveLength(1);
+    expect(within(before[0]).getByText("Burger")).toBeInTheDocument();
+    expect(within(before[0]).getByText("Fired")).toBeInTheDocument();
+    expect(within(before[0]).queryByText("Pending")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "pos.fire" })).toBeDisabled();
 
-    // -- add an item -----------------------------------------------------
-    const withLine = makeOrder({ lines: [makeLine()], subtotal: money(10000), grandTotal: money(10000) });
-    addLine.mockResolvedValue(withLine);
+    // -- add Fries: addressed to the PERMANENT id, at the resumed version ---
+    addLine.mockResolvedValue(
+      makeOrder({
+        lines: [makeLine(), friesLine()],
+        subtotal: money(14000),
+        grandTotal: money(14000),
+        firstFiredAt: "2026-09-19T10:05:00Z",
+        version: 5,
+      }),
+    );
+    await user.click(await screen.findByRole("button", { name: /Fries/ }));
 
-    await screen.findByRole("button", { name: /Burger/ });
-    await user.click(screen.getByRole("button", { name: /Burger/ }));
+    await waitFor(() => expect(addLine).toHaveBeenCalledTimes(1));
+    expect(addLine.mock.calls[0][0]).toBe("2026-09-19");
+    expect(addLine.mock.calls[0][1]).toBe("order-perm-10");
+    expect(addLine.mock.calls[0][2]).toMatchObject({ menuItemId: "item-2", variantId: "variant-2" });
+    expect(addLine.mock.calls[0][3]).toEqual({ ifMatch: 4 });
 
-    await waitFor(() => expect(addLine).toHaveBeenCalled());
-    expect(addLine.mock.calls[0][0]).toBe(withLine.businessDay);
-    expect(addLine.mock.calls[0][1]).toBe(withLine.id);
-    expect(addLine.mock.calls[0][2]).toMatchObject({ menuItemId: "item-1", variantId: "variant-1" });
+    // Burger is untouched (same id, still fired); Fries is the one new line.
+    await waitFor(() => expect(orderLines()).toHaveLength(2));
+    const [burger, fries] = orderLines();
+    expect(within(burger).getByText("Burger")).toBeInTheDocument();
+    expect(within(burger).getByText("Fired")).toBeInTheDocument();
+    expect(within(fries).getByText("Fries")).toBeInTheDocument();
+    expect(within(fries).queryByText("Fired")).not.toBeInTheDocument();
 
-    // -- fire --------------------------------------------------------------
-    const fired = makeOrder({
-      lines: [makeLine({ state: "fired", firedAt: "2026-09-19T10:05:00Z" })],
+    // -- fire: the existing path. One call, no line list, current version. --
+    const fireButton = screen.getByRole("button", { name: "pos.fire" });
+    await waitFor(() => expect(fireButton).toBeEnabled());
+    fireOrder.mockResolvedValue(
+      makeOrder({
+        lines: [makeLine(), friesLine({ state: "fired", firedAt: "2026-09-19T10:20:00Z" })],
+        subtotal: money(14000),
+        grandTotal: money(14000),
+        firstFiredAt: "2026-09-19T10:05:00Z",
+        version: 6,
+      }),
+    );
+    await user.click(fireButton);
+
+    await waitFor(() => expect(fireOrder).toHaveBeenCalledTimes(1));
+    expect(fireOrder).toHaveBeenCalledWith("2026-09-19", "order-perm-10", { ifMatch: 5 });
+    // Nothing per-line was sent: Burger cannot be re-fired by this client.
+    expect(fireOrder.mock.calls[0]).toHaveLength(3);
+
+    // Everything is fired now, so there is nothing left to send.
+    await waitFor(() => expect(screen.getByRole("button", { name: "pos.fire" })).toBeDisabled());
+    expect(addLine).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaving the order returns to the table surface (still Dine-In) with a FRESH GET /orders/tables", async () => {
+    tables.mockResolvedValue([TABLE_4_OCCUPIED]);
+    const user = await enterDineInTables();
+    selectTable.mockResolvedValue({ outcome: "resumed", order: MAIN_10_BURGER_FIRED() });
+    await user.click(await card("4"));
+    await screen.findByText("MAIN-10");
+    expect(tables).toHaveBeenCalledTimes(1);
+
+    // The server says table 4 is free by now (e.g. it was paid elsewhere).
+    tables.mockResolvedValue([table({ id: "table-4", label: "4" })]);
+    await user.click(screen.getByRole("button", { name: "pos.closeOrder" }));
+
+    // Back on the table surface — no need to re-pick Dine-In — freshly read.
+    expect(await screen.findByText("pos.selectTable")).toBeInTheDocument();
+    await waitFor(() => expect(tables).toHaveBeenCalledTimes(2));
+    const four = await card("4");
+    expect(within(four).getByText("pos.tableAvailable")).toBeInTheDocument();
+  });
+
+  it("a table-resumed order and the same order resumed from Open Orders are the same canonical Order", async () => {
+    tables.mockResolvedValue([TABLE_4_OCCUPIED]);
+    const user = await enterDineInTables();
+
+    // (a) via the table
+    selectTable.mockResolvedValue({ outcome: "resumed", order: MAIN_10_BURGER_FIRED() });
+    await user.click(await card("4"));
+    await screen.findByText("MAIN-10");
+    const viaTable = orderLines().map((li) => li.textContent);
+    await user.click(screen.getByRole("button", { name: "pos.closeOrder" }));
+
+    // (b) via Open Orders — the drawer re-reads the order by (businessDay, id)
+    openOrders.mockResolvedValue({ rows: [MAIN_10_BURGER_FIRED()], total: 1 });
+    ordersGet.mockResolvedValue(MAIN_10_BURGER_FIRED());
+    await user.click(await screen.findByRole("button", { name: /pos.openOrders/ }));
+    // Scoped to the drawer: the occupied table card also names MAIN-10.
+    await user.click(within(await screen.findByRole("dialog")).getByText("MAIN-10"));
+
+    await waitFor(() => expect(ordersGet).toHaveBeenCalledWith("2026-09-19/order-perm-10"));
+    await waitFor(() => expect(screen.queryByText("pos.newOrder")).not.toBeInTheDocument());
+    expect(orderLines().map((li) => li.textContent)).toEqual(viaTable);
+    expect(screen.getByText("MAIN-10")).toBeInTheDocument();
+    // Neither path created anything.
+    expect(openOrder).not.toHaveBeenCalled();
+  });
+
+  it("switching between tables re-reads each order from the server — no data is lost or bled across", async () => {
+    const tableA = table({ id: "table-1", label: "1" });
+    const orderA = makeOrder({ id: "order-perm-11", orderNumber: "MAIN-11", tableId: "table-1", version: 1 });
+    const orderB = makeOrder({
+      id: "order-perm-12",
+      orderNumber: "MAIN-12",
+      tableId: "table-2",
+      lines: [makeLine({ id: "line-b" })],
       subtotal: money(10000),
       grandTotal: money(10000),
       firstFiredAt: "2026-09-19T10:05:00Z",
     });
-    fireOrder.mockResolvedValue(fired);
+    tables.mockResolvedValue([
+      tableA,
+      table({
+        id: "table-2",
+        label: "2",
+        occupancy: "occupied",
+        activeOrder: { ...MAIN_10_REF, id: "order-perm-12", orderNumber: "MAIN-12" },
+      }),
+    ]);
+    const user = await enterDineInTables();
 
-    const fireButton = await screen.findByRole("button", { name: "pos.fire" });
-    await waitFor(() => expect(fireButton).toBeEnabled());
-    await user.click(fireButton);
-    await waitFor(() => expect(fireOrder).toHaveBeenCalled());
+    // A: free -> created (empty)
+    selectTable.mockResolvedValueOnce({ outcome: "created", order: orderA });
+    await user.click(await card("1"));
+    await screen.findByText("MAIN-11");
+    expect(screen.getByText("pos.noLines")).toBeInTheDocument();
 
-    // -- leave / reload ------------------------------------------------
-    cleanup();
-    getCurrentSession.mockResolvedValue({
-      cashSessionId: "cs-1",
-      shiftId: "sh-1",
-      drawerId: "drawer-1",
-      status: "open",
+    // A gets a Fries line on the server, then the operator hops to B.
+    addLine.mockResolvedValue({
+      ...orderA,
+      lines: [friesLine()],
+      subtotal: money(4000),
+      grandTotal: money(4000),
+      version: 2,
     });
-    Session.setTokens({ accessToken: "tok", refreshToken: "ref", expiresIn: 900 });
-    Session.setPosEmployee({ code: "EMP01", name: "Amina" });
+    await user.click(await screen.findByRole("button", { name: /Fries/ }));
+    await waitFor(() => expect(orderLines()).toHaveLength(1));
+    await user.click(screen.getByRole("button", { name: "pos.closeOrder" }));
 
-    const user2 = (await import("@testing-library/user-event")).default.setup();
-    render(<LivePos />);
-    await screen.findByText("pos.newOrder");
+    // B: occupied -> resumed with ITS OWN Burger, nothing of A's Fries.
+    selectTable.mockResolvedValueOnce({ outcome: "resumed", order: orderB });
+    await user.click(await card("2"));
+    await screen.findByText("MAIN-12");
+    expect(within(orderLines()[0]).getByText("Burger")).toBeInTheDocument();
+    expect(screen.queryByText("Fries", { selector: "p" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "pos.closeOrder" }));
 
-    // -- Open Orders -> resume ------------------------------------------
-    openOrders.mockResolvedValue({ rows: [fired], total: 1 });
-    ordersGet.mockResolvedValue(fired);
+    // Back to A: the server's version, with the Fries the operator added.
+    selectTable.mockResolvedValueOnce({
+      outcome: "resumed",
+      order: { ...orderA, lines: [friesLine()], subtotal: money(4000), grandTotal: money(4000), version: 2 },
+    });
+    await user.click(await card("1"));
+    await screen.findByText("MAIN-11");
+    expect(within(orderLines()[0]).getByText("Fries")).toBeInTheDocument();
+    expect(orderLines()).toHaveLength(1);
 
-    await user2.click(screen.getByRole("button", { name: /pos.openOrders/ }));
-    await user2.click(await screen.findByText("ORD-9"));
-
-    await waitFor(() =>
-      expect(ordersGet).toHaveBeenCalledWith(`${fired.businessDay}/${fired.id}`),
-    );
-
-    // -- continue: the resumed order shows its real table and fired line --
-    // ("Burger" appears twice once resumed — the menu tile on the left AND
-    // the order line on the right — so this asserts both are present.)
-    await waitFor(() => expect(screen.queryByText("pos.newOrder")).not.toBeInTheDocument());
-    expect(await screen.findByText("Fired")).toBeInTheDocument();
-    expect(screen.getAllByText("Burger").length).toBeGreaterThanOrEqual(2);
+    expect(selectTable.mock.calls.map((call) => call[0])).toEqual(["table-1", "table-2", "table-1"]);
+    expect(openOrder).not.toHaveBeenCalled();
   });
 });

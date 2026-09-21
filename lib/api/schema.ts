@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 160 paths, 110 request DTOs.
+ * `api/openapi.json`. 161 paths, 111 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -896,6 +896,15 @@ export interface CancelOrderDto {
   approvalDecisionId?: string;
 }
 
+export interface SelectDineInTableDto {
+  channel?: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
+  guestCount?: number;
+  id?: string;
+  notes?: string;
+  openedByEmployeeId?: string;
+  originDeviceTime: string;
+}
+
 // ---------------------------------------------------------------------------
 // Operations
 // ---------------------------------------------------------------------------
@@ -1359,11 +1368,39 @@ export type OrdersController_listReasonCodesResponse = ({
 
 /** `GET /orders/tables` — The caller's own branch's dine-in tables, for the POS table picker. — Tables at this POS session's own branch. */
 export type OrdersController_listTablesResponse = ({
+  /** Present ONLY when occupancy is `occupied`. */
+  activeOrder: {
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    firstFiredAt: string | null;
+    guestCount: number | null;
+    /** The permanent order id (Order Reference) — resume with it. */
+    id: string;
+    openedAt: string;
+    orderNumber: string;
+    state: "draft" | "open" | "held" | "parked" | "partially_paid";
+    version: number;
+  } | null;
+  /** Non-empty ONLY when occupancy is `ambiguous`. */
+  conflictingOrders: ({
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    firstFiredAt: string | null;
+    guestCount: number | null;
+    /** The permanent order id (Order Reference) — resume with it. */
+    id: string;
+    openedAt: string;
+    orderNumber: string;
+    state: "draft" | "open" | "held" | "parked" | "partially_paid";
+    version: number;
+  })[];
   /** The value to send back as tableId when opening a dine-in order. */
   id: string;
   label: string;
-  section: string | null;
+  /** Derived from active dine-in orders. `ambiguous` = historical/bad data left 2+ active orders on this table; see `conflictingOrders`. */
+  occupancy: "available" | "occupied" | "ambiguous";
   seatCapacity: number | null;
+  section: string | null;
 })[];
 
 /** `GET /orders/{businessDay}/{id}` — One order, with its persisted line snapshots. — The order, including its lines. */
@@ -6650,6 +6687,104 @@ export type KitchenQueueController_getBranchQueueResponse = {
   averageWaitSeconds: number | null;
 };
 
+/** `POST /orders/tables/{tableId}/select` — Select a Dine-In table: create the one active order, or resume the existing one. — The table already had its active order: that SAME order, unchanged. */
+export type OrdersController_selectDineInTableResponse = {
+  order: {
+    branchId: string;
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    channel: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
+    closedBy: string | null;
+    completedAt: string | null;
+    /** FR-LOC-021 — the pack version this order was priced under, pinned. */
+    countryPackVersion: string;
+    createdAt: string;
+    /** ISO 4217 currency code. */
+    currency: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discountTotal: string;
+    firstFiredAt: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grandTotal: string;
+    guestCount: number | null;
+    id: string;
+    /** Present only where the endpoint populates line snapshots. */
+    lines: ({
+      course: number | null;
+      createdAt: string;
+      firedAt: string | null;
+      id: string;
+      isComp: boolean;
+      /** Opaque localized-name snapshot (locale -> name), persisted at capture time. */
+      itemNameSnapshot: Record<string, unknown>;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineDiscount: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineSubtotal: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      lineTotal: string;
+      menuItemId: string;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      modifierTotal: string;
+      notes: string | null;
+      priceEntryId: string | null;
+      priceListId: string | null;
+      /** Opaque pricing-rule provenance snapshot. */
+      priceRule: string | null;
+      /** Decimal quantity as a string (preserves exact precision). */
+      quantity: string;
+      readyAt: string | null;
+      recipeVersionId: string | null;
+      seatNumber: number | null;
+      sequence: number;
+      state: "pending" | "fired" | "preparing" | "ready" | "served" | "voided" | "comped";
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      taxAmount: string;
+      taxClassId: string;
+      /** Decimal quantity as a string (preserves exact precision). */
+      unitCostSnapshot: string | null;
+      /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+      unitPrice: string;
+      variantId: string;
+    })[];
+    notes: string | null;
+    openedAt: string;
+    openedBy: string;
+    orderNumber: string;
+    orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
+    originDeviceTime: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    paidTotal: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    roundingAdjustment: string;
+    servedBy: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    serviceChargeTotal: string;
+    state: "draft" | "open" | "held" | "parked" | "partially_paid" | "completed" | "cancelled" | "partially_refunded" | "refunded";
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    subtotal: string;
+    tableId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+    terminalId: string | null;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    tipTotal: string;
+    updatedAt: string;
+    /** Optimistic-concurrency version; also the ETag validator (§24.6.4). */
+    version: number;
+  };
+  /** `created` (HTTP 201) — this call opened the order. `resumed` (HTTP 200) — the table already had its one active order, returned unchanged. */
+  outcome: "created" | "resumed";
+  table: {
+    id: string;
+    label: string;
+    seatCapacity: number | null;
+    section: string | null;
+  };
+};
+
+export type OrdersController_selectDineInTableBody = SelectDineInTableDto;
+
 // ---------------------------------------------------------------------------
 // Route table
 // ---------------------------------------------------------------------------
@@ -6864,6 +6999,7 @@ export const ROUTES = {
   OrdersController_cancel: { method: "POST", path: "/orders/{businessDay}/{id}/cancel" },
   OrdersController_preBill: { method: "GET", path: "/orders/{businessDay}/{id}/pre-bill" },
   KitchenQueueController_getBranchQueue: { method: "GET", path: "/kitchen/branches/{branchId}/queue" },
+  OrdersController_selectDineInTable: { method: "POST", path: "/orders/tables/{tableId}/select" },
 } as const;
 
 /** Every operation the document describes. */

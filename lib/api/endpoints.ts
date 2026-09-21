@@ -66,6 +66,10 @@ export const sales = {
   listTables: () =>
     http.get<S.OrdersController_listTablesResponse>("/orders/tables"),
 
+  /** `POST /orders/tables/{tableId}/select` — Select a Dine-In table: create the one active order, or resume the existing one. — The table already had its active order: that SAME order, unchanged. */
+  selectDineInTable: (tableId: string, body: S.SelectDineInTableDto) =>
+    http.post<S.OrdersController_selectDineInTableResponse>("/orders/tables/{tableId}/select", { params: { tableId }, body, idempotent: true }),
+
   /** `GET /orders/{businessDay}/{id}` — One order, with its persisted line snapshots. — The order, including its lines. */
   findOne: (businessDay: string, id: string) =>
     http.get<S.OrdersController_findOneResponse>("/orders/{businessDay}/{id}", { params: { businessDay, id } }),

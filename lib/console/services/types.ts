@@ -787,7 +787,6 @@ export interface OrderMutationService {
     orderType: "dine_in" | "takeaway" | "delivery" | "drive_thru" | "pickup" | "aggregator";
     channel?: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
     tableId?: Id;
-    guestCount?: number;
     notes?: string;
     openedByEmployeeId?: Id;
   }): Promise<Order>;
@@ -1070,6 +1069,38 @@ export interface PosTable {
   label: string;
   section: string | null;
   seatCapacity: number | null;
+  /**
+   * DINE-IN-TABLE-SELECTOR-RESUME-P0 — the backend's own DERIVED occupancy
+   * (`GET /orders/tables`). Never computed, cached or persisted client-side.
+   * `ambiguous` = dirty data left two or more active orders on the table.
+   */
+  occupancy: PosTableOccupancy;
+  /** Present only when `occupancy` is `occupied`. */
+  activeOrder: PosTableOrderRef | null;
+  /** Non-empty only when `occupancy` is `ambiguous`. */
+  conflictingOrders: PosTableOrderRef[];
+}
+
+export type PosTableOccupancy = "available" | "occupied" | "ambiguous";
+
+/** The identifiers-only view of an active order that a table row carries. */
+export interface PosTableOrderRef {
+  /** The permanent Order Reference (`orders.id`). */
+  id: Id;
+  businessDay: IsoDate;
+  orderNumber: string;
+  state: string;
+  version: number;
+}
+
+/**
+ * The outcome of the atomic select-table operation
+ * (`POST /orders/tables/{tableId}/select`): the backend — not the client —
+ * decided whether `order` was just opened or already existed.
+ */
+export interface SelectedTable {
+  outcome: "created" | "resumed";
+  order: Order;
 }
 
 export interface SalesService {
@@ -1119,6 +1150,19 @@ export interface SalesService {
    * checked, exactly like `reasonCodes`' own back-office counterpart.
    */
   tables(): Promise<PosTable[]>;
+  /**
+   * DINE-IN-TABLE-SELECTOR-RESUME-P0 — atomic create-or-resume for one
+   * Dine-In table (`POST /orders/tables/{tableId}/select`, `Idempotency-Key`
+   * minted per call by the API client). Resolves with the canonical Order
+   * INCLUDING its lines — the same shape `orders.get` returns — so a resumed
+   * order is hydrated from the server, never rebuilt from menu data.
+   *
+   * Throws `ServiceError` — `status 409` / `DINE_IN_TABLE_AMBIGUOUS` when the
+   * table has two or more active orders, `403` for a branch-scope denial,
+   * `404` for an unknown/foreign table. Callers must NOT retry it as a direct
+   * `POST /orders`: the backend refuses a duplicate Dine-In order there too.
+   */
+  selectTable(tableId: Id): Promise<SelectedTable>;
   /**
    * ORDERS-MODULE-COMPREHENSIVE-P0 / ACCEPTANCE-CORRECTION-P0 — exact
    * Order Reference (permanent `orders.id`) lookup, without a business
