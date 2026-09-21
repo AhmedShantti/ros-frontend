@@ -15,6 +15,17 @@
  *                                              └─finalizeClose─▶ closed
  *                                                             └─▶ rejected,
  *                                                                 still frozen
+ *                                                                   └─recountClose─▶ closed
+ *                                                                                 └─▶ closing, NEW count
+ *
+ * A rejection used to be a dead end: the only thing left was another manager
+ * decision against the same count, even when the count itself was wrong.
+ * CASH-CLOSE-RECOUNT-AFTER-REJECTION-P0 adds `recountClose`: a NEW count that
+ * supersedes the rejected one. The rejected count and the rejection stay in
+ * history server-side; nothing here edits them. Whether a recount is offered
+ * is the server's `recountAvailable`, never inferred from local state, and the
+ * recount form starts empty — no expected figure, no previous count — and
+ * keeps the blind count blind.
  *
  * Two consequences shape the code below. A `rejected` decision is a committed
  * 200 and not an error, so the outcome is read from the response rather than
@@ -79,6 +90,10 @@ export function DrawerSheet({
   const { t, fmt } = useI18n();
   const [nonce, setNonce] = useState(0);
   const [declaration, setDeclaration] = useState<CashCloseDeclaration | null>(null);
+  // UI-only: which panel is showing. Whether a recount is ALLOWED is the
+  // server's `recountAvailable`; a reload simply lands back on that truth.
+  const [recounting, setRecounting] = useState(false);
+  const [showDecision, setShowDecision] = useState(false);
 
   const context = useAsync(
     async () => (open ? services.treasury.closeContext(cashSessionId) : null),
@@ -90,6 +105,10 @@ export function DrawerSheet({
   // A freeze survives a re-read: the server reports `closing` whether or not
   // this tab is the one that declared the count.
   const frozen = declaration?.approvalRequired === true || context.data?.frozen === true;
+  // The manager REJECTED the current count — the one state a recount is
+  // allowed in. Read from the server, so it survives a reload or another till.
+  const rejected = frozen && context.data?.recountAvailable === true;
+  const concealCounts = recounting && context.data?.countMode === "blind";
 
   /**
    * The confirmation names who closed it and what the server settled on —
@@ -107,7 +126,13 @@ export function DrawerSheet({
     <Drawer open onClose={onClose} title={t("shift.drawerOps")}>
       <div className="space-y-5">
         <AsyncPanel state={context}>
-          {(loaded) => (loaded ? <CloseContextSummary context={loaded} /> : <span />)}
+          {(loaded) =>
+            loaded ? (
+              <CloseContextSummary context={loaded} concealCounts={concealCounts} />
+            ) : (
+              <span />
+            )
+          }
         </AsyncPanel>
 
         {frozen ? null : (
@@ -121,25 +146,64 @@ export function DrawerSheet({
           />
         )}
 
-        {frozen ? (
-          <FinalizeCloseForm
+        {frozen && recounting && context.data?.closeAttemptId ? (
+          <DeclareCloseForm
             cashSessionId={cashSessionId}
-            declaration={declaration}
             context={context.data ?? null}
-            onOutcome={(outcome, figures) => {
-              if (outcome === "closed") {
-                onMessage(
-                  figures?.countedCash && figures.variance
-                    ? closedMessage(t("shift.approvedOutcome"), figures.countedCash, figures.variance)
-                    : t("shift.approvedOutcome"),
-                );
+            recount={{
+              supersedesCloseAttemptId: context.data.closeAttemptId,
+              onCancel: () => setRecounting(false),
+            }}
+            onDeclared={(result) => {
+              // The recount is the session's current count now: its figures,
+              // not the superseded count's, are what a manager decides on.
+              setDeclaration(result);
+              setRecounting(false);
+              setShowDecision(false);
+              if (result.status === "closed") {
+                onMessage(closedMessage(t("shift.closedWithin"), result.countedCash, result.variance));
                 onClosed();
               } else {
-                onMessage(t("shift.rejectedOutcome"));
+                onMessage(t("shift.recountDeclared"));
                 setNonce((n) => n + 1);
               }
             }}
           />
+        ) : frozen ? (
+          <>
+            {rejected ? (
+              <RejectedRecountPanel
+                decisionShown={showDecision}
+                onRecount={() => setRecounting(true)}
+                onToggleDecision={() => setShowDecision((shown) => !shown)}
+              />
+            ) : null}
+            {rejected && !showDecision ? null : (
+              <FinalizeCloseForm
+                cashSessionId={cashSessionId}
+                declaration={declaration}
+                context={context.data ?? null}
+                onOutcome={(outcome, figures) => {
+                  if (outcome === "closed") {
+                    onMessage(
+                      figures?.countedCash && figures.variance
+                        ? closedMessage(
+                            t("shift.approvedOutcome"),
+                            figures.countedCash,
+                            figures.variance,
+                          )
+                        : t("shift.approvedOutcome"),
+                    );
+                    onClosed();
+                  } else {
+                    onMessage(t("shift.rejectedOutcome"));
+                    setShowDecision(false);
+                    setNonce((n) => n + 1);
+                  }
+                }}
+              />
+            )}
+          </>
         ) : (
           <DeclareCloseForm
             cashSessionId={cashSessionId}
@@ -169,9 +233,22 @@ export function DrawerSheet({
  * A dash where the expected cash would be is FR-POS-095 working, not a
  * loading state.
  */
-function CloseContextSummary({ context }: { context: CashCloseContext }) {
+function CloseContextSummary({
+  context,
+  concealCounts = false,
+}: {
+  context: CashCloseContext;
+  /**
+   * While a blind RECOUNT is being entered the count-side figures are held
+   * back again — the cashier has seen them once already (that is exactly why
+   * a recount is recorded as one, not as a first blind count), but the entry
+   * form must still give nothing to copy a number from.
+   */
+  concealCounts?: boolean;
+}) {
   const { t, fmt } = useI18n();
   const blind = context.countMode === "blind";
+  const held = (value: Money | null) => (concealCounts ? null : value);
 
   const statusKey =
     context.status === "open"
@@ -199,16 +276,16 @@ function CloseContextSummary({ context }: { context: CashCloseContext }) {
           {formatMoney(context.openingFloat, fmt)}
         </DescRow>
         <DescRow label={t("shift.tolerance")} mono>
-          <Withheld value={context.tolerance} />
+          <Withheld value={held(context.tolerance)} />
         </DescRow>
         <DescRow label={t("shift.expected")} mono>
-          <Withheld value={context.expectedCash} />
+          <Withheld value={held(context.expectedCash)} />
         </DescRow>
         <DescRow label={t("shift.countedTotal")} mono>
-          <Withheld value={context.countedCash} />
+          <Withheld value={held(context.countedCash)} />
         </DescRow>
         <DescRow label={t("shift.variance")} mono>
-          <Withheld value={context.variance} />
+          <Withheld value={held(context.variance)} />
         </DescRow>
       </DescList>
     </section>
@@ -315,10 +392,18 @@ function DeclareCloseForm({
   cashSessionId,
   context,
   onDeclared,
+  recount,
 }: {
   cashSessionId: string;
   context: CashCloseContext | null;
   onDeclared: (declaration: CashCloseDeclaration) => void;
+  /**
+   * Present only when recounting after a manager rejection. The form is the
+   * SAME count entry — denominations included — but mounts empty every time
+   * (nothing from the earlier count, no expected figure, no default) and
+   * submits to the recount route naming the attempt it replaces.
+   */
+  recount?: { supersedesCloseAttemptId: string; onCancel: () => void };
 }) {
   const { t } = useI18n();
   const action = useAction();
@@ -351,14 +436,18 @@ function DeclareCloseForm({
 
   async function declare() {
     if (!valid) return;
+    const count =
+      mode === "denominations"
+        ? { denominations }
+        : { countedTotalMinorUnits: String(totalMinor) };
     await action.run(
       () =>
-        services.treasury.declareClose(
-          cashSessionId,
-          mode === "denominations"
-            ? { denominations }
-            : { countedTotalMinorUnits: String(totalMinor) },
-        ),
+        recount
+          ? services.treasury.recountClose(cashSessionId, {
+              ...count,
+              supersedesCloseAttemptId: recount.supersedesCloseAttemptId,
+            })
+          : services.treasury.declareClose(cashSessionId, count),
       { onSuccess: onDeclared },
     );
   }
@@ -369,7 +458,11 @@ function DeclareCloseForm({
 
   return (
     <section className="border-line space-y-3 border-t pt-4">
-      <h3 className="text-fg text-sm font-semibold">{t("shift.closeDrawer")}</h3>
+      <h3 className="text-fg text-sm font-semibold">
+        {t(recount ? "shift.recountTitle" : "shift.closeDrawer")}
+      </h3>
+
+      {recount ? <Callout tone="muted">{t("shift.recountNote")}</Callout> : null}
 
       {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
 
@@ -432,8 +525,56 @@ function DeclareCloseForm({
         disabled={!valid}
         onClick={declare}
       >
-        {t("shift.declare")}
+        {t(recount ? "shift.recountCommit" : "shift.declare")}
       </Button>
+
+      {recount ? (
+        <Button variant="ghost" className="w-full" disabled={action.pending} onClick={recount.onCancel}>
+          {t("shift.recountCancel")}
+        </Button>
+      ) : null}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * The manager rejected the variance. The old screen offered nothing here but
+ * another manager decision against the same count — which, when the count
+ * itself was wrong, meant approving a false variance to get out. The primary
+ * action is now the honest one: count the drawer again.
+ *
+ * A fresh decision on the SAME count stays possible (R-6(a) clause 8) but is
+ * deliberately secondary, and never the default.
+ */
+function RejectedRecountPanel({
+  decisionShown,
+  onRecount,
+  onToggleDecision,
+}: {
+  decisionShown: boolean;
+  onRecount: () => void;
+  onToggleDecision: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <section className="border-line space-y-3 border-t pt-4">
+      <h3 className="text-fg text-sm font-semibold">{t("shift.rejectedTitle")}</h3>
+
+      <Callout tone="warn" icon={<AlertTriangle size={14} />}>
+        {t("shift.rejectedNote")}
+      </Callout>
+
+      <Button variant="primary" className="w-full" onClick={onRecount}>
+        {t("shift.recount")}
+      </Button>
+
+      {decisionShown ? null : (
+        <Button variant="ghost" className="w-full" onClick={onToggleDecision}>
+          {t("shift.recordNewDecision")}
+        </Button>
+      )}
     </section>
   );
 }
@@ -470,10 +611,16 @@ function FinalizeCloseForm({
   const [reason, setReason] = useState("");
   const [comment, setComment] = useState("");
 
-  const expected = declaration?.expectedCash ?? context?.expectedCash ?? null;
-  const counted = declaration?.countedCash ?? context?.countedCash ?? null;
-  const variance = declaration?.variance ?? context?.variance ?? null;
-  const tolerance = declaration?.tolerance ?? context?.tolerance ?? null;
+  // The figures the manager is shown and the attempt the decision is bound to
+  // come from ONE source: the server's current count when it has been read,
+  // else this tab's own declaration. That is what lets the server refuse a
+  // decision on a count that a recount has since superseded.
+  const current = context?.closeAttemptId ? context : null;
+  const expected = (current ? current.expectedCash : declaration?.expectedCash) ?? null;
+  const counted = (current ? current.countedCash : declaration?.countedCash) ?? null;
+  const variance = (current ? current.variance : declaration?.variance) ?? null;
+  const tolerance = (current ? current.tolerance : declaration?.tolerance) ?? null;
+  const shownAttemptId = (current ? current.closeAttemptId : declaration?.closeAttemptId) ?? null;
 
   const valid =
     managerEmployeeCode.trim() !== "" && /^[0-9]{4,8}$/.test(managerPin) && reason.trim() !== "";
@@ -488,6 +635,7 @@ function FinalizeCloseForm({
           managerEmployeeCode: managerEmployeeCode.trim(),
           managerPin,
           comment: comment.trim() || undefined,
+          closeAttemptId: shownAttemptId ?? undefined,
         }),
       {
         onSuccess: (result) => {

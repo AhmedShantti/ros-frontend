@@ -23984,6 +23984,20 @@
                       "type": "boolean",
                       "description": "Present only once status is closing/closed."
                     },
+                    "closeAttemptId": {
+                      "description": "The session's CURRENT close attempt (after a recount, the recount). Present only once status is closing/closed.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "attemptNumber": {
+                      "description": "1 for the first count, +1 per recount. Present only once status is closing/closed.",
+                      "type": "integer"
+                    },
+                    "recountAvailable": {
+                      "description": "True only while status is closing AND a manager explicitly REJECTED the variance of the current attempt \u2014 the one state in which POST .../close/recount is allowed. Present only once status is closing/closed.",
+                      "type": "boolean"
+                    },
                     "closedAt": {
                       "type": [
                         "string",
@@ -24244,7 +24258,7 @@
         },
         "responses": {
           "200": {
-            "description": "The manager decision outcome \u2014 \"closed\" (approved) or \"rejected\" (R-6(a); the session remains closing).",
+            "description": "The manager decision outcome \u2014 \"closed\" (approved) or \"rejected\" (R-6(a); the session remains closing \u2014 the cashier may then POST .../close/recount).",
             "content": {
               "application/json": {
                 "schema": {
@@ -24316,7 +24330,7 @@
             }
           },
           "409": {
-            "description": "The session has no pending close awaiting a decision, is already closed under a different approval request, the owning employee has no linked Identity user (self-approval cannot be enforced), the governing cash-close policy could not be re-resolved identically, or the approval request/decision id already exists with different content.",
+            "description": "The session has no pending close awaiting a decision, is already closed under a different approval request, the supplied closeAttemptId is no longer the current attempt (a recount superseded it), the owning employee has no linked Identity user (self-approval cannot be enforced), the governing cash-close policy could not be re-resolved identically, or the approval request/decision id already exists with different content.",
             "content": {
               "application/json": {
                 "schema": {
@@ -24332,6 +24346,192 @@
           }
         ],
         "summary": "The manager's decision on a frozen (above-tolerance) close \u2014 FR-FIN-006\n[M], FR-SEC-016/030/032/033.\n\nThe manager PIN is verified BEFORE the business transaction opens\n(`identity/contract`'s `TERMINAL_PIN_VERIFIER` \u2014 a failed-attempt/\nlockout counter must survive a later rollback, and never runs at all on\nan idempotent replay). The verified manager's permission set \u2014 not the\ncalling cashier's \u2014 is what `cash.variance.approve` is checked against,\nby the Approval Runtime itself, never by a route-level permission guard\n(the approver is a different actor than the caller).\n\nR-6(a): an explicit REJECTED decision COMMITS and returns 200 with\n`outcome: \"rejected\"` \u2014 never an error. The session stays `closing`; a\nretry supplies FRESH `approvalRequestId`/`approvalDecisionId` values.",
+        "tags": [
+          "treasury"
+        ]
+      }
+    },
+    "/cash-sessions/{sessionId}/close/recount": {
+      "post": {
+        "operationId": "TreasuryController_recountClose",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged (Idempotent-Replay: true).",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecountCashSessionCloseDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "approvalRequired": {
+                      "type": "boolean"
+                    },
+                    "attemptNumber": {
+                      "description": "2 for the first recount.",
+                      "type": "integer"
+                    },
+                    "cashSessionId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "closeAttemptId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "countMode": {
+                      "enum": [
+                        "blind",
+                        "open"
+                      ],
+                      "type": "string"
+                    },
+                    "countProvenance": {
+                      "description": "Canonical provenance marker \u2014 this count is NOT a pristine first-time blind count.",
+                      "enum": [
+                        "recount_after_manager_rejection"
+                      ],
+                      "type": "string"
+                    },
+                    "countedCashMinorUnits": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "created": {
+                      "description": "False on an idempotent replay of an already-declared attempt.",
+                      "type": "boolean"
+                    },
+                    "currency": {
+                      "description": "ISO 4217 currency code.",
+                      "example": "AED",
+                      "type": "string"
+                    },
+                    "expectedCashMinorUnits": {
+                      "description": "Disclosed only in this COMMITTED response \u2014 never before the count is durable (FR-POS-095).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "closing",
+                        "closed"
+                      ],
+                      "type": "string"
+                    },
+                    "supersedesCloseAttemptId": {
+                      "description": "The rejected attempt this recount supersedes as the current one. It is never modified.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "toleranceMinorUnits": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "varianceMinorUnits": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The committed recount \u2014 closed immediately if within tolerance, otherwise still frozen awaiting a NEW manager decision."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/malformed closeAttemptId or supersedesCloseAttemptId, neither countedTotalMinorUnits nor denominations supplied, a denomination-sum mismatch, or a duplicate denomination."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown cash session."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The session is not closing, is already closed, no manager has rejected the current count (still awaiting a decision, or the variance was approved), supersedesCloseAttemptId is not the current attempt, or the closeAttemptId already exists with different content (FR-OFF-015)."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Recount the cash after a manager REJECTED the variance \u2014\nCASH-CLOSE-RECOUNT-AFTER-REJECTION-P0 (register: narrow amendment of\nR-6(a) clauses 2/3/7).\n\nRecords a NEW immutable count that supersedes the rejected one as the\nsession's current attempt; the first count, its ApprovalRequest and the\nrejection stay in history untouched. Allowed only while the session is\n`closing` and the manager explicitly rejected the CURRENT count \u2014 the\nrecorded rejection is the authorisation, so no `cash.variance.approve` is\nneeded: the same own/other close authority as declare applies. Within\ntolerance the session closes in this request; beyond tolerance it stays\n`closing` and needs a NEW reason, a NEW approval request and a fresh\nmanager decision (the owner still cannot self-approve).",
         "tags": [
           "treasury"
         ]
@@ -37882,9 +38082,41 @@
           "closeAttemptId"
         ]
       },
+      "RecountCashSessionCloseDto": {
+        "properties": {
+          "closeAttemptId": {
+            "description": "FR-OFF-015 \u2014 the device's permanent ULID for this close attempt. REQUIRED.",
+            "type": "string"
+          },
+          "countedTotalMinorUnits": {
+            "description": "Non-negative integer minor units, as an exact string. Zero is valid.",
+            "pattern": "^\\d{1,18}$",
+            "type": "string"
+          },
+          "denominations": {
+            "items": {
+              "$ref": "#/components/schemas/DenominationCountDto"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "supersedesCloseAttemptId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "closeAttemptId",
+          "supersedesCloseAttemptId"
+        ],
+        "type": "object"
+      },
       "FinalizeCashSessionCloseDto": {
         "type": "object",
         "properties": {
+          "closeAttemptId": {
+            "description": "OPTIONAL \u2014 the attempt the deciding manager was shown. If a recount has\nsince superseded it the finalize is refused (409) instead of deciding a\ncount the manager never saw. Omitted by older clients: behaviour is then\nunchanged (the session's current attempt is decided).",
+            "type": "string"
+          },
           "approvalRequestId": {
             "type": "string",
             "description": "FR-OFF-015 \u2014 client-generated permanent id for THIS approval request."

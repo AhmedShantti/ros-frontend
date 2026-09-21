@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 159 paths, 109 request DTOs.
+ * `api/openapi.json`. 160 paths, 110 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -597,7 +597,18 @@ export interface DeclareCashSessionCloseDto {
   denominations?: DenominationCountDto[];
 }
 
+export interface RecountCashSessionCloseDto {
+  /** FR-OFF-015 — the device's permanent ULID for this close attempt. REQUIRED. */
+  closeAttemptId: string;
+  /** Non-negative integer minor units, as an exact string. Zero is valid. */
+  countedTotalMinorUnits?: string;
+  denominations?: DenominationCountDto[];
+  supersedesCloseAttemptId: string;
+}
+
 export interface FinalizeCashSessionCloseDto {
+  /** OPTIONAL — the attempt the deciding manager was shown. If a recount has since superseded it the finalize is refused (409) instead of deciding a count the manager never saw. Omitted by older clients: behaviour is then unchanged (the session's current attempt is decided). */
+  closeAttemptId?: string;
   /** FR-OFF-015 — client-generated permanent id for THIS approval request. */
   approvalRequestId: string;
   /** FR-OFF-015 — client-generated permanent id for THIS approval decision. */
@@ -4601,6 +4612,12 @@ export type TreasuryController_getCloseContextResponse = {
   varianceMinorUnits: string;
   /** Present only once status is closing/closed. */
   approvalRequired: boolean;
+  /** The session's CURRENT close attempt (after a recount, the recount). Present only once status is closing/closed. */
+  closeAttemptId: string;
+  /** 1 for the first count, +1 per recount. Present only once status is closing/closed. */
+  attemptNumber: number;
+  /** True only while status is closing AND a manager explicitly REJECTED the variance of the current attempt — the one state in which POST .../close/recount is allowed. Present only once status is closing/closed. */
+  recountAvailable: boolean;
   closedAt: string | null;
 };
 
@@ -4627,7 +4644,7 @@ export type TreasuryController_declareCloseResponse = {
 
 export type TreasuryController_declareCloseBody = DeclareCashSessionCloseDto;
 
-/** `POST /cash-sessions/{sessionId}/close/finalize` — The manager's decision on a frozen (above-tolerance) close — FR-FIN-006 [M], FR-SEC-016/030/032/033. The manager PIN is verified BEFORE the business transaction opens (`identity/contract`'s `TERMINAL_PIN_VERIFIER` — a failed-attempt/ lockout counter must survive a later rollback, and never runs at all on an idempotent replay). The verified manager's permission set — not the calling cashier's — is what `cash.variance.approve` is checked against, by the Approval Runtime itself, never by a route-level permission guard (the approver is a different actor than the caller). R-6(a): an explicit REJECTED decision COMMITS and returns 200 with `outcome: "rejected"` — never an error. The session stays `closing`; a retry supplies FRESH `approvalRequestId`/`approvalDecisionId` values. — The manager decision outcome — "closed" (approved) or "rejected" (R-6(a); the session remains closing). */
+/** `POST /cash-sessions/{sessionId}/close/finalize` — The manager's decision on a frozen (above-tolerance) close — FR-FIN-006 [M], FR-SEC-016/030/032/033. The manager PIN is verified BEFORE the business transaction opens (`identity/contract`'s `TERMINAL_PIN_VERIFIER` — a failed-attempt/ lockout counter must survive a later rollback, and never runs at all on an idempotent replay). The verified manager's permission set — not the calling cashier's — is what `cash.variance.approve` is checked against, by the Approval Runtime itself, never by a route-level permission guard (the approver is a different actor than the caller). R-6(a): an explicit REJECTED decision COMMITS and returns 200 with `outcome: "rejected"` — never an error. The session stays `closing`; a retry supplies FRESH `approvalRequestId`/`approvalDecisionId` values. — The manager decision outcome — "closed" (approved) or "rejected" (R-6(a); the session remains closing — the cashier may then POST .../close/recount). */
 export type TreasuryController_finalizeCloseResponse = {
   cashSessionId: string;
   status: "closing" | "closed";
@@ -4636,6 +4653,35 @@ export type TreasuryController_finalizeCloseResponse = {
 };
 
 export type TreasuryController_finalizeCloseBody = FinalizeCashSessionCloseDto;
+
+/** `POST /cash-sessions/{sessionId}/close/recount` — Recount the cash after a manager REJECTED the variance — CASH-CLOSE-RECOUNT-AFTER-REJECTION-P0 (register: narrow amendment of R-6(a) clauses 2/3/7). Records a NEW immutable count that supersedes the rejected one as the session's current attempt; the first count, its ApprovalRequest and the rejection stay in history untouched. Allowed only while the session is `closing` and the manager explicitly rejected the CURRENT count — the recorded rejection is the authorisation, so no `cash.variance.approve` is needed: the same own/other close authority as declare applies. Within tolerance the session closes in this request; beyond tolerance it stays `closing` and needs a NEW reason, a NEW approval request and a fresh manager decision (the owner still cannot self-approve). — The committed recount — closed immediately if within tolerance, otherwise still frozen awaiting a NEW manager decision. */
+export type TreasuryController_recountCloseResponse = {
+  approvalRequired: boolean;
+  /** 2 for the first recount. */
+  attemptNumber: number;
+  cashSessionId: string;
+  closeAttemptId: string;
+  countMode: "blind" | "open";
+  /** Canonical provenance marker — this count is NOT a pristine first-time blind count. */
+  countProvenance: "recount_after_manager_rejection";
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  countedCashMinorUnits: string;
+  /** False on an idempotent replay of an already-declared attempt. */
+  created: boolean;
+  /** ISO 4217 currency code. */
+  currency: string;
+  /** Disclosed only in this COMMITTED response — never before the count is durable (FR-POS-095). */
+  expectedCashMinorUnits: string;
+  status: "closing" | "closed";
+  /** The rejected attempt this recount supersedes as the current one. It is never modified. */
+  supersedesCloseAttemptId: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  toleranceMinorUnits: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  varianceMinorUnits: string;
+};
+
+export type TreasuryController_recountCloseBody = RecountCashSessionCloseDto;
 
 /** `GET /branches/{branchId}/cash-close-policy` — The currently-effective cash-close policy for a branch, wrapped as `{ policy: ... | null }` — GOLDEN-PATH-BACKEND-CLOSURE (2026-09-07). `policy` is `null` when none has ever been configured; a bare top-level `null` body is deliberately avoided (Express sends an empty body for a handler returning `null`, which is indistinguishable on the wire from "no response content" — a wrapper object keeps `null` an unambiguous, inspectable JSON value). Not FR-PLT-027's settings inspector (see class docblock) — a single resolved value, not a level-by-level override trace. — `policy` is null if the branch has none configured yet. */
 export type CashClosePolicyController_getPolicyResponse = {
@@ -6749,6 +6795,7 @@ export const ROUTES = {
   TreasuryController_getCloseContext: { method: "GET", path: "/cash-sessions/{sessionId}/close-context" },
   TreasuryController_declareClose: { method: "POST", path: "/cash-sessions/{sessionId}/close" },
   TreasuryController_finalizeClose: { method: "POST", path: "/cash-sessions/{sessionId}/close/finalize" },
+  TreasuryController_recountClose: { method: "POST", path: "/cash-sessions/{sessionId}/close/recount" },
   CashClosePolicyController_getPolicy: { method: "GET", path: "/branches/{branchId}/cash-close-policy" },
   CashClosePolicyController_createPolicy: { method: "POST", path: "/branches/{branchId}/cash-close-policy" },
   DayCloseController_get: { method: "GET", path: "/branches/{branchId}/day-closes/{businessDay}" },

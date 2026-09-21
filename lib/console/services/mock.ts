@@ -674,6 +674,9 @@ const treasury: TreasuryService = {
   async finalizeClose() {
     noBackend("Finalising an above-tolerance close");
   },
+  async recountClose() {
+    noBackend("Recounting the cash after a manager rejection");
+  },
   async getCashClosePolicy() {
     noBackend("Reading a branch's cash-close policy");
   },

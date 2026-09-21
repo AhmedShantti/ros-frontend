@@ -183,6 +183,7 @@ export const API_COVERAGE = {
     "treasury.closeContext",
     "treasury.declareClose",
     "treasury.finalizeClose",
+    "treasury.recountClose",
     "treasury.setCashClosePolicy",
     "treasury.listDrawers",
     "treasury.createDrawer",
@@ -2532,6 +2533,9 @@ const treasury: import("./types").TreasuryService = {
       approvalRequired: declared ? (row.approvalRequired ?? false) : null,
       closedAt: row.closedAt ?? null,
       frozen: row.status === "closing",
+      closeAttemptId: declared ? (row.closeAttemptId ?? null) : null,
+      attemptNumber: declared ? (row.attemptNumber ?? null) : null,
+      recountAvailable: row.status === "closing" && row.recountAvailable === true,
     };
   },
 
@@ -2570,9 +2574,38 @@ const treasury: import("./types").TreasuryService = {
       managerEmployeeCode: input.managerEmployeeCode,
       managerPin: input.managerPin,
       comment: input.comment,
+      closeAttemptId: input.closeAttemptId,
     });
 
     return { status: row.status, outcome: row.outcome };
+  },
+
+  async recountClose(cashSessionId, input) {
+    // A recount is a genuinely new count with its own permanent id — never the
+    // rejected attempt's — and it names the attempt it replaces so a stale
+    // screen cannot recount against a rejection it did not see.
+    const row = await api.treasury.recountClose(cashSessionId, {
+      closeAttemptId: deviceId(),
+      supersedesCloseAttemptId: input.supersedesCloseAttemptId,
+      countedTotalMinorUnits: input.countedTotalMinorUnits,
+      denominations: input.denominations?.length ? input.denominations : undefined,
+    });
+
+    const currency = map.currencyOf(row.currency);
+
+    return {
+      cashSessionId: row.cashSessionId,
+      closeAttemptId: row.closeAttemptId,
+      status: row.status,
+      approvalRequired: row.approvalRequired,
+      created: row.created,
+      supersedesCloseAttemptId: row.supersedesCloseAttemptId,
+      countMode: row.countMode,
+      tolerance: map.minorMoney(row.toleranceMinorUnits, currency),
+      expectedCash: map.minorMoney(row.expectedCashMinorUnits, currency),
+      countedCash: map.minorMoney(row.countedCashMinorUnits, currency),
+      variance: map.minorMoney(row.varianceMinorUnits, currency),
+    };
   },
 
   async getCashClosePolicy(branchId) {

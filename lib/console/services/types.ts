@@ -1216,6 +1216,21 @@ export interface CashCloseContext {
   closedAt: IsoDateTime | null;
   /** True when this session still needs a manager decision to finish. */
   frozen: boolean;
+  /**
+   * The session's CURRENT close attempt (after a recount, the recount). Null
+   * until a count has been declared. Sent back on a finalize/recount so a
+   * stale screen can never decide or replace a count it did not show.
+   */
+  closeAttemptId: Id | null;
+  /** 1 for the first count, +1 per recount. Null until a count is declared. */
+  attemptNumber: number | null;
+  /**
+   * CASH-CLOSE-RECOUNT-AFTER-REJECTION-P0 — server truth, never inferred here:
+   * true only while the session is frozen AND a manager explicitly REJECTED
+   * the variance of the current count. The one state in which a recount is
+   * allowed; false while a decision is still awaited, and once closed.
+   */
+  recountAvailable: boolean;
 }
 
 /** The committed count — and the first legitimate disclosure of the variance. */
@@ -1227,6 +1242,8 @@ export interface CashCloseDeclaration {
   approvalRequired: boolean;
   /** False on an idempotent replay of an attempt already declared. */
   created: boolean;
+  /** Set only on a recount: the rejected attempt this count supersedes. */
+  supersedesCloseAttemptId?: Id | null;
   countMode: "blind" | "open";
   tolerance: Money;
   expectedCash: Money;
@@ -1367,8 +1384,34 @@ export interface TreasuryService {
       managerEmployeeCode: string;
       managerPin: string;
       comment?: string;
+      /**
+       * The attempt the manager was shown. If a recount has since superseded
+       * it the server refuses (409) rather than deciding a count never seen.
+       */
+      closeAttemptId?: Id;
     },
   ): Promise<{ status: "closing" | "closed"; outcome: "closed" | "rejected" }>;
+
+  /**
+   * CASH-CLOSE-RECOUNT-AFTER-REJECTION-P0 — a NEW physical count, recorded
+   * after a manager explicitly rejected the variance of the current one.
+   *
+   * The rejected count, its approval request and the rejection stay in
+   * history untouched; this appends a fresh count that supersedes it. The
+   * counted amount is always supplied afresh — nothing about the previous
+   * count is reused. Within tolerance the session closes in this request;
+   * beyond it the session stays frozen for a NEW manager decision.
+   */
+  recountClose(
+    cashSessionId: Id,
+    input: {
+      /** The rejected attempt being replaced (from `closeContext().closeAttemptId`). */
+      supersedesCloseAttemptId: Id;
+      /** Non-negative minor units as an exact string. Omit when counting by denomination. */
+      countedTotalMinorUnits?: string;
+      denominations?: DenominationCountInput[];
+    },
+  ): Promise<CashCloseDeclaration>;
 
   /**
    * GOLDEN-PATH-FINAL-INTEGRATION — the currently-effective policy for a
