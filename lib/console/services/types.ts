@@ -1094,6 +1094,27 @@ export interface PosTableOrderRef {
 }
 
 /**
+ * DASHBOARD-TABLE-STATUS-LIVE-P0 — one table of a branch's live Table Status
+ * (`GET /orders/tables/status`, `pos.order.view_history`). The backend's own
+ * derived occupancy, passed through untouched — the same single algorithm
+ * behind the POS table list. Deliberately NOT `RestaurantTable` (the
+ * Organisation table-setup record, whose `state` the API never populates)
+ * and not `PosTable` (the POS terminal's read): a Dashboard screen must not
+ * depend on either.
+ */
+export interface TableStatusRow {
+  id: Id;
+  label: string;
+  section: string | null;
+  seatCapacity: number | null;
+  occupancy: PosTableOccupancy;
+  /** Present only when `occupancy` is `occupied`. */
+  activeOrder: PosTableOrderRef | null;
+  /** Non-empty only when `occupancy` is `ambiguous`; no entry is "the" order. */
+  conflictingOrders: PosTableOrderRef[];
+}
+
+/**
  * The outcome of the atomic select-table operation
  * (`POST /orders/tables/{tableId}/select`): the backend — not the client —
  * decided whether `order` was just opened or already existed.
@@ -1163,6 +1184,16 @@ export interface SalesService {
    * `POST /orders`: the backend refuses a duplicate Dine-In order there too.
    */
   selectTable(tableId: Id): Promise<SelectedTable>;
+  /**
+   * DASHBOARD-TABLE-STATUS-LIVE-P0 — a branch's tables with their derived
+   * dine-in occupancy (`GET /orders/tables/status?branchId=`,
+   * `pos.order.view_history`, a Console-session read). One request, no
+   * per-table order fetch. Throws `ServiceError` — `403` for a branch outside
+   * the caller's scope, `404` for an unknown/foreign branch. NEVER the
+   * `settings.branch.read`-gated `/org/branches/{id}/tables`, and NEVER the
+   * POS-session `tables()` above.
+   */
+  tableStatus(branchId: Id): Promise<TableStatusRow[]>;
   /**
    * ORDERS-MODULE-COMPREHENSIVE-P0 / ACCEPTANCE-CORRECTION-P0 — exact
    * Order Reference (permanent `orders.id`) lookup, without a business

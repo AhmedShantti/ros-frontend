@@ -21,14 +21,15 @@
  * says so rather than implying a link that does not exist.
  */
 
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DATA_MODE } from "@/lib/api/config";
 import { services } from "./services";
 import { ServiceError } from "./services";
-import type { Scope } from "./services/types";
+import type { Scope, TableStatusRow } from "./services/types";
 import { useAsync, useStations } from "./hooks";
 import { useLive } from "./live/store";
+import { tablesOf } from "./live/reducer";
 import type {
   AuditEntry,
   Id,
@@ -372,6 +373,143 @@ export function useKitchenQueue(branchId: Id | null, scope?: Scope): KitchenQueu
     snapshot: remote.data ?? null,
     ready: !remote.loading || remote.data !== null,
     error: remote.error,
+    live: true,
+    reload,
+  };
+}
+
+/** How often Table Status re-polls — the same cadence as the Kitchen Queue. */
+const TABLE_STATUS_POLL_MS = 15_000;
+
+export interface TableStatusFeed {
+  /** True once THIS branch's first response (rows or error) has settled. */
+  ready: boolean;
+  error: ServiceError | Error | null;
+  live: boolean;
+  reload: () => void;
+  /** Null until a concrete branch is selected and its own first load settles, and whenever the last read failed. */
+  rows: TableStatusRow[] | null;
+}
+
+type TableStatusResult =
+  | { branchId: Id; rows: TableStatusRow[]; error: null }
+  | { branchId: Id; rows: null; error: ServiceError | Error };
+
+/**
+ * DASHBOARD-TABLE-STATUS-LIVE-P0 — the Dashboard's live table occupancy.
+ *
+ * `GET /orders/tables/status?branchId=` (`pos.order.view_history`) is the
+ * ONLY source in live (`http`) mode — occupancy is the backend's derived
+ * truth, never inferred from orders here, never the Organisation table
+ * records (`/org/branches/{id}/tables`), never the POS terminal's own list.
+ * One request per read; no per-table follow-up.
+ *
+ * Requires a CONCRETE branch: `branchId === null` ("All branches") sends
+ * nothing — same rule as the Kitchen Queue, and for the same reason.
+ *
+ * Unlike `useKitchenQueue` (which sits on `useAsync`, whose `data` survives a
+ * dependency change), every result here is TAGGED with the branch it was read
+ * for and ignored unless it matches the branch now selected: switching
+ * branches shows a loading state, never the previous branch's tables, and a
+ * previous branch's error never lingers on the new one.
+ *
+ * Polling: one immediate read, then every `TABLE_STATUS_POLL_MS`. A read
+ * that is still in flight when the next tick fires is skipped rather than
+ * stacked (per-effect flag, so a branch change is never blocked by the old
+ * branch's slow request), and both the timer and any late response are torn
+ * down with the effect. A failed read replaces the rows with the error — a
+ * failure is never rendered as an empty or all-available floor — and the next
+ * successful tick clears it.
+ *
+ * In demo mode (no server) it maps the device's own simulated floor to the
+ * same shape, and the page's `LiveNotice` says so.
+ */
+export function useTableStatus(branchId: Id | null): TableStatusFeed {
+  const live = DATA_MODE === "http";
+  const { state, ready: deviceReady } = useLive();
+
+  const [result, setResult] = useState<TableStatusResult | null>(null);
+  const loadRef = useRef<(() => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    if (!live || !branchId) return;
+    let cancelled = false;
+    let inFlight = false;
+
+    const load = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const rows = await services.sales.tableStatus(branchId);
+        if (!cancelled) setResult({ branchId, rows, error: null });
+      } catch (caught) {
+        if (!cancelled) {
+          setResult({
+            branchId,
+            rows: null,
+            error: caught instanceof Error ? caught : new Error(String(caught)),
+          });
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    loadRef.current = load;
+    void load();
+    const timer = window.setInterval(() => void load(), TABLE_STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      if (loadRef.current === load) loadRef.current = null;
+    };
+  }, [live, branchId]);
+
+  const reload = useCallback(() => {
+    void loadRef.current?.();
+  }, []);
+
+  const local = useMemo<TableStatusRow[] | null>(() => {
+    if (live) return null;
+    const branch = branchId ?? state.branchId;
+    if (!branch) return null;
+    return tablesOf(state)
+      .filter((table) => table.branchId === branch)
+      .map((table) => {
+        const order = table.orderId ? state.orders[table.orderId] : undefined;
+        // The demo floor has richer states; the Dashboard only ever shows the
+        // three the backend actually models.
+        const occupied = table.state !== "available" && table.state !== "needs_cleaning";
+        return {
+          id: table.id,
+          label: table.label,
+          section: table.area.en,
+          seatCapacity: table.capacity,
+          occupancy: occupied ? ("occupied" as const) : ("available" as const),
+          activeOrder:
+            occupied && order
+              ? {
+                  id: order.id,
+                  businessDay: order.businessDay,
+                  orderNumber: order.orderNumber,
+                  state: order.state,
+                  version: order.version ?? 0,
+                }
+              : null,
+          conflictingOrders: [],
+        };
+      });
+  }, [live, branchId, state]);
+
+  if (!live) {
+    return { rows: local, ready: deviceReady, error: null, live: false, reload: () => {} };
+  }
+
+  const current = result && result.branchId === branchId ? result : null;
+  return {
+    rows: current?.rows ?? null,
+    ready: current !== null,
+    error: current?.error ?? null,
     live: true,
     reload,
   };

@@ -37318,6 +37318,223 @@
           "sales"
         ]
       }
+    },
+    "/orders/tables/status": {
+      "get": {
+        "operationId": "OrdersController_tableStatus",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "activeOrder": {
+                        "description": "Present ONLY when occupancy is `occupied`.",
+                        "properties": {
+                          "businessDay": {
+                            "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                            "example": "2026-08-23",
+                            "format": "date",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                            "type": "string"
+                          },
+                          "firstFiredAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "guestCount": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "description": "The permanent order id (Order Reference) \u2014 resume with it.",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "openedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "orderNumber": {
+                            "example": "MAIN-7",
+                            "type": "string"
+                          },
+                          "state": {
+                            "enum": [
+                              "draft",
+                              "open",
+                              "held",
+                              "parked",
+                              "partially_paid"
+                            ],
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "integer"
+                          }
+                        },
+                        "type": [
+                          "object",
+                          "null"
+                        ]
+                      },
+                      "conflictingOrders": {
+                        "description": "Non-empty ONLY when occupancy is `ambiguous`.",
+                        "items": {
+                          "properties": {
+                            "businessDay": {
+                              "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                              "example": "2026-08-23",
+                              "format": "date",
+                              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                              "type": "string"
+                            },
+                            "firstFiredAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "guestCount": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "id": {
+                              "description": "The permanent order id (Order Reference) \u2014 resume with it.",
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "openedAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "orderNumber": {
+                              "example": "MAIN-7",
+                              "type": "string"
+                            },
+                            "state": {
+                              "enum": [
+                                "draft",
+                                "open",
+                                "held",
+                                "parked",
+                                "partially_paid"
+                              ],
+                              "type": "string"
+                            },
+                            "version": {
+                              "type": "integer"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "id": {
+                        "description": "The value to send back as tableId when opening a dine-in order.",
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "occupancy": {
+                        "description": "Derived from active dine-in orders. `ambiguous` = historical/bad data left 2+ active orders on this table; see `conflictingOrders`.",
+                        "enum": [
+                          "available",
+                          "occupied",
+                          "ambiguous"
+                        ],
+                        "type": "string"
+                      },
+                      "seatCapacity": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "section": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every table of the branch, with derived occupancy."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown or cross-tenant resource."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "A branch's tables with their derived dine-in occupancy (Dashboard Table Status).",
+        "tags": [
+          "sales"
+        ]
+      }
     }
   },
   "info": {

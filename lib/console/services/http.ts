@@ -58,7 +58,6 @@ import type {
   Order,
   PriceList,
   Recipe,
-  RestaurantTable,
   Role,
   StockAdjustment,
   StockItem,
@@ -2332,7 +2331,16 @@ async function tables() {
   // DINE-IN-TABLE-SELECTOR-RESUME-P0 — occupancy is the backend's derived
   // truth, passed through untouched. Nothing here (or anywhere client-side)
   // decides whether a table is free.
-  return rows.map((row) => ({
+  return rows.map(toTableRow);
+}
+
+/**
+ * The ONE mapping of a `GET /orders/tables[/status]` item — POS list and
+ * Dashboard status share it, exactly as the backend shares one occupancy
+ * algorithm behind both.
+ */
+function toTableRow(row: S.OrdersController_tableStatusResponse[number]) {
+  return {
     id: row.id,
     label: row.label,
     section: row.section,
@@ -2340,7 +2348,19 @@ async function tables() {
     occupancy: row.occupancy,
     activeOrder: row.activeOrder ? toTableOrderRef(row.activeOrder) : null,
     conflictingOrders: (row.conflictingOrders ?? []).map(toTableOrderRef),
-  }));
+  };
+}
+
+/**
+ * DASHBOARD-TABLE-STATUS-LIVE-P0 — `GET /orders/tables/status?branchId=`
+ * (`pos.order.view_history`). One request for the whole branch; occupancy is
+ * the backend's, never derived from orders here. A 403 (branch outside the
+ * caller's scope) or 404 (unknown/foreign branch) propagates — it is never
+ * turned into an empty or "all available" list.
+ */
+async function tableStatus(branchId: string) {
+  const rows = await api.sales.tableStatus({ branchId });
+  return rows.map(toTableRow);
 }
 
 function toTableOrderRef(order: {
@@ -2478,6 +2498,7 @@ const sales: SalesService = {
   reasonCodes,
   tables,
   selectTable,
+  tableStatus,
   findOrderByReference,
   searchOrdersByNumber,
   listOrderHistoryPage,
@@ -3333,6 +3354,35 @@ async function kitchenOverview(
   };
 }
 
+/**
+ * DASHBOARD-TABLE-STATUS-LIVE-P0 — the "Tables occupied" tile's numbers.
+ *
+ * This tile used to count Organisation table records whose `state` was not
+ * "available" — but `map.toTable` hard-codes every table to "available", so
+ * it always read 0 of N: a fabricated figure. It now reads the backend's
+ * derived occupancy (the same source as the Table Status page and the POS),
+ * and only for a CONCRETE branch: "All branches" would need one request per
+ * branch and a merge nothing asked for, so it stays a dash. Any refusal
+ * (403 out-of-scope, 404, network) is a dash too — never a fabricated zero.
+ *
+ * "Occupied" here is every table the backend does not call available, so a
+ * table in conflict (2+ active orders) is counted: it is not free.
+ */
+async function tableStatusSummary(
+  scope: Scope,
+): Promise<{ occupied: number; total: number } | null> {
+  if (!scope.branchId) return null;
+  try {
+    const rows = await tableStatus(scope.branchId);
+    return {
+      occupied: rows.filter((row) => row.occupancy !== "available").length,
+      total: rows.length,
+    };
+  } catch {
+    return null;
+  }
+}
+
 const dashboard: DashboardService = {
   async get(scope) {
     const [
@@ -3343,7 +3393,7 @@ const dashboard: DashboardService = {
       low,
       negative,
       terminalPage,
-      tablePage,
+      tableSummary,
       kitchenSummary,
     ] = await Promise.all([
       orders.list({ scope, offset: 0, limit: ORDER_SCAN_LIMIT }),
@@ -3353,7 +3403,9 @@ const dashboard: DashboardService = {
       inventory.lowStock({ scope }).catch(() => []),
       inventory.negativeStock({ scope }).catch(() => []),
       operations.terminals({ scope, limit: 200 }).catch(() => emptyPage<Terminal>()),
-      operations.tables({ scope, limit: 500 }).catch(() => emptyPage<RestaurantTable>()),
+      // DASHBOARD-TABLE-STATUS-LIVE-P0 — the backend's own occupancy, not a
+      // count of Organisation table records (whose `state` is never set).
+      tableStatusSummary(scope),
       // `null`, not zero, when it cannot be read at all: "0 in the queue" is
       // a worse answer than "—" to a full kitchen. See `kitchenOverview`.
       kitchenOverview(scope).catch(() => null),
@@ -3535,7 +3587,6 @@ const dashboard: DashboardService = {
 
     // -- Live ----------------------------------------------------------------
 
-    const tables = tablePage.rows;
     const terminals = terminalPage.rows;
 
     return {
@@ -3587,12 +3638,8 @@ const dashboard: DashboardService = {
 
       live: {
         openOrders: today.filter((row) => OPEN_STATES.has(row.state)).length,
-        // No `occupied` state exists: a table is occupied when it is neither
-        // free nor being turned around between covers.
-        tablesOccupied: tables.filter(
-          (row) => row.state !== "available" && row.state !== "needs_cleaning",
-        ).length,
-        tablesTotal: tables.length,
+        tablesOccupied: tableSummary?.occupied ?? null,
+        tablesTotal: tableSummary?.total ?? null,
         kitchenQueueDepth: kitchenSummary?.openTickets ?? null,
         averageWaitSeconds: kitchenSummary?.averageWaitSeconds ?? null,
         // `degraded` is neither: it is reachable but unhealthy, and counting

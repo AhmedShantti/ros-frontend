@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 161 paths, 111 request DTOs.
+ * `api/openapi.json`. 162 paths, 111 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -6785,6 +6785,43 @@ export type OrdersController_selectDineInTableResponse = {
 
 export type OrdersController_selectDineInTableBody = SelectDineInTableDto;
 
+/** `GET /orders/tables/status` — A branch's tables with their derived dine-in occupancy (Dashboard Table Status). — Every table of the branch, with derived occupancy. */
+export type OrdersController_tableStatusResponse = ({
+  /** Present ONLY when occupancy is `occupied`. */
+  activeOrder: {
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    firstFiredAt: string | null;
+    guestCount: number | null;
+    /** The permanent order id (Order Reference) — resume with it. */
+    id: string;
+    openedAt: string;
+    orderNumber: string;
+    state: "draft" | "open" | "held" | "parked" | "partially_paid";
+    version: number;
+  } | null;
+  /** Non-empty ONLY when occupancy is `ambiguous`. */
+  conflictingOrders: ({
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    firstFiredAt: string | null;
+    guestCount: number | null;
+    /** The permanent order id (Order Reference) — resume with it. */
+    id: string;
+    openedAt: string;
+    orderNumber: string;
+    state: "draft" | "open" | "held" | "parked" | "partially_paid";
+    version: number;
+  })[];
+  /** The value to send back as tableId when opening a dine-in order. */
+  id: string;
+  label: string;
+  /** Derived from active dine-in orders. `ambiguous` = historical/bad data left 2+ active orders on this table; see `conflictingOrders`. */
+  occupancy: "available" | "occupied" | "ambiguous";
+  seatCapacity: number | null;
+  section: string | null;
+})[];
+
 // ---------------------------------------------------------------------------
 // Route table
 // ---------------------------------------------------------------------------
@@ -7000,6 +7037,7 @@ export const ROUTES = {
   OrdersController_preBill: { method: "GET", path: "/orders/{businessDay}/{id}/pre-bill" },
   KitchenQueueController_getBranchQueue: { method: "GET", path: "/kitchen/branches/{branchId}/queue" },
   OrdersController_selectDineInTable: { method: "POST", path: "/orders/tables/{tableId}/select" },
+  OrdersController_tableStatus: { method: "GET", path: "/orders/tables/status" },
 } as const;
 
 /** Every operation the document describes. */

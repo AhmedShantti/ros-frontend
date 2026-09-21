@@ -42,6 +42,7 @@ import {
   ShoppingCart,
   Sparkles,
   Store,
+  LayoutGrid,
   Table2,
   Target,
   Tags,
@@ -144,6 +145,13 @@ export const NAV_SECTIONS: NavSection[] = [
        * is the least-privilege pair that exactly matches real route access.
        */
       { href: "/operations/tables", labelKey: "nav.tables", icon: Table2, permissions: ["settings.branch.read", "settings.branch.manage"] },
+      /**
+       * DASHBOARD-TABLE-STATUS-LIVE-P0 — live occupancy (`GET /orders/tables/
+       * status`), a different thing from the table SETUP page above and gated
+       * on the real back-office order grant it requires, never on
+       * `settings.branch.read` (the setup page's code).
+       */
+      { href: "/operations/table-status", labelKey: "nav.tableStatus", icon: LayoutGrid, permissions: ["pos.order.view_history"] },
       { href: "/operations/kitchen", labelKey: "nav.kitchen", icon: ChefHat, permissions: ["kitchen.queue.view"] },
       { href: "/operations/terminals", labelKey: "nav.terminals", icon: MonitorSmartphone, permissions: ["ops.terminal.view"] },
       { href: "/operations/stations", labelKey: "nav.stations", icon: Layers, permissions: ["settings.branch.manage"] },

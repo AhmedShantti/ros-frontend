@@ -51,7 +51,8 @@ export const consoleEn = {
   "nav.operations": "Orders & Operations",
   "nav.orders": "Orders",
   "nav.openOrders": "Open orders",
-  "nav.tables": "Table status",
+  "nav.tables": "Tables",
+  "nav.tableStatus": "Table status",
   "nav.kitchen": "Kitchen queue",
   "nav.terminals": "Terminals",
   "nav.stations": "Stations",
@@ -395,6 +396,12 @@ export const consoleEn = {
   "tables.occupancy": "Occupancy",
   "tables.free": "Free",
   "tables.selectBranch": "Choose a single branch to see its floor plan.",
+  // DASHBOARD-TABLE-STATUS-LIVE-P0 — `app/(console)/operations/table-status/page.tsx`.
+  "tableStatus.subtitle": "Which tables have an active dine-in order right now, read live from the backend.",
+  "tableStatus.selectBranch": "Choose a single branch to see its tables.",
+  "tableStatus.conflictNote": "{n} active orders on this table. A manager or admin must resolve the duplicates.",
+  "tableStatus.forbidden": "You are not authorized to view table status for this branch.",
+  "tableStatus.notFound": "This branch is unavailable.",
 
   // Kitchen
   "kitchen.title": "Kitchen queue",

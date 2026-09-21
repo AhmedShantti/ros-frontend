@@ -70,6 +70,10 @@ export const sales = {
   selectDineInTable: (tableId: string, body: S.SelectDineInTableDto) =>
     http.post<S.OrdersController_selectDineInTableResponse>("/orders/tables/{tableId}/select", { params: { tableId }, body, idempotent: true }),
 
+  /** `GET /orders/tables/status` — A branch's tables with their derived dine-in occupancy (Dashboard Table Status). — Every table of the branch, with derived occupancy. */
+  tableStatus: (options: { branchId?: string } = {}) =>
+    http.get<S.OrdersController_tableStatusResponse>("/orders/tables/status", { query: { branchId: options.branchId } }),
+
   /** `GET /orders/{businessDay}/{id}` — One order, with its persisted line snapshots. — The order, including its lines. */
   findOne: (businessDay: string, id: string) =>
     http.get<S.OrdersController_findOneResponse>("/orders/{businessDay}/{id}", { params: { businessDay, id } }),

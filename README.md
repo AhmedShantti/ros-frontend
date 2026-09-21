@@ -72,7 +72,8 @@ depletes when a line is fired rather than when the bill is paid.
 | `/dashboard`              | The eight figures an owner acts on, plus today's live take |
 | `/orders`                 | Every order with its line detail, costs and payments      |
 | `/operations/open-orders` | What is on the floor now, oldest first                   |
-| `/operations/tables`      | Table state and time since seated                        |
+| `/operations/tables`      | Table setup: label, section and seat capacity            |
+| `/operations/table-status`| Live table occupancy — Available / Occupied / Conflict — from the backend |
 | `/operations/kitchen`     | The queue, average ticket time, bottleneck station        |
 | `/inventory/levels`       | Live on-hand, what the shift moved, negatives shown       |
 | `/inventory/movements`    | The append-only ledger every balance derives from         |

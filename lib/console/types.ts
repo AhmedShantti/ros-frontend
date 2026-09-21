@@ -2066,8 +2066,13 @@ export interface BranchRankingRow {
  */
 export interface LiveOperationsSnapshot {
   openOrders: number;
-  tablesOccupied: number;
-  tablesTotal: number;
+  /**
+   * DASHBOARD-TABLE-STATUS-LIVE-P0 — from the backend's derived occupancy
+   * (`GET /orders/tables/status`) for ONE branch; null (a dash, never a
+   * zero) when no single branch is in scope or the read is refused.
+   */
+  tablesOccupied: number | null;
+  tablesTotal: number | null;
   kitchenQueueDepth: number | null;
   averageWaitSeconds: number | null;
   activeTerminals: number;

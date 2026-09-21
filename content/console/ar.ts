@@ -53,7 +53,8 @@ export const consoleAr: ConsoleCopy = {
   "nav.operations": "الطلبات والعمليات",
   "nav.orders": "الطلبات",
   "nav.openOrders": "الطلبات المفتوحة",
-  "nav.tables": "حالة الطاولات",
+  "nav.tables": "الطاولات",
+  "nav.tableStatus": "حالة الطاولات",
   "nav.kitchen": "طابور المطبخ",
   "nav.terminals": "الأجهزة",
   "nav.stations": "محطات التحضير",
@@ -393,6 +394,12 @@ export const consoleAr: ConsoleCopy = {
   "tables.occupancy": "نسبة الإشغال",
   "tables.free": "متاحة",
   "tables.selectBranch": "اختر فرعًا واحدًا لعرض مخطط صالته.",
+  // DASHBOARD-TABLE-STATUS-LIVE-P0 — `app/(console)/operations/table-status/page.tsx`.
+  "tableStatus.subtitle": "الطاولات التي عليها طلب صالة نشط الآن، تُقرأ مباشرة من الخادم.",
+  "tableStatus.selectBranch": "اختر فرعًا واحدًا لعرض طاولاته.",
+  "tableStatus.conflictNote": "{n} طلبات نشطة على هذه الطاولة. يجب أن يعالج مدير أو مسؤول التكرار.",
+  "tableStatus.forbidden": "لا تملك صلاحية عرض حالة الطاولات لهذا الفرع.",
+  "tableStatus.notFound": "هذا الفرع غير متاح.",
 
   "kitchen.title": "طابور المطبخ",
   "kitchen.subtitle": "ما تنظر إليه المحطات الآن، ملوّنًا حسب الزمن المنقضي مقابل المستهدف.",
