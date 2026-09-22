@@ -448,3 +448,22 @@ a wired-up endpoint ends up with nothing calling it. Extend the interface in
 honestly there via `noBackend()` beats inventing rows — and then build the
 screen. The cash-drawer close is the worked example: seven endpoints, one new
 service contract, and `components/terminal/pos-drawer.tsx`.
+
+## Menu Management (`/menu/management`)
+
+A one-workspace menu editor, added beside the existing `/menu/*` screens so
+the two can be compared. It does **not** go through `services` — it has its
+own small data layer in `lib/console/menu-management/`:
+
+- `api.ts` — the `MenuManagementApi` interface and the one switch:
+  `NEXT_PUBLIC_MENU_MANAGEMENT_API=http` selects `http-adapter.ts`; anything
+  else selects `memory-adapter.ts`, an empty in-memory store.
+- `http-adapter.ts` — every call, through `lib/api/client` (same base URL,
+  auth and error handling as the rest of the console), under
+  `/menu-management/*`.
+
+The endpoints and JSON shapes it expects are in
+[`docs/MENU_MANAGEMENT_API.md`](docs/MENU_MANAGEMENT_API.md); none of them
+exist on the backend yet, which is why memory is the default even when
+`NEXT_PUBLIC_API_URL` is set. The manual test checklist is
+[`docs/MENU_MANAGEMENT_TESTING.md`](docs/MENU_MANAGEMENT_TESTING.md).

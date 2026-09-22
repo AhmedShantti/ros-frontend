@@ -1922,6 +1922,7 @@ export const consoleAr: ConsoleCopy = {
   "menu.scopeTenant": "كل المستأجر",
   "menu.scopeBrand": "علامة واحدة",
   "menu.scopeBranch": "فرع واحد",
+  "nav.menuManagement": "إدارة القائمة",
   "nav.menus": "القوائم",
   "menu.menusTitle": "القوائم",
   "menu.menusSubtitle": "القائمة التي يقدّمها كل فرع، وأيّها تُرجَّح عند تعدّدها.",

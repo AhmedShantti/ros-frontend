@@ -1930,6 +1930,7 @@ export const consoleEn = {
   "menu.scopeTenant": "Whole tenant",
   "menu.scopeBrand": "One brand",
   "menu.scopeBranch": "One branch",
+  "nav.menuManagement": "Menu Management",
   "nav.menus": "Menus",
   "menu.menusTitle": "Menus",
   "menu.menusSubtitle": "Which menu each branch serves, and which one wins when several apply.",
