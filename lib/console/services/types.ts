@@ -350,6 +350,72 @@ export interface StationRoutingRule {
   priority: number;
 }
 
+/**
+ * KITCHEN-DISPLAY-SETUP-FRONTEND-P0 — a station exactly as `GET
+ * .../kitchen-setup` describes it: `id`, `branchId`, `name`, `displayColour`
+ * (nullable), and a `capacityPerHour` read out of the opaque
+ * `capacityConfig` blob when present. Deliberately NOT `Station` — that
+ * type's `type` field is a client-side guess against the station's name
+ * (`map.toStation`'s `stationType()`) and its `active` is a hardcoded `true`
+ * with no backing column (`// gap: stations have no status on the API`).
+ * This manager-setup surface must show only what the backend truthfully
+ * supplies, never a fabricated type or an invented Active/Inactive state.
+ */
+export interface KitchenSetupStation {
+  id: Id;
+  branchId: Id;
+  name: Localised;
+  displayColour: string | null;
+  capacityPerHour: number | null;
+}
+
+/**
+ * KITCHEN-DISPLAY-SETUP-FRONTEND-P0 — which FR-KDS-010/011 routing tiers
+ * this backend actually implements, restated verbatim from
+ * `GET .../kitchen-setup`'s own `capabilities` block. Never inferred or
+ * assumed client-side.
+ */
+export interface KitchenSetupCapabilities {
+  itemRouting: boolean;
+  categoryRouting: boolean;
+  modifierRouting: boolean;
+  lineOverride: boolean;
+  multiStation: boolean;
+  fallback: boolean;
+}
+
+/**
+ * KITCHEN-DISPLAY-SETUP-FRONTEND-P0 — the manager Console's read of
+ * `GET /org/branches/{branchId}/kitchen-setup`: stations, routing rules,
+ * the branch fallback station, and the two canonical KDS settings, composed
+ * server-side from the same canonical Organisation data the existing
+ * station/routing-rule/kds-config endpoints already serve. `branchId` is
+ * carried on the shape itself so a caller can tell a stale response (from a
+ * branch that has since been switched away from) apart from a fresh one.
+ */
+export interface KitchenSetup {
+  branchId: Id;
+  stations: KitchenSetupStation[];
+  routingRules: StationRoutingRule[];
+  fallbackStationId: Id | null;
+  recallWindowSeconds: number;
+  cancelledLineVisibilitySeconds: number | null;
+  capabilities: KitchenSetupCapabilities;
+}
+
+/** Partial update — a field left `undefined` is unchanged (true PATCH). */
+export interface KitchenConfigPatch {
+  fallbackStationId?: Id | null;
+  recallWindowSeconds?: number;
+  cancelledLineVisibilitySeconds?: number | null;
+}
+
+export interface KitchenConfig {
+  fallbackStationId: Id | null;
+  recallWindowSeconds: number;
+  cancelledLineVisibilitySeconds: number | null;
+}
+
 export interface OrganisationService {
   tenants: ReadonlyCollectionService<Tenant>;
   brands: CollectionService<Brand>;
@@ -397,6 +463,28 @@ export interface OrganisationService {
 
   /** One station, by id — the detail behind a routing rule. */
   station(stationId: Id): Promise<Station | null>;
+
+  // -- Kitchen Display Setup (manager Console) --------------------------------
+  /** The manager-safe, N+1-free Kitchen Display Setup read for one branch. */
+  getKitchenSetup(branchId: Id): Promise<KitchenSetup>;
+  /**
+   * True partial update of the branch's KDS fallback station, recall
+   * window, and cancelled-line visibility window — a field omitted from
+   * `patch` is left unchanged.
+   */
+  updateKitchenConfig(branchId: Id, patch: KitchenConfigPatch): Promise<KitchenConfig>;
+  /**
+   * Reassigns an EXISTING routing rule to a different destination station.
+   * The rule's selector (menuItemId/categoryId/modifierId) is immutable —
+   * routing a different selector is a new rule via `addStationRoutingRule`.
+   */
+  updateStationRoutingRule(branchId: Id, ruleId: Id, stationId: Id): Promise<StationRoutingRule>;
+  /**
+   * Removes a routing rule. Future Fire resolutions fall through to
+   * whichever lower-precedence tier still applies; already-fired tickets
+   * are never affected.
+   */
+  removeStationRoutingRule(branchId: Id, ruleId: Id): Promise<void>;
 }
 
 export interface CatalogueService {

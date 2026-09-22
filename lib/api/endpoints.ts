@@ -39,13 +39,13 @@ export const sales = {
    * Verified correct against the real, live backend route
    * (`ListOrderHistoryQueryDto`, `src/modules/sales/sales.dto.ts`).
    *
-   * KITCHEN-QUEUE-MANAGER-REAL-BACKEND-P0 — re-hand-patched after
-   * regenerating `endpoints.ts`/`schema.ts` for the new
-   * `GET /kitchen/branches/{branchId}/queue` route (this run's own
-   * `api/openapi.json` merge added only that ONE new path, leaving
-   * `/orders/history`'s entry exactly as already committed — unchanged,
-   * `state`-less — so a plain regen reproduces this same gap; nothing about
-   * the `state` filter's own backend behavior changed).
+   * KITCHEN-DISPLAY-SETUP-FRONTEND-P0 — re-hand-patched after regenerating
+   * `endpoints.ts`/`schema.ts` for the new Kitchen Display Setup routes
+   * (this run's own `api/openapi.json` merge added only the Kitchen Setup
+   * paths/schemas, leaving `/orders/history`'s entry exactly as already
+   * committed — unchanged, `state`-less — so a plain regen reproduces this
+   * same gap; nothing about the `state` filter's own backend behavior
+   * changed).
    */
   history: (options: { branchId?: string; cursorId?: string; cursorBusinessDay?: string; limit?: number; state?: "open" } = {}) =>
     http.get<S.OrdersController_historyResponse>("/orders/history", { query: { branchId: options.branchId, cursorId: options.cursorId, cursorBusinessDay: options.cursorBusinessDay, limit: options.limit, state: options.state } }),
@@ -65,14 +65,6 @@ export const sales = {
   /** `GET /orders/tables` — The caller's own branch's dine-in tables, for the POS table picker. — Tables at this POS session's own branch. */
   listTables: () =>
     http.get<S.OrdersController_listTablesResponse>("/orders/tables"),
-
-  /** `POST /orders/tables/{tableId}/select` — Select a Dine-In table: create the one active order, or resume the existing one. — The table already had its active order: that SAME order, unchanged. */
-  selectDineInTable: (tableId: string, body: S.SelectDineInTableDto) =>
-    http.post<S.OrdersController_selectDineInTableResponse>("/orders/tables/{tableId}/select", { params: { tableId }, body, idempotent: true }),
-
-  /** `GET /orders/tables/status` — A branch's tables with their derived dine-in occupancy (Dashboard Table Status). — Every table of the branch, with derived occupancy. */
-  tableStatus: (options: { branchId?: string } = {}) =>
-    http.get<S.OrdersController_tableStatusResponse>("/orders/tables/status", { query: { branchId: options.branchId } }),
 
   /** `GET /orders/{businessDay}/{id}` — One order, with its persisted line snapshots. — The order, including its lines. */
   findOne: (businessDay: string, id: string) =>
@@ -125,6 +117,14 @@ export const sales = {
   /** `GET /orders/{businessDay}/{id}/pre-bill` — A non-fiscal PRE-BILL for an order still in progress (SRS UC-POS-01). — The pre-bill document, reflecting the order exactly as it currently stands. */
   preBill: (businessDay: string, id: string) =>
     http.get<S.OrdersController_preBillResponse>("/orders/{businessDay}/{id}/pre-bill", { params: { businessDay, id } }),
+
+  /** `POST /orders/tables/{tableId}/select` — Select a Dine-In table: create the one active order, or resume the existing one. — The table already had its active order: that SAME order, unchanged. */
+  selectDineInTable: (tableId: string, body: S.SelectDineInTableDto) =>
+    http.post<S.OrdersController_selectDineInTableResponse>("/orders/tables/{tableId}/select", { params: { tableId }, body, idempotent: true }),
+
+  /** `GET /orders/tables/status` — A branch's tables with their derived dine-in occupancy (Dashboard Table Status). — Every table of the branch, with derived occupancy. */
+  tableStatus: (options: { branchId?: string } = {}) =>
+    http.get<S.OrdersController_tableStatusResponse>("/orders/tables/status", { query: { branchId: options.branchId } }),
 
 };
 
@@ -415,6 +415,22 @@ export const organisation = {
   /** `PATCH /org/branches/{branchId}/kds-config` — The updated KDS routing fallback configuration. `fallbackStationId: null` clears it — kitchen routing tiers 1-4 (line override, modifier, menu item, category) are never affected and still take precedence. */
   setBranchKdsConfig: (branchId: string, body: S.SetBranchKdsConfigDto) =>
     http.patch<S.OrganisationController_setBranchKdsConfigResponse>("/org/branches/{branchId}/kds-config", { params: { branchId }, body }),
+
+  /** `GET /org/branches/{branchId}/kitchen-setup` — Manager-safe Kitchen Display Setup read for a branch: stations, station-routing rules (grouped by item/category/modifier), the branch fallback station, canonical KDS settings, and which FR-KDS-010/011 routing tiers this backend actually implements. — The branch Kitchen Display Setup configuration. */
+  getKitchenSetup: (branchId: string) =>
+    http.get<S.OrganisationController_getKitchenSetupResponse>("/org/branches/{branchId}/kitchen-setup", { params: { branchId } }),
+
+  /** `PATCH /org/branches/{branchId}/kitchen-config` — Partially update the branch KDS fallback station, recall window, and cancelled-line visibility window. Fields omitted from the body are left unchanged. — The updated KDS configuration (all three canonical fields). */
+  updateKitchenConfig: (branchId: string, body: S.UpdateBranchKdsConfigDto) =>
+    http.patch<S.OrganisationController_updateKitchenConfigResponse>("/org/branches/{branchId}/kitchen-config", { params: { branchId }, body }),
+
+  /** `PATCH /org/branches/{branchId}/station-routing-rules/{ruleId}` — "Changing" a route reassigns which station an EXISTING rule points to; the selector (menuItemId/categoryId/modifierId) is immutable here — `POST .../station-routing-rules` already covers "route a different item/category/modifier". A previously-fired `Ticket` snapshots its `stationId` at Fire time and carries no FK to this table, so this never mutates ticket history — only future resolutions. — The updated station-routing rule. */
+  updateStationRoutingRule: (branchId: string, ruleId: string, body: S.UpdateStationRoutingRuleDto) =>
+    http.patch<S.OrganisationController_updateStationRoutingRuleResponse>("/org/branches/{branchId}/station-routing-rules/{ruleId}", { params: { branchId, ruleId }, body }),
+
+  /** `DELETE /org/branches/{branchId}/station-routing-rules/{ruleId}` — Remove an obsolete station-routing rule. Future Fire resolutions fall through to whichever lower-precedence tier still applies (or fail with no destination); already-fired tickets are unaffected. — Rule removed. */
+  removeStationRoutingRule: (branchId: string, ruleId: string) =>
+    http.delete<S.OrganisationController_removeStationRoutingRuleResponse>("/org/branches/{branchId}/station-routing-rules/{ruleId}", { params: { branchId, ruleId } }),
 
 };
 

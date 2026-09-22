@@ -37535,6 +37535,550 @@
           "sales"
         ]
       }
+    },
+    "/org/branches/{branchId}/kitchen-setup": {
+      "get": {
+        "operationId": "OrganisationController_getKitchenSetup",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "capabilities": {
+                      "description": "What FR-KDS-010/011 tiers this backend actually implements today, restated from RoutingResolverService \u2014 never aspirational.",
+                      "properties": {
+                        "categoryRouting": {
+                          "type": "boolean"
+                        },
+                        "fallback": {
+                          "type": "boolean"
+                        },
+                        "itemRouting": {
+                          "type": "boolean"
+                        },
+                        "lineOverride": {
+                          "type": "boolean"
+                        },
+                        "modifierRouting": {
+                          "type": "boolean"
+                        },
+                        "multiStation": {
+                          "type": "boolean"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "routing": {
+                      "properties": {
+                        "fallbackStationId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "rules": {
+                          "description": "Every station-routing rule for the branch, identical to `GET .../station-routing-rules` \u2014 filter client-side on menuItemId/categoryId/modifierId to bucket by selector kind.",
+                          "items": {
+                            "properties": {
+                              "branchId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "categoryId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "id": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "menuItemId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "modifierId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "priority": {
+                                "type": "integer"
+                              },
+                              "stationId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "settings": {
+                      "description": "Only settings that exist canonically on `kitchen.branch_kds_config` (FR-KDS-025/029). Writable via `PATCH .../kitchen-config`.",
+                      "properties": {
+                        "cancelledLineVisibilitySeconds": {
+                          "description": "FR-KDS-029. Null means not yet configured \u2014 the SRS names no default, unlike recallWindowSeconds, so none is guessed here.",
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "recallWindowSeconds": {
+                          "description": "FR-KDS-025. Defaults to 1800 (the schema default) until a branch explicitly configures one.",
+                          "type": "integer"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "stations": {
+                      "items": {
+                        "properties": {
+                          "branchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "capacityConfig": {
+                            "description": "Opaque capacity-config JSON, as stored.",
+                            "type": "object"
+                          },
+                          "createdAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "displayColour": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "displayTerminalId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The branch Kitchen Display Setup configuration."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Branch not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Manager-safe Kitchen Display Setup read for a branch: stations, station-routing rules (grouped by item/category/modifier), the branch fallback station, canonical KDS settings, and which FR-KDS-010/011 routing tiers this backend actually implements.",
+        "tags": [
+          "organisation"
+        ]
+      }
+    },
+    "/org/branches/{branchId}/kitchen-config": {
+      "patch": {
+        "operationId": "OrganisationController_updateKitchenConfig",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBranchKdsConfigDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cancelledLineVisibilitySeconds": {
+                      "description": "FR-KDS-029. Null means not yet configured; no default.",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "fallbackStationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "recallWindowSeconds": {
+                      "description": "FR-KDS-025. Defaults to 1800 until explicitly configured.",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated KDS configuration (all three canonical fields)."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "recallWindowSeconds or cancelledLineVisibilitySeconds is not a positive integer."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Branch not found, or fallbackStationId does not name a station in this branch."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Partially update the branch KDS fallback station, recall window, and cancelled-line visibility window. Fields omitted from the body are left unchanged.",
+        "tags": [
+          "organisation"
+        ]
+      }
+    },
+    "/org/branches/{branchId}/station-routing-rules/{ruleId}": {
+      "delete": {
+        "operationId": "OrganisationController_removeStationRoutingRule",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ruleId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Rule removed."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Station-routing rule not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove an obsolete station-routing rule. Future Fire resolutions fall through to whichever lower-precedence tier still applies (or fail with no destination); already-fired tickets are unaffected.",
+        "tags": [
+          "organisation"
+        ]
+      },
+      "patch": {
+        "operationId": "OrganisationController_updateStationRoutingRule",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ruleId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStationRoutingRuleDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "categoryId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "menuItemId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "modifierId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "priority": {
+                      "type": "integer"
+                    },
+                    "stationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated station-routing rule."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Station-routing rule not found, or station not found in this branch."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A routing rule for this selector and station already exists."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "\"Changing\" a route reassigns which station an EXISTING rule points to;\nthe selector (menuItemId/categoryId/modifierId) is immutable here \u2014\n`POST .../station-routing-rules` already covers \"route a different\nitem/category/modifier\". A previously-fired `Ticket` snapshots its\n`stationId` at Fire time and carries no FK to this table, so this never\nmutates ticket history \u2014 only future resolutions.",
+        "tags": [
+          "organisation"
+        ]
+      }
     }
   },
   "info": {
@@ -40584,6 +41128,39 @@
         "required": [
           "originDeviceTime"
         ],
+        "type": "object"
+      },
+      "UpdateStationRoutingRuleDto": {
+        "properties": {
+          "stationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stationId"
+        ],
+        "type": "object"
+      },
+      "UpdateBranchKdsConfigDto": {
+        "properties": {
+          "cancelledLineVisibilitySeconds": {
+            "minimum": 1,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "fallbackStationId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recallWindowSeconds": {
+            "minimum": 1,
+            "type": "number"
+          }
+        },
         "type": "object"
       }
     }

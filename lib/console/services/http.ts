@@ -767,6 +767,52 @@ const organisation: OrganisationService = {
   async station(stationId) {
     return map.toStation(await api.organisation.getStation(stationId));
   },
+
+  async getKitchenSetup(branchId) {
+    const row = await api.organisation.getKitchenSetup(branchId);
+    return {
+      branchId: row.branchId,
+      stations: row.stations.map(map.toKitchenSetupStation),
+      routingRules: row.routing.rules.map((r) => ({
+        id: r.id,
+        branchId: r.branchId,
+        stationId: r.stationId,
+        categoryId: r.categoryId,
+        menuItemId: r.menuItemId,
+        modifierId: r.modifierId,
+        priority: r.priority,
+      })),
+      fallbackStationId: row.routing.fallbackStationId,
+      recallWindowSeconds: row.settings.recallWindowSeconds,
+      cancelledLineVisibilitySeconds: row.settings.cancelledLineVisibilitySeconds,
+      capabilities: row.capabilities,
+    };
+  },
+
+  async updateKitchenConfig(branchId, patch) {
+    return api.organisation.updateKitchenConfig(branchId, {
+      fallbackStationId: patch.fallbackStationId,
+      recallWindowSeconds: patch.recallWindowSeconds,
+      cancelledLineVisibilitySeconds: patch.cancelledLineVisibilitySeconds,
+    });
+  },
+
+  async updateStationRoutingRule(branchId, ruleId, stationId) {
+    const row = await api.organisation.updateStationRoutingRule(branchId, ruleId, { stationId });
+    return {
+      id: row.id,
+      branchId: row.branchId,
+      stationId: row.stationId,
+      categoryId: row.categoryId,
+      menuItemId: row.menuItemId,
+      modifierId: row.modifierId,
+      priority: row.priority,
+    };
+  },
+
+  async removeStationRoutingRule(branchId, ruleId) {
+    await api.organisation.removeStationRoutingRule(branchId, ruleId);
+  },
 };
 
 // ---------------------------------------------------------------------------

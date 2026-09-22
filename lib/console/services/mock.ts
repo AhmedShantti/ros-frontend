@@ -523,6 +523,82 @@ const organisation: OrganisationService = {
   async station(stationId) {
     return transport(() => stations.find((row) => row.id === stationId) ?? null);
   },
+
+  async getKitchenSetup(branchId) {
+    return transport(() => ({
+      branchId,
+      // Deliberately not the raw `Station` rows: `type` there is a
+      // client-side guess against the name and `active` a hardcoded `true`
+      // — see `KitchenSetupStation`'s own doc for why this page never shows
+      // either.
+      stations: stations
+        .filter((row) => row.branchId === branchId)
+        .map((row) => ({
+          id: row.id,
+          branchId: row.branchId,
+          name: row.name,
+          displayColour: row.colour,
+          capacityPerHour: row.capacityPerHour,
+        })),
+      routingRules: demoStationRouting
+        .filter((row) => row.branchId === branchId)
+        .sort((a, b) => b.priority - a.priority),
+      fallbackStationId: branchKdsConfigByBranch.get(branchId) ?? null,
+      ...kdsSettingsFor(branchId),
+      capabilities: {
+        itemRouting: true,
+        categoryRouting: true,
+        modifierRouting: true,
+        lineOverride: true,
+        multiStation: true,
+        fallback: true,
+      },
+    }));
+  },
+
+  async updateKitchenConfig(branchId, patch) {
+    return transport(() => {
+      if (patch.fallbackStationId !== undefined) {
+        branchKdsConfigByBranch.set(branchId, patch.fallbackStationId);
+      }
+      const current = kdsSettingsFor(branchId);
+      const next = {
+        recallWindowSeconds: patch.recallWindowSeconds ?? current.recallWindowSeconds,
+        cancelledLineVisibilitySeconds:
+          patch.cancelledLineVisibilitySeconds !== undefined
+            ? patch.cancelledLineVisibilitySeconds
+            : current.cancelledLineVisibilitySeconds,
+      };
+      branchKdsSettingsByBranch.set(branchId, next);
+      return { fallbackStationId: branchKdsConfigByBranch.get(branchId) ?? null, ...next };
+    });
+  },
+
+  async updateStationRoutingRule(branchId, ruleId, stationId) {
+    return transport(() => {
+      const index = demoStationRouting.findIndex(
+        (row) => row.id === ruleId && row.branchId === branchId,
+      );
+      if (index === -1) {
+        throw new ServiceError("NOT_FOUND", "Station-routing rule not found.", 404);
+      }
+      const updated = { ...demoStationRouting[index]!, stationId };
+      demoStationRouting[index] = updated;
+      return updated;
+    });
+  },
+
+  async removeStationRoutingRule(branchId, ruleId) {
+    return transport(() => {
+      const index = demoStationRouting.findIndex(
+        (row) => row.id === ruleId && row.branchId === branchId,
+      );
+      if (index === -1) {
+        throw new ServiceError("NOT_FOUND", "Station-routing rule not found.", 404);
+      }
+      demoStationRouting.splice(index, 1);
+    });
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -756,6 +832,29 @@ const stationsCollection: CollectionService<Station> = makeCollection<Station>({
 // `kitchen.branch_kds_config` table (`@id branchId`); absent means null,
 // never a synthesized default.
 const branchKdsConfigByBranch = new Map<Id, Id | null>();
+
+// KITCHEN-DISPLAY-SETUP-FRONTEND-P0 — the other two `branch_kds_config`
+// fields the real `PATCH .../kitchen-config` also writes. Absent means the
+// branch's row has never been configured: `recallWindowSeconds` then reads
+// as the schema default (1800s, FR-KDS-025), `cancelledLineVisibilitySeconds`
+// as `null` (FR-KDS-029 has no default) — same fallback the real backend
+// applies, never a locally-invented one.
+const branchKdsSettingsByBranch = new Map<
+  Id,
+  { recallWindowSeconds: number; cancelledLineVisibilitySeconds: number | null }
+>();
+
+function kdsSettingsFor(branchId: Id): {
+  recallWindowSeconds: number;
+  cancelledLineVisibilitySeconds: number | null;
+} {
+  return (
+    branchKdsSettingsByBranch.get(branchId) ?? {
+      recallWindowSeconds: 1800,
+      cancelledLineVisibilitySeconds: null,
+    }
+  );
+}
 
 const operations: OperationsService = {
   openOrders: (q) => openOrdersCollection.list(q),

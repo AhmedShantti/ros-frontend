@@ -164,6 +164,16 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: "/operations/kitchen", labelKey: "nav.kitchen", icon: ChefHat, permissions: ["kitchen.queue.view"] },
       { href: "/operations/terminals", labelKey: "nav.terminals", icon: MonitorSmartphone, permissions: ["ops.terminal.view"] },
       { href: "/operations/stations", labelKey: "nav.stations", icon: Layers, permissions: ["settings.branch.manage"] },
+      /**
+       * KITCHEN-DISPLAY-SETUP-FRONTEND-P0 — the manager Console setup
+       * surface for stations, routing rules, fallback station and KDS
+       * timing (`GET/PATCH .../kitchen-setup`, `.../kitchen-config`), not
+       * the KDS operator screen (`/kds`, `kds.operate`) and not terminal
+       * pairing. Read requires `settings.branch.read`; mutation controls
+       * are separately gated on `settings.branch.manage` inside the page —
+       * an OR of the two here matches real route access, same as Tables.
+       */
+      { href: "/operations/kitchen-setup", labelKey: "nav.kitchenSetup", icon: Settings, permissions: ["settings.branch.read", "settings.branch.manage"] },
       { href: "/operations/drawers", labelKey: "nav.drawers", icon: Banknote, permissions: ["settings.branch.manage"] },
       { href: "/operations/cash-sessions", labelKey: "nav.openCashSessions", icon: AlertTriangle, permissions: ["cash.session.close_other"] },
     ],

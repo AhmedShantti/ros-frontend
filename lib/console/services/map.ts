@@ -22,7 +22,7 @@
  *     such spot is marked `// gap:` and listed in BACKEND_INTEGRATION.md.
  */
 
-import type { ModifierRecipeEffect, PreBill, Receipt } from "./types";
+import type { KitchenSetupStation, ModifierRecipeEffect, PreBill, Receipt } from "./types";
 
 import type {
   ActorType,
@@ -515,6 +515,27 @@ export function toStation(row: WireStation): Station {
     colour: colourOf(row.displayColour),
     capacityPerHour: numberOf(capacity.perHour ?? capacity.capacityPerHour),
     active: true, // gap: stations have no status on the API.
+  };
+}
+
+type WireKitchenSetupStation =
+  S.OrganisationController_getKitchenSetupResponse["stations"][number];
+
+/**
+ * KITCHEN-DISPLAY-SETUP-FRONTEND-P0 — deliberately NOT `toStation`: that
+ * mapper's `type` is a client-side guess against the station's name and its
+ * `active` is a hardcoded `true` with no backing column. The manager Kitchen
+ * Display Setup page must show only fields the backend truthfully supplies.
+ */
+export function toKitchenSetupStation(row: WireKitchenSetupStation): KitchenSetupStation {
+  const capacity = (row.capacityConfig ?? {}) as Record<string, unknown>;
+  const perHour = capacity.perHour ?? capacity.capacityPerHour;
+  return {
+    id: row.id,
+    branchId: row.branchId,
+    name: localised(row.name),
+    displayColour: row.displayColour,
+    capacityPerHour: typeof perHour === "number" ? perHour : null,
   };
 }
 

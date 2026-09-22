@@ -281,6 +281,8 @@ export const PERMISSION_CATALOGUE = [
     "Create users and assign roles. Requires MFA.", "إنشاء المستخدمين وإسناد الأدوار. يتطلب مصادقة ثنائية.", true),
   def("security.role.manage", "governance", "Manage roles", "إدارة الأدوار",
     "Create and modify roles and their permissions.", "إنشاء الأدوار وصلاحياتها وتعديلها.", true),
+  def("settings.branch.read", "governance", "View branch settings", "عرض إعدادات الفرع",
+    "View a branch's configuration, read-only.", "عرض إعدادات الفرع للاطلاع فقط."),
   def("settings.branch.manage", "governance", "Branch settings", "إعدادات الفرع",
     "Configure a branch.", "ضبط إعدادات الفرع."),
   def("settings.tenant.manage", "governance", "Tenant settings", "إعدادات المستأجر",

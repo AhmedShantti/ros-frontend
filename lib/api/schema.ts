@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 162 paths, 111 request DTOs.
+ * `api/openapi.json`. 165 paths, 113 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -903,6 +903,16 @@ export interface SelectDineInTableDto {
   notes?: string;
   openedByEmployeeId?: string;
   originDeviceTime: string;
+}
+
+export interface UpdateStationRoutingRuleDto {
+  stationId: string;
+}
+
+export interface UpdateBranchKdsConfigDto {
+  cancelledLineVisibilitySeconds?: number | null;
+  fallbackStationId?: string | null;
+  recallWindowSeconds?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -6822,6 +6832,77 @@ export type OrdersController_tableStatusResponse = ({
   section: string | null;
 })[];
 
+/** `GET /org/branches/{branchId}/kitchen-setup` — Manager-safe Kitchen Display Setup read for a branch: stations, station-routing rules (grouped by item/category/modifier), the branch fallback station, canonical KDS settings, and which FR-KDS-010/011 routing tiers this backend actually implements. — The branch Kitchen Display Setup configuration. */
+export type OrganisationController_getKitchenSetupResponse = {
+  branchId: string;
+  /** What FR-KDS-010/011 tiers this backend actually implements today, restated from RoutingResolverService — never aspirational. */
+  capabilities: {
+    categoryRouting: boolean;
+    fallback: boolean;
+    itemRouting: boolean;
+    lineOverride: boolean;
+    modifierRouting: boolean;
+    multiStation: boolean;
+  };
+  routing: {
+    fallbackStationId: string | null;
+    /** Every station-routing rule for the branch, identical to `GET .../station-routing-rules` — filter client-side on menuItemId/categoryId/modifierId to bucket by selector kind. */
+    rules: ({
+      branchId: string;
+      categoryId: string | null;
+      id: string;
+      menuItemId: string | null;
+      modifierId: string | null;
+      priority: number;
+      stationId: string;
+    })[];
+  };
+  /** Only settings that exist canonically on `kitchen.branch_kds_config` (FR-KDS-025/029). Writable via `PATCH .../kitchen-config`. */
+  settings: {
+    /** FR-KDS-029. Null means not yet configured — the SRS names no default, unlike recallWindowSeconds, so none is guessed here. */
+    cancelledLineVisibilitySeconds: number | null;
+    /** FR-KDS-025. Defaults to 1800 (the schema default) until a branch explicitly configures one. */
+    recallWindowSeconds: number;
+  };
+  stations: ({
+    branchId: string;
+    /** Opaque capacity-config JSON, as stored. */
+    capacityConfig: Record<string, unknown>;
+    createdAt: string;
+    displayColour: string | null;
+    displayTerminalId: string | null;
+    id: string;
+    name: string;
+  })[];
+};
+
+/** `PATCH /org/branches/{branchId}/kitchen-config` — Partially update the branch KDS fallback station, recall window, and cancelled-line visibility window. Fields omitted from the body are left unchanged. — The updated KDS configuration (all three canonical fields). */
+export type OrganisationController_updateKitchenConfigResponse = {
+  /** FR-KDS-029. Null means not yet configured; no default. */
+  cancelledLineVisibilitySeconds: number | null;
+  fallbackStationId: string | null;
+  /** FR-KDS-025. Defaults to 1800 until explicitly configured. */
+  recallWindowSeconds: number;
+};
+
+export type OrganisationController_updateKitchenConfigBody = UpdateBranchKdsConfigDto;
+
+/** `PATCH /org/branches/{branchId}/station-routing-rules/{ruleId}` — "Changing" a route reassigns which station an EXISTING rule points to; the selector (menuItemId/categoryId/modifierId) is immutable here — `POST .../station-routing-rules` already covers "route a different item/category/modifier". A previously-fired `Ticket` snapshots its `stationId` at Fire time and carries no FK to this table, so this never mutates ticket history — only future resolutions. — The updated station-routing rule. */
+export type OrganisationController_updateStationRoutingRuleResponse = {
+  branchId: string;
+  categoryId: string | null;
+  id: string;
+  menuItemId: string | null;
+  modifierId: string | null;
+  priority: number;
+  stationId: string;
+};
+
+export type OrganisationController_updateStationRoutingRuleBody = UpdateStationRoutingRuleDto;
+
+/** `DELETE /org/branches/{branchId}/station-routing-rules/{ruleId}` — Remove an obsolete station-routing rule. Future Fire resolutions fall through to whichever lower-precedence tier still applies (or fail with no destination); already-fired tickets are unaffected. — Rule removed. */
+export type OrganisationController_removeStationRoutingRuleResponse = void;
+
 // ---------------------------------------------------------------------------
 // Route table
 // ---------------------------------------------------------------------------
@@ -7038,6 +7119,10 @@ export const ROUTES = {
   KitchenQueueController_getBranchQueue: { method: "GET", path: "/kitchen/branches/{branchId}/queue" },
   OrdersController_selectDineInTable: { method: "POST", path: "/orders/tables/{tableId}/select" },
   OrdersController_tableStatus: { method: "GET", path: "/orders/tables/status" },
+  OrganisationController_getKitchenSetup: { method: "GET", path: "/org/branches/{branchId}/kitchen-setup" },
+  OrganisationController_updateKitchenConfig: { method: "PATCH", path: "/org/branches/{branchId}/kitchen-config" },
+  OrganisationController_updateStationRoutingRule: { method: "PATCH", path: "/org/branches/{branchId}/station-routing-rules/{ruleId}" },
+  OrganisationController_removeStationRoutingRule: { method: "DELETE", path: "/org/branches/{branchId}/station-routing-rules/{ruleId}" },
 } as const;
 
 /** Every operation the document describes. */
