@@ -10,6 +10,7 @@
  */
 
 import {
+  Activity,
   AlertTriangle,
   BookOpen,
   ArrowLeftRight,
@@ -125,6 +126,14 @@ export const NAV_SECTIONS: NavSection[] = [
        * NEVER what these two console pages call.
        */
       { href: "/orders", labelKey: "nav.orders", icon: ReceiptText, permissions: ["pos.order.view_history"], matchPrefix: true },
+      /**
+       * LIVE-OPERATIONS-P0 — a branch-level cockpit assembled entirely from
+       * the three feeds below it (Open Orders, Table Status, Kitchen Queue);
+       * visible to a principal holding EITHER of the two real permissions
+       * those feeds already require (`canAny`, same rule the page itself
+       * uses per-card) — never a new combined permission.
+       */
+      { href: "/operations/live", labelKey: "nav.liveOperations", icon: Activity, permissions: ["pos.order.view_history", "kitchen.queue.view"] },
       { href: "/operations/open-orders", labelKey: "nav.openOrders", icon: ClipboardList, permissions: ["pos.order.view_history"] },
       /**
        * TABLES-SIDEBAR-PRODUCTION-PERMISSION-CORRECTION-P0 — was

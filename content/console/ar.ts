@@ -52,6 +52,7 @@ export const consoleAr: ConsoleCopy = {
   "nav.dashboard": "لوحة المعلومات",
   "nav.operations": "الطلبات والعمليات",
   "nav.orders": "الطلبات",
+  "nav.liveOperations": "العمليات المباشرة",
   "nav.openOrders": "الطلبات المفتوحة",
   "nav.tables": "الطاولات",
   "nav.tableStatus": "حالة الطاولات",
@@ -400,6 +401,14 @@ export const consoleAr: ConsoleCopy = {
   "tableStatus.conflictNote": "{n} طلبات نشطة على هذه الطاولة. يجب أن يعالج مدير أو مسؤول التكرار.",
   "tableStatus.forbidden": "لا تملك صلاحية عرض حالة الطاولات لهذا الفرع.",
   "tableStatus.notFound": "هذا الفرع غير متاح.",
+  // LIVE-OPERATIONS-P0 — `app/(console)/operations/live/page.tsx`.
+  "liveOps.subtitle": "الطلبات المفتوحة والطاولات وطابور المطبخ لفرع واحد، تُقرأ مباشرة من نفس مصادر صفحاتها الخاصة.",
+  "liveOps.selectBranch": "اختر فرعًا لعرض عملياته المباشرة.",
+  "liveOps.unavailable": "غير متاح",
+  "liveOps.attention": "يحتاج انتباه",
+  "liveOps.attentionEmpty": "لا توجد عناصر تحتاج انتباهًا حاليًا",
+  "liveOps.attentionPartial": "فشل تحميل مصدر واحد أو أكثر — قد تكون هذه القائمة غير مكتملة.",
+  "liveOps.delayedMinutes": "تأخر المطبخ {n} د",
 
   "kitchen.title": "طابور المطبخ",
   "kitchen.subtitle": "ما تنظر إليه المحطات الآن، ملوّنًا حسب الزمن المنقضي مقابل المستهدف.",

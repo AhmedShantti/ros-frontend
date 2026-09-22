@@ -182,6 +182,9 @@ export async function fetchAllOpenOrders(branchId?: string): Promise<Order[]> {
   return collected;
 }
 
+/** Every `Order.state` that still counts as "on the floor". */
+const OPEN_ORDER_STATES: Order["state"][] = ["draft", "open", "held", "parked", "partially_paid"];
+
 export function useOpenOrderFeed(scope?: Scope): Feed<Order> {
   const live = DATA_MODE === "http";
   const { state, ready } = useLive();
@@ -196,15 +199,114 @@ export function useOpenOrderFeed(scope?: Scope): Feed<Order> {
     () =>
       state.orderIds
         .map((id) => state.orders[id]!)
-        .filter(
-          (order) =>
-            order &&
-            ["draft", "open", "held", "parked", "partially_paid"].includes(order.state),
-        ),
+        .filter((order) => order && OPEN_ORDER_STATES.includes(order.state)),
     [state.orderIds, state.orders],
   );
 
   return fromRemote(remote, live, local, ready);
+}
+
+/** How often Live Operations re-polls Open Orders — the same cadence as Table Status and the Kitchen Queue. */
+const LIVE_OPEN_ORDERS_POLL_MS = 15_000;
+
+export interface BranchOpenOrdersFeed {
+  /** True once THIS branch's first response (rows or error) has settled. */
+  ready: boolean;
+  error: ServiceError | Error | null;
+  live: boolean;
+  reload: () => void;
+  /** Null until a concrete branch is selected and its own first load settles, and whenever the last read failed. */
+  rows: Order[] | null;
+}
+
+type BranchOpenOrdersResult =
+  | { branchId: Id; rows: Order[]; error: null }
+  | { branchId: Id; rows: null; error: ServiceError | Error };
+
+/**
+ * LIVE-OPERATIONS-P0 — the branch-scoped open-orders count the Live
+ * Operations cockpit needs.
+ *
+ * Calls the exact same walk `useOpenOrderFeed`'s live path runs
+ * (`fetchAllOpenOrders`, `GET /orders/history?state=open`,
+ * `pos.order.view_history`) — no separate query, no client-side "open"
+ * inference. `useOpenOrderFeed` itself is unchanged and still backs
+ * `/operations/open-orders`, whose own scope may legitimately be "All
+ * branches"; this hook exists because Live Operations never may: like
+ * `useKitchenQueue`/`useTableStatus`, `branchId === null` sends nothing.
+ *
+ * Polling and stale-branch protection follow `useTableStatus`'s own
+ * pattern exactly (branch-tagged results, in-flight guard, torn down on
+ * unmount/branch change) rather than `useOpenOrderFeed`'s plain
+ * `useAsync`, because a cockpit that polls needs the same "never show the
+ * previous branch's numbers" guarantee Table Status already proved.
+ */
+export function useBranchOpenOrders(branchId: Id | null): BranchOpenOrdersFeed {
+  const live = DATA_MODE === "http";
+  const { state, ready: deviceReady } = useLive();
+
+  const [result, setResult] = useState<BranchOpenOrdersResult | null>(null);
+  const loadRef = useRef<(() => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    if (!live || !branchId) return;
+    let cancelled = false;
+    let inFlight = false;
+
+    const load = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const rows = await fetchAllOpenOrders(branchId);
+        if (!cancelled) setResult({ branchId, rows, error: null });
+      } catch (caught) {
+        if (!cancelled) {
+          setResult({
+            branchId,
+            rows: null,
+            error: caught instanceof Error ? caught : new Error(String(caught)),
+          });
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    loadRef.current = load;
+    void load();
+    const timer = window.setInterval(() => void load(), LIVE_OPEN_ORDERS_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      if (loadRef.current === load) loadRef.current = null;
+    };
+  }, [live, branchId]);
+
+  const reload = useCallback(() => {
+    void loadRef.current?.();
+  }, []);
+
+  const local = useMemo<Order[] | null>(() => {
+    if (live) return null;
+    const branch = branchId ?? state.branchId;
+    if (!branch) return null;
+    return state.orderIds
+      .map((id) => state.orders[id]!)
+      .filter((order) => order && order.branchId === branch && OPEN_ORDER_STATES.includes(order.state));
+  }, [live, branchId, state.orderIds, state.orders, state.branchId]);
+
+  if (!live) {
+    return { rows: local, ready: deviceReady, error: null, live: false, reload: () => {} };
+  }
+
+  const current = result && result.branchId === branchId ? result : null;
+  return {
+    rows: current?.rows ?? null,
+    ready: current !== null,
+    error: current?.error ?? null,
+    live: true,
+    reload,
+  };
 }
 
 /**

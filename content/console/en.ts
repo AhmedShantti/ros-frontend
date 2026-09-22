@@ -50,6 +50,7 @@ export const consoleEn = {
   "nav.dashboard": "Dashboard",
   "nav.operations": "Orders & Operations",
   "nav.orders": "Orders",
+  "nav.liveOperations": "Live Operations",
   "nav.openOrders": "Open orders",
   "nav.tables": "Tables",
   "nav.tableStatus": "Table status",
@@ -402,6 +403,14 @@ export const consoleEn = {
   "tableStatus.conflictNote": "{n} active orders on this table. A manager or admin must resolve the duplicates.",
   "tableStatus.forbidden": "You are not authorized to view table status for this branch.",
   "tableStatus.notFound": "This branch is unavailable.",
+  // LIVE-OPERATIONS-P0 — `app/(console)/operations/live/page.tsx`.
+  "liveOps.subtitle": "Open orders, tables and the kitchen queue for one branch, read live from the same sources as their own pages.",
+  "liveOps.selectBranch": "Select a branch to see its live operations.",
+  "liveOps.unavailable": "Unavailable",
+  "liveOps.attention": "Attention Needed",
+  "liveOps.attentionEmpty": "No current attention items",
+  "liveOps.attentionPartial": "One or more sources failed to load — this list may be incomplete.",
+  "liveOps.delayedMinutes": "Kitchen delayed {n}m",
 
   // Kitchen
   "kitchen.title": "Kitchen queue",
