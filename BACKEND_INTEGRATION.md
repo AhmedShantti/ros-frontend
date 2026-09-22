@@ -452,18 +452,25 @@ service contract, and `components/terminal/pos-drawer.tsx`.
 ## Menu Management (`/menu/management`)
 
 A one-workspace menu editor, added beside the existing `/menu/*` screens so
-the two can be compared. It does **not** go through `services` — it has its
-own small data layer in `lib/console/menu-management/`:
+the two can be compared. `app/(console)/menu/management/page.tsx` renders
+one of two, wholly different components on `DATA_MODE` — the same switch
+every other screen uses, not a bespoke env var:
 
-- `api.ts` — the `MenuManagementApi` interface and the one switch:
-  `NEXT_PUBLIC_MENU_MANAGEMENT_API=http` selects `http-adapter.ts`; anything
-  else selects `memory-adapter.ts`, an empty in-memory store.
-- `http-adapter.ts` — every call, through `lib/api/client` (same base URL,
-  auth and error handling as the rest of the console), under
-  `/menu-management/*`.
+- `DATA_MODE === "mock"` → the original demo sandbox
+  (`components/console/menu-management/menu-management.tsx`), still backed
+  by `lib/console/menu-management/memory-adapter.ts`, an empty in-memory
+  store simulating the full intended shape (combos, per-channel/per-size
+  pricing, a publish/dirty flag) the backend does not implement.
+- `DATA_MODE === "http"` → `components/console/menu-management/
+  live-menu-management.tsx`, built directly on `services.catalogue` (this
+  same real, canonical registry) plus `lib/console/menu-management/
+  live-adapter.ts` for the two shapes it does not expose menu-scoped. No
+  `/menu-management/*` HTTP path exists anywhere in this build any more —
+  it called endpoints that were never real.
 
-The endpoints and JSON shapes it expects are in
-[`docs/MENU_MANAGEMENT_API.md`](docs/MENU_MANAGEMENT_API.md); none of them
-exist on the backend yet, which is why memory is the default even when
-`NEXT_PUBLIC_API_URL` is set. The manual test checklist is
-[`docs/MENU_MANAGEMENT_TESTING.md`](docs/MENU_MANAGEMENT_TESTING.md).
+See [`docs/MENU_MANAGEMENT_API.md`](docs/MENU_MANAGEMENT_API.md) for the
+canonical endpoint mapping the live workspace uses and the gaps it reports
+instead of faking (Combos, per-channel/per-size price editing, modifier
+management, "Hidden", Duplicate, item images, category delete — none of
+these have a real endpoint yet). The manual test checklist for the demo
+sandbox is [`docs/MENU_MANAGEMENT_TESTING.md`](docs/MENU_MANAGEMENT_TESTING.md).

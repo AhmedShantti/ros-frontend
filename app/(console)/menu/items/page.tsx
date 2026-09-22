@@ -43,6 +43,7 @@ import {
   Toast,
   cx,
 } from "@/components/console/ui";
+import { TaxClassField, useTaxClassLabel, useTaxClasses } from "@/components/console/catalogue/tax-class-field";
 
 export default function MenuItemsPage() {
   return (
@@ -342,78 +343,6 @@ function VariantPrice({ item }: { item: MenuItem }) {
  * a hardcoded "Standard" or a fabricated list. With no active branch there
  * is nothing to resolve a pack from, so this does not fetch.
  */
-function useTaxClasses(branchId: string | null) {
-  const result = useAsync(
-    () => (branchId ? services.catalogue.listTaxClassesForBranch(branchId) : Promise.resolve(null)),
-    [branchId],
-  );
-  return {
-    loading: branchId !== null && result.loading,
-    noBranch: branchId === null,
-    taxClasses: result.data ?? [],
-  };
-}
-
-/** Resolves a persisted `taxClassId` against the branch's registry, honestly. */
-function useTaxClassLabel(taxClassId: string | null, branchId: string | null) {
-  const { t, tx } = useI18n();
-  const { loading, taxClasses } = useTaxClasses(branchId);
-  if (!taxClassId) return { text: t("menu.taxClassNotConfigured"), tone: "bad" as const };
-  if (loading) return { text: taxClassId, tone: "muted" as const };
-  const definition = taxClasses.find((tc) => tc.id === taxClassId);
-  return definition
-    ? { text: tx(definition.names) || definition.code, tone: "good" as const }
-    : { text: taxClassId, tone: "muted" as const };
-}
-
-function TaxClassField({
-  branchId,
-  value,
-  disabled,
-  onChange,
-}: {
-  branchId: string | null;
-  value: string;
-  disabled?: boolean;
-  onChange: (taxClassId: string) => void;
-}) {
-  const { t, tx } = useI18n();
-  const { loading, noBranch, taxClasses } = useTaxClasses(branchId);
-
-  if (noBranch) {
-    return (
-      <Field label={t("menu.taxClass")}>
-        <Callout tone="muted">{t("menu.taxClassNoBranch")}</Callout>
-      </Field>
-    );
-  }
-
-  if (!loading && taxClasses.length === 0) {
-    return (
-      <Field label={t("menu.taxClass")}>
-        <Callout tone="muted">{t("menu.taxClassUnavailable")}</Callout>
-      </Field>
-    );
-  }
-
-  return (
-    <Field label={t("menu.taxClass")} hint={t("menu.taxClassHint")}>
-      <Select
-        value={value}
-        disabled={disabled || loading}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">{t("menu.taxClassPlaceholder")}</option>
-        {taxClasses.map((taxClass) => (
-          <option key={taxClass.id} value={taxClass.id}>
-            {tx(taxClass.names) || taxClass.code}
-          </option>
-        ))}
-      </Select>
-    </Field>
-  );
-}
-
 // ---------------------------------------------------------------------------
 
 export function ItemDrawer({

@@ -1,22 +1,23 @@
 /**
- * Menu Management — the ONLY place the workspace talks to data.
+ * Menu Management demo sandbox — the ONLY place the DEMO workspace
+ * (`./menu-management.tsx`) talks to data.
  *
- * `menuManagementApi` is chosen once, here:
+ * MENU-MANAGEMENT-CANONICAL-INTEGRATION-P0 — this used to pick between an
+ * HTTP adapter calling invented `/menu-management/*` endpoints (removed —
+ * no such routes exist on the backend, see `docs/MENU_MANAGEMENT_API.md`'s
+ * rewrite) and this in-memory store, gated on a bespoke
+ * `NEXT_PUBLIC_MENU_MANAGEMENT_API` env var. That switch is gone.
  *
- *   NEXT_PUBLIC_MENU_MANAGEMENT_API=http   → `httpMenuManagementApi`
- *                                             (real backend, through the
- *                                             console's authenticated
- *                                             `lib/api/client`)
- *   anything else / unset                  → `memoryMenuManagementApi`
- *                                             (empty in-memory store; nothing
- *                                             is saved, resets on refresh)
- *
- * It defaults to memory even when NEXT_PUBLIC_API_URL is set, because the
- * endpoints in `docs/MENU_MANAGEMENT_API.md` are a proposal the backend does
- * not serve yet. Flip the flag once they exist.
+ * `menuManagementApi` is now unconditionally the in-memory demo store: the
+ * production/live implementation is a SEPARATE component,
+ * `components/console/menu-management/live-menu-management.tsx`, built
+ * directly on `services.catalogue` (the app's real, canonical, already
+ * `DATA_MODE`-aware service registry) — never on this file. Which one
+ * renders is decided once, in `app/(console)/menu/management/page.tsx`, by
+ * `DATA_MODE` itself (`lib/api/config.ts`), the same switch every other
+ * console screen already uses — not by anything declared here.
  */
 
-import { httpMenuManagementApi } from "./http-adapter";
 import { memoryMenuManagementApi } from "./memory-adapter";
 import type {
   MmBrand,
@@ -70,8 +71,4 @@ export interface MenuManagementApi {
   deleteModifierGroup(groupId: MmId): Promise<void>;
 }
 
-export const MENU_MANAGEMENT_API_MODE: "http" | "memory" =
-  process.env.NEXT_PUBLIC_MENU_MANAGEMENT_API === "http" ? "http" : "memory";
-
-export const menuManagementApi: MenuManagementApi =
-  MENU_MANAGEMENT_API_MODE === "http" ? httpMenuManagementApi : memoryMenuManagementApi;
+export const menuManagementApi: MenuManagementApi = memoryMenuManagementApi;
