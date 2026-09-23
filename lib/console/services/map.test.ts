@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { formatMoney, tx } from "@/lib/console/format";
-import { itemSnapshotName, toOrder, toOrderLine, toPreBill, toPriceEntry, toPriceList, toReceipt, toTicketLine, type OrderContext } from "./map";
+import {
+  itemSnapshotName,
+  toMenuItem,
+  toModifier,
+  toOrder,
+  toOrderLine,
+  toPreBill,
+  toPriceEntry,
+  toPriceList,
+  toReceipt,
+  toTicketLine,
+  type OrderContext,
+} from "./map";
 import type * as S from "@/lib/api/schema";
 
 /*
@@ -511,5 +523,101 @@ describe("toPriceList — status", () => {
   it("an unrecognized wire status value falls back to 'active', matching the DTO's own documented set (scheduled/active/expired)", () => {
     const row = toPriceList({ ...base, status: "something-new" }, "t1");
     expect(row.status).toBe("active");
+  });
+});
+
+/*
+ * MENU-MANAGEMENT-SLICE-2-PHASE-3-AVAILABILITY-MODIFIERS — `toModifier`.
+ *
+ * `Modifier.priceDelta` off the wire is a signed minor-unit INTEGER string
+ * ("-300" = -3.00), the exact same contract as `PriceEntry.price` — running
+ * it through `money()` (which reads a *decimal* string) would read it 100x
+ * too large, the DEMO-POS-ORDER-CRITICAL-P0 bug pattern documented at the
+ * top of this file. `minorMoney()` is the correct, exact parse.
+ */
+describe("toModifier — priceDelta minor-unit round trip, never a float, never 100x", () => {
+  const wireModifier = (priceDelta: string) => ({
+    id: "mod1",
+    modifierGroupId: "g1",
+    name: { en: "Extra cheese", ar: "جبنة إضافية" },
+    kind: "addition" as const,
+    priceDelta,
+    stockItemId: null,
+    consumptionQuantity: null,
+    consumptionUnitId: null,
+    recipeDelta: null,
+    isDefault: false,
+    sortOrder: 0,
+  });
+
+  it("a positive priceDelta round-trips exactly (not 100x inflated)", () => {
+    expect(toModifier(wireModifier("300")).priceDelta.amount).toBe(300);
+  });
+
+  it("a zero priceDelta round-trips exactly", () => {
+    expect(toModifier(wireModifier("0")).priceDelta.amount).toBe(0);
+  });
+
+  it("a negative priceDelta (a discount) round-trips exactly, sign preserved", () => {
+    expect(toModifier(wireModifier("-300")).priceDelta.amount).toBe(-300);
+  });
+
+  it("a large amount round-trips exactly (no IEEE-754 drift, no accidental *100)", () => {
+    expect(toModifier(wireModifier("-1234567890")).priceDelta.amount).toBe(-1234567890);
+  });
+
+  it("kind falls back to 'addition' only for a genuinely unrecognized value, never silently for removal/substitution", () => {
+    expect(toModifier(wireModifier("0")).kind).toBe("addition");
+    expect(toModifier({ ...wireModifier("0"), kind: "removal" as const }).kind).toBe("removal");
+    expect(toModifier({ ...wireModifier("0"), kind: "substitution" as const }).kind).toBe("substitution");
+  });
+});
+
+/*
+ * `toMenuItem` — `autoReenableAt` is carried through the mapping layer
+ * untouched, and never fabricated when the context doesn't supply one.
+ */
+describe("toMenuItem — autoReenableAt is carried through, never invented", () => {
+  const wireItem = {
+    id: "i1",
+    names: { en: "Burger", ar: "برجر" },
+    kitchenNames: {},
+    aggregatorNames: {},
+    description: null,
+    taxClassId: null,
+    revenueAccountCode: null,
+    barcodePlu: null,
+    allergens: [],
+    dietaryTags: [],
+    sortOrder: 0,
+    colour: null,
+    isCombo: false,
+    isOpenPrice: false,
+    isWeighed: false,
+    isActive: true,
+    createdAt: "2026-01-01T00:00:00Z",
+  };
+
+  it("carries a real autoReenableAt through from context", () => {
+    const item = toMenuItem(wireItem, { tenantId: "t1", unavailableReason: "manual_86", autoReenableAt: "2026-12-01T10:00:00.000Z" });
+    expect(item.autoReenableAt).toBe("2026-12-01T10:00:00.000Z");
+    expect(item.available).toBe(false);
+  });
+
+  it("defaults to null when the context supplies none", () => {
+    const item = toMenuItem(wireItem, { tenantId: "t1" });
+    expect(item.autoReenableAt).toBeNull();
+  });
+
+  it("an isActive item with no manual-86 marker is available", () => {
+    const item = toMenuItem(wireItem, { tenantId: "t1" });
+    expect(item.available).toBe(true);
+    expect(item.unavailableReason).toBeNull();
+  });
+
+  it("isActive=false with no manual-86 marker is unavailable but carries no unavailableReason — the deactivated/86'd distinction", () => {
+    const item = toMenuItem({ ...wireItem, isActive: false }, { tenantId: "t1" });
+    expect(item.available).toBe(false);
+    expect(item.unavailableReason).toBeNull();
   });
 });

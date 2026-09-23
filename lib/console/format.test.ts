@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currencyExponent, excessPrecision, formatMoney, minorFromInput, toMajorUnits } from "./format";
+import { currencyExponent, excessPrecision, formatMoney, minorFromInput, signedMinorFromInput, toMajorUnits } from "./format";
 import type { Currency } from "./types";
 
 /*
@@ -70,5 +70,42 @@ describe("formatMoney — respects the currency's own exponent", () => {
     const text = formatMoney({ amount: 6000, currency }, { locale: "en" });
     const decimals = text.replace(/[^\d.]/g, "").split(".")[1] ?? "";
     expect(decimals).toHaveLength(exponent);
+  });
+});
+
+/*
+ * MENU-MANAGEMENT-SLICE-2-PHASE-3-AVAILABILITY-MODIFIERS —
+ * `Modifier.priceDelta` is a signed minor-unit integer: "no cheese" is a
+ * genuine discount, not a price floored at zero. `signedMinorFromInput` is
+ * `minorFromInput` minus the zero-floor — this pins that positive, zero and
+ * negative amounts all round-trip exactly, still currency-exponent-aware.
+ */
+describe("signedMinorFromInput — a negative amount is a real discount, never clamped to zero", () => {
+  it("a positive amount converts exactly", () => {
+    expect(signedMinorFromInput("12.34", 2)).toBe(1234);
+  });
+
+  it("zero converts to exactly 0", () => {
+    expect(signedMinorFromInput("0", 2)).toBe(0);
+  });
+
+  it("a negative amount is preserved, not floored at zero", () => {
+    expect(signedMinorFromInput("-3", 2)).toBe(-300);
+    expect(signedMinorFromInput("-12.34", 2)).toBe(-1234);
+  });
+
+  it("respects the given exponent, never a hardcoded 100", () => {
+    expect(signedMinorFromInput("-3", 0)).toBe(-3);
+    expect(signedMinorFromInput("-3", 3)).toBe(-3000);
+  });
+
+  it("returns null for unreadable input, same as minorFromInput", () => {
+    expect(signedMinorFromInput("", 2)).toBeNull();
+    expect(signedMinorFromInput("abc", 2)).toBeNull();
+    expect(signedMinorFromInput(null, 2)).toBeNull();
+  });
+
+  it("rounds a sub-unit fraction rather than truncating (JS `Math.round` ties toward +Infinity, same for a negative amount)", () => {
+    expect(signedMinorFromInput("-12.005", 2)).toBe(-1200);
   });
 });

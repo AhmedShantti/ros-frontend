@@ -831,6 +831,7 @@ const itemsCollection: CollectionService<MenuItem> = makeCollection<MenuItem>({
     isWeighed: input.isWeighed ?? false,
     available: true,
     unavailableReason: null,
+    autoReenableAt: null,
     remainingSellable: null,
     sortOrder: menuItems.length + 1,
     colour: input.colour ?? "#0f6f7a",
@@ -1016,7 +1017,7 @@ const catalogue: CatalogueService = {
   }),
   menus: menusCollection,
 
-  async toggleAvailability(itemId, available, reason) {
+  async toggleAvailability(itemId, available, reason, autoReenableAt) {
     return transport(() => {
       const index = menuItems.findIndex((m) => m.id === itemId);
       if (index === -1) {
@@ -1026,6 +1027,7 @@ const catalogue: CatalogueService = {
         ...menuItems[index]!,
         available,
         unavailableReason: available ? null : (reason ?? "Manually 86'd"),
+        autoReenableAt: available ? null : (autoReenableAt ?? null),
       };
       menuItems[index] = updated;
       return updated;

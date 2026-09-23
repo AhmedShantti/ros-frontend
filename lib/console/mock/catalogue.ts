@@ -822,6 +822,7 @@ const menuItemsSeeded: MenuItem[] = MENU_SEEDS.map((seed, i) => {
     isWeighed: false,
     available: !unavailable,
     unavailableReason: unavailable ? "Out of a key ingredient" : null,
+    autoReenableAt: null,
     remainingSellable: unavailable ? 0 : int(rng, 4, 180),
     sortOrder: i + 1,
     colour: CAT_SEEDS.find((c) => c.key === seed.cat)?.colour ?? "#c1553a",

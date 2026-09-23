@@ -684,6 +684,8 @@ export interface MenuItemContext {
   variants?: MenuItemVariant[];
   /** From `/catalogue/availability-rules` — a live manual 86. */
   unavailableReason?: string | null;
+  /** From the same rule, when it carries a not-yet-passed `autoReenableAt`. */
+  autoReenableAt?: string | null;
   prepTimeSeconds?: number;
 }
 
@@ -711,6 +713,7 @@ export function toMenuItem(row: WireMenuItem, context: MenuItemContext): MenuIte
     isWeighed: row.isWeighed,
     available: row.isActive && !context.unavailableReason,
     unavailableReason: context.unavailableReason ?? null,
+    autoReenableAt: context.autoReenableAt ?? null,
     remainingSellable: null, // gap: FR-MNU-033 is not computed by the API.
     sortOrder: row.sortOrder,
     colour: colourOf(row.colour),
@@ -728,7 +731,14 @@ export function toModifier(row: WireModifier): Modifier {
     id: row.id,
     name: localised(row.name),
     kind,
-    priceDelta: money(row.priceDelta),
+    // `priceDelta` is a signed minor-unit integer string ("-300" = -3.00),
+    // the same contract as `PriceEntry.price` — `money()` reads a *decimal*
+    // string and would read this 100x too large (see the toPriceEntry note
+    // above). `minorMoney()` has no currency of its own to attach here (the
+    // wire carries none for a modifier); callers must format this for
+    // display using the canonical current currency, never this field's own
+    // `.currency`, which is only ever a mapping-layer placeholder.
+    priceDelta: minorMoney(row.priceDelta),
     recipeDelta: [], // gap: recipeDelta is an opaque blob on the API.
     isDefault: row.isDefault,
   };

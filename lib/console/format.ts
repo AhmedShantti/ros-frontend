@@ -346,6 +346,19 @@ export function minorFromInput(value: string | null | undefined, exponent = 2): 
   return Math.max(0, Math.round(parsed * 10 ** exponent));
 }
 
+/**
+ * A SIGNED money field as minor units — for a value that is legitimately
+ * negative on its own terms (e.g. `Modifier.priceDelta`: "no cheese" is a
+ * discount, not a clamped-to-zero price). Unlike `minorFromInput`, a
+ * negative amount is preserved rather than floored at zero. `null` if
+ * unreadable, same currency-exponent-aware contract otherwise.
+ */
+export function signedMinorFromInput(value: string | null | undefined, exponent = 2): number | null {
+  const parsed = numberFromInput(value);
+  if (parsed === null) return null;
+  return Math.round(parsed * 10 ** exponent);
+}
+
 /** True once a typed amount carries more fractional digits than the currency allows. */
 export function excessPrecision(raw: string, exponent: number): boolean {
   const dot = raw.trim().indexOf(".");

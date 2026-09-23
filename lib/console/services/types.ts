@@ -408,8 +408,19 @@ export interface CatalogueService {
   recipes: CollectionService<Recipe>;
   /** FR-MNU-001 — the menus a branch can serve. */
   menus: CollectionService<Menu>;
-  /** FR-MNU-030 — "86" an item, or bring it back. */
-  toggleAvailability(itemId: Id, available: boolean, reason?: string): Promise<MenuItem>;
+  /**
+   * FR-MNU-030 — "86" an item, or bring it back. `reason` is an action-time
+   * note for audit accountability only — the API never returns it, so it is
+   * never persisted item state. `autoReenableAt` (ISO datetime) is genuinely
+   * accepted and stored by the API when 86ing (`Toggle86Dto.autoReenableAt`);
+   * it is ignored when restoring.
+   */
+  toggleAvailability(
+    itemId: Id,
+    available: boolean,
+    reason?: string,
+    autoReenableAt?: string,
+  ): Promise<MenuItem>;
 
   // -- Menu assignment (C-01) ------------------------------------------------
   /** Assign a menu to a branch. */

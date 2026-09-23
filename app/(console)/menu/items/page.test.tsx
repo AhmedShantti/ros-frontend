@@ -108,6 +108,7 @@ const BASE_ITEM: MenuItem = {
   isWeighed: false,
   available: true,
   unavailableReason: null,
+  autoReenableAt: null,
   remainingSellable: null,
   sortOrder: 1,
   colour: "#ffffff",

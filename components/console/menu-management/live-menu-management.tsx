@@ -17,24 +17,60 @@
  *   Items       — create / edit / category placement / tax class /
  *                 available-unavailable(86) / variants (display + add).
  *
- * Deliberately NOT here: Combos (no backend at all), per-channel/per-size
- * price editing, modifier-group management, a "Hidden" status and item
- * duplication — every one of those needs either a backend endpoint that
- * does not exist yet or a canonical price-list write this slice does not
- * make. Building any of them here would be exactly the "fake success" this
- * workspace exists to avoid; they stay on `/menu/pricing`, `/menu/modifiers`
- * and `/menu/combos` until a later slice migrates them for real.
+ * Pricing (Phase 2) added canonical Price Lists/PriceEntry. Phase 3 adds:
+ *
+ *   Availability — 86/restore through the real availability-rules flow,
+ *                  with a truthful reason (audit-only, never read back) and
+ *                  a genuine (lazily-evaluated) auto-re-enable time.
+ *   Customizations — the reusable Modifier Group/Modifier catalogue
+ *                  (create/read/update groups; read/create modifiers, no
+ *                  edit/delete — the API supports none). Deliberately does
+ *                  NOT manage item↔group attachment: `POST
+ *                  /catalogue/items/:id/modifier-groups` is write-only, with
+ *                  no read/update/unlink endpoint at all, so a management UI
+ *                  here would create durable state this workspace could
+ *                  never show again after a reload. That stays absent until
+ *                  the backend adds a read path — see `/menu/items`'s
+ *                  `ModifierGroupLinker` for the same honest constraint.
+ *
+ * Deliberately NOT here: Combos (no backend at all), Recipes, item↔group
+ * attachment (see above), and a "Hidden" status (there is no such flag —
+ * "not placed in any category" is a placement condition, never a boolean).
+ * They stay on `/menu/combos`, `/menu/recipes` and `/menu/items` until a
+ * later slice migrates them for real.
  */
 
 import { useMemo, useState } from "react";
-import { Ban, Check, CheckCircle2, ChevronDown, Pencil, Plus, Store, Tag, TriangleAlert } from "lucide-react";
-import type { Currency, Menu, Localised, PriceList, PriceListEntry } from "@/lib/console/types";
+import {
+  Ban,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
+  Pencil,
+  Plus,
+  SlidersHorizontal,
+  Store,
+  Tag,
+  TriangleAlert,
+} from "lucide-react";
+import type { Currency, Menu, Localised, Modifier, ModifierGroup, PriceList, PriceListEntry } from "@/lib/console/types";
 import type { ConsoleKey } from "@/content/console/en";
 import { services } from "@/lib/console/services";
-import { useAsync, useTransientMessage } from "@/lib/console/hooks";
+import { useAsync, useTransientMessage, type AsyncState } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
-import { currencyExponent, excessPrecision, formatMoney, formatNumber, minorFromInput } from "@/lib/console/format";
+import {
+  currencyExponent,
+  excessPrecision,
+  formatDateTime,
+  formatMoney,
+  formatNumber,
+  minorFromInput,
+  signedMinorFromInput,
+  type FormatOptions,
+} from "@/lib/console/format";
+import { MODIFIER_KIND, labelOf } from "@/lib/console/labels";
 import { AsyncPanel } from "@/components/console/states";
 import {
   Badge,
@@ -121,6 +157,7 @@ export default function LiveMenuManagement() {
   const [editorState, setEditorState] = useState<{ item?: LiveItem } | null>(null);
   const [priceListId, setPriceListId] = useState<string | null>(null);
   const [creatingPriceList, setCreatingPriceList] = useState(false);
+  const [customizationsOpen, setCustomizationsOpen] = useState(false);
 
   const menus = useAsync(
     () => services.catalogue.menus.list({ limit: 200, scope }),
@@ -246,6 +283,15 @@ export default function LiveMenuManagement() {
   return (
     <div className="space-y-4">
       <WorkspaceHeader t={t} action={canManage ? { label: t("menu.newMenu"), onClick: () => setCreatingMenu(true) } : null} />
+
+      {/* Customizations — the reusable Modifier Group/Modifier catalogue.
+          Not scoped to any one menu, so it sits beside the menu switcher
+          rather than inside it, the same reasoning as the price-list row. */}
+      <div>
+        <Button variant="ghost" icon={<SlidersHorizontal size={14} />} onClick={() => setCustomizationsOpen(true)}>
+          {t("menu.customizations")}
+        </Button>
+      </div>
 
       {menus.error ? <Callout tone="bad">{menus.error.message}</Callout> : null}
 
@@ -478,6 +524,14 @@ export default function LiveMenuManagement() {
           }}
         />
       ) : null}
+
+      <CustomizationsDrawer
+        open={customizationsOpen}
+        canManage={canManage}
+        currency={currentCurrency(session)}
+        onClose={() => setCustomizationsOpen(false)}
+        onChanged={setMessage}
+      />
 
       <Toast message={message} />
     </div>
@@ -1251,15 +1305,25 @@ function ItemEditorDrawer({
     onClose();
   }
 
-  async function setAvailability(available: boolean, reason?: string) {
+  async function setAvailability(available: boolean, reason?: string, autoReenableAt?: string) {
     if (!item) return;
-    await action.run(() => services.catalogue.toggleAvailability(item.id, available, reason), {
-      onSuccess: () => {
-        setPending86(false);
-        onChanged(available ? t("menu.restored") : t("menu.eightySixed"));
-        detail.reload();
+    await action.run(
+      () => services.catalogue.toggleAvailability(item.id, available, reason, autoReenableAt),
+      {
+        onSuccess: () => {
+          setPending86(false);
+          // The reason is an action-time note, never persistent item state
+          // (the API records it to the audit trail only — see
+          // `MenuItem.unavailableReason`'s own doc comment) — echoing it
+          // into this transient toast is the one honest place to show it,
+          // since a toast disappears rather than implying it was saved.
+          onChanged(
+            available ? t("menu.restored") : reason ? `${t("menu.eightySixed")} — ${reason}` : t("menu.eightySixed"),
+          );
+          detail.reload();
+        },
       },
-    });
+    );
   }
 
   async function deactivate() {
@@ -1296,7 +1360,11 @@ function ItemEditorDrawer({
       onClose={onClose}
       title={item ? tx(item.name) : t("menu.newItem")}
       footer={
-        canManage ? (
+        // The two permissions gate independently — a session with ONLY
+        // `menu.availability.toggle` (no `menu.item.manage`) must still see
+        // the 86/restore control; nesting it under `canManage` would hide a
+        // mutation this exact session is allowed to perform.
+        canManage || canToggleAvailability ? (
           <div className="flex w-full items-center justify-between gap-2">
             <div>
               {item && canManage ? (
@@ -1317,9 +1385,11 @@ function ItemEditorDrawer({
                   </Button>
                 )
               ) : null}
-              <Button variant="primary" loading={action.pending} disabled={!name.trim() || !categoryId} onClick={save}>
-                {t("common.save")}
-              </Button>
+              {canManage ? (
+                <Button variant="primary" loading={action.pending} disabled={!name.trim() || !categoryId} onClick={save}>
+                  {t("common.save")}
+                </Button>
+              ) : null}
             </div>
           </div>
         ) : null
@@ -1328,9 +1398,28 @@ function ItemEditorDrawer({
       <div className="space-y-5">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
 
-        {current && !current.available && current.unavailableReason ? (
+        {/* `unavailableReason` is truthy exactly while a manual 86 is in
+            effect — never the operator's typed reason (the API never
+            returns that; see the field's own doc comment). Shown as a
+            truthful status, not as if it were the reason read back. */}
+        {current?.unavailableReason ? (
           <Callout tone="bad" title={t("menu.unavailable")}>
-            {current.unavailableReason}
+            <p>{t("menu.eightySixedNotice")}</p>
+            {current.autoReenableAt ? (
+              <p className="mt-1">
+                {t("menu.autoReenableActive").replace("{time}", formatDateTime(current.autoReenableAt, fmt))}
+              </p>
+            ) : null}
+          </Callout>
+        ) : null}
+
+        {/* `isActive === false` with no manual 86 in effect — a distinct,
+            master-data lifecycle state (menu.item.manage), never conflated
+            with 86 (menu.availability.toggle) or a "hidden" flag (there is
+            no such thing). */}
+        {current && !current.available && !current.unavailableReason ? (
+          <Callout tone="muted" title={t("menu.deactivated")}>
+            {t("menu.deactivatedNotice")}
           </Callout>
         ) : null}
 
@@ -1454,7 +1543,10 @@ function ItemEditorDrawer({
       </div>
 
       {pending86 ? (
-        <Eighty6Modal onCancel={() => setPending86(false)} onConfirm={(reason) => setAvailability(false, reason)} />
+        <Eighty6Modal
+          onCancel={() => setPending86(false)}
+          onConfirm={(reason, autoReenableAt) => setAvailability(false, reason, autoReenableAt)}
+        />
       ) : null}
     </Drawer>
   );
@@ -1574,10 +1666,27 @@ function PriceRow({
   );
 }
 
-function Eighty6Modal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: (reason: string) => void }) {
+function Eighty6Modal({
+  onCancel,
+  onConfirm,
+}: {
+  onCancel: () => void;
+  // `autoReenableAt` is an ISO datetime, only ever set — never undefined
+  // just because the field was left blank vs. genuinely omitted; the caller
+  // only cares whether one was entered.
+  onConfirm: (reason: string, autoReenableAt?: string) => void;
+}) {
   const { t } = useI18n();
   const [reason, setReason] = useState("");
+  const [autoReenableAt, setAutoReenableAt] = useState("");
   const trimmed = reason.trim();
+
+  function confirm() {
+    // `datetime-local` has no timezone of its own — read in the browser's
+    // own local time, which is exactly what a manager means by "6pm".
+    const iso = autoReenableAt ? new Date(autoReenableAt).toISOString() : undefined;
+    onConfirm(trimmed, iso);
+  }
 
   return (
     <Modal
@@ -1587,15 +1696,507 @@ function Eighty6Modal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm
       footer={
         <>
           <Button onClick={onCancel}>{t("common.cancel")}</Button>
-          <Button variant="danger" disabled={trimmed.length === 0} onClick={() => onConfirm(trimmed)}>
+          <Button variant="danger" disabled={trimmed.length === 0} onClick={confirm}>
             {t("menu.toggle86")}
           </Button>
         </>
       }
     >
-      <Field label={t("menu.86Reason")} required>
-        <Textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder={t("menu.86Placeholder")} />
-      </Field>
+      <div className="space-y-4">
+        <Field label={t("menu.86Reason")} hint={t("menu.86ReasonHint")} required>
+          <Textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder={t("menu.86Placeholder")} />
+        </Field>
+
+        <Field label={t("menu.autoReenableAt")} hint={t("menu.autoReenableHint")}>
+          <Input
+            type="datetime-local"
+            dir="ltr"
+            value={autoReenableAt}
+            onChange={(event) => setAutoReenableAt(event.target.value)}
+          />
+        </Field>
+      </div>
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** Only `min <= max`, and `required` implies `min >= 1` — the same two
+ * rules the backend enforces (`violatesSelectionRules`); checked here for
+ * immediate feedback, but the server call is still the authority — its own
+ * 400 is what actually stops a bad save, this is only a head start. */
+function selectionRuleError(
+  min: number,
+  max: number,
+  required: boolean,
+  t: (key: ConsoleKey) => string,
+): string | null {
+  if (min > max) return t("menu.selectionRuleError");
+  if (required && min < 1) return t("menu.requiredMinError");
+  return null;
+}
+
+/**
+ * Customizations — the reusable Modifier Group/Modifier catalogue.
+ * `GET/POST/PATCH /catalogue/modifier-groups`,
+ * `GET/POST /catalogue/modifier-groups/:id/modifiers`.
+ *
+ * Deliberately does NOT manage which items a group is attached to:
+ * `POST /catalogue/items/:id/modifier-groups` has no read, update or unlink
+ * endpoint at all — verified against the full controller route list, the
+ * same constraint `/menu/items`'s `ModifierGroupLinker` already documents.
+ * A management UI here (attach/detach, "currently attached to") would
+ * create or imply durable state this workspace could never show again
+ * after a reload — that stays absent until the backend adds a read path.
+ */
+function CustomizationsDrawer({
+  open,
+  canManage,
+  currency,
+  onClose,
+  onChanged,
+}: {
+  open: boolean;
+  canManage: boolean;
+  currency: Currency;
+  onClose: () => void;
+  onChanged: (message: string) => void;
+}) {
+  const { t, tx, fmt } = useI18n();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+
+  const groups = useAsync(() => services.catalogue.modifierGroups.list({ limit: 200 }), [open]);
+  const rows = groups.data?.rows ?? [];
+
+  const detail = useAsync(
+    () => (selectedId ? services.catalogue.modifierGroups.get(selectedId) : Promise.resolve(null)),
+    [selectedId],
+  );
+
+  if (!open) return null;
+
+  function reload(note: string) {
+    onChanged(note);
+    groups.reload();
+    detail.reload();
+  }
+
+  return (
+    <Drawer
+      open
+      onClose={() => {
+        setSelectedId(null);
+        setCreatingGroup(false);
+        onClose();
+      }}
+      title={selectedId && detail.data ? tx(detail.data.name) : t("menu.customizations")}
+      subtitle={!selectedId && !creatingGroup ? t("menu.customizationsHint") : undefined}
+    >
+      <div className="space-y-4">
+        {groups.error ? <Callout tone="bad">{groups.error.message}</Callout> : null}
+
+        {selectedId ? (
+          <GroupDetailPanel
+            detail={detail}
+            canManage={canManage}
+            currency={currency}
+            onBack={() => setSelectedId(null)}
+            onChanged={reload}
+          />
+        ) : creatingGroup ? (
+          <NewGroupForm
+            onCancel={() => setCreatingGroup(false)}
+            onCreated={(id) => {
+              setCreatingGroup(false);
+              onChanged(t("menu.groupCreated"));
+              groups.reload();
+              setSelectedId(id);
+            }}
+          />
+        ) : (
+          <>
+            {canManage ? (
+              <Button variant="ghost" icon={<Plus size={14} />} onClick={() => setCreatingGroup(true)}>
+                {t("menu.newGroup")}
+              </Button>
+            ) : null}
+
+            {groups.loading ? (
+              <Callout tone="muted">{t("state.loading")}</Callout>
+            ) : rows.length === 0 ? (
+              <Callout tone="muted">{t("menu.noModifierGroups")}</Callout>
+            ) : (
+              <ul className="divide-line divide-y">
+                {rows.map((group) => (
+                  <li key={group.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(group.id)}
+                      className="hover:bg-sunken flex w-full items-center justify-between gap-3 rounded-md px-1 py-2.5 text-start"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-sm">{tx(group.name)}</span>
+                      <Badge tone={group.required ? "accent" : "muted"}>
+                        {group.required ? t("menu.required") : t("common.optional")}
+                      </Badge>
+                      <span dir="ltr" className="text-fg-subtle shrink-0 text-xs">
+                        {formatNumber(group.minSelections, fmt)}/{formatNumber(group.maxSelections, fmt)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </div>
+    </Drawer>
+  );
+}
+
+/** `POST /catalogue/modifier-groups` — the reusable group itself. */
+function NewGroupForm({
+  onCancel,
+  onCreated,
+}: {
+  onCancel: () => void;
+  onCreated: (groupId: string) => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction();
+  const [name, setName] = useState("");
+  const [minInput, setMinInput] = useState("0");
+  const [maxInput, setMaxInput] = useState("1");
+  const [required, setRequired] = useState(false);
+  const [allowRepeat, setAllowRepeat] = useState(false);
+
+  const min = Number(minInput) || 0;
+  const max = Number(maxInput) || 0;
+  const ruleError = selectionRuleError(min, max, required, t);
+  const canCreate = name.trim() !== "" && ruleError === null;
+
+  async function create() {
+    if (!canCreate) return;
+    await action.run(
+      () =>
+        services.catalogue.modifierGroups.create({
+          name: { en: name.trim(), ar: name.trim() },
+          minSelections: min,
+          maxSelections: max,
+          required,
+          allowRepeat,
+        }),
+      { onSuccess: (row) => onCreated(row.id) },
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+      <Field label={t("common.name")} required>
+        <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
+      </Field>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label={t("menu.minSelections")}>
+          <Input inputMode="numeric" dir="ltr" value={minInput} onChange={(event) => setMinInput(event.target.value)} />
+        </Field>
+        <Field label={t("menu.maxSelections")}>
+          <Input inputMode="numeric" dir="ltr" value={maxInput} onChange={(event) => setMaxInput(event.target.value)} />
+        </Field>
+      </div>
+
+      <Toggle checked={required} onChange={setRequired} label={t("menu.required")} />
+      <Toggle checked={allowRepeat} onChange={setAllowRepeat} label={t("menu.allowRepeat")} />
+
+      {ruleError ? <Callout tone="bad">{ruleError}</Callout> : null}
+
+      <div className="flex gap-2">
+        <Button variant="primary" loading={action.pending} disabled={!canCreate} onClick={create}>
+          {t("common.create")}
+        </Button>
+        <Button variant="ghost" onClick={onCancel}>
+          {t("common.cancel")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** A selected group's own config (PATCH) plus its modifiers (view + create). */
+function GroupDetailPanel({
+  detail,
+  canManage,
+  currency,
+  onBack,
+  onChanged,
+}: {
+  detail: AsyncState<ModifierGroup | null>;
+  canManage: boolean;
+  currency: Currency;
+  onBack: () => void;
+  onChanged: (message: string) => void;
+}) {
+  const { t, tx, fmt } = useI18n();
+  const action = useAction();
+  const group = detail.data;
+
+  const [name, setName] = useState("");
+  const [minInput, setMinInput] = useState("0");
+  const [maxInput, setMaxInput] = useState("1");
+  const [required, setRequired] = useState(false);
+  const [allowRepeat, setAllowRepeat] = useState(false);
+  const [addingModifier, setAddingModifier] = useState(false);
+
+  // Seeded once, the moment the group's data first arrives — this panel is
+  // always a fresh mount per selected group (the parent only renders it
+  // while exactly one group is selected), so there is no later id to
+  // re-seed against; a saved edit is never clobbered by its own reload.
+  const [seeded, setSeeded] = useState(false);
+  if (group && !seeded) {
+    setSeeded(true);
+    setName(tx(group.name));
+    setMinInput(String(group.minSelections));
+    setMaxInput(String(group.maxSelections));
+    setRequired(group.required);
+    setAllowRepeat(group.allowRepeat);
+  }
+
+  if (!group) {
+    return (
+      <div className="space-y-3">
+        <Button variant="ghost" icon={<ChevronLeft size={14} />} onClick={onBack}>
+          {t("common.back")}
+        </Button>
+        {detail.error ? (
+          <Callout tone="bad">{detail.error.message}</Callout>
+        ) : (
+          <Callout tone="muted">{t("state.loading")}</Callout>
+        )}
+      </div>
+    );
+  }
+
+  const min = Number(minInput) || 0;
+  const max = Number(maxInput) || 0;
+  const ruleError = selectionRuleError(min, max, required, t);
+  const canSave = name.trim() !== "" && ruleError === null;
+
+  async function save() {
+    if (!canSave) return;
+    await action.run(
+      () =>
+        services.catalogue.modifierGroups.update(group!.id, {
+          name: { en: name.trim(), ar: name.trim() },
+          minSelections: min,
+          maxSelections: max,
+          required,
+          allowRepeat,
+        }),
+      { onSuccess: () => onChanged(t("menu.groupUpdated")) },
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Button variant="ghost" icon={<ChevronLeft size={14} />} onClick={onBack}>
+        {t("common.back")}
+      </Button>
+
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+      <Field label={t("common.name")} required>
+        <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} disabled={!canManage} />
+      </Field>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label={t("menu.minSelections")}>
+          <Input
+            inputMode="numeric"
+            dir="ltr"
+            value={minInput}
+            onChange={(event) => setMinInput(event.target.value)}
+            disabled={!canManage}
+          />
+        </Field>
+        <Field label={t("menu.maxSelections")}>
+          <Input
+            inputMode="numeric"
+            dir="ltr"
+            value={maxInput}
+            onChange={(event) => setMaxInput(event.target.value)}
+            disabled={!canManage}
+          />
+        </Field>
+      </div>
+
+      <Toggle checked={required} onChange={setRequired} label={t("menu.required")} disabled={!canManage} />
+      <Toggle checked={allowRepeat} onChange={setAllowRepeat} label={t("menu.allowRepeat")} disabled={!canManage} />
+
+      {ruleError ? <Callout tone="bad">{ruleError}</Callout> : null}
+
+      {canManage ? (
+        <Button variant="primary" loading={action.pending} disabled={!canSave} onClick={save}>
+          {t("common.save")}
+        </Button>
+      ) : null}
+
+      <section>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="text-fg text-sm font-semibold">{t("nav.modifiers")}</h3>
+          {canManage && !addingModifier ? (
+            <Button variant="ghost" icon={<Plus size={13} />} onClick={() => setAddingModifier(true)}>
+              {t("common.add")}
+            </Button>
+          ) : null}
+        </div>
+
+        {group.modifiers.length === 0 ? (
+          <Callout tone="muted">{t("menu.noModifiers")}</Callout>
+        ) : (
+          <ul className="divide-line divide-y">
+            {group.modifiers.map((modifier) => (
+              <ModifierRow key={modifier.id} modifier={modifier} currency={currency} fmt={fmt} tx={tx} t={t} />
+            ))}
+          </ul>
+        )}
+
+        {group.modifiers.length > 0 ? <Callout tone="muted">{t("menu.existingModifiersNote")}</Callout> : null}
+
+        {canManage ? (
+          <div className="mt-3">
+            <NewModifierForm
+              open={addingModifier}
+              groupId={group.id}
+              currency={currency}
+              onCancel={() => setAddingModifier(false)}
+              onCreated={() => {
+                setAddingModifier(false);
+                onChanged(t("menu.modifierAdded"));
+              }}
+            />
+          </div>
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
+/** One existing modifier — view only, no edit/delete control (the API
+ * supports neither). */
+function ModifierRow({
+  modifier,
+  currency,
+  fmt,
+  tx,
+  t,
+}: {
+  modifier: Modifier;
+  currency: Currency;
+  fmt: FormatOptions;
+  tx: (value: Localised) => string;
+  t: (key: ConsoleKey) => string;
+}) {
+  const kind = labelOf(MODIFIER_KIND, modifier.kind);
+  // Never `modifier.priceDelta.currency` — the wire carries no currency for
+  // a modifier at all, so that field is only ever a mapping-layer
+  // placeholder. The canonical CURRENT currency is the only truthful one.
+  const amount = modifier.priceDelta.amount;
+  const signLabel =
+    amount > 0 ? t("menu.priceDeltaExtra") : amount < 0 ? t("menu.priceDeltaDiscount") : t("menu.priceDeltaNone");
+
+  return (
+    <li className="flex items-center justify-between gap-3 py-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <span className="text-fg truncate text-sm">{tx(modifier.name)}</span>
+        <Badge tone={kind.tone}>{tx(kind.label)}</Badge>
+      </div>
+      <div className="shrink-0 text-end">
+        <div className="text-fg font-mono text-sm tabular-nums">
+          {amount === 0 ? "—" : `${amount > 0 ? "+" : ""}${formatMoney({ amount, currency }, fmt)}`}
+        </div>
+        <div className="text-fg-subtle text-xs">{signLabel}</div>
+      </div>
+    </li>
+  );
+}
+
+/**
+ * `POST /catalogue/modifier-groups/:id/modifiers`. `kind` is required by the
+ * DTO with no server-accepted default, so it is always a real choice here.
+ */
+function NewModifierForm({
+  open,
+  groupId,
+  currency,
+  onCancel,
+  onCreated,
+}: {
+  open: boolean;
+  groupId: string;
+  currency: Currency;
+  onCancel: () => void;
+  onCreated: () => void;
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<Modifier["kind"]>("addition");
+  const [amount, setAmount] = useState("0");
+  const exponent = currencyExponent(currency);
+  const tooPrecise = excessPrecision(amount, exponent);
+
+  if (!open) return null;
+
+  const parsedAmount = signedMinorFromInput(amount, exponent);
+  const canCreate = name.trim() !== "" && !tooPrecise && parsedAmount !== null;
+
+  async function create() {
+    if (!canCreate || parsedAmount === null) return;
+    await action.run(
+      () =>
+        services.catalogue.addModifier(groupId, {
+          name: { en: name.trim(), ar: name.trim() },
+          kind,
+          priceDelta: { amount: parsedAmount, currency },
+        }),
+      { onSuccess: onCreated },
+    );
+  }
+
+  return (
+    <div className="border-line space-y-4 rounded-lg border p-3">
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+      <Field label={t("common.name")} required>
+        <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
+      </Field>
+
+      <Field label={t("menu.modifierKind")} hint={t("menu.modifierKindHint")} required>
+        <Select value={kind} onChange={(event) => setKind(event.target.value as Modifier["kind"])}>
+          {(["addition", "removal", "substitution"] as const).map((value) => (
+            <option key={value} value={value}>
+              {tx(labelOf(MODIFIER_KIND, value).label)}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
+      <Field label={t("menu.priceDelta")} hint={`${currency} · ${t("menu.priceHint")}`}>
+        <Input inputMode="decimal" dir="ltr" value={amount} onChange={(event) => setAmount(event.target.value)} />
+      </Field>
+      {tooPrecise ? <Callout tone="bad">{t("menu.priceExcessPrecision")}</Callout> : null}
+
+      <div className="flex gap-2">
+        <Button variant="primary" loading={action.pending} disabled={!canCreate} onClick={create}>
+          {t("common.create")}
+        </Button>
+        <Button variant="ghost" onClick={onCancel}>
+          {t("common.cancel")}
+        </Button>
+      </div>
+    </div>
   );
 }

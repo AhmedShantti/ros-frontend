@@ -1962,6 +1962,27 @@ export const consoleEn = {
   "menu.orderTypePickup": "Pickup",
   "menu.orderTypeAggregator": "Aggregator",
 
+  // -- Live workspace availability/86 (Phase 3) ----------------------------
+  "menu.eightySixedNotice": "This item was marked sold out. The reason entered was recorded to the audit trail only — it is not shown here after the fact.",
+  "menu.86ReasonHint": "Recorded for audit accountability only. It will not be shown on this item again.",
+  "menu.autoReenableAt": "Auto re-enable at",
+  "menu.autoReenableHint": "Optional. The item stops reading as sold out once this time passes — checked only when availability is read, not by a scheduled job.",
+  "menu.autoReenableActive": "Auto re-enables at {time}",
+  "menu.deactivated": "Deactivated",
+  "menu.deactivatedNotice": "This item has been deactivated and cannot be sold.",
+
+  // -- Live workspace customizations (Phase 3 — modifier groups/modifiers) -
+  "menu.customizations": "Customizations",
+  "menu.customizationsHint": "Manage the reusable catalogue of modifier groups and modifiers. Attaching a group to an item is handled from the item itself.",
+  "menu.noModifierGroups": "No modifier groups yet.",
+  "menu.groupUpdated": "Modifier group updated.",
+  "menu.selectionRuleError": "Minimum selections cannot exceed maximum selections.",
+  "menu.requiredMinError": "A required group needs a minimum of at least 1.",
+  "menu.priceDeltaExtra": "Extra charge",
+  "menu.priceDeltaDiscount": "Discount",
+  "menu.priceDeltaNone": "No price change",
+  "menu.existingModifiersNote": "Existing modifiers cannot be edited or deleted — the API does not support it.",
+
   "nav.menuManagement": "Menu Management",
   "nav.menus": "Menus",
   "menu.menusTitle": "Menus",

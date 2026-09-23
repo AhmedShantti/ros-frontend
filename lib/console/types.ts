@@ -419,8 +419,23 @@ export interface MenuItem {
   isOpenPrice: boolean;
   isWeighed: boolean;
   available: boolean;
-  /** FR-MNU-030 — an "86" carries a reason and an optional re-enable time. */
+  /**
+   * FR-MNU-030 — non-null exactly while a manual 86 is in effect. This is
+   * NOT the operator's typed reason: the API records that text to the audit
+   * trail only (`governance.audit_entries`) and never returns it from any
+   * availability-rules response, so it can never be read back here. Never
+   * render this value as if it were the reason a person typed.
+   */
   unavailableReason: string | null;
+  /**
+   * FR-MNU-030 — when the manual 86 was created with a scheduled re-enable
+   * time. The backend evaluates this lazily at read time (an item with a
+   * past `autoReenableAt` already reads as available here — see
+   * `eightySixIndex` in `services/http.ts`), but does NOT necessarily flip
+   * the underlying rule's `isManual86` back to `false` in storage. Treat
+   * this as "no longer blocking", never as proof the rule was reset.
+   */
+  autoReenableAt: string | null;
   /** FR-MNU-033 — min over ingredients of (stock ÷ per-portion need). */
   remainingSellable: number | null;
   sortOrder: number;

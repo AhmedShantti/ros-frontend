@@ -387,13 +387,25 @@ const accessibleBranchIndex = cached(async () => {
   );
 });
 
-/** Manual 86s, keyed by the item they take off the menu (FR-MNU-030). */
+/**
+ * Manual 86s, keyed by the item they take off the menu (FR-MNU-030).
+ *
+ * A rule whose `autoReenableAt` has already passed is excluded here: the
+ * backend's own `resolveBlocked` (used by the POS menu / order-line
+ * capture) treats an expired `autoReenableAt` as no longer blocking at READ
+ * TIME, without ever flipping `isManual86` back to `false` in storage. This
+ * mirrors that exact lazy comparison so the console's own `available`
+ * derivation agrees with what the backend actually sells — never claiming
+ * the underlying rule was reset, only that it is no longer in effect.
+ */
 const eightySixIndex = cached(async () => {
   const rules = await availabilityRaw();
-  const out = new Map<Id, string>();
+  const now = Date.now();
+  const out = new Map<Id, { autoReenableAt: string | null }>();
   for (const rule of rules) {
     if (!rule.isManual86 || !rule.menuItemId) continue;
-    out.set(rule.menuItemId, rule.autoReenableAt ? `Until ${rule.autoReenableAt}` : "Marked 86");
+    if (rule.autoReenableAt && new Date(rule.autoReenableAt).getTime() <= now) continue;
+    out.set(rule.menuItemId, { autoReenableAt: rule.autoReenableAt ?? null });
   }
   return out;
 }, 5_000);
@@ -1005,9 +1017,14 @@ const items: CollectionService<MenuItem> = {
     const tenantId = tenantOf(query);
     const [rows, eightySix] = await Promise.all([menuItemsRaw(), eightySixIndex()]);
 
-    const mapped = rows.map((row) =>
-      map.toMenuItem(row, { tenantId, unavailableReason: eightySix.get(row.id) ?? null }),
-    );
+    const mapped = rows.map((row) => {
+      const manual86 = eightySix.get(row.id);
+      return map.toMenuItem(row, {
+        tenantId,
+        unavailableReason: manual86 ? "manual_86" : null,
+        autoReenableAt: manual86?.autoReenableAt ?? null,
+      });
+    });
 
     return project(mapped, query, {
       search: (row) => [row.name, row.kitchenName, row.description],
@@ -1031,16 +1048,18 @@ const items: CollectionService<MenuItem> = {
       api.catalogue.listVariants(id).catch(() => []),
       api.catalogue.listPlacements(id).catch(() => []),
       pricesByVariant().catch(() => new Map()),
-      eightySixIndex().catch(() => new Map<Id, string>()),
+      eightySixIndex().catch(() => new Map<Id, { autoReenableAt: string | null }>()),
     ]);
 
     const prepTime = variants.find((variant) => variant.prepTimeSeconds)?.prepTimeSeconds ?? 0;
+    const manual86 = eightySix.get(id);
 
     return map.toMenuItem(row, {
       tenantId,
       categoryId: placements[0]?.categoryId ?? null,
       variants: variants.map((variant) => map.toVariant(variant, prices.get(variant.id) ?? null)),
-      unavailableReason: eightySix.get(id) ?? null,
+      unavailableReason: manual86 ? "manual_86" : null,
+      autoReenableAt: manual86?.autoReenableAt ?? null,
       prepTimeSeconds: prepTime,
     });
   },
@@ -1489,7 +1508,7 @@ const catalogue: CatalogueService = {
   },
 
   /** FR-MNU-030 — an 86 is an availability rule, created or cleared. */
-  async toggleAvailability(itemId, available, reason) {
+  async toggleAvailability(itemId, available, reason, autoReenableAt) {
     const rules = await availabilityRaw();
     const existing = rules.find((rule) => rule.menuItemId === itemId && rule.isManual86);
 
@@ -1500,6 +1519,9 @@ const catalogue: CatalogueService = {
     await api.catalogue.toggle86(ruleId, {
       isManual86: !available,
       reasonText: reason,
+      // Meaningless when restoring (`available === true`) — the DTO still
+      // accepts it, but there is nothing to schedule a re-enable FOR.
+      autoReenableAt: available ? undefined : autoReenableAt,
     });
 
     invalidateCatalogue();
