@@ -972,6 +972,7 @@ const catalogue: CatalogueService = {
       recurrence: null,
       entryCount: 0,
       entries: [],
+      status: "active",
       active: true,
     }),
   }),

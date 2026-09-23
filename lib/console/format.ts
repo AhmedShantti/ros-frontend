@@ -331,11 +331,26 @@ export function numberFromInput(value: string | null | undefined): number | null
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** A money field as minor units, clamped at zero. `null` if unreadable. */
-export function minorFromInput(value: string | null | undefined): number | null {
+/**
+ * A money field as minor units, clamped at zero. `null` if unreadable.
+ *
+ * `exponent` defaults to 2 for callers that only ever handle the tenant's
+ * default currency, but a caller that knows the actual `Currency` (e.g. a
+ * price entry write) should pass `currencyExponent(currency)` explicitly —
+ * a currency with a different exponent must never be scaled by a hardcoded
+ * 100.
+ */
+export function minorFromInput(value: string | null | undefined, exponent = 2): number | null {
   const parsed = numberFromInput(value);
   if (parsed === null) return null;
-  return Math.max(0, Math.round(parsed * 100));
+  return Math.max(0, Math.round(parsed * 10 ** exponent));
+}
+
+/** True once a typed amount carries more fractional digits than the currency allows. */
+export function excessPrecision(raw: string, exponent: number): boolean {
+  const dot = raw.trim().indexOf(".");
+  if (dot === -1) return false;
+  return raw.trim().length - dot - 1 > exponent;
 }
 
 /** A whole-number field — a denomination count — clamped at zero. */

@@ -25,9 +25,21 @@ const menusCreate = vi.fn();
 const setMenuActive = vi.fn();
 const assignMenuToBranch = vi.fn();
 const itemsToggleAvailability = vi.fn();
+const priceListsList = vi.fn();
+const priceListsGet = vi.fn();
+const priceListsCreate = vi.fn();
+const setPrice = vi.fn();
 
 vi.mock("@/lib/console/services", () => ({
-  ServiceError: class ServiceError extends Error {},
+  ServiceError: class ServiceError extends Error {
+    constructor(
+      public code: string,
+      message: string,
+      public status: number,
+    ) {
+      super(message);
+    }
+  },
   services: {
     catalogue: {
       menus: {
@@ -48,6 +60,14 @@ vi.mock("@/lib/console/services", () => ({
         update: vi.fn(),
         remove: vi.fn(),
       },
+      priceLists: {
+        list: (...args: unknown[]) => priceListsList(...args),
+        get: (...args: unknown[]) => priceListsGet(...args),
+        create: (...args: unknown[]) => priceListsCreate(...args),
+        update: vi.fn(),
+        remove: vi.fn(),
+      },
+      setPrice: (...args: unknown[]) => setPrice(...args),
     },
   },
 }));
@@ -69,6 +89,16 @@ vi.mock("@/components/console/catalogue/tax-class-field", () => ({
 
 let granted = new Set<string>(["menu.item.manage", "menu.availability.toggle"]);
 
+/** Mutable so a test can move brand/branch context mid-render and assert the
+ * live workspace reads it live, without remounting the component. */
+let session = {
+  scope: { tenantId: "t1", brandId: null as string | null, branchId: null as string | null },
+  availableBranches: [{ id: "br1", name: { en: "Downtown", ar: "" }, brandId: "b1" }],
+  tenant: { id: "t1", name: { en: "Acme", ar: "أكمي" }, baseCurrency: "EGP" },
+  brand: null as { id: string; name: { en: string; ar: string } } | null,
+  branch: null as { id: string; name: { en: string; ar: string }; currency: string } | null,
+};
+
 vi.mock("@/lib/console/providers", () => ({
   useI18n: () => ({
     t: (key: string) => key,
@@ -78,10 +108,7 @@ vi.mock("@/lib/console/providers", () => ({
     fmt: { locale: "en", arabicIndicNumerals: false },
   }),
   usePermission: (perm: string) => granted.has(perm),
-  useSession: () => ({
-    scope: { tenantId: "t1", brandId: null, branchId: null },
-    availableBranches: [{ id: "br1", name: { en: "Downtown", ar: "" }, brandId: "b1" }],
-  }),
+  useSession: () => session,
 }));
 
 import LiveMenuManagement from "./live-menu-management";
@@ -101,8 +128,17 @@ describe("Live Menu Management", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     granted = new Set(["menu.item.manage", "menu.availability.toggle"]);
+    session = {
+      scope: { tenantId: "t1", brandId: null, branchId: null },
+      availableBranches: [{ id: "br1", name: { en: "Downtown", ar: "" }, brandId: "b1" }],
+      tenant: { id: "t1", name: { en: "Acme", ar: "أكمي" }, baseCurrency: "EGP" },
+      brand: null,
+      branch: null,
+    };
     listMenuCategoriesMock.mockResolvedValue([]);
     listItemsWithPlacementsMock.mockResolvedValue([]);
+    priceListsList.mockResolvedValue({ rows: [], total: 0 });
+    priceListsGet.mockResolvedValue(null);
   });
   afterEach(() => cleanup());
 

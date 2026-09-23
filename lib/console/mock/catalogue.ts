@@ -1294,6 +1294,7 @@ export const priceLists: PriceList[] = [
     recurrence: null,
     entryCount: menuItems.length,
     entries: entriesFor(menuItems.length, 1),
+    status: "active",
     active: true,
   },
   {
@@ -1309,6 +1310,7 @@ export const priceLists: PriceList[] = [
     recurrence: null,
     entryCount: menuItems.length,
     entries: entriesFor(menuItems.length, 1.18),
+    status: "active",
     active: true,
   },
   {
@@ -1324,6 +1326,7 @@ export const priceLists: PriceList[] = [
     recurrence: "Sun–Thu 15:00–18:00",
     entryCount: 8,
     entries: entriesFor(8, 0.75),
+    status: "active",
     active: true,
   },
   {
@@ -1339,6 +1342,7 @@ export const priceLists: PriceList[] = [
     recurrence: "Daily from sunset",
     entryCount: 14,
     entries: entriesFor(14, 1.05),
+    status: "expired",
     active: false,
   },
   {
@@ -1354,6 +1358,7 @@ export const priceLists: PriceList[] = [
     recurrence: null,
     entryCount: 10,
     entries: entriesFor(10, 1.12),
+    status: "active",
     active: true,
   },
 ];

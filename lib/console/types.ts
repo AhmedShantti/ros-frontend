@@ -493,6 +493,15 @@ export interface PriceListEntry {
   previousPrice: Money | null;
 }
 
+/**
+ * The wire's own three-state lifecycle. `active` (below) collapses this to a
+ * boolean and cannot tell "scheduled" from "expired" — both read `false` —
+ * but only `expired` is actually excluded from price resolution, so anywhere
+ * that distinction matters (status display, filtering out expired lists from
+ * a picker) must read `status`, not `active`.
+ */
+export type PriceListStatus = "scheduled" | "active" | "expired";
+
 export interface PriceList {
   id: Id;
   tenantId: Id;
@@ -508,6 +517,7 @@ export interface PriceList {
   recurrence: string | null;
   entryCount: number;
   entries: PriceListEntry[];
+  status: PriceListStatus;
   active: boolean;
 }
 

@@ -779,6 +779,8 @@ export function toPriceList(
   entries: PriceListEntry[] = [],
 ): PriceList {
   const orderTypes = row.orderType ? [row.orderType as PriceList["orderTypes"][number]] : [];
+  const status: PriceList["status"] =
+    row.status === "scheduled" || row.status === "expired" ? row.status : "active";
   return {
     id: row.id,
     tenantId,
@@ -792,7 +794,8 @@ export function toPriceList(
     recurrence: row.recurrenceRule ? JSON.stringify(row.recurrenceRule) : null,
     entryCount: entries.length,
     entries,
-    active: row.status === "active",
+    status,
+    active: status === "active",
   };
 }
 

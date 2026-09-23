@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatMoney, tx } from "@/lib/console/format";
-import { itemSnapshotName, toOrder, toOrderLine, toPreBill, toReceipt, toTicketLine, type OrderContext } from "./map";
+import { itemSnapshotName, toOrder, toOrderLine, toPreBill, toPriceEntry, toPriceList, toReceipt, toTicketLine, type OrderContext } from "./map";
 import type * as S from "@/lib/api/schema";
 
 /*
@@ -435,5 +435,81 @@ describe("toTicketLine — KDS ticket card renders the real item name, not blank
     );
     expect(tx(line.name, "en")).toBe("Chicken — Half");
     expect(tx(line.name, "ar")).toBe("فراخ — نص");
+  });
+});
+
+/*
+ * MENU-MANAGEMENT-SLICE-2-PHASE-2-PRICING — `toPriceList`/`toPriceEntry`.
+ *
+ *  - `PriceEntry.price` off the wire is a minor-unit INTEGER string
+ *    ("1250" = 12.50), the same contract as `/catalogue/pos-menu` — never
+ *    the major-unit decimal string `money()` expects. An exact round trip
+ *    (no float ever stands in for the true minor-unit integer) is the point.
+ *  - `PriceList.status` collapses to `active` (boolean) for legacy call
+ *    sites, but `scheduled` and `expired` must stay distinguishable in
+ *    `status` — only `expired` is excluded from price resolution, and a
+ *    switcher that can't tell "scheduled" from "expired" would grey out a
+ *    fully-eligible list.
+ */
+describe("toPriceEntry — minor-unit round trip, never a float", () => {
+  it("reads the wire's minor-unit integer string exactly, no float involved", () => {
+    const entry = toPriceEntry({ id: "e1", priceListId: "pl1", menuItemVariantId: "v1", price: "1250", currency: "EGP" });
+    expect(entry.price).toEqual({ amount: 1250, currency: "EGP" });
+    expect(Number.isInteger(entry.price.amount)).toBe(true);
+  });
+
+  it("round-trips a large amount exactly (no IEEE-754 drift)", () => {
+    // 12,345,678.90 in a 2-decimal currency — well within float-precision-loss territory if mishandled.
+    const entry = toPriceEntry({ id: "e1", priceListId: "pl1", menuItemVariantId: "v1", price: "1234567890", currency: "EGP" });
+    expect(entry.price.amount).toBe(1234567890);
+  });
+
+  it("never divides by 100 while mapping off the wire (that only happens once, at display time)", () => {
+    // A price of "300" is EGP 3.00 in minor units — if this ever ran through
+    // the *major*-unit parser (`money()`) instead of `minorMoney()`, it would
+    // silently become 30000 (see the DEMO-POS-ORDER-CRITICAL-P0 note above).
+    const entry = toPriceEntry({ id: "e1", priceListId: "pl1", menuItemVariantId: "v1", price: "300", currency: "EGP" });
+    expect(entry.price.amount).toBe(300);
+  });
+
+  it("carries the variant id, not a synthesized item-level id", () => {
+    const entry = toPriceEntry({ id: "e1", priceListId: "pl1", menuItemVariantId: "variant-9", price: "100", currency: "EGP" });
+    expect(entry.variantId).toBe("variant-9");
+  });
+});
+
+describe("toPriceList — status", () => {
+  const base = {
+    id: "pl1",
+    name: "Standard",
+    scopeType: "tenant" as const,
+    scopeId: null,
+    orderType: null,
+    validFrom: null,
+    validTo: null,
+    recurrenceRule: null,
+    priority: 10,
+  };
+
+  it("active status reads active:true", () => {
+    const row = toPriceList({ ...base, status: "active" }, "t1");
+    expect(row.status).toBe("active");
+    expect(row.active).toBe(true);
+  });
+
+  it("scheduled status is distinguishable from expired — both are active:false, but status differs", () => {
+    const scheduled = toPriceList({ ...base, status: "scheduled" }, "t1");
+    const expired = toPriceList({ ...base, status: "expired" }, "t1");
+    expect(scheduled.status).toBe("scheduled");
+    expect(scheduled.active).toBe(false);
+    expect(expired.status).toBe("expired");
+    expect(expired.active).toBe(false);
+    // The one distinction that actually matters for resolution eligibility.
+    expect(scheduled.status).not.toBe(expired.status);
+  });
+
+  it("an unrecognized wire status value falls back to 'active', matching the DTO's own documented set (scheduled/active/expired)", () => {
+    const row = toPriceList({ ...base, status: "something-new" }, "t1");
+    expect(row.status).toBe("active");
   });
 });
