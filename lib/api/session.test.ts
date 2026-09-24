@@ -6,6 +6,7 @@ import {
   getAccessToken,
   getActiveBranchId,
   getActiveBranchName,
+  getDeviceTenantId,
   getOpenCashSession,
   getPendingCashOpen,
   getPosEmployee,
@@ -18,6 +19,7 @@ import {
   setOpenCashSession,
   setPendingCashOpen,
   setPosEmployee,
+  setTenantId,
   setTokens,
 } from "./session";
 
@@ -142,6 +144,48 @@ describe("active operating branch vs. cashier identity — FRONTEND-REMOVE-DEVIC
       openingFloat: "50000",
       employeeCode: "EMP01",
     });
+  });
+});
+
+describe("setTenantId clears a stale cross-tenant active branch — CASHIER-POS-LOGIN-401-P0", () => {
+  it("clears the cached active branch when the console selects a DIFFERENT tenant on this device", () => {
+    setActiveSurface("console");
+    setTenantId("tenant-a");
+    setActiveBranchId("branch-a1", { en: "Downtown", ar: "وسط البلد" });
+
+    // A different tenant is selected on the SAME device (e.g. an operator
+    // account with access to more than one tenant) without ever revisiting
+    // /select-branch first.
+    setTenantId("tenant-b");
+
+    // `branch-a1` belongs to tenant-a; RLS makes it invisible under
+    // tenant-b, so a cashier PIN sign-on combining the new tenantId with
+    // this stale branchId would 401 at POST /auth/pin with no indication
+    // why. The branch (and its cached name) must not survive the switch.
+    expect(getActiveBranchId()).toBeNull();
+    expect(getActiveBranchName()).toBeNull();
+    expect(getDeviceTenantId()).toBe("tenant-b");
+  });
+
+  it("keeps the active branch when the SAME tenant is selected again", () => {
+    setActiveSurface("console");
+    setTenantId("tenant-a");
+    setActiveBranchId("branch-a1", { en: "Downtown", ar: "وسط البلد" });
+
+    // Re-authenticating, refreshing, or re-picking the SAME tenant must not
+    // punt the operator back to /select-branch every time.
+    setTenantId("tenant-a");
+
+    expect(getActiveBranchId()).toBe("branch-a1");
+    expect(getActiveBranchName()).toEqual({ en: "Downtown", ar: "وسط البلد" });
+  });
+
+  it("a fresh device's first tenant selection is unaffected (no branch was ever cached)", () => {
+    setActiveSurface("console");
+    setTenantId("tenant-a");
+
+    expect(getActiveBranchId()).toBeNull();
+    expect(getDeviceTenantId()).toBe("tenant-a");
   });
 });
 

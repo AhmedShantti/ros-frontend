@@ -477,7 +477,25 @@ export function getTenantId(): string | null {
 
 export function setTenantId(tenantId: string | null): void {
   write(identityKeys().tenant, tenantId);
-  if (tenantId) write(KEY_DEVICE_TENANT, tenantId);
+  if (tenantId) {
+    const previousDeviceTenant = read(KEY_DEVICE_TENANT);
+    // Only a genuine SWITCH (a previously known device tenant, now
+    // different) is suspect — `previousDeviceTenant === null` is this
+    // device's first-ever tenant selection, with no prior branch that could
+    // belong to a different tenant.
+    if (previousDeviceTenant !== null && previousDeviceTenant !== tenantId) {
+      // A branch selected while this device operated under a DIFFERENT
+      // tenant is never valid here — `KEY_ACTIVE_BRANCH` carries no tenant
+      // of its own, and RLS makes that branch id invisible to
+      // `PinService.authenticate` under the new tenant, so a cashier with
+      // fully correct credentials would silently 401 at `/auth/pin`.
+      // Clearing it sends `/pos`/`/kds` back through `/select-branch` to
+      // pick a branch that actually belongs to this tenant.
+      write(KEY_ACTIVE_BRANCH, null);
+      write(KEY_ACTIVE_BRANCH_NAME, null);
+    }
+    write(KEY_DEVICE_TENANT, tenantId);
+  }
   announce();
 }
 
