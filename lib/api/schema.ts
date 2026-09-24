@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 193 paths, 131 request DTOs.
+ * `api/openapi.json`. 194 paths, 132 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -671,6 +671,11 @@ export interface PinLoginDto {
   tenantId: string;
 }
 
+export interface PinPrecheckDto {
+  branchId: string;
+  tenantId: string;
+}
+
 export interface PlaceMenuItemDto {
   categoryId: string;
 }
@@ -1214,6 +1219,13 @@ export type AuthController_loginWithPinResponse = {
 };
 
 export type AuthController_loginWithPinBody = PinLoginDto;
+
+/** `POST /auth/pin/precheck` — Check whether a (tenantId, branchId) pair is currently one POST /auth/pin would accept, before attempting a PIN. Never authenticates, never issues a session. — Whether this branch is currently valid for PIN sign-in. */
+export type AuthController_checkPinPrecheckResponse = {
+  valid: boolean;
+};
+
+export type AuthController_checkPinPrecheckBody = PinPrecheckDto;
 
 /** `POST /auth/refresh` — Rotate a refresh token for a new access + refresh token pair. — A rotated access + refresh token pair. */
 export type AuthController_refreshResponse = {
@@ -7562,6 +7574,7 @@ export const ROUTES = {
   PasswordController_reset: { method: "POST", path: "/auth/password/reset" },
   RbacController_myPermissions: { method: "GET", path: "/auth/permissions" },
   AuthController_loginWithPin: { method: "POST", path: "/auth/pin" },
+  AuthController_checkPinPrecheck: { method: "POST", path: "/auth/pin/precheck" },
   AuthController_refresh: { method: "POST", path: "/auth/refresh" },
   RegistrationsController_register: { method: "POST", path: "/auth/registrations" },
   RbacController_updateAssignment: { method: "PATCH", path: "/auth/role-assignments/{assignmentId}" },

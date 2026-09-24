@@ -76,6 +76,7 @@ import {
   getActiveBranchId,
   isSignedIn,
   onSessionChange,
+  setActiveBranchId,
   setOpenCashSession,
   setPendingCashOpen,
   getPosEmployee,
@@ -83,7 +84,7 @@ import {
   type OpenCashSession,
   type PosEmployee,
 } from "@/lib/api/session";
-import { signInWithPin, signOffTerminal } from "@/lib/api/auth";
+import { checkActiveBranchValid, signInWithPin, signOffTerminal } from "@/lib/api/auth";
 import { deviceId } from "@/lib/api/ids";
 import {
   isAlreadyOpenConflict,
@@ -329,23 +330,7 @@ export function LivePos() {
   }
 
   if (!activeBranchId) {
-    return (
-      <div className="mx-auto min-h-0 w-full max-w-md flex-1 overflow-y-auto p-4">
-        <Card>
-          <CardHeader title={t("pos.noBranch")} spec="FR-SEC-030" />
-          <Callout tone="warn">{t("pos.noBranchNote")}</Callout>
-          <Button
-            variant="primary"
-            className="mt-4 w-full"
-            onClick={() => {
-              window.location.href = "/select-branch";
-            }}
-          >
-            {t("branch.selectCta")}
-          </Button>
-        </Card>
-      </div>
-    );
+    return <NoBranchSelected />;
   }
 
   /*
@@ -361,7 +346,7 @@ export function LivePos() {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-md p-4">
-          <CashierSignOn
+          <BranchGatedSignOn
             branchId={activeBranchId}
             // `onSessionChange` above already re-reads who is on the till,
             // so there is nothing to hand back but the confirmation.
@@ -832,6 +817,76 @@ function CancelDraftOrderSheet({
 }
 
 // ---------------------------------------------------------------------------
+
+function NoBranchSelected() {
+  const { t } = useI18n();
+  return (
+    <div className="mx-auto min-h-0 w-full max-w-md flex-1 overflow-y-auto p-4">
+      <Card>
+        <CardHeader title={t("pos.noBranch")} spec="FR-SEC-030" />
+        <Callout tone="warn">{t("pos.noBranchNote")}</Callout>
+        <Button
+          variant="primary"
+          className="mt-4 w-full"
+          onClick={() => {
+            window.location.href = "/select-branch";
+          }}
+        >
+          {t("branch.selectCta")}
+        </Button>
+      </Card>
+    </div>
+  );
+}
+
+/**
+ * CASHIER-POS-STALE-BRANCH-401-P0 — gates `CashierSignOn` on the cached
+ * `branchId` still being real, via `POST /auth/pin/precheck`
+ * (`checkActiveBranchValid`) — no employee code, no PIN, no console
+ * credential of any kind. A DIRECT visit to `/pos` (no console page opened
+ * first) is exactly the case an earlier, TENANT-change-only fix could not
+ * reach: nothing else re-checks whether a cached branch still exists before
+ * this. The check must run — and settle — before `CashierSignOn` ever
+ * mounts, so a stale branch id can never reach `POST /auth/pin`.
+ */
+function BranchGatedSignOn({
+  branchId,
+  onSignedOn,
+}: {
+  branchId: string;
+  onSignedOn: () => void;
+}) {
+  const { t } = useI18n();
+  const tenantId = getDeviceTenantId();
+  const check = useAsync(
+    () => (tenantId ? checkActiveBranchValid({ tenantId, branchId }) : Promise.resolve(false)),
+    [tenantId, branchId],
+  );
+
+  useEffect(() => {
+    // Only ever CLEARS on a confirmed non-valid answer — never writes a
+    // different branch in, and never touches a still-pending check.
+    if (check.loading) return;
+    if (check.data !== true) setActiveBranchId(null);
+  }, [check.loading, check.data]);
+
+  if (check.loading) {
+    return (
+      <div className="text-fg-muted flex items-center justify-center gap-2 p-8 text-sm">
+        <Spinner /> {t("term.loading")}
+      </div>
+    );
+  }
+
+  // `checkActiveBranchValid` itself never throws (it fails closed to
+  // `false` internally), so `check.data !== true` alone — never a separate
+  // error branch — is the one place "not confirmed valid" is decided.
+  if (check.data !== true) {
+    return <NoBranchSelected />;
+  }
+
+  return <CashierSignOn branchId={branchId} onSignedOn={onSignedOn} />;
+}
 
 /**
  * FR-SEC-020 — the cashier signs on to the till by staff code and PIN.

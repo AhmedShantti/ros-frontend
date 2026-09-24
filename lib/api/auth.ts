@@ -158,6 +158,37 @@ export async function signInWithPin(input: {
 }
 
 /**
+ * CASHIER-POS-STALE-BRANCH-401-P0 — a REAL production cashier, with a fully
+ * valid PIN/employee/membership, got `POST /auth/pin` -> 401 because the
+ * device's persisted operating branch (`getActiveBranchId()`, set once at
+ * `/select-branch`) pointed at a branch id that no longer existed. POS has
+ * no session yet at that point, so it cannot ask any authenticated endpoint
+ * — not `GET /org/access` (refuses a PIN token by design; there is no PIN
+ * token yet anyway), and NOT the console's own credential, which would
+ * violate Console/POS session isolation regardless of intent (an earlier,
+ * reverted attempt at this fix made exactly that mistake).
+ *
+ * `POST /auth/pin/precheck` is the canonical, minimal answer: no employee
+ * code, no PIN, no session, no console involvement of any kind — it shares
+ * the EXACT branch-validity predicate `PinService.authenticate` itself
+ * checks first, so it can never disagree with what a real PIN attempt would
+ * decide. Fails CLOSED on anything inconclusive (a network error, a
+ * malformed response) — never assumes a branch is valid just because it
+ * could not be disproven.
+ */
+export async function checkActiveBranchValid(input: {
+  tenantId: string;
+  branchId: string;
+}): Promise<boolean> {
+  try {
+    const result = await api.auth.checkPinPrecheck(input);
+    return result.valid === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * POS-SESSION-RESILIENCE-P1 — re-authenticate the CURRENTLY signed-on
  * employee with their PIN again, for the narrow case of a
  * `STALE_AUTHORIZATION_SNAPSHOT` recovery (`client.ts`'s

@@ -2283,6 +2283,21 @@
         ],
         "type": "object"
       },
+      "PinPrecheckDto": {
+        "properties": {
+          "branchId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenantId",
+          "branchId"
+        ],
+        "type": "object"
+      },
       "PlaceMenuItemDto": {
         "properties": {
           "categoryId": {
@@ -4682,6 +4697,56 @@
           }
         },
         "summary": "Authenticate with a terminal-scoped employee PIN (POS).",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/pin/precheck": {
+      "post": {
+        "operationId": "AuthController_checkPinPrecheck",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinPrecheckDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "valid": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "valid"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Whether this branch is currently valid for PIN sign-in."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded."
+          }
+        },
+        "summary": "Check whether a (tenantId, branchId) pair is currently one POST /auth/pin would accept, before attempting a PIN. Never authenticates, never issues a session.",
         "tags": [
           "auth"
         ]

@@ -107,9 +107,12 @@ vi.mock("@/lib/console/providers", () => ({
 vi.mock("@/lib/api/auth", () => ({
   signInWithPin: vi.fn(),
   signOffTerminal: vi.fn(),
+  // Every existing test here assumes the cached branch is good — CASHIER-
+  // POS-STALE-BRANCH-401-P0's own tests are the ones that override this.
+  checkActiveBranchValid: vi.fn().mockResolvedValue(true),
 }));
 
-import { signInWithPin, signOffTerminal } from "@/lib/api/auth";
+import { checkActiveBranchValid, signInWithPin, signOffTerminal } from "@/lib/api/auth";
 import * as Session from "@/lib/api/session";
 import type { Order, OrderLine } from "@/lib/console/types";
 import type { UserEvent } from "@testing-library/user-event";
@@ -562,6 +565,111 @@ describe("LivePos — PIN sign-on contract (FRONTEND-POS-KDS-TERMINAL-DECOUPLING
     expect(await screen.findByText("pos.noBranch")).toBeInTheDocument();
     expect(screen.getByText("pos.noBranchNote")).toBeInTheDocument();
     expect(screen.queryByText("pos.noTerminal")).not.toBeInTheDocument();
+  });
+});
+
+describe("LivePos — stale cached branch is never sent to PIN login, on a DIRECT /pos visit (CASHIER-POS-STALE-BRANCH-401-P0)", () => {
+  // Every test here starts EXACTLY like a real till reopening `/pos` after a
+  // previous shift: `seedDevice()` (beforeEach) has already written
+  // `ros.api.activeBranchId` straight to storage, with no console page ever
+  // rendered in this test. `checkActiveBranchValid` is the ONLY thing gating
+  // `CashierSignOn` — POS never reads or refreshes a Console credential.
+
+  it("a branch the precheck confirms no longer exists/is inaccessible: cleared, no PIN form, POST /auth/pin never sent, canonical branch-selection prompt shows instead", async () => {
+    getCurrentSession.mockResolvedValue(null);
+    vi.mocked(checkActiveBranchValid).mockResolvedValue(false);
+
+    render(<LivePos />);
+
+    // The gate resolves to the SAME canonical prompt `/select-branch` itself
+    // is reached from — never a bespoke "your branch is invalid" screen.
+    expect(await screen.findByText("pos.noBranch")).toBeInTheDocument();
+    expect(screen.getByText("pos.noBranchNote")).toBeInTheDocument();
+
+    // The PIN form was never given the chance to exist.
+    expect(screen.queryByLabelText(/shift\.employeeCode/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/shift\.pinLabel/)).not.toBeInTheDocument();
+    expect(signInWithPin).not.toHaveBeenCalled();
+
+    // The stale id must not survive on this device either.
+    expect(Session.getActiveBranchId()).toBeNull();
+  });
+
+  it("a precheck error (network failure, not a confirmed answer) fails CLOSED the same way — never assumes an unconfirmed branch is safe", async () => {
+    getCurrentSession.mockResolvedValue(null);
+    // checkActiveBranchValid itself never rejects (it fails closed to
+    // `false` internally) — this simulates that exact contract.
+    vi.mocked(checkActiveBranchValid).mockResolvedValue(false);
+
+    render(<LivePos />);
+
+    expect(await screen.findByText("pos.noBranch")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/shift\.employeeCode/)).not.toBeInTheDocument();
+    expect(signInWithPin).not.toHaveBeenCalled();
+  });
+
+  it("a branch the precheck confirms IS still valid: the PIN form renders and sign-on proceeds normally", async () => {
+    getCurrentSession.mockResolvedValue(null);
+    vi.mocked(checkActiveBranchValid).mockResolvedValue(true);
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+
+    render(<LivePos />);
+
+    await user.type(await screen.findByLabelText(/shift\.employeeCode/), "EMP01");
+    await user.type(screen.getByLabelText(/shift\.pinLabel/), "1234");
+    await user.click(screen.getByRole("button", { name: "shift.signOn" }));
+
+    await waitFor(() => expect(signInWithPin).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(signInWithPin).mock.calls[0]![0]).toMatchObject({ branchId: BRANCH_ID });
+    // A confirmed-valid branch is left exactly as it was.
+    expect(Session.getActiveBranchId()).toBe(BRANCH_ID);
+  });
+
+  it("a WRONG PIN on a precheck-confirmed-valid branch is a normal PIN failure — never clears the branch", async () => {
+    getCurrentSession.mockResolvedValue(null);
+    vi.mocked(checkActiveBranchValid).mockResolvedValue(true);
+    vi.mocked(signInWithPin).mockRejectedValue(
+      Object.assign(new Error("Invalid PIN, branch or employee."), { status: 401 }),
+    );
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+
+    render(<LivePos />);
+
+    await user.type(await screen.findByLabelText(/shift\.employeeCode/), "EMP01");
+    await user.type(screen.getByLabelText(/shift\.pinLabel/), "0000");
+    await user.click(screen.getByRole("button", { name: "shift.signOn" }));
+
+    await waitFor(() => expect(signInWithPin).toHaveBeenCalledTimes(1));
+    // The branch survives a wrong PIN — only a CONFIRMED-invalid precheck
+    // clears it, never an ordinary auth failure.
+    expect(Session.getActiveBranchId()).toBe(BRANCH_ID);
+    // Still on the sign-on form, not bounced to branch selection.
+    expect(screen.queryByText("pos.noBranch")).not.toBeInTheDocument();
+  });
+
+  it("validates against the current activeBranchId and deviceTenantId — never a caller-editable value", async () => {
+    getCurrentSession.mockResolvedValue(null);
+    vi.mocked(checkActiveBranchValid).mockResolvedValue(true);
+
+    render(<LivePos />);
+
+    await screen.findByLabelText(/shift\.employeeCode/);
+    expect(checkActiveBranchValid).toHaveBeenCalledWith({ tenantId: TENANT_ID, branchId: BRANCH_ID });
+  });
+
+  it("never calls GET /org/branches and never reads a Console credential", async () => {
+    getCurrentSession.mockResolvedValue(null);
+    vi.mocked(checkActiveBranchValid).mockResolvedValue(true);
+
+    render(<LivePos />);
+
+    await screen.findByLabelText(/shift\.employeeCode/);
+    // Only the mocked `checkActiveBranchValid` boundary was crossed — no
+    // Console credential slot (`ros.api.*`) was ever written by this flow.
+    expect(window.localStorage.getItem("ros.api.accessToken")).toBeNull();
+    expect(window.localStorage.getItem("ros.api.refreshToken")).toBeNull();
   });
 });
 

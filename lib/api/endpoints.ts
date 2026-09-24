@@ -141,6 +141,21 @@ export const auth = {
   loginWithPin: (body: S.PinLoginDto) =>
     http.post<S.AuthController_loginWithPinResponse>("/auth/pin", { body }),
 
+  /**
+   * `POST /auth/pin/precheck` — Check whether a (tenantId, branchId) pair is currently one POST /auth/pin would accept, before attempting a PIN. Never authenticates, never issues a session. — Whether this branch is currently valid for PIN sign-in.
+   *
+   * `anonymous: true`, hand-added (not mechanically generated, like the
+   * route/body/response types above it): this route needs no session and no
+   * credential of any kind, ever — never the active surface's own token
+   * (whether present, absent, or stale), so it must never trigger the
+   * ordinary bearer-attach or stale-token-refresh dance.
+   */
+  checkPinPrecheck: (body: S.PinPrecheckDto) =>
+    http.post<S.AuthController_checkPinPrecheckResponse>("/auth/pin/precheck", {
+      body,
+      anonymous: true,
+    }),
+
   /** `POST /auth/refresh` — Rotate a refresh token for a new access + refresh token pair. — A rotated access + refresh token pair. */
   refresh: (body: S.RefreshDto) =>
     http.post<S.AuthController_refreshResponse>("/auth/refresh", { body }),

@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const loginWithPin = vi.fn();
+const checkPinPrecheck = vi.fn();
 const logout = vi.fn();
 const login = vi.fn();
 const me = vi.fn();
@@ -32,6 +33,7 @@ vi.mock("./endpoints", () => ({
     auth: {
       login: (...args: unknown[]) => login(...args),
       loginWithPin: (...args: unknown[]) => loginWithPin(...args),
+      checkPinPrecheck: (...args: unknown[]) => checkPinPrecheck(...args),
       logout: (...args: unknown[]) => logout(...args),
       me: (...args: unknown[]) => me(...args),
     },
@@ -42,7 +44,7 @@ vi.mock("./endpoints", () => ({
   },
 }));
 
-import { signIn, signInWithPin, signOffTerminal, signOut } from "./auth";
+import { checkActiveBranchValid, signIn, signInWithPin, signOffTerminal, signOut } from "./auth";
 import * as Session from "./session";
 
 function pinResponse(accessToken: string, displayName: string) {
@@ -362,5 +364,50 @@ describe("signIn/signOut — console never touches POS or KDS credentials", () =
     expect(Session.isSignedIn()).toBe(false); // kds
     Session.setActiveSurface("pos");
     expect(Session.isSignedIn()).toBe(true); // pos untouched
+  });
+});
+
+/*
+ * CASHIER-POS-STALE-BRANCH-401-P0
+ *
+ * `checkActiveBranchValid` is the thin, POS-safe wrapper around
+ * `POST /auth/pin/precheck` — it never reads or touches a Console
+ * credential (the earlier, reverted attempt at this fix did exactly that),
+ * never throws, and fails CLOSED on any error.
+ */
+describe("checkActiveBranchValid — POST /auth/pin/precheck, no Console involvement", () => {
+  it("valid: true when the precheck says so", async () => {
+    checkPinPrecheck.mockResolvedValue({ valid: true });
+
+    await expect(
+      checkActiveBranchValid({ tenantId: "t1", branchId: "b1" }),
+    ).resolves.toBe(true);
+    expect(checkPinPrecheck).toHaveBeenCalledWith({ tenantId: "t1", branchId: "b1" });
+  });
+
+  it("valid: false when the precheck says so", async () => {
+    checkPinPrecheck.mockResolvedValue({ valid: false });
+
+    await expect(
+      checkActiveBranchValid({ tenantId: "t1", branchId: "b1" }),
+    ).resolves.toBe(false);
+  });
+
+  it("fails CLOSED (false) on a network/transport error — never throws, never assumes valid", async () => {
+    checkPinPrecheck.mockRejectedValue(new Error("network unreachable"));
+
+    await expect(
+      checkActiveBranchValid({ tenantId: "t1", branchId: "b1" }),
+    ).resolves.toBe(false);
+  });
+
+  it("never touches a Console (or any other surface's) credential — only the mocked endpoint boundary is crossed", async () => {
+    checkPinPrecheck.mockResolvedValue({ valid: true });
+
+    await checkActiveBranchValid({ tenantId: "t1", branchId: "b1" });
+
+    expect(window.localStorage.getItem("ros.api.accessToken")).toBeNull();
+    expect(window.localStorage.getItem("ros.api.refreshToken")).toBeNull();
+    expect(window.localStorage.getItem("ros.pos.accessToken")).toBeNull();
   });
 });
