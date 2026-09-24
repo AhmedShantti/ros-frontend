@@ -62,8 +62,6 @@ import type {
   OrderLine,
   OrderLineState,
   OrderType,
-  PriceList,
-  PriceListEntry,
   Quantity,
   Recipe,
   RecipeLine,
@@ -253,7 +251,7 @@ export function toDecimal(value: Money | number, exponent = 2): string {
 
 /**
  * Back the other way for request bodies that want a *minor-unit* integer
- * string (`SetPriceEntryDto.price` and its kind — `^-?\d{1,18}$`, never a
+ * string (`UpdateVariantPriceDto.price` and its kind — `^\d{1,18}$`, never a
  * decimal point, never a JSON number). `Money.amount` is already an integer
  * count of minor units, so this is a plain stringify, not a scale — reach
  * for `toDecimal` instead when the wire field is actually a shelf decimal.
@@ -656,16 +654,7 @@ export function toCompleteness(
 ): CatalogueCompleteness {
   return {
     sellable: response.sellable,
-    unpricedVariants: (response.unpricedVariants ?? []).map((row) => ({
-      menuItemId: row.menuItemId,
-      variantId: row.variantId,
-    })),
     itemsWithoutActiveVariant: response.itemsWithoutActiveVariant ?? [],
-    activeListGaps: (response.activeListGaps ?? []).map((row) => ({
-      priceListId: row.priceListId,
-      priceListName: row.priceListName,
-      menuItemVariantId: row.menuItemVariantId,
-    })),
   };
 }
 
@@ -687,11 +676,13 @@ export function toCategory(row: WireCategory, tenantId: Id, itemCount = 0): Menu
 type WireMenuItem = S.CatalogueController_listItemsResponse[number];
 type WireVariant = S.CatalogueController_listVariantsResponse[number];
 
-export function toVariant(row: WireVariant, price: Money | null): MenuItemVariant {
+export function toVariant(row: WireVariant): MenuItemVariant {
   return {
     id: row.id,
     name: localised(row.name),
-    basePrice: price ?? money(0),
+    // Minor-unit integer string, straight from the variant's own direct
+    // price — no Price List concept, no client-side resolution.
+    basePrice: minorMoney(row.price, row.currency),
     barcode: row.barcode,
     recipeId: null, // filled from /recipes when the recipe list is loaded.
     available: row.isActive,
@@ -753,10 +744,10 @@ export function toModifier(row: WireModifier): Modifier {
     name: localised(row.name),
     kind,
     // `priceDelta` is a signed minor-unit integer string ("-300" = -3.00),
-    // the same contract as `PriceEntry.price` — `money()` reads a *decimal*
-    // string and would read this 100x too large (see the toPriceEntry note
-    // above). `minorMoney()` has no currency of its own to attach here (the
-    // wire carries none for a modifier); callers must format this for
+    // the same contract as a variant's own direct price — `money()` reads a
+    // *decimal* string and would read this 100x too large (see `toVariant`'s
+    // test coverage in map.test.ts). `minorMoney()` has no currency of its
+    // own to attach here (the wire carries none for a modifier); callers must format this for
     // display using the canonical current currency, never this field's own
     // `.currency`, which is only ever a mapping-layer placeholder.
     priceDelta: minorMoney(row.priceDelta),
@@ -781,52 +772,6 @@ export function toModifierGroup(
     freeQuantityThreshold: row.freeQuantityThreshold || null,
     modifiers,
     attachedItemCount: 0, // gap: no reverse index on the API.
-  };
-}
-
-type WirePriceList = S.CatalogueController_listPriceListsResponse[number];
-type WirePriceEntry = S.CatalogueController_listPriceEntriesResponse[number];
-
-export function toPriceEntry(
-  row: WirePriceEntry,
-  itemName: Localised = EMPTY,
-  menuItemId: Id = "",
-): PriceListEntry {
-  return {
-    menuItemId,
-    variantId: row.menuItemVariantId,
-    itemName,
-    // `price` is a minor-unit integer string ("1250" = 12.50), same
-    // contract as `/catalogue/pos-menu` — `money()` reads a *decimal*
-    // string and would read this 100x too large.
-    price: minorMoney(row.price, row.currency),
-    previousPrice: null, // gap: no price history on the API.
-  };
-}
-
-export function toPriceList(
-  row: WirePriceList,
-  tenantId: Id,
-  entries: PriceListEntry[] = [],
-): PriceList {
-  const orderTypes = row.orderType ? [row.orderType as PriceList["orderTypes"][number]] : [];
-  const status: PriceList["status"] =
-    row.status === "scheduled" || row.status === "expired" ? row.status : "active";
-  return {
-    id: row.id,
-    tenantId,
-    name: localised(row.name),
-    scope: row.scopeType,
-    scopeId: row.scopeId,
-    orderTypes,
-    priority: row.priority,
-    validFrom: row.validFrom ? row.validFrom.slice(0, 10) : null,
-    validTo: row.validTo ? row.validTo.slice(0, 10) : null,
-    recurrence: row.recurrenceRule ? JSON.stringify(row.recurrenceRule) : null,
-    entryCount: entries.length,
-    entries,
-    status,
-    active: status === "active",
   };
 }
 

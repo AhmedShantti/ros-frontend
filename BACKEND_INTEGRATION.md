@@ -178,8 +178,8 @@ terminals (register, bind, fingerprint, revoke), RBAC (roles, permissions,
 membership assignment), organisation (brands, branches, warehouses, central
 kitchens, operating hours, print routing, station routing, brand
 reassignment), catalogue (menus and their branch assignment, categories,
-items, placements, variants, modifier groups and modifiers, price lists and
-entries, availability 86, completeness), inventory (items, levels, batches,
+items, placements, variants (each directly priced, no Price List concept),
+modifier groups and modifiers, availability 86, completeness), inventory (items, levels, batches,
 movements, counts and count lines, transfers and receipts, waste, reason
 codes, reorder configuration, low stock, negative stock, reconciliation),
 production (recipe versions, publish, substitute groups, completeness,

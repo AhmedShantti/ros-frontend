@@ -61,7 +61,7 @@ import { ServiceError } from "./types";
 import { crmService } from "./crm";
 
 import { branchById, branches, brands, centralKitchens, stations, stockLocations, tables, tenants, terminals, warehouses } from "../mock/org";
-import { combos, menuCategories, menuItems, modifierGroups, priceLists, recipes } from "../mock/catalogue";
+import { combos, menuCategories, menuItems, modifierGroups, recipes } from "../mock/catalogue";
 import { sellableTaxClassesForBranch } from "../mock/branch-tax-classes";
 import { stockItems } from "../mock/stock-items";
 import { batches, countSessions, stockAdjustments, stockLevels, stockMovements, transfers, wasteRecords } from "../mock/inventory";
@@ -1017,7 +1017,24 @@ const catalogue: CatalogueService = {
       active: true,
     }),
   }),
-  items: itemsCollection,
+  items: {
+    ...itemsCollection,
+    // Creates the item AND its sellable variant(s) atomically, in one call —
+    // no separate "add variant" step is needed to make it sellable.
+    async create(input) {
+      return itemsCollection.create({
+        ...input,
+        variants: input.variants.map((variant, index) => ({
+          id: `new_v${index}_${Math.random().toString(36).slice(2, 10)}`,
+          name: variant.name,
+          basePrice: variant.price,
+          barcode: variant.barcode ?? null,
+          recipeId: null,
+          available: true,
+        })),
+      });
+    },
+  },
   modifierGroups: makeCollection({
     rows: modifierGroups,
     idOf: (g) => g.id,
@@ -1050,29 +1067,6 @@ const catalogue: CatalogueService = {
       price: input.price ?? { amount: 0, currency: "EGP" },
       pricingStrategy: input.pricingStrategy ?? "fixed",
       slots: input.slots ?? [],
-      active: true,
-    }),
-  }),
-  priceLists: makeCollection({
-    rows: priceLists,
-    idOf: (p) => p.id,
-    search: (p) => [p.name],
-    filters: { scope: (p) => p.scope, active: (p) => p.active },
-    sorters: { name: (p) => p.name.en, priority: (p) => p.priority, validFrom: (p) => p.validFrom },
-    factory: (input, id) => ({
-      id,
-      tenantId: tenants[0]!.id,
-      name: (input.name as Localised) ?? { en: "New price list", ar: "قائمة أسعار جديدة" },
-      scope: input.scope ?? "tenant",
-      scopeId: input.scopeId ?? null,
-      orderTypes: input.orderTypes ?? ["dine_in"],
-      priority: input.priority ?? 10,
-      validFrom: input.validFrom ?? new Date().toISOString().slice(0, 10),
-      validTo: null,
-      recurrence: null,
-      entryCount: 0,
-      entries: [],
-      status: "active",
       active: true,
     }),
   }),
@@ -1201,6 +1195,11 @@ const catalogue: CatalogueService = {
     });
   },
 
+  /**
+   * A FURTHER variant on an item that already exists (and is therefore
+   * already sellable). Initial variant creation happens atomically inside
+   * `items.create()` instead.
+   */
   async addVariant(itemId, input) {
     return transport(() => {
       const index = menuItems.findIndex((m) => m.id === itemId);
@@ -1208,8 +1207,8 @@ const catalogue: CatalogueService = {
 
       const variant = {
         id: `var_${itemId}_${menuItems[index]!.variants.length + 1}`,
-        name: input.name ?? { en: "New variant", ar: "خيار جديد" },
-        basePrice: input.basePrice ?? { amount: 0, currency: "EGP" as const },
+        name: input.name,
+        basePrice: input.price,
         barcode: input.barcode ?? null,
         recipeId: null,
         available: true,
@@ -1274,58 +1273,35 @@ const catalogue: CatalogueService = {
     });
   },
 
-  // -- Pricing ---------------------------------------------------------------
-
-  async setPrice(priceListId, variantId, price) {
+  /** Direct price edit — no Price List concept, no separate pricing workspace. */
+  async updateVariantPrice(variantId, price) {
     return transport(() => {
-      const list = priceLists.find((row) => row.id === priceListId);
-      if (!list) throw new ServiceError("NOT_FOUND", "That price list no longer exists.", 404);
-
-      const owner = menuItems.find((item) =>
-        item.variants.some((variant) => variant.id === variantId),
-      );
-
-      const existing = list.entries.find((entry) => entry.variantId === variantId);
-      const entry = {
-        menuItemId: owner?.id ?? "",
-        variantId,
-        itemName: owner?.name ?? { en: "", ar: "" },
-        price,
-        previousPrice: existing?.price ?? null,
-      };
-
-      list.entries = existing
-        ? list.entries.map((row) => (row.variantId === variantId ? entry : row))
-        : [...list.entries, entry];
-      list.entryCount = list.entries.length;
-
-      return entry;
+      for (let index = 0; index < menuItems.length; index += 1) {
+        const item = menuItems[index]!;
+        const variant = item.variants.find((row) => row.id === variantId);
+        if (!variant) continue;
+        const updated = { ...variant, basePrice: price };
+        menuItems[index] = {
+          ...item,
+          variants: item.variants.map((row) => (row.id === variantId ? updated : row)),
+        };
+        return updated;
+      }
+      throw new ServiceError("NOT_FOUND", "That variant no longer exists.", 404);
     });
-  },
-
-  async priceEntries(priceListId) {
-    return transport(() => priceLists.find((row) => row.id === priceListId)?.entries ?? []);
   },
 
   // -- Readiness -------------------------------------------------------------
 
   async completeness() {
     return transport(() => {
-      const unpricedVariants = menuItems.flatMap((item) =>
-        item.variants
-          .filter((variant) => variant.available && variant.basePrice.amount === 0)
-          .map((variant) => ({ menuItemId: item.id, variantId: variant.id })),
-      );
-
       const itemsWithoutActiveVariant = menuItems
         .filter((item) => item.available && item.variants.every((v) => !v.available))
         .map((item) => item.id);
 
       return {
-        sellable: unpricedVariants.length === 0 && itemsWithoutActiveVariant.length === 0,
-        unpricedVariants,
+        sellable: itemsWithoutActiveVariant.length === 0,
         itemsWithoutActiveVariant,
-        activeListGaps: [],
       };
     });
   },

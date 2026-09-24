@@ -62,13 +62,8 @@ vi.mock("@/lib/console/services", () => ({
         update: vi.fn(),
         remove: vi.fn(),
       },
-      priceLists: {
-        list: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
-        get: vi.fn(),
-        create: vi.fn(),
-        update: vi.fn(),
-        remove: vi.fn(),
-      },
+      addVariant: vi.fn(),
+      updateVariantPrice: vi.fn(),
       modifierGroups: {
         list: (...args: unknown[]) => modifierGroupsList(...args),
         get: (...args: unknown[]) => modifierGroupsGet(...args),
@@ -77,7 +72,6 @@ vi.mock("@/lib/console/services", () => ({
         remove: (...args: unknown[]) => modifierGroupsRemove(...args),
       },
       addModifier: (...args: unknown[]) => addModifier(...args),
-      setPrice: vi.fn(),
     },
   },
 }));

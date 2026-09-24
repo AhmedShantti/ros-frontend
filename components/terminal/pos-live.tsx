@@ -1465,12 +1465,12 @@ function MenuPane({
 
 /**
  * DEMO-CATALOGUE-POS-ADD-P0 — an item can appear in `pos-menu` and still have
- * nothing a tap could actually add: no variant at all (created but never
- * given one), or every variant either 86'd or missing a resolved price
- * (`price: null` — no PriceListEntry covers it). `isAvailable` alone does
- * not catch either case, which is exactly how a click used to reach
- * `addSimple` with no variant to send and silently do nothing. A tile must
- * read as disabled with a reason instead of swallowing the tap.
+ * nothing a tap could actually add: no variant at all, or every variant
+ * either 86'd or inactive (`price: null` — an inactive variant has no direct
+ * price to resolve). `isAvailable` alone does not catch either case, which is
+ * exactly how a click used to reach `addSimple` with no variant to send and
+ * silently do nothing. A tile must read as disabled with a reason instead of
+ * swallowing the tap.
  */
 function sellableVariants(item: PosMenuItem): PosMenuVariant[] {
   return item.variants.filter((v) => v.isAvailable && v.price !== null);

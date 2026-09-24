@@ -21,7 +21,6 @@ import type {
   Modifier,
   ModifierGroup,
   Money,
-  PriceList,
   Recipe,
   RecipeLine,
   StationType,
@@ -1264,105 +1263,6 @@ export const combos: Combo[] = (() => {
     },
   ];
 })();
-
-// ---------------------------------------------------------------------------
-// Price lists — SRS §10.4
-// ---------------------------------------------------------------------------
-
-function entriesFor(count: number, uplift: number): PriceList["entries"] {
-  return menuItems.slice(0, count).flatMap((m) =>
-    m.variants.slice(0, 1).map((v) => ({
-      menuItemId: m.id,
-      variantId: v.id,
-      itemName: { en: `${m.name.en} — ${v.name.en}`, ar: `${m.name.ar} — ${v.name.ar}` } as Localised,
-      price: { amount: Math.round(v.basePrice.amount * uplift), currency: "EGP" as const },
-      previousPrice: uplift === 1 ? null : v.basePrice,
-    })),
-  );
-}
-
-export const priceLists: PriceList[] = [
-  {
-    id: "prl_0001",
-    tenantId: ACTIVE_TENANT_ID,
-    name: { en: "Base price list", ar: "قائمة الأسعار الأساسية" },
-    scope: "tenant",
-    scopeId: null,
-    orderTypes: ["dine_in", "takeaway", "pickup", "drive_thru"],
-    priority: 10,
-    validFrom: dateAgo(400),
-    validTo: null,
-    recurrence: null,
-    entryCount: menuItems.length,
-    entries: entriesFor(menuItems.length, 1),
-    status: "active",
-    active: true,
-  },
-  {
-    id: "prl_0002",
-    tenantId: ACTIVE_TENANT_ID,
-    name: { en: "Delivery pricing", ar: "تسعير التوصيل" },
-    scope: "tenant",
-    scopeId: null,
-    orderTypes: ["delivery", "aggregator"],
-    priority: 30,
-    validFrom: dateAgo(240),
-    validTo: null,
-    recurrence: null,
-    entryCount: menuItems.length,
-    entries: entriesFor(menuItems.length, 1.18),
-    status: "active",
-    active: true,
-  },
-  {
-    id: "prl_0003",
-    tenantId: ACTIVE_TENANT_ID,
-    name: { en: "Happy hour", ar: "ساعة العرض" },
-    scope: "brand",
-    scopeId: brands[0]!.id,
-    orderTypes: ["dine_in", "takeaway"],
-    priority: 50,
-    validFrom: dateAgo(60),
-    validTo: null,
-    recurrence: "Sun–Thu 15:00–18:00",
-    entryCount: 8,
-    entries: entriesFor(8, 0.75),
-    status: "active",
-    active: true,
-  },
-  {
-    id: "prl_0004",
-    tenantId: ACTIVE_TENANT_ID,
-    name: { en: "Ramadan iftar menu", ar: "قائمة إفطار رمضان" },
-    scope: "tenant",
-    scopeId: null,
-    orderTypes: ["dine_in", "delivery"],
-    priority: 60,
-    validFrom: "2027-02-08",
-    validTo: "2027-03-09",
-    recurrence: "Daily from sunset",
-    entryCount: 14,
-    entries: entriesFor(14, 1.05),
-    status: "expired",
-    active: false,
-  },
-  {
-    id: "prl_0005",
-    tenantId: ACTIVE_TENANT_ID,
-    name: { en: "Zamalek franchise list", ar: "قائمة امتياز الزمالك" },
-    scope: "branch",
-    scopeId: "brn_0006", // Zamalek
-    orderTypes: ["dine_in", "takeaway", "delivery"],
-    priority: 40,
-    validFrom: dateAgo(120),
-    validTo: null,
-    recurrence: null,
-    entryCount: 10,
-    entries: entriesFor(10, 1.12),
-    status: "active",
-    active: true,
-  },
-];
 
 /** A representative item for fixtures that need "some menu item". */
 export function anyMenuItem(seed: number): MenuItem {

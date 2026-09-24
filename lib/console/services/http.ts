@@ -51,12 +51,10 @@ import type {
   KitchenTicket,
   Menu,
   MenuCategory,
-  MenuItem,
   MetricSummary,
   ModifierGroup,
   OperationalAlert,
   Order,
-  PriceList,
   Recipe,
   Role,
   StockAdjustment,
@@ -142,7 +140,6 @@ export const API_COVERAGE = {
     "catalogue.items",
     "catalogue.menus",
     "catalogue.modifierGroups",
-    "catalogue.priceLists",
     "catalogue.recipes",
     "catalogue.toggleAvailability",
     "catalogue.assignMenuToBranch",
@@ -151,10 +148,9 @@ export const API_COVERAGE = {
     "catalogue.placeItem",
     "catalogue.addVariant",
     "catalogue.setVariantActive",
+    "catalogue.updateVariantPrice",
     "catalogue.linkModifierGroup",
     "catalogue.addModifier",
-    "catalogue.setPrice",
-    "catalogue.priceEntries",
     "catalogue.completeness",
     "inventory.items",
     "inventory.levels",
@@ -1032,33 +1028,7 @@ const categories: CollectionService<MenuCategory> = {
   },
 };
 
-/** Prices live on a price list; the console shows one price per variant. */
-async function variantPrices(): Promise<Map<Id, ReturnType<typeof map.minorMoney>>> {
-  const lists = await api.catalogue.listPriceLists().catch(() => []);
-  const active = lists.filter((list) => list.status === "active");
-  const chosen = active.length > 0 ? active : lists.slice(0, 1);
-
-  const entries = await Promise.all(
-    chosen
-      .sort((a, b) => a.priority - b.priority)
-      .map((list) => api.catalogue.listPriceEntries(list.id).catch(() => [])),
-  );
-
-  const out = new Map<Id, ReturnType<typeof map.minorMoney>>();
-  for (const list of entries) {
-    for (const entry of list) {
-      // Later (higher-priority) lists win. `entry.price` is the same
-      // minor-unit integer string as `toPriceEntry` reads — `map.money`
-      // parses a *decimal* string and would misprice by 100x here too.
-      out.set(entry.menuItemVariantId, map.minorMoney(entry.price, entry.currency));
-    }
-  }
-  return out;
-}
-
-const pricesByVariant = cached(variantPrices);
-
-const items: CollectionService<MenuItem> = {
+const items: CatalogueService["items"] = {
   async list(query = {}) {
     const tenantId = tenantOf(query);
     const [rows, eightySix] = await Promise.all([menuItemsRaw(), eightySixIndex()]);
@@ -1089,11 +1059,10 @@ const items: CollectionService<MenuItem> = {
   /** The detail view is worth the extra calls the list view is not. */
   async get(id) {
     const tenantId = getTenantId() ?? "";
-    const [row, variants, placements, prices, eightySix] = await Promise.all([
+    const [row, variants, placements, eightySix] = await Promise.all([
       api.catalogue.getItem(id),
       api.catalogue.listVariants(id).catch(() => []),
       api.catalogue.listPlacements(id).catch(() => []),
-      pricesByVariant().catch(() => new Map()),
       eightySixIndex().catch(() => new Map<Id, { autoReenableAt: string | null }>()),
     ]);
 
@@ -1103,13 +1072,19 @@ const items: CollectionService<MenuItem> = {
     return map.toMenuItem(row, {
       tenantId,
       categoryId: placements[0]?.categoryId ?? null,
-      variants: variants.map((variant) => map.toVariant(variant, prices.get(variant.id) ?? null)),
+      // Every variant's price is direct and always present — no Price List
+      // client-side resolution is needed any more.
+      variants: variants.map((variant) => map.toVariant(variant)),
       unavailableReason: manual86 ? "manual_86" : null,
       autoReenableAt: manual86?.autoReenableAt ?? null,
       prepTimeSeconds: prepTime,
     });
   },
 
+  /**
+   * Creates the item AND its sellable variant(s) atomically, in one call — no
+   * separate "add variant" step is needed to make it sellable.
+   */
   async create(input) {
     const row = await api.catalogue.createItem({
       names: map.toNameMap(input.name),
@@ -1124,9 +1099,18 @@ const items: CollectionService<MenuItem> = {
       // Never send an empty/null id — the DTO field is a plain (non-nullable)
       // string, and omitting it is how "not configured yet" is represented.
       taxClassId: input.taxClassId ?? undefined,
+      variants: input.variants.map((variant) => ({
+        name: map.toNameMap(variant.name),
+        barcode: variant.barcode,
+        price: String(variant.price.amount),
+        currency: variant.price.currency,
+      })),
     });
     invalidateCatalogue();
-    return map.toMenuItem(row, { tenantId: getTenantId() ?? "" });
+    return map.toMenuItem(row, {
+      tenantId: getTenantId() ?? "",
+      variants: row.variants.map((variant) => map.toVariant(variant)),
+    });
   },
 
   async update(id, patch) {
@@ -1212,60 +1196,6 @@ const modifierGroups: CollectionService<ModifierGroup> = {
 
   async remove() {
     notImplemented("Deleting a modifier group");
-  },
-};
-
-const priceLists: CollectionService<PriceList> = {
-  async list(query = {}) {
-    const tenantId = tenantOf(query);
-    const rows = (await api.catalogue.listPriceLists()).map((row) => map.toPriceList(row, tenantId));
-
-    return project(rows, query, {
-      search: (row) => [row.name],
-      filters: { active: (row) => row.active, scope: (row) => row.scope },
-      sorters: { name: (row) => row.name.en, priority: (row) => row.priority },
-    });
-  },
-
-  async get(id) {
-    const tenantId = getTenantId() ?? "";
-    const [row, entries, menuItems] = await Promise.all([
-      api.catalogue.getPriceList(id),
-      api.catalogue.listPriceEntries(id).catch(() => []),
-      menuItemsRaw().catch(() => [] as S.CatalogueController_listItemsResponse),
-    ]);
-
-    // Entries key on a variant; the console shows the item's name.
-    const names = indexBy(menuItems, (item) => item.id);
-
-    return map.toPriceList(
-      row,
-      tenantId,
-      entries.map((entry) =>
-        map.toPriceEntry(entry, map.localised(names.get(entry.menuItemVariantId)?.names)),
-      ),
-    );
-  },
-
-  async create(input) {
-    const row = await api.catalogue.createPriceList({
-      name: map.toPlainName(input.name, "New price list"),
-      scopeType: input.scope ?? "tenant",
-      scopeId: input.scopeId ?? undefined,
-      priority: input.priority,
-      validFrom: input.validFrom ?? undefined,
-      validTo: input.validTo ?? undefined,
-      orderType: input.orderTypes?.[0],
-    });
-    return map.toPriceList(row, getTenantId() ?? "");
-  },
-
-  async update() {
-    notImplemented("Editing a price list header");
-  },
-
-  async remove() {
-    notImplemented("Deleting a price list");
   },
 };
 
@@ -1419,7 +1349,6 @@ const catalogue: CatalogueService = {
   items,
   modifierGroups,
   combos: unsupportedCombos,
-  priceLists,
   recipes,
   menus,
 
@@ -1463,18 +1392,35 @@ const catalogue: CatalogueService = {
     invalidateCatalogue();
   },
 
+  /**
+   * A FURTHER variant on an item that already exists (and is therefore
+   * already sellable). Initial variant creation happens atomically inside
+   * `items.create()` instead — see there.
+   */
   async addVariant(itemId, input) {
     const row = await api.catalogue.addVariant(itemId, {
       name: map.toNameMap(input.name),
       barcode: input.barcode ?? undefined,
+      price: map.toMinorUnitString(input.price),
+      currency: input.price.currency,
     });
     invalidateCatalogue();
-    return map.toVariant(row, input.basePrice ?? null);
+    return map.toVariant(row);
   },
 
   async setVariantActive(variantId, active) {
     await api.catalogue.setVariantActive(variantId, { isActive: active });
     invalidateCatalogue();
+  },
+
+  /** Direct price edit — no Price List concept, no separate pricing workspace. */
+  async updateVariantPrice(variantId, price) {
+    const row = await api.catalogue.updateVariantPrice(variantId, {
+      price: map.toMinorUnitString(price),
+      currency: price.currency,
+    });
+    invalidateCatalogue();
+    return map.toVariant(row);
   },
 
   async linkModifierGroup(itemId, groupId, options = {}) {
@@ -1497,54 +1443,6 @@ const catalogue: CatalogueService = {
     });
     invalidateCatalogue();
     return map.toModifier(row);
-  },
-
-  // -- Pricing ---------------------------------------------------------------
-
-  async setPrice(priceListId, variantId, price) {
-    const row = await api.catalogue.setPriceEntry(priceListId, {
-      menuItemVariantId: variantId,
-      // `SetPriceEntryDto.price` is a minor-unit integer string
-      // (`^-?\d{1,18}$`) — `toDecimal` would send a shelf decimal like
-      // "250.00" and the API rejects it: "price must be an integer string".
-      price: map.toMinorUnitString(price),
-      currency: price.currency,
-    });
-    // A changed price invalidates the per-variant price cache the item list
-    // reads, otherwise the table shows the old figure for another 20s.
-    pricesByVariant.invalidate();
-    invalidateCatalogue();
-    return map.toPriceEntry(row);
-  },
-
-  async priceEntries(priceListId) {
-    const [entries, itemRows] = await Promise.all([
-      api.catalogue.listPriceEntries(priceListId),
-      menuItemsRaw().catch(() => []),
-    ]);
-
-    // An entry references a variant; the console shows the item it belongs
-    // to, so the variant → item mapping is resolved once for the whole list.
-    const variantLists = await Promise.all(
-      itemRows.map((item) =>
-        api.catalogue
-          .listVariants(item.id)
-          .then((variants) => ({ item, variants }))
-          .catch(() => ({ item, variants: [] })),
-      ),
-    );
-
-    const owner = new Map<Id, { itemId: Id; name: ReturnType<typeof map.localised> }>();
-    for (const { item, variants } of variantLists) {
-      for (const variant of variants) {
-        owner.set(variant.id, { itemId: item.id, name: map.localised(item.names) });
-      }
-    }
-
-    return entries.map((entry) => {
-      const match = owner.get(entry.menuItemVariantId);
-      return map.toPriceEntry(entry, match?.name, match?.itemId ?? "");
-    });
   },
 
   // -- Readiness -------------------------------------------------------------

@@ -5,7 +5,7 @@ import type { Currency } from "./types";
 /*
  * MENU-MANAGEMENT-SLICE-2-PHASE-2-PRICING — exact minor-unit round trips.
  *
- * A PriceEntry write must never persist a float as truth. `minorFromInput`
+ * A variant price write must never persist a float as truth. `minorFromInput`
  * is the one place a shelf price a person TYPED becomes the minor-unit
  * integer that gets written — this pins that it is exact, currency-exponent
  * aware (never a hardcoded "divide/multiply by 100"), and that entering more

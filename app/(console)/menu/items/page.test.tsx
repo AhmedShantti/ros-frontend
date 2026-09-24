@@ -375,7 +375,7 @@ describe("NewItemDrawer — Tax Class on create", () => {
   it("exposes the same branch-scoped Tax Class selector on the create form", async () => {
     const user = userEvent.setup();
     render(
-      <NewItemDrawer open categories={[]} branchId={BRANCH_ID} onClose={vi.fn()} onCreated={vi.fn()} />,
+      <NewItemDrawer open categories={[]} branchId={BRANCH_ID} currency="EGP" onClose={vi.fn()} onCreated={vi.fn()} />,
     );
 
     await waitFor(() => expect(listTaxClassesForBranch).toHaveBeenCalledWith(BRANCH_ID));
@@ -386,25 +386,30 @@ describe("NewItemDrawer — Tax Class on create", () => {
   it("creating without picking a tax class omits taxClassId — null stays possible", async () => {
     const user = userEvent.setup();
     render(
-      <NewItemDrawer open categories={[]} branchId={BRANCH_ID} onClose={vi.fn()} onCreated={vi.fn()} />,
+      <NewItemDrawer open categories={[]} branchId={BRANCH_ID} currency="EGP" onClose={vi.fn()} onCreated={vi.fn()} />,
     );
 
     await user.type(screen.getByLabelText(/common\.name/), "Test maqloba");
+    await user.type(screen.getByLabelText(/menu\.price/), "12.50");
     await user.click(screen.getByRole("button", { name: "common.create" }));
 
     await waitFor(() => expect(itemsCreate).toHaveBeenCalledTimes(1));
     const payload = itemsCreate.mock.calls[0][0];
     expect(payload.taxClassId).toBeUndefined();
     expect(payload.taxClassId).not.toBe("zero");
+    expect(payload.variants).toEqual([
+      { name: { en: "Test maqloba", ar: "Test maqloba" }, price: { amount: 1250, currency: "EGP" } },
+    ]);
   });
 
   it("picking Zero on create sends the backend UUID in the create payload", async () => {
     const user = userEvent.setup();
     render(
-      <NewItemDrawer open categories={[]} branchId={BRANCH_ID} onClose={vi.fn()} onCreated={vi.fn()} />,
+      <NewItemDrawer open categories={[]} branchId={BRANCH_ID} currency="EGP" onClose={vi.fn()} onCreated={vi.fn()} />,
     );
 
     await user.type(screen.getByLabelText(/common\.name/), "Test maqloba");
+    await user.type(screen.getByLabelText(/menu\.price/), "12.50");
     await waitFor(() => expect(listTaxClassesForBranch).toHaveBeenCalled());
     await openTaxClassOptions(user);
     await user.click(screen.getByRole("option", { name: /Zero/ }));
@@ -419,7 +424,7 @@ describe("NewItemDrawer — Tax Class on create", () => {
 
   it("with no active branch selected, shows that state and never calls create with a guessed tax class", async () => {
     render(
-      <NewItemDrawer open categories={[]} branchId={null} onClose={vi.fn()} onCreated={vi.fn()} />,
+      <NewItemDrawer open categories={[]} branchId={null} currency="EGP" onClose={vi.fn()} onCreated={vi.fn()} />,
     );
 
     expect(await screen.findByText("menu.taxClassNoBranch")).toBeInTheDocument();

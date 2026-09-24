@@ -45,10 +45,8 @@ export interface PosMenuVariant {
   sortOrder: number;
   /** FR-MNU-030/031 — false when this variant is manually 86'd. */
   isAvailable: boolean;
-  /** FR-POS-040 — the resolved price at this branch/order type, or null when none applies. */
+  /** The variant's direct price, or null when the variant is inactive. */
   price: Money | null;
-  /** SRS §7.3 #10 — two price lists tie; price is null and this is why. */
-  priceAmbiguous: boolean;
 }
 
 export interface PosMenuItem {
@@ -131,7 +129,6 @@ function toPosVariant(row: WireVariant): PosMenuVariant {
     sortOrder: row.sortOrder,
     isAvailable: row.isAvailable,
     price: row.price ? minorMoney(row.price.amountMinorUnits, row.price.currency) : null,
-    priceAmbiguous: row.priceAmbiguous,
   };
 }
 

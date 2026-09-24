@@ -23,8 +23,6 @@ import type {
   Order,
   OrderLine,
   OrderLineModifier,
-  OrderType,
-  PriceList,
   Recipe,
   Station,
   StationType,
@@ -90,43 +88,23 @@ export function unsatisfiedGroups(
 // Price resolution — FR-POS-040
 // ---------------------------------------------------------------------------
 
-export type PriceSource =
-  | "override"
-  | "promotion"
-  | "time_price_list"
-  | "order_type_price_list"
-  | "branch_price_list"
-  | "brand_price_list"
-  | "base";
+export type PriceSource = "override" | "base";
 
 export interface PriceResolution {
   price: Money;
   /** FR-POS-042 — the rule that produced the price, recorded on the line. */
   source: PriceSource;
-  priceListId: Id | null;
-  priceListName: string | null;
 }
 
 export interface PriceContext {
-  orderType: OrderType;
-  branchId: Id;
-  brandId: Id | null;
-  /** Minutes past midnight, for happy-hour windows. */
-  minuteOfDay: number;
-  priceLists: PriceList[];
   /** A permission-gated manual price, in minor units. */
   overrideMinor?: number | null;
 }
 
-const SOURCE_BY_SCOPE: Record<PriceList["scope"], PriceSource> = {
-  tenant: "brand_price_list",
-  brand: "brand_price_list",
-  branch: "branch_price_list",
-};
-
 /**
- * Walks the seven levels in order and stops at the first hit. The level that
- * won is returned alongside the money so the line can record it.
+ * A variant's own direct price is the resolved price — there is no Price
+ * List concept, no scope/priority/time-window tier to walk. The only other
+ * source is a permission-gated manual override, entered at the terminal.
  */
 export function resolvePrice(
   item: MenuItem,
@@ -137,73 +115,9 @@ export function resolvePrice(
     return {
       price: money(ctx.overrideMinor, variant.basePrice.currency),
       source: "override",
-      priceListId: null,
-      priceListName: null,
     };
   }
-
-  const candidates = ctx.priceLists
-    .filter((list) => list.active)
-    .filter((list) => entryFor(list, variant.id) !== undefined)
-    .filter((list) => scopeMatches(list, ctx))
-    .filter((list) => windowMatches(list, ctx.minuteOfDay));
-
-  // A recurring window beats a plain list; then order-type-specific; then
-  // branch; then brand. Priority breaks ties inside a level.
-  const ranked = [...candidates].sort((a, b) => rank(a) - rank(b) || a.priority - b.priority);
-  const winner = ranked[0];
-
-  if (winner) {
-    const entry = entryFor(winner, variant.id)!;
-    return {
-      price: entry.price,
-      source:
-        winner.recurrence != null
-          ? "time_price_list"
-          : winner.orderTypes.length > 0
-            ? "order_type_price_list"
-            : SOURCE_BY_SCOPE[winner.scope],
-      priceListId: winner.id,
-      priceListName: winner.name.en,
-    };
-  }
-
-  return {
-    price: variant.basePrice,
-    source: "base",
-    priceListId: null,
-    priceListName: null,
-  };
-}
-
-function rank(list: PriceList): number {
-  if (list.recurrence != null) return 0;
-  if (list.orderTypes.length > 0) return 1;
-  if (list.scope === "branch") return 2;
-  return 3;
-}
-
-function entryFor(list: PriceList, variantId: Id) {
-  return list.entries.find((e) => e.variantId === variantId);
-}
-
-function scopeMatches(list: PriceList, ctx: PriceContext): boolean {
-  if (list.orderTypes.length > 0 && !list.orderTypes.includes(ctx.orderType)) return false;
-  if (list.scope === "branch") return list.scopeId === null || list.scopeId === ctx.branchId;
-  if (list.scope === "brand") return list.scopeId === null || list.scopeId === ctx.brandId;
-  return true;
-}
-
-/** "weekdays 15:00-18:00" and friends. Anything unparseable is always on. */
-function windowMatches(list: PriceList, minuteOfDay: number): boolean {
-  if (!list.recurrence) return true;
-  const match = /(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})/.exec(list.recurrence);
-  if (!match) return true;
-  const from = Number(match[1]) * 60 + Number(match[2]);
-  const to = Number(match[3]) * 60 + Number(match[4]);
-  return from <= to
-    ? minuteOfDay >= from && minuteOfDay < to
-    : minuteOfDay >= from || minuteOfDay < to; // window crossing midnight
+  return { price: variant.basePrice, source: "base" };
 }
 
 // ---------------------------------------------------------------------------

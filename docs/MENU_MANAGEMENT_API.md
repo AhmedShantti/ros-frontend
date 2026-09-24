@@ -34,12 +34,14 @@ All real, all already used elsewhere in the console (`/menu/menus`,
 | Branch resolution + ambiguity | `services.catalogue.resolveBranchMenus` → `GET /catalogue/branches/{id}/menus` |
 | List / create categories **for one menu** | `live-adapter.ts#listMenuCategories/createMenuCategory` → `GET/POST /catalogue/menus/{menuId}/categories` (the menu-scoped route directly — `services.catalogue.categories` flattens every menu's categories into one tenant-wide list for the legacy `/menu/categories` screen and drops which menu each came from, which this workspace needs) |
 | List items, resolve each one's category | `live-adapter.ts#listItemsWithPlacements` → `services.catalogue.items.list` + `GET /catalogue/items/{id}/placements` per row (the API has no "items in category X" index, only "categories this item is in") |
-| Create / edit an item | `services.catalogue.items.create/update` → `POST`/`PATCH /catalogue/items[/{id}]` |
+| Create an item (+ its default variant, priced) | `services.catalogue.items.create` → `POST /catalogue/items` with `variants: [{ name, price, currency }]` inline — the item and its sellable variant(s) are created atomically, in one call. No Price List concept exists; there is no second step to make a new item sellable. |
+| Edit an item | `services.catalogue.items.update` → `PATCH /catalogue/items/{id}` (never touches variants — see the row below for that) |
 | Move an item's category | `services.catalogue.placeItem` → `POST /catalogue/items/{id}/placements` |
 | Tax class | `services.catalogue.listTaxClassesForBranch` → `GET /catalogue/branches/{id}/tax-classes` (shared component: `components/console/catalogue/tax-class-field.tsx`) |
 | Available / 86 | `services.catalogue.toggleAvailability` → `POST /catalogue/availability-rules/{id}/86` |
 | Deactivate an item | `services.catalogue.items.remove` → `POST /catalogue/items/{id}/status {isActive:false}` (never a hard delete — none exists) |
-| Variants (display + add) | `services.catalogue.addVariant` → `POST /catalogue/items/{id}/variants`; price shown is whatever a price list already resolves for it |
+| Add a FURTHER variant to an item that already exists | `services.catalogue.addVariant` → `POST /catalogue/items/{id}/variants` — requires its own `price`; the item is already sellable via its existing variant(s) before this call |
+| Edit a variant's direct price | `services.catalogue.updateVariantPrice` → `PATCH /catalogue/variants/{id}/price` — edited inline, in the same drawer, no separate pricing workspace |
 
 ## Deliberately not implemented here (report, don't fake)
 
@@ -47,10 +49,12 @@ All real, all already used elsewhere in the console (`/menu/menus`,
   at all (`MenuItem.isCombo` is a retained-but-dead flag). Nothing to call;
   the Combos tab stays on the legacy `/menu/combos` page, which is itself
   non-functional against a live backend (`unsupportedCombos`).
-- **Per-channel / per-size price editing** — real backend concepts
-  (`PriceList.orderType`, one `PriceEntry` per variant), but writing them
-  needs a price-list write this slice does not make. Stays on
-  `/menu/pricing`.
+- **Per-channel / per-size price editing** — every variant has exactly one
+  direct price (`basePriceMinor`/`currency`); there is no branch-, order-type-
+  or time-based override concept on the backend to write to. If product
+  needs per-channel/per-size pricing later, it is designed then. There is no
+  `/menu/pricing` route any more — the Price List concept it hosted was
+  removed entirely, not replaced.
 - **Modifier-group management from this workspace** — real backend
   endpoints exist, but wiring create/attach/delta editing here is deferred.
   Stays on `/menu/modifiers`.

@@ -50,7 +50,6 @@ import {
   menuItemById,
   menuItemBrandCode,
   modifierGroups,
-  priceLists,
   recipeById,
 } from "../mock/catalogue";
 import { stockItemById } from "../mock/stock-items";
@@ -1336,14 +1335,7 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       // closed the same way the order/item/variant lookups above do.
       if (item.taxClassId === null) return state;
 
-      const branch = branchById.get(state.branchId)!;
-      const minuteOfDay = minuteOfDayFrom(action.at);
       const price = resolvePrice(item, variant, {
-        orderType: order.orderType,
-        branchId: branch.id,
-        brandId: branch.brandId,
-        minuteOfDay,
-        priceLists,
         overrideMinor: action.openPriceMinor ?? null,
       });
 
@@ -2077,11 +2069,6 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
     default:
       return state;
   }
-}
-
-function minuteOfDayFrom(iso: IsoDateTime): number {
-  const date = new Date(iso);
-  return date.getHours() * 60 + date.getMinutes();
 }
 
 // ---------------------------------------------------------------------------

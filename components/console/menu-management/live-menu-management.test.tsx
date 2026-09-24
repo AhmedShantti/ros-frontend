@@ -25,10 +25,6 @@ const menusCreate = vi.fn();
 const setMenuActive = vi.fn();
 const assignMenuToBranch = vi.fn();
 const itemsToggleAvailability = vi.fn();
-const priceListsList = vi.fn();
-const priceListsGet = vi.fn();
-const priceListsCreate = vi.fn();
-const setPrice = vi.fn();
 
 vi.mock("@/lib/console/services", () => ({
   ServiceError: class ServiceError extends Error {
@@ -60,13 +56,8 @@ vi.mock("@/lib/console/services", () => ({
         update: vi.fn(),
         remove: vi.fn(),
       },
-      priceLists: {
-        list: (...args: unknown[]) => priceListsList(...args),
-        get: (...args: unknown[]) => priceListsGet(...args),
-        create: (...args: unknown[]) => priceListsCreate(...args),
-        update: vi.fn(),
-        remove: vi.fn(),
-      },
+      addVariant: vi.fn(),
+      updateVariantPrice: vi.fn(),
       modifierGroups: {
         list: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
         get: vi.fn(),
@@ -75,7 +66,6 @@ vi.mock("@/lib/console/services", () => ({
         remove: vi.fn(),
       },
       addModifier: vi.fn(),
-      setPrice: (...args: unknown[]) => setPrice(...args),
     },
   },
 }));
@@ -145,8 +135,6 @@ describe("Live Menu Management", () => {
     };
     listMenuCategoriesMock.mockResolvedValue([]);
     listItemsWithPlacementsMock.mockResolvedValue([]);
-    priceListsList.mockResolvedValue({ rows: [], total: 0 });
-    priceListsGet.mockResolvedValue(null);
   });
   afterEach(() => cleanup());
 

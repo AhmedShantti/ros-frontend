@@ -550,6 +550,10 @@ export const catalogue = {
   setVariantActive: (variantId: string, body: S.SetActiveDto) =>
     http.post<S.CatalogueController_setVariantActiveResponse>("/catalogue/variants/{variantId}/status", { params: { variantId }, body }),
 
+  /** `PATCH /catalogue/variants/{variantId}/price` — The updated variant, with its new price. Direct price edit — no Price List. */
+  updateVariantPrice: (variantId: string, body: S.UpdateVariantPriceDto) =>
+    http.patch<S.CatalogueController_updateVariantPriceResponse>("/catalogue/variants/{variantId}/price", { params: { variantId }, body }),
+
   /** `POST /catalogue/items/{itemId}/modifier-groups` — Attach a reusable modifier group to an item, with optional per-item overrides (FR-MNU-010). — Linked. */
   linkModifierGroup: (itemId: string, body: S.LinkModifierGroupDto) =>
     http.post<S.CatalogueController_linkModifierGroupResponse>("/catalogue/items/{itemId}/modifier-groups", { params: { itemId }, body }),
@@ -573,26 +577,6 @@ export const catalogue = {
   /** `POST /catalogue/modifier-groups/{groupId}/modifiers` — The newly created modifier. */
   addModifier: (groupId: string, body: S.CreateModifierDto) =>
     http.post<S.CatalogueController_addModifierResponse>("/catalogue/modifier-groups/{groupId}/modifiers", { params: { groupId }, body }),
-
-  /** `GET /catalogue/price-lists` — All price lists for this tenant, priority descending. */
-  listPriceLists: () =>
-    http.get<S.CatalogueController_listPriceListsResponse>("/catalogue/price-lists"),
-
-  /** `POST /catalogue/price-lists` — The newly created price list. */
-  createPriceList: (body: S.CreatePriceListDto) =>
-    http.post<S.CatalogueController_createPriceListResponse>("/catalogue/price-lists", { body }),
-
-  /** `GET /catalogue/price-lists/{priceListId}` — The price list. */
-  getPriceList: (priceListId: string) =>
-    http.get<S.CatalogueController_getPriceListResponse>("/catalogue/price-lists/{priceListId}", { params: { priceListId } }),
-
-  /** `GET /catalogue/price-lists/{priceListId}/entries` — Price entries in this list. */
-  listPriceEntries: (priceListId: string) =>
-    http.get<S.CatalogueController_listPriceEntriesResponse>("/catalogue/price-lists/{priceListId}/entries", { params: { priceListId } }),
-
-  /** `POST /catalogue/price-lists/{priceListId}/entries` — Set (create or overwrite) a variant's price within this list (FR-MNU-023/024). — The saved price entry. */
-  setPriceEntry: (priceListId: string, body: S.SetPriceEntryDto) =>
-    http.post<S.CatalogueController_setPriceEntryResponse>("/catalogue/price-lists/{priceListId}/entries", { params: { priceListId }, body }),
 
   /** `GET /catalogue/availability-rules` — Availability rules, optionally filtered to one menu item. */
   listAvailabilityRules: (options: { menuItemId?: string } = {}) =>

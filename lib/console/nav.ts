@@ -194,7 +194,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: "/menu/items", labelKey: "nav.items", icon: Utensils, permissions: ["menu.item.read"], matchPrefix: true },
       { href: "/menu/modifiers", labelKey: "nav.modifiers", icon: Tags, permissions: ["menu.item.read"] },
       { href: "/menu/combos", labelKey: "nav.combos", icon: Sparkles, permissions: ["menu.item.read"] },
-      { href: "/menu/pricing", labelKey: "nav.pricing", icon: Percent, permissions: ["menu.price.read"] },
       { href: "/menu/recipes", labelKey: "nav.recipes", icon: ClipboardCheck, permissions: ["recipe.view"], matchPrefix: true },
     ],
   },

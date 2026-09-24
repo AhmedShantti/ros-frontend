@@ -22,7 +22,7 @@ import { services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
-import { formatDuration, formatMoney, formatNumber } from "@/lib/console/format";
+import { currencyExponent, excessPrecision, formatDuration, formatMoney, formatNumber, minorFromInput } from "@/lib/console/format";
 import { STATION_TYPE, labelOf } from "@/lib/console/labels";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
@@ -55,7 +55,8 @@ export default function MenuItemsPage() {
 
 function MenuItemsScreen() {
   const { t, tx, fmt } = useI18n();
-  const { scope } = useSession();
+  const { scope, branch, tenant } = useSession();
+  const currency = branch?.currency ?? tenant.baseCurrency;
   const canToggle = usePermission("menu.availability.toggle");
 
   const [selected, setSelected] = useState<MenuItem | null>(null);
@@ -287,6 +288,7 @@ function MenuItemsScreen() {
         open={creating}
         categories={categories}
         branchId={scope.branchId}
+        currency={currency}
         onClose={() => setCreating(false)}
         onCreated={() => {
           setCreating(false);
@@ -733,17 +735,22 @@ function NewVariantDrawer({
   const action = useAction();
   const [name, setName] = useState("");
   const [barcode, setBarcode] = useState("");
+  const [price, setPrice] = useState("");
+  const exponent = currencyExponent(currency);
+  const tooPrecise = excessPrecision(price, exponent);
 
   if (!open) return null;
 
   async function create() {
     if (!name.trim()) return;
+    const minorAmount = minorFromInput(price, exponent);
+    if (minorAmount === null || tooPrecise) return;
     await action.run(
       () =>
         services.catalogue.addVariant(itemId, {
           name: { en: name.trim(), ar: name.trim() },
-          barcode: barcode.trim() || null,
-          basePrice: { amount: 0, currency },
+          barcode: barcode.trim() || undefined,
+          price: { amount: minorAmount, currency },
         }),
       { onSuccess: onCreated },
     );
@@ -759,7 +766,7 @@ function NewVariantDrawer({
           <Button
             variant="primary"
             loading={action.pending}
-            disabled={!name.trim()}
+            disabled={!name.trim() || !price.trim() || tooPrecise}
             onClick={create}
           >
             {t("common.create")}
@@ -773,11 +780,14 @@ function NewVariantDrawer({
       <div className="space-y-4">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
 
-        <Callout tone="muted">{t("menu.variantPriceNote")}</Callout>
-
         <Field label={t("common.name")} required>
           <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
         </Field>
+
+        <Field label={t("menu.price")} required hint={`${currency} · ${t("menu.priceHint")}`}>
+          <Input inputMode="decimal" dir="ltr" value={price} onChange={(event) => setPrice(event.target.value)} />
+        </Field>
+        {tooPrecise ? <Callout tone="bad">{t("menu.priceExcessPrecision")}</Callout> : null}
 
         <Field label={t("menu.barcode")}>
           <Input
@@ -799,12 +809,14 @@ export function NewItemDrawer({
   open,
   categories,
   branchId,
+  currency,
   onClose,
   onCreated,
 }: {
   open: boolean;
   categories: MenuCategory[];
   branchId: string | null;
+  currency: MenuItemVariant["basePrice"]["currency"];
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -814,11 +826,19 @@ export function NewItemDrawer({
   const [kitchenName, setKitchenName] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [taxClassId, setTaxClassId] = useState("");
+  // The default variant's price, entered in the SAME create form — an item
+  // is never created without one, so there is no second workflow required
+  // to make it sellable.
+  const [price, setPrice] = useState("");
+  const exponent = currencyExponent(currency);
+  const tooPrecise = excessPrecision(price, exponent);
 
   if (!open) return null;
 
   async function create() {
     if (!name.trim()) return;
+    const minorAmount = minorFromInput(price, exponent);
+    if (minorAmount === null || tooPrecise) return;
     await action.run(
       async () => {
         const created = await services.catalogue.items.create({
@@ -830,6 +850,12 @@ export function NewItemDrawer({
           // means "not configured" honestly blocks a sale until an owner
           // sets a real one, not a fabricated "standard".
           taxClassId: taxClassId || undefined,
+          variants: [
+            {
+              name: { en: name.trim(), ar: name.trim() },
+              price: { amount: minorAmount, currency },
+            },
+          ],
         });
         // C-02 — an item is only reachable on a menu once it is placed in a
         // category, so the two calls belong to one user action.
@@ -850,7 +876,7 @@ export function NewItemDrawer({
           <Button
             variant="primary"
             loading={action.pending}
-            disabled={!name.trim()}
+            disabled={!name.trim() || !price.trim() || tooPrecise}
             onClick={create}
           >
             {t("common.create")}
@@ -886,6 +912,14 @@ export function NewItemDrawer({
             ))}
           </Select>
         </Field>
+
+        {/* Direct price entry, in the SAME create form — no Price List, no
+            separate pricing workspace, no second step before the item is
+            sellable. */}
+        <Field label={t("menu.price")} required hint={`${currency} · ${t("menu.priceHint")}`}>
+          <Input inputMode="decimal" dir="ltr" value={price} onChange={(event) => setPrice(event.target.value)} />
+        </Field>
+        {tooPrecise ? <Callout tone="bad">{t("menu.priceExcessPrecision")}</Callout> : null}
 
         <TaxClassField
           branchId={branchId}

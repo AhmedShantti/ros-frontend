@@ -19,8 +19,13 @@ describe("Console navigation — Menu > Menu Management", () => {
 
   it("keeps every existing menu screen", () => {
     const hrefs = menu!.items.map((item) => item.href);
-    for (const href of ["/menu/menus", "/menu/categories", "/menu/items", "/menu/modifiers", "/menu/combos", "/menu/pricing", "/menu/recipes"]) {
+    for (const href of ["/menu/menus", "/menu/categories", "/menu/items", "/menu/modifiers", "/menu/combos", "/menu/recipes"]) {
       expect(hrefs).toContain(href);
     }
+  });
+
+  it("no longer offers a Price List workspace — pricing is direct, not a separate screen", () => {
+    const hrefs = menu!.items.map((item) => item.href);
+    expect(hrefs).not.toContain("/menu/pricing");
   });
 });

@@ -375,15 +375,15 @@ export interface MenuResolution {
   warning: string | null;
 }
 
-/** SRS §7.3 #7 — what stops the catalogue being sellable. */
+/**
+ * SRS §7.3 #7 — what stops the catalogue being sellable. The pricing half of
+ * this invariant no longer applies: every variant carries a mandatory direct
+ * price from creation, so "unpriced variant" is structurally impossible.
+ */
 export interface CatalogueCompleteness {
   sellable: boolean;
-  /** Active variants with no price entry in any list. */
-  unpricedVariants: { menuItemId: Id; variantId: Id }[];
   /** Active menu items with zero active variants. */
   itemsWithoutActiveVariant: Id[];
-  /** (active list × active variant) pairs lacking a price. */
-  activeListGaps: { priceListId: Id; priceListName: string; menuItemVariantId: Id }[];
 }
 
 export interface MenuItemVariant {
@@ -495,44 +495,6 @@ export interface Combo {
   price: Money;
   pricingStrategy: ComboPricingStrategy;
   slots: ComboSlot[];
-  active: boolean;
-}
-
-export type PriceListScope = "tenant" | "brand" | "branch";
-
-export interface PriceListEntry {
-  menuItemId: Id;
-  variantId: Id;
-  itemName: Localised;
-  price: Money;
-  previousPrice: Money | null;
-}
-
-/**
- * The wire's own three-state lifecycle. `active` (below) collapses this to a
- * boolean and cannot tell "scheduled" from "expired" — both read `false` —
- * but only `expired` is actually excluded from price resolution, so anywhere
- * that distinction matters (status display, filtering out expired lists from
- * a picker) must read `status`, not `active`.
- */
-export type PriceListStatus = "scheduled" | "active" | "expired";
-
-export interface PriceList {
-  id: Id;
-  tenantId: Id;
-  name: Localised;
-  scope: PriceListScope;
-  scopeId: Id | null;
-  orderTypes: OrderType[];
-  priority: number;
-  /** Nullable on the wire (`GET /catalogue/price-lists`) — an open start. */
-  validFrom: IsoDate | null;
-  validTo: IsoDate | null;
-  /** FR-MNU-022 — recurring windows such as weekdays 15:00–18:00. */
-  recurrence: string | null;
-  entryCount: number;
-  entries: PriceListEntry[];
-  status: PriceListStatus;
   active: boolean;
 }
 

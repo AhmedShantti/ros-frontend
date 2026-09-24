@@ -59,8 +59,6 @@ import type {
   Order,
   OvertimeRecord,
   Page,
-  PriceList,
-  PriceListEntry,
   Quantity,
   PurchaseOrder,
   Recipe,
@@ -487,12 +485,30 @@ export interface OrganisationService {
   removeStationRoutingRule(branchId: Id, ruleId: Id): Promise<void>;
 }
 
+/** A variant's create-time shape — every variant is directly sellable from creation. */
+export interface CreateVariantInput {
+  name: Localised;
+  price: Money;
+  barcode?: string;
+}
+
+/**
+ * Creates the item AND its sellable variant(s) atomically, in one call — never
+ * "create item, then separately add a variant" just to make it sellable. The
+ * common single-variant case sends a one-element `variants` array.
+ */
+export interface CreateMenuItemInput extends Partial<Omit<MenuItem, "variants">> {
+  name: Localised;
+  variants: CreateVariantInput[];
+}
+
 export interface CatalogueService {
   categories: CollectionService<MenuCategory>;
-  items: CollectionService<MenuItem>;
+  items: Omit<CollectionService<MenuItem>, "create"> & {
+    create(input: CreateMenuItemInput): Promise<MenuItem>;
+  };
   modifierGroups: CollectionService<ModifierGroup>;
   combos: CollectionService<Combo>;
-  priceLists: CollectionService<PriceList>;
   recipes: CollectionService<Recipe>;
   /** FR-MNU-001 — the menus a branch can serve. */
   menus: CollectionService<Menu>;
@@ -531,10 +547,16 @@ export interface CatalogueService {
   /** C-02 — place an item into a category. An item may sit in several. */
   placeItem(itemId: Id, categoryId: Id): Promise<void>;
   unplaceItem(itemId: Id, categoryId: Id): Promise<void>;
-  /** FR-MNU-006 — a sellable size/portion of an item. */
-  addVariant(itemId: Id, input: Partial<MenuItemVariant>): Promise<MenuItemVariant>;
+  /**
+   * FR-MNU-006 — a FURTHER sellable size/portion on an item that already
+   * exists (and is therefore already sellable). Initial variant creation
+   * happens atomically inside `items.create()` instead.
+   */
+  addVariant(itemId: Id, input: CreateVariantInput): Promise<MenuItemVariant>;
   /** C-09 — activate/deactivate a variant, audited. */
   setVariantActive(variantId: Id, active: boolean): Promise<void>;
+  /** Direct price edit — no Price List concept, no separate pricing workspace. */
+  updateVariantPrice(variantId: Id, price: Money): Promise<MenuItemVariant>;
   /** FR-MNU-010 — attach a reusable modifier group to an item. */
   linkModifierGroup(
     itemId: Id,
@@ -543,12 +565,6 @@ export interface CatalogueService {
   ): Promise<void>;
   /** Add a modifier to a group. */
   addModifier(groupId: Id, input: Partial<Modifier>): Promise<Modifier>;
-
-  // -- Pricing ---------------------------------------------------------------
-  /** FR-MNU-023/024 — set (create or overwrite) a variant's price in a list. */
-  setPrice(priceListId: Id, variantId: Id, price: Money): Promise<PriceListEntry>;
-  /** Entries on one price list. */
-  priceEntries(priceListId: Id): Promise<PriceListEntry[]>;
 
   // -- Readiness -------------------------------------------------------------
   /** SRS §7.3 #7 — what is stopping the catalogue being sellable. */
