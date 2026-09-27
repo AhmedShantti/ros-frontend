@@ -346,14 +346,14 @@ export default function LiveMenuManagement() {
 
   if (menus.loading && menuRows.length === 0) {
     return (
-      <div className="mm-root menu-page" dir="ltr">
+      <div className="mm-root menu-page">
         <AsyncPanel state={menus}>{() => null}</AsyncPanel>
       </div>
     );
   }
 
   return (
-    <div className="mm-root menu-page" dir="ltr">
+    <div className="mm-root menu-page">
       <section className="content">
         <div className="scope-bar">
           <ScopeSelect

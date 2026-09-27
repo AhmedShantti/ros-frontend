@@ -315,13 +315,40 @@ export function useStations(scope?: Scope): Station[] {
  * session is correctly refused on — Operations → Stations (management)
  * keeps using `useStations`; only the KDS picker uses this one.
  */
-export function useKdsStations(): Pick<Station, "id" | "name" | "colour">[] {
-  const stations = useAsync(
-    () => services.kitchen.stations().catch(() => [] as Pick<Station, "id" | "name" | "colour">[]),
-    [],
+export interface KdsStationsState {
+  stations: Pick<Station, "id" | "name" | "colour">[];
+  /** True until the first discovery for the current sign-on settles. */
+  loading: boolean;
+  /**
+   * Why discovery failed, if it did. Kept separate from "this branch has no
+   * stations" — a 403 (the signed-on employee may not use the KDS) must not
+   * be shown as an empty branch.
+   */
+  error: ServiceError | Error | null;
+  reload: () => void;
+}
+
+/**
+ * KDS station discovery for whoever is PIN-signed-on. `signedOnKey` is the
+ * signed-on employee (null = nobody): nothing is fetched before sign-on (it
+ * could only be refused with a 401), and it re-runs when a different
+ * employee signs on, whose grants may differ.
+ */
+export function useKdsStations(signedOnKey: string | null): KdsStationsState {
+  const state = useAsync(
+    () =>
+      signedOnKey
+        ? services.kitchen.stations()
+        : Promise.resolve([] as Pick<Station, "id" | "name" | "colour">[]),
+    [signedOnKey],
   );
 
-  return stations.data ?? [];
+  return {
+    stations: state.data ?? [],
+    loading: state.loading,
+    error: state.error,
+    reload: state.reload,
+  };
 }
 
 /** A transient confirmation message — "Saved", "Approved", "Copied". */

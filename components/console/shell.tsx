@@ -17,6 +17,8 @@ import { useDismissable } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { AccountMenu, LanguageToggle, RoleSwitcher, ScopeSummary, ScopeSwitcher, ThemeToggle } from "./switchers";
 import { IconButton, cx } from "./ui";
+import { LoadingPanel } from "./states";
+import { DATA_MODE } from "@/lib/api/config";
 
 const KEY_COLLAPSED = "ros.console.sidebar";
 
@@ -316,7 +318,19 @@ function useAuthGuard() {
 export function ConsoleShell({ children }: { children: ReactNode }) {
   const { t } = useI18n();
   const authenticated = useAuthGuard();
+  const { org } = useSession();
   const [navOpen, setNavOpen] = useState(false);
+
+  /*
+   * Live, the session's tenant/brand/branch scope is only real once the org
+   * context (tenant, brands, branches, permissions) has loaded. Until then
+   * the scope falls back to a placeholder tenant, so a page that fetched
+   * straight away would load everything once for the placeholder and again
+   * for the real tenant — every request sent twice. Pages wait for it.
+   * `org.ready` stays true during later re-fetches (token refresh), so this
+   * never blanks a page that is already showing.
+   */
+  const scopeReady = DATA_MODE !== "http" || org.ready;
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -362,7 +376,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onOpenNav={() => setNavOpen(true)} />
         <main id="console-main" className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8">
-          {children}
+          {scopeReady ? children : <LoadingPanel />}
         </main>
       </div>
     </div>

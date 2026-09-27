@@ -266,6 +266,37 @@ describe("LiveKds — station context (operational, not device identity)", () =>
     expect(screen.queryByRole("button", { name: "Grill" })).not.toBeInTheDocument();
   });
 
+  it("a 403 on station discovery says the employee lacks kitchen access — never 'no stations'", async () => {
+    const { ServiceError } = await import("@/lib/console/services/types");
+    kdsStationsFn.mockRejectedValue(new ServiceError("FORBIDDEN", "no", 403));
+    signOnLocally("EMP02", "Chef");
+
+    render(<LiveKds />);
+
+    expect(await screen.findByText("kds.stationsForbidden")).toBeInTheDocument();
+    expect(screen.queryByText("kds.noStations")).not.toBeInTheDocument();
+  });
+
+  it("any other discovery failure offers a retry, and the retry re-reads the stations", async () => {
+    kdsStationsFn.mockRejectedValueOnce(new Error("network")).mockResolvedValueOnce([STATION]);
+    signOnLocally("EMP02", "Chef");
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+
+    render(<LiveKds />);
+
+    expect(await screen.findByText("kds.stationsError")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "form.retry" }));
+    expect(await screen.findByRole("button", { name: "Grill" })).toBeInTheDocument();
+  });
+
+  it("does not ask for stations before anyone has signed on (it could only be refused)", async () => {
+    render(<LiveKds />);
+
+    await screen.findAllByText(/./);
+    expect(kdsStationsFn).not.toHaveBeenCalled();
+  });
+
   it("includes stationId when starting a ticket line", async () => {
     signOnLocally("EMP02", "Chef");
     Session.setKdsStationId(STATION.id);

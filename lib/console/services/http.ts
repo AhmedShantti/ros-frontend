@@ -3259,6 +3259,30 @@ const platform: PlatformService = {
 const TREND_DAYS = 7;
 const ORDER_SCAN_LIMIT = 500;
 
+/**
+ * The dashboard's order window, read from `GET /orders/history`
+ * (`pos.order.view_history`) — the same back-office grant the Orders page
+ * uses — never `GET /orders` (`pos.order.create`, the POS terminal's own
+ * read). A manager or accountant who may view order history but not take
+ * orders must still get a dashboard. Walks the server's keyset cursor 100
+ * rows at a time (the endpoint's limit) up to `ORDER_SCAN_LIMIT`.
+ */
+async function dashboardOrders(scope?: Scope): Promise<{ rows: Order[] }> {
+  const rows: Order[] = [];
+  let cursor: { businessDay: string; id: string } | null = null;
+  for (let hop = 0; hop < Math.ceil(ORDER_SCAN_LIMIT / 100); hop += 1) {
+    const page = await listOrderHistoryPage({
+      branchId: scope?.branchId ?? undefined,
+      cursor,
+      limit: 100,
+    });
+    rows.push(...page.orders);
+    cursor = page.nextCursor;
+    if (!cursor || page.orders.length === 0) break;
+  }
+  return { rows };
+}
+
 function metric(
   value: number,
   previous: number,
@@ -3385,7 +3409,7 @@ const dashboard: DashboardService = {
       tableSummary,
       kitchenSummary,
     ] = await Promise.all([
-      orders.list({ scope, offset: 0, limit: ORDER_SCAN_LIMIT }),
+      dashboardOrders(scope),
       branchesRaw().catch(() => []),
       api.organisation.listBrands().catch(() => []),
       inventory.waste.list({ scope, limit: 200 }).catch(() => emptyPage<WasteRecord>()),

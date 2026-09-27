@@ -25,6 +25,7 @@ import {
 import { ROLE_DEFINITIONS, ROLE_KEYS, roleRequiresMfa } from "@/lib/console/permissions";
 import { initials } from "@/lib/console/format";
 import { useI18n, usePreferences, useSession } from "@/lib/console/providers";
+import { DATA_MODE } from "@/lib/api/config";
 import {
   Badge,
   Menu,
@@ -129,6 +130,11 @@ export function ScopeSwitcher() {
 export function RoleSwitcher({ compact }: { compact?: boolean }) {
   const { t, tx } = useI18n();
   const { roleKey, setRole } = useSession();
+
+  // A demo aid for exploring the fixture roles. Against a real backend the
+  // user's access comes from the server's grants, so a picker that "switches
+  // role" is misleading at best — it is never shown there.
+  if (DATA_MODE === "http") return null;
 
   return (
     <Menu

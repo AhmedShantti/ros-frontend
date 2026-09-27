@@ -36,8 +36,8 @@ import { Ban, ChefHat, Check, RotateCcw, Timer, Utensils } from "lucide-react";
 
 import type { Id, KitchenTicket, TicketUrgency } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import type { StationQueue } from "@/lib/console/services/types";
-import { useAsync, useKdsStations } from "@/lib/console/hooks";
+import { ServiceError, type StationQueue } from "@/lib/console/services/types";
+import { useAsync, useKdsStations, type KdsStationsState } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n } from "@/lib/console/providers";
 import { useNow, elapsedSince } from "@/lib/console/live/store";
@@ -113,7 +113,6 @@ export function LiveKds() {
   const { t, tx } = useI18n();
   const now = useNow(1000);
 
-  const stations = useKdsStations();
 
   /**
    * The stored station is in `localStorage`, which the server render cannot
@@ -150,6 +149,9 @@ export function LiveKds() {
   }, []);
 
   const activeBranchId = mounted ? getActiveBranchId() : null;
+
+  const stationDiscovery = useKdsStations(employee ? employee.code : null);
+  const stations = stationDiscovery.stations;
 
   const chooseStation = useCallback((next: Id | null) => {
     setKdsStationId(next);
@@ -317,7 +319,7 @@ export function LiveKds() {
   if (!stationId) {
     return (
       <StationPicker
-        stations={stations}
+        discovery={stationDiscovery}
         onChoose={chooseStation}
         title={t("kds.pickStation")}
         note={t("kds.pickStationNote")}
@@ -544,17 +546,19 @@ function KdsSignOn({
 // ---------------------------------------------------------------------------
 
 function StationPicker({
-  stations,
+  discovery,
   onChoose,
   title,
   note,
 }: {
-  stations: ReturnType<typeof useKdsStations>;
+  discovery: KdsStationsState;
   onChoose: (id: Id) => void;
   title: string;
   note: string;
 }) {
   const { t, tx } = useI18n();
+  const { stations, loading, error, reload } = discovery;
+  const forbidden = error instanceof ServiceError && error.status === 403;
 
   return (
     <div className="mx-auto min-h-0 w-full max-w-md flex-1 overflow-y-auto p-4">
@@ -562,7 +566,22 @@ function StationPicker({
         <CardHeader title={title} spec="FR-KDS-020" />
         <Callout tone="muted">{note}</Callout>
 
-        {stations.length === 0 ? (
+        {error ? (
+          // A refusal is not an empty branch: say which it is, so nobody goes
+          // looking for stations that already exist.
+          <div className="mt-4 space-y-3">
+            <Callout tone="bad">
+              {forbidden ? t("kds.stationsForbidden") : t("kds.stationsError")}
+            </Callout>
+            {forbidden ? null : (
+              <Button variant="secondary" onClick={reload}>
+                {t("form.retry")}
+              </Button>
+            )}
+          </div>
+        ) : loading ? (
+          <p className="text-fg-muted mt-4 text-sm">{t("common.loading")}</p>
+        ) : stations.length === 0 ? (
           <p className="text-fg-muted mt-4 text-sm">{t("kds.noStations")}</p>
         ) : (
           <ul className="mt-4 space-y-2">

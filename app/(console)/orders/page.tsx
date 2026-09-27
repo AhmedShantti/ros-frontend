@@ -401,6 +401,10 @@ function ReferenceCell({ id }: { id: string }) {
 
 type SearchMode = "reference" | "number";
 
+/** The permanent Order Reference is a UUID (`orders.id`). */
+const ORDER_REFERENCE_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * ORDERS-MODULE-COMPREHENSIVE-P0 — the exact support/history lookups: the
  * permanent Order Reference (exact, single-order) and the human Order
@@ -425,6 +429,13 @@ function FindOrderPanel({ onFound }: { onFound: (order: Order) => void }) {
     setNotFound(false);
     try {
       if (mode === "reference") {
+        // An Order Reference is a UUID. Anything else (a pasted order
+        // number, a typo) cannot match, so say so instead of sending a
+        // request the server can only reject with a 400.
+        if (!ORDER_REFERENCE_PATTERN.test(value)) {
+          setNotFound(true);
+          return;
+        }
         const order = await services.sales.findOrderByReference(value);
         if (order) onFound(order);
         else setNotFound(true);
@@ -435,7 +446,9 @@ function FindOrderPanel({ onFound }: { onFound: (order: Order) => void }) {
         else setMatches(found);
       }
     } catch (err) {
-      if (err instanceof ServiceError && err.status === 404) setNotFound(true);
+      // 404: no such order. 400: the server rejected the input as malformed —
+      // for a lookup that is still "no match", never a raw error with Retry.
+      if (err instanceof ServiceError && (err.status === 404 || err.status === 400)) setNotFound(true);
       else setError(err instanceof Error ? err : new Error(String(err)));
     } finally {
       setSearching(false);
