@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 194 paths, 132 request DTOs.
+ * `api/openapi.json`. 195 paths, 132 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -295,11 +295,15 @@ export interface CreateMenuItemDto {
 }
 
 export interface CreateModifierDto {
+  /** FR-POS-031 `component_price_override` strategy — this option's definition-time contribution to the combo's composed listed price. Minor units as an integer string. Only meaningful on the slot's default option; see `ModifierGroupsService.addModifier` for the enforced rule. */
+  comboComponentPriceOverride?: string;
   consumptionQuantity?: string;
   consumptionUnitId?: string;
   isDefault?: boolean;
   /** FR-POS-021 [M]. REQUIRED — P1E-5. Pre-existing rows may carry `kind: null` (no non-heuristic source data could classify them; see the catalogue-modifier-kind migration header), but every NEW modifier created through this API must state its semantic kind explicitly. */
   kind: "addition" | "removal" | "substitution";
+  /** COMBO-COMPONENT-IDENTITY-P0 (FR-POS-030) — when this option IS a real combo slot choice, the actual `MenuItemVariant` it represents. Omit for an ordinary (non-component) modifier. */
+  linkedVariantId?: string;
   name: Record<string, unknown>;
   /** Minor units as an integer string, so BIGINT precision survives JSON. */
   priceDelta?: string;
@@ -501,6 +505,10 @@ export interface CreateTableDto {
 
 export interface CreateVariantDto {
   barcode?: string;
+  comboAllocationBasis?: "equal" | "list_price" | "cost";
+  comboDiscountBps?: number;
+  /** COMBO-COMPONENT-IDENTITY-P0 (FR-POS-031/032) — definition metadata for a combo variant, so the Console combo editor can reopen and reconstruct the definition faithfully. Omit for an ordinary (non-combo) variant. */
+  comboPricingStrategy?: "fixed" | "sum_components_minus_discount" | "component_price_override";
   currency: string;
   name: Record<string, unknown>;
   prepTimeSeconds?: number;
@@ -1034,6 +1042,10 @@ export interface UpdateTableDto {
 }
 
 export interface UpdateVariantPriceDto {
+  comboAllocationBasis?: "equal" | "list_price" | "cost";
+  comboDiscountBps?: number;
+  /** COMBO-COMPONENT-IDENTITY-P0 — see `CreateVariantDto`. */
+  comboPricingStrategy?: "fixed" | "sum_components_minus_discount" | "component_price_override";
   currency: string;
   price: string;
 }
@@ -2140,6 +2152,12 @@ export type CatalogueController_createItemResponse = {
   taxClassId: string | null;
   variants: ({
     barcode: string | null;
+    /** FR-POS-032 revenue-allocation basis; null for an ordinary variant. */
+    comboAllocationBasis: "equal" | "list_price" | "cost" | null | null;
+    /** Basis points (0–10000); only meaningful under sum_components_minus_discount. */
+    comboDiscountBps: number | null;
+    /** COMBO-COMPONENT-IDENTITY-P0 — definition metadata for a combo variant only; null for an ordinary variant. */
+    comboPricingStrategy: "fixed" | "sum_components_minus_discount" | "component_price_override" | null | null;
     /** ISO 4217 currency code. */
     currency: string;
     id: string;
@@ -2210,6 +2228,41 @@ export type CatalogueController_updateItemResponse = {
 
 export type CatalogueController_updateItemBody = UpdateMenuItemDto;
 
+/** `GET /catalogue/items/{itemId}/modifier-groups` — The reusable modifier groups (with their modifiers) currently attached to this item — the read side of POST items/:itemId/modifier-groups, needed to reopen a combo or any customized item for editing. — This item's linked modifier groups, in attachment order, each with its modifiers. */
+export type CatalogueController_listItemModifierGroupsResponse = ({
+  allowRepeat: boolean;
+  /** FR-MNU-011 "first N free, rest charged". */
+  freeQuantityThreshold: number;
+  id: string;
+  isRequired: boolean;
+  maxSelections: number;
+  minSelections: number;
+  modifiers: ({
+    /** FR-POS-031 component_price_override strategy — this option’s own contribution to the combo price; only meaningful on a slot’s default option. */
+    comboComponentPriceOverride: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    consumptionQuantity: string | null;
+    consumptionUnitId: string | null;
+    id: string;
+    isDefault: boolean;
+    /** FR-POS-021. null on a legacy modifier with no non-heuristic source for its kind. */
+    kind: "addition" | "removal" | "substitution" | null | null;
+    /** COMBO-COMPONENT-IDENTITY-P0 — the real MenuItemVariant this option represents, when it IS a combo slot choice; null for an ordinary modifier. */
+    linkedVariantId: string | null;
+    modifierGroupId: string;
+    /** Localised text, e.g. {"ar": "...", "en": "..."}. */
+    name: Record<string, unknown>;
+    /** Minor-unit money delta; may be negative (e.g. a substitution credit). */
+    priceDelta: string;
+    /** Opaque; not interpreted or executed by this phase (FR-MNU-013). */
+    recipeDelta: Record<string, unknown> | null;
+    sortOrder: number;
+    stockItemId: string | null;
+  })[];
+  /** Localised text, e.g. {"ar": "...", "en": "..."}. */
+  name: Record<string, unknown>;
+})[];
+
 /** `POST /catalogue/items/{itemId}/modifier-groups` — Attach a reusable modifier group to an item, with optional per-item overrides (FR-MNU-010). — Linked. */
 export type CatalogueController_linkModifierGroupResponse = void;
 
@@ -2260,6 +2313,12 @@ export type CatalogueController_setItemActiveBody = SetActiveDto;
 /** `GET /catalogue/items/{itemId}/variants` — Variants of this item, sort order. */
 export type CatalogueController_listVariantsResponse = ({
   barcode: string | null;
+  /** FR-POS-032 revenue-allocation basis; null for an ordinary variant. */
+  comboAllocationBasis: "equal" | "list_price" | "cost" | null | null;
+  /** Basis points (0–10000); only meaningful under sum_components_minus_discount. */
+  comboDiscountBps: number | null;
+  /** COMBO-COMPONENT-IDENTITY-P0 — definition metadata for a combo variant only; null for an ordinary variant. */
+  comboPricingStrategy: "fixed" | "sum_components_minus_discount" | "component_price_override" | null | null;
   /** ISO 4217 currency code. */
   currency: string;
   id: string;
@@ -2276,6 +2335,12 @@ export type CatalogueController_listVariantsResponse = ({
 /** `POST /catalogue/items/{itemId}/variants` — Add a FURTHER variant to an item that already exists and is already sellable. Initial variant creation happens atomically in POST /catalogue/items instead. — The newly created variant, already priced. */
 export type CatalogueController_addVariantResponse = {
   barcode: string | null;
+  /** FR-POS-032 revenue-allocation basis; null for an ordinary variant. */
+  comboAllocationBasis: "equal" | "list_price" | "cost" | null | null;
+  /** Basis points (0–10000); only meaningful under sum_components_minus_discount. */
+  comboDiscountBps: number | null;
+  /** COMBO-COMPONENT-IDENTITY-P0 — definition metadata for a combo variant only; null for an ordinary variant. */
+  comboPricingStrategy: "fixed" | "sum_components_minus_discount" | "component_price_override" | null | null;
   /** ISO 4217 currency code. */
   currency: string;
   id: string;
@@ -2442,6 +2507,8 @@ export type CatalogueController_updateModifierGroupBody = UpdateModifierGroupDto
 
 /** `GET /catalogue/modifier-groups/{groupId}/modifiers` — Modifiers in this group, sort order. */
 export type CatalogueController_listModifiersResponse = ({
+  /** FR-POS-031 component_price_override strategy — this option’s own contribution to the combo price; only meaningful on a slot’s default option. */
+  comboComponentPriceOverride: string | null;
   /** Decimal quantity as a string (preserves exact precision). */
   consumptionQuantity: string | null;
   consumptionUnitId: string | null;
@@ -2449,6 +2516,8 @@ export type CatalogueController_listModifiersResponse = ({
   isDefault: boolean;
   /** FR-POS-021. null on a legacy modifier with no non-heuristic source for its kind. */
   kind: "addition" | "removal" | "substitution" | null | null;
+  /** COMBO-COMPONENT-IDENTITY-P0 — the real MenuItemVariant this option represents, when it IS a combo slot choice; null for an ordinary modifier. */
+  linkedVariantId: string | null;
   modifierGroupId: string;
   /** Localised text, e.g. {"ar": "...", "en": "..."}. */
   name: Record<string, unknown>;
@@ -2462,6 +2531,8 @@ export type CatalogueController_listModifiersResponse = ({
 
 /** `POST /catalogue/modifier-groups/{groupId}/modifiers` — The newly created modifier. */
 export type CatalogueController_addModifierResponse = {
+  /** FR-POS-031 component_price_override strategy — this option’s own contribution to the combo price; only meaningful on a slot’s default option. */
+  comboComponentPriceOverride: string | null;
   /** Decimal quantity as a string (preserves exact precision). */
   consumptionQuantity: string | null;
   consumptionUnitId: string | null;
@@ -2469,6 +2540,8 @@ export type CatalogueController_addModifierResponse = {
   isDefault: boolean;
   /** FR-POS-021. null on a legacy modifier with no non-heuristic source for its kind. */
   kind: "addition" | "removal" | "substitution" | null | null;
+  /** COMBO-COMPONENT-IDENTITY-P0 — the real MenuItemVariant this option represents, when it IS a combo slot choice; null for an ordinary modifier. */
+  linkedVariantId: string | null;
   modifierGroupId: string;
   /** Localised text, e.g. {"ar": "...", "en": "..."}. */
   name: Record<string, unknown>;
@@ -2566,6 +2639,12 @@ export type CatalogueController_getPosMenuResponse = {
 /** `PATCH /catalogue/variants/{variantId}/price` — Direct price edit — no Price List, no separate pricing workspace. — The updated variant, with its new price. */
 export type CatalogueController_updateVariantPriceResponse = {
   barcode: string | null;
+  /** FR-POS-032 revenue-allocation basis; null for an ordinary variant. */
+  comboAllocationBasis: "equal" | "list_price" | "cost" | null | null;
+  /** Basis points (0–10000); only meaningful under sum_components_minus_discount. */
+  comboDiscountBps: number | null;
+  /** COMBO-COMPONENT-IDENTITY-P0 — definition metadata for a combo variant only; null for an ordinary variant. */
+  comboPricingStrategy: "fixed" | "sum_components_minus_discount" | "component_price_override" | null | null;
   /** ISO 4217 currency code. */
   currency: string;
   id: string;
@@ -2584,6 +2663,12 @@ export type CatalogueController_updateVariantPriceBody = UpdateVariantPriceDto;
 /** `POST /catalogue/variants/{variantId}/status` — Activate/deactivate a variant (C-09 explicit, audited lifecycle). — The updated variant. */
 export type CatalogueController_setVariantActiveResponse = {
   barcode: string | null;
+  /** FR-POS-032 revenue-allocation basis; null for an ordinary variant. */
+  comboAllocationBasis: "equal" | "list_price" | "cost" | null | null;
+  /** Basis points (0–10000); only meaningful under sum_components_minus_discount. */
+  comboDiscountBps: number | null;
+  /** COMBO-COMPONENT-IDENTITY-P0 — definition metadata for a combo variant only; null for an ordinary variant. */
+  comboPricingStrategy: "fixed" | "sum_components_minus_discount" | "component_price_override" | null | null;
   /** ISO 4217 currency code. */
   currency: string;
   id: string;
@@ -6835,6 +6920,26 @@ export type ReportingController_getDailyTradingReportResponse = {
   unclosedContributingSessionCount: number;
 };
 
+/** `GET /reports/branches/{branchId}/orders/{orderLineId}/combo-allocation/{businessDay}` — FR-POS-032 combo revenue allocation for one order line (dashboard-only; authorized against the branch it names). — The allocation result — `available: false` is a normal, successful response, not an error. */
+export type ReportingController_getComboRevenueAllocationResponse = {
+  allocationBasis: "equal" | "list_price" | "cost" | null | null;
+  available: boolean;
+  components: ({
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    allocatedAmountMinor: string;
+    linkedVariantId: string;
+    nameSnapshot: Record<string, unknown>;
+    orderLineModifierId: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    weightUsed: string;
+  })[];
+  currency: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  lineTotal: string;
+  orderLineId: string;
+  unavailableReason: "not_a_combo" | "no_allocation_basis_configured" | "no_linked_components_on_this_line" | "missing_component_snapshot" | "zero_total_weight" | null | null;
+};
+
 /** `GET /reports/branches/{branchId}/overview` — Branch operational overview — sales, cash, inventory, workforce, kds (dashboard-only; authorized against the branch it names). — The operational overview: sales, cash (WHOLE_SESSION scope, unchanged from daily-trading), inventory (branch-scoped low-stock count + calendar-day waste), workforce (branch-scoped calendar-day attendance summary), kds (business-day ticket counts + real prep duration where measurable), and a scope block disclosing exactly what this Demo/Operational slice does and does not cover. */
 export type ReportingController_getOperationalOverviewResponse = {
   /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
@@ -7620,6 +7725,7 @@ export const ROUTES = {
   CatalogueController_createItem: { method: "POST", path: "/catalogue/items" },
   CatalogueController_getItem: { method: "GET", path: "/catalogue/items/{itemId}" },
   CatalogueController_updateItem: { method: "PATCH", path: "/catalogue/items/{itemId}" },
+  CatalogueController_listItemModifierGroups: { method: "GET", path: "/catalogue/items/{itemId}/modifier-groups" },
   CatalogueController_linkModifierGroup: { method: "POST", path: "/catalogue/items/{itemId}/modifier-groups" },
   CatalogueController_listPlacements: { method: "GET", path: "/catalogue/items/{itemId}/placements" },
   CatalogueController_placeItem: { method: "POST", path: "/catalogue/items/{itemId}/placements" },
@@ -7783,6 +7889,7 @@ export const ROUTES = {
   ProductionController_replaceLines: { method: "PUT", path: "/recipes/{recipeId}/versions/{version}/lines" },
   ProductionController_publish: { method: "POST", path: "/recipes/{recipeId}/versions/{version}/publish" },
   ReportingController_getDailyTradingReport: { method: "GET", path: "/reports/branches/{branchId}/daily-trading/{businessDay}" },
+  ReportingController_getComboRevenueAllocation: { method: "GET", path: "/reports/branches/{branchId}/orders/{orderLineId}/combo-allocation/{businessDay}" },
   ReportingController_getOperationalOverview: { method: "GET", path: "/reports/branches/{branchId}/overview" },
   ServiceChargePolicyController_createBranchPolicy: { method: "POST", path: "/service-charge-policy/branch/{branchId}" },
   ServiceChargePolicyController_createBrandPolicy: { method: "POST", path: "/service-charge-policy/brand/{brandId}" },

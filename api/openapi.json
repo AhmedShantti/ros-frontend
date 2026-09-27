@@ -960,6 +960,11 @@
       },
       "CreateModifierDto": {
         "properties": {
+          "comboComponentPriceOverride": {
+            "description": "FR-POS-031 `component_price_override` strategy — this option's\ndefinition-time contribution to the combo's composed listed price.\nMinor units as an integer string. Only meaningful on the slot's default\noption; see `ModifierGroupsService.addModifier` for the enforced rule.",
+            "pattern": "^-?\\d{1,18}$",
+            "type": "string"
+          },
           "consumptionQuantity": {
             "pattern": "^-?\\d+(\\.\\d{1,6})?$",
             "type": "string"
@@ -977,6 +982,10 @@
               "removal",
               "substitution"
             ],
+            "type": "string"
+          },
+          "linkedVariantId": {
+            "description": "COMBO-COMPONENT-IDENTITY-P0 (FR-POS-030) — when this option IS a real\ncombo slot choice, the actual `MenuItemVariant` it represents. Omit for\nan ordinary (non-component) modifier.",
             "type": "string"
           },
           "name": {
@@ -1713,6 +1722,28 @@
           "barcode": {
             "maxLength": 32,
             "minLength": 1,
+            "type": "string"
+          },
+          "comboAllocationBasis": {
+            "enum": [
+              "equal",
+              "list_price",
+              "cost"
+            ],
+            "type": "string"
+          },
+          "comboDiscountBps": {
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "comboPricingStrategy": {
+            "description": "COMBO-COMPONENT-IDENTITY-P0 (FR-POS-031/032) — definition metadata for\na combo variant, so the Console combo editor can reopen and reconstruct\nthe definition faithfully. Omit for an ordinary (non-combo) variant.",
+            "enum": [
+              "fixed",
+              "sum_components_minus_discount",
+              "component_price_override"
+            ],
             "type": "string"
           },
           "currency": {
@@ -3521,6 +3552,28 @@
       },
       "UpdateVariantPriceDto": {
         "properties": {
+          "comboAllocationBasis": {
+            "enum": [
+              "equal",
+              "list_price",
+              "cost"
+            ],
+            "type": "string"
+          },
+          "comboDiscountBps": {
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "comboPricingStrategy": {
+            "description": "COMBO-COMPONENT-IDENTITY-P0 — see `CreateVariantDto`.",
+            "enum": [
+              "fixed",
+              "sum_components_minus_discount",
+              "component_price_override"
+            ],
+            "type": "string"
+          },
           "currency": {
             "maxLength": 3,
             "minLength": 3,
@@ -10733,6 +10786,39 @@
                               "null"
                             ]
                           },
+                          "comboAllocationBasis": {
+                            "description": "FR-POS-032 revenue-allocation basis; null for an ordinary variant.",
+                            "enum": [
+                              "equal",
+                              "list_price",
+                              "cost",
+                              null
+                            ],
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "comboDiscountBps": {
+                            "description": "Basis points (0–10000); only meaningful under sum_components_minus_discount.",
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "comboPricingStrategy": {
+                            "description": "COMBO-COMPONENT-IDENTITY-P0 — definition metadata for a combo variant only; null for an ordinary variant.",
+                            "enum": [
+                              "fixed",
+                              "sum_components_minus_discount",
+                              "component_price_override",
+                              null
+                            ],
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "currency": {
                             "description": "ISO 4217 currency code.",
                             "example": "AED",
@@ -11129,6 +11215,199 @@
       }
     },
     "/catalogue/items/{itemId}/modifier-groups": {
+      "get": {
+        "operationId": "CatalogueController_listItemModifierGroups",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "allowRepeat": {
+                        "type": "boolean"
+                      },
+                      "freeQuantityThreshold": {
+                        "description": "FR-MNU-011 \"first N free, rest charged\".",
+                        "type": "integer"
+                      },
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "isRequired": {
+                        "type": "boolean"
+                      },
+                      "maxSelections": {
+                        "type": "integer"
+                      },
+                      "minSelections": {
+                        "type": "integer"
+                      },
+                      "modifiers": {
+                        "items": {
+                          "properties": {
+                            "comboComponentPriceOverride": {
+                              "description": "FR-POS-031 component_price_override strategy — this option’s own contribution to the combo price; only meaningful on a slot’s default option.",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "consumptionQuantity": {
+                              "description": "Decimal quantity as a string (preserves exact precision).",
+                              "example": "2.5",
+                              "pattern": "^-?\\d+(\\.\\d+)?$",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "consumptionUnitId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "id": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "isDefault": {
+                              "type": "boolean"
+                            },
+                            "kind": {
+                              "description": "FR-POS-021. null on a legacy modifier with no non-heuristic source for its kind.",
+                              "enum": [
+                                "addition",
+                                "removal",
+                                "substitution",
+                                null
+                              ],
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "linkedVariantId": {
+                              "description": "COMBO-COMPONENT-IDENTITY-P0 — the real MenuItemVariant this option represents, when it IS a combo slot choice; null for an ordinary modifier.",
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "modifierGroupId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "name": {
+                              "description": "Localised text, e.g. {\"ar\": \"...\", \"en\": \"...\"}.",
+                              "type": "object"
+                            },
+                            "priceDelta": {
+                              "description": "Minor-unit money delta; may be negative (e.g. a substitution credit).",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": "string"
+                            },
+                            "recipeDelta": {
+                              "description": "Opaque; not interpreted or executed by this phase (FR-MNU-013).",
+                              "type": [
+                                "object",
+                                "null"
+                              ]
+                            },
+                            "sortOrder": {
+                              "type": "integer"
+                            },
+                            "stockItemId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "name": {
+                        "description": "Localised text, e.g. {\"ar\": \"...\", \"en\": \"...\"}.",
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "This item's linked modifier groups, in attachment order, each with its modifiers."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Menu item not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The reusable modifier groups (with their modifiers) currently attached to this item — the read side of POST items/:itemId/modifier-groups, needed to reopen a combo or any customized item for editing.",
+        "tags": [
+          "catalogue"
+        ]
+      },
       "post": {
         "operationId": "CatalogueController_linkModifierGroup",
         "parameters": [
@@ -11632,6 +11911,39 @@
                           "null"
                         ]
                       },
+                      "comboAllocationBasis": {
+                        "description": "FR-POS-032 revenue-allocation basis; null for an ordinary variant.",
+                        "enum": [
+                          "equal",
+                          "list_price",
+                          "cost",
+                          null
+                        ],
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "comboDiscountBps": {
+                        "description": "Basis points (0–10000); only meaningful under sum_components_minus_discount.",
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "comboPricingStrategy": {
+                        "description": "COMBO-COMPONENT-IDENTITY-P0 — definition metadata for a combo variant only; null for an ordinary variant.",
+                        "enum": [
+                          "fixed",
+                          "sum_components_minus_discount",
+                          "component_price_override",
+                          null
+                        ],
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
                       "currency": {
                         "description": "ISO 4217 currency code.",
                         "example": "AED",
@@ -11749,6 +12061,39 @@
                 "schema": {
                   "properties": {
                     "barcode": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "comboAllocationBasis": {
+                      "description": "FR-POS-032 revenue-allocation basis; null for an ordinary variant.",
+                      "enum": [
+                        "equal",
+                        "list_price",
+                        "cost",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "comboDiscountBps": {
+                      "description": "Basis points (0–10000); only meaningful under sum_components_minus_discount.",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "comboPricingStrategy": {
+                      "description": "COMBO-COMPONENT-IDENTITY-P0 — definition metadata for a combo variant only; null for an ordinary variant.",
+                      "enum": [
+                        "fixed",
+                        "sum_components_minus_discount",
+                        "component_price_override",
+                        null
+                      ],
                       "type": [
                         "string",
                         "null"
@@ -13064,6 +13409,15 @@
                 "schema": {
                   "items": {
                     "properties": {
+                      "comboComponentPriceOverride": {
+                        "description": "FR-POS-031 component_price_override strategy — this option’s own contribution to the combo price; only meaningful on a slot’s default option.",
+                        "example": "1250",
+                        "pattern": "^-?\\d+$",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
                       "consumptionQuantity": {
                         "description": "Decimal quantity as a string (preserves exact precision).",
                         "example": "2.5",
@@ -13097,6 +13451,15 @@
                           "substitution",
                           null
                         ],
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "linkedVariantId": {
+                        "description": "COMBO-COMPONENT-IDENTITY-P0 — the real MenuItemVariant this option represents, when it IS a combo slot choice; null for an ordinary modifier.",
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
                         "type": [
                           "string",
                           "null"
@@ -13214,6 +13577,15 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "comboComponentPriceOverride": {
+                      "description": "FR-POS-031 component_price_override strategy — this option’s own contribution to the combo price; only meaningful on a slot’s default option.",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "consumptionQuantity": {
                       "description": "Decimal quantity as a string (preserves exact precision).",
                       "example": "2.5",
@@ -13247,6 +13619,15 @@
                         "substitution",
                         null
                       ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "linkedVariantId": {
+                      "description": "COMBO-COMPONENT-IDENTITY-P0 — the real MenuItemVariant this option represents, when it IS a combo slot choice; null for an ordinary modifier.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
                       "type": [
                         "string",
                         "null"
@@ -13730,6 +14111,39 @@
                         "null"
                       ]
                     },
+                    "comboAllocationBasis": {
+                      "description": "FR-POS-032 revenue-allocation basis; null for an ordinary variant.",
+                      "enum": [
+                        "equal",
+                        "list_price",
+                        "cost",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "comboDiscountBps": {
+                      "description": "Basis points (0–10000); only meaningful under sum_components_minus_discount.",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "comboPricingStrategy": {
+                      "description": "COMBO-COMPONENT-IDENTITY-P0 — definition metadata for a combo variant only; null for an ordinary variant.",
+                      "enum": [
+                        "fixed",
+                        "sum_components_minus_discount",
+                        "component_price_override",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "currency": {
                       "description": "ISO 4217 currency code.",
                       "example": "AED",
@@ -13858,6 +14272,39 @@
                 "schema": {
                   "properties": {
                     "barcode": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "comboAllocationBasis": {
+                      "description": "FR-POS-032 revenue-allocation basis; null for an ordinary variant.",
+                      "enum": [
+                        "equal",
+                        "list_price",
+                        "cost",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "comboDiscountBps": {
+                      "description": "Basis points (0–10000); only meaningful under sum_components_minus_discount.",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "comboPricingStrategy": {
+                      "description": "COMBO-COMPONENT-IDENTITY-P0 — definition metadata for a combo variant only; null for an ordinary variant.",
+                      "enum": [
+                        "fixed",
+                        "sum_components_minus_discount",
+                        "component_price_override",
+                        null
+                      ],
                       "type": [
                         "string",
                         "null"
@@ -40878,6 +41325,182 @@
           }
         ],
         "summary": "Branch daily-trading report (dashboard-only; authorized against the branch it names).",
+        "tags": [
+          "reporting"
+        ]
+      }
+    },
+    "/reports/branches/{branchId}/orders/{orderLineId}/combo-allocation/{businessDay}": {
+      "get": {
+        "description": "Splits a fired/settled combo line’s lineTotal across its selected components, using the SAME immutable capture-time snapshots (linkedVariantId/componentListPriceSnapshot/componentCostSnapshot) the sale itself wrote — never a live join to the current catalogue, so a later price/recipe/combo-definition change never rewrites a past report. Never falls back to a different allocation basis than the one configured on the combo’s own variant: a missing/zero weight for that basis returns `available: false` with an explicit `unavailableReason` — the sale itself already completed and is never affected by this read.",
+        "operationId": "ReportingController_getComboRevenueAllocation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "orderLineId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "businessDay",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "allocationBasis": {
+                      "enum": [
+                        "equal",
+                        "list_price",
+                        "cost",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "available": {
+                      "type": "boolean"
+                    },
+                    "components": {
+                      "items": {
+                        "properties": {
+                          "allocatedAmountMinor": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "linkedVariantId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "nameSnapshot": {
+                            "type": "object"
+                          },
+                          "orderLineModifierId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "weightUsed": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "currency": {
+                      "example": "AED",
+                      "type": "string"
+                    },
+                    "lineTotal": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "orderLineId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "unavailableReason": {
+                      "enum": [
+                        "not_a_combo",
+                        "no_allocation_basis_configured",
+                        "no_linked_components_on_this_line",
+                        "missing_component_snapshot",
+                        "zero_total_weight",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The allocation result — `available: false` is a normal, successful response, not an error."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed branchId/orderLineId/businessDay."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A PIN/POS session; no active tenant context; or report.view.sales and report.view.financial are not both held by one assignment covering this branch."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "orderLineId is unknown, belongs to another tenant, or belongs to a different branch than the one named in the path — byte-identical response for all three, so a caller cannot learn otherwise."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "FR-POS-032 combo revenue allocation for one order line (dashboard-only; authorized against the branch it names).",
         "tags": [
           "reporting"
         ]

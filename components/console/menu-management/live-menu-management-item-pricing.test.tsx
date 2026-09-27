@@ -80,6 +80,7 @@ vi.mock("@/lib/console/menu-management/live-adapter", () => ({
 vi.mock("@/components/console/catalogue/tax-class-field", () => ({
   TaxClassField: () => null,
   useTaxClassLabel: () => ({ text: "—", tone: "muted" as const }),
+  useTaxClasses: () => ({ loading: false, noBranch: false, taxClasses: [] }),
 }));
 
 const granted = new Set<string>(["menu.item.manage", "menu.availability.toggle", "menu.price.read", "menu.price.change"]);
@@ -96,6 +97,9 @@ vi.mock("@/lib/console/providers", () => ({
   useSession: () => ({
     scope: { tenantId: "t1", brandId: null, branchId: null },
     availableBranches: [{ id: "br1", name: { en: "Downtown", ar: "" }, brandId: "b1" }],
+    availableBrands: [],
+    setBrandId: () => {},
+    setBranchId: () => {},
     tenant: { id: "t1", name: { en: "Acme", ar: "أكمي" }, baseCurrency: "EGP" },
     brand: null,
     branch: null,
@@ -145,11 +149,11 @@ describe("Live Menu Management — direct variant pricing", () => {
     render(<LiveMenuManagement />);
 
     await user.click(await screen.findByRole("button", { name: "menu.newItem" }));
-    await user.type(screen.getByLabelText(/common\.name/), "Burger");
-    await user.click(screen.getByLabelText(/common\.category/));
-    await user.click(screen.getByRole("option", { name: "Mains" }));
-    await user.type(screen.getByLabelText(/menu\.price/), "12.50");
-    await user.click(screen.getByRole("button", { name: "common.save" }));
+    await user.type(screen.getByLabelText("common.name"), "Burger");
+    await user.selectOptions(screen.getByLabelText("common.category"), "c1");
+    await user.type(screen.getByLabelText(/menu.price/), "12.50");
+    const drawer = screen.getByText("menu.newItem", { selector: "h2" }).closest(".drawer") as HTMLElement;
+    await user.click(within(drawer).getByRole("button", { name: "menu.addItemButton" }));
 
     await waitFor(() =>
       expect(itemsCreate).toHaveBeenCalledWith(
@@ -171,6 +175,9 @@ describe("Live Menu Management — direct variant pricing", () => {
 
   it("edits an existing variant's price directly — no Price List to open first", async () => {
     itemsList.mockResolvedValue({ rows: [], total: 0 });
+    // The editor reads variants straight off the already-loaded `LiveItem`
+    // (populated by `listItemsWithPlacements`'s own fan-out) — no separate
+    // re-fetch on open, so the fresh price lives here, not on `itemsGet`.
     listItemsWithPlacementsMock.mockResolvedValue([
       {
         id: "item-1",
@@ -178,24 +185,14 @@ describe("Live Menu Management — direct variant pricing", () => {
         kitchenName: { en: "", ar: "" },
         description: { en: "", ar: "" },
         categoryId: "c1",
+        taxClassId: null,
         available: true,
         unavailableReason: null,
         autoReenableAt: null,
-        variants: [],
+        variants: [{ id: "variant-1", name: { en: "Regular", ar: "" }, basePrice: { amount: 1000, currency: "EGP" } }],
         placements: [{ categoryId: "c1" }],
       },
     ]);
-    itemsGet.mockResolvedValue({
-      id: "item-1",
-      name: { en: "Burger", ar: "" },
-      kitchenName: { en: "", ar: "" },
-      description: { en: "", ar: "" },
-      categoryId: "c1",
-      available: true,
-      unavailableReason: null,
-      autoReenableAt: null,
-      variants: [{ id: "variant-1", name: { en: "Regular", ar: "" }, basePrice: { amount: 1000, currency: "EGP" } }],
-    });
     updateVariantPrice.mockResolvedValue({
       id: "variant-1",
       name: { en: "Regular", ar: "" },
@@ -205,12 +202,13 @@ describe("Live Menu Management — direct variant pricing", () => {
     const user = userEvent.setup();
     render(<LiveMenuManagement />);
 
-    await user.click(await screen.findByText("Burger"));
-    const variantRow = (await screen.findByText("Regular")).closest("li")!;
+    const card = (await screen.findByText("Burger")).closest(".item-card") as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: /Edit/ }));
+    const variantRow = (await screen.findByText("Regular")).closest(".size-row") as HTMLElement;
 
-    await user.click(within(variantRow).getByRole("button", { name: "common.edit" }));
-    await user.type(within(variantRow).getByLabelText(/menu\.price/), "15.00");
-    await user.click(within(variantRow).getByRole("button", { name: "common.save" }));
+    await user.click(within(variantRow).getByRole("button", { name: "Edit price" }));
+    await user.type(within(variantRow).getByRole("spinbutton"), "15.00");
+    await user.click(within(variantRow).getByRole("button", { name: "Save price" }));
 
     await waitFor(() => expect(updateVariantPrice).toHaveBeenCalledWith("variant-1", { amount: 1500, currency: "EGP" }));
   });
@@ -218,7 +216,7 @@ describe("Live Menu Management — direct variant pricing", () => {
   it("never renders a Price List picker, drawer, or copy anywhere in this workspace", async () => {
     render(<LiveMenuManagement />);
 
-    await screen.findByText("Lunch");
+    await screen.findByRole("button", { name: /Lunch/ });
     expect(screen.queryByText(/price list/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /new.*price.*list/i })).not.toBeInTheDocument();
   });

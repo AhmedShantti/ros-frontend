@@ -999,6 +999,15 @@ const menusCollection: CollectionService<Menu> = makeCollection<Menu>({
   }),
 });
 
+/**
+ * CONSOLE-COMBO-READ-P0 (offline mirror) — `MenuItem` carries no list of
+ * attached groups of its own; this mirrors the SAME real gap
+ * `linkModifierGroup` below already documents, tracked here only so this
+ * mock can answer its own `listItemModifierGroups` truthfully for whatever
+ * it links within one session, without touching the shared seed data.
+ */
+const itemModifierGroupLinks = new Map<string, Set<string>>();
+
 const catalogue: CatalogueService = {
   categories: makeCollection({
     rows: menuCategories,
@@ -1247,10 +1256,10 @@ const catalogue: CatalogueService = {
       const group = modifierGroups.find((row) => row.id === groupId);
       if (!group) throw new ServiceError("NOT_FOUND", "That group no longer exists.", 404);
 
-      // `MenuItem` carries no list of attached groups, and the API has no
-      // endpoint to read one back either — the attachment is only observable
-      // as the group's own count, so that is what moves.
       group.attachedItemCount += 1;
+      const links = itemModifierGroupLinks.get(itemId) ?? new Set<string>();
+      links.add(groupId);
+      itemModifierGroupLinks.set(itemId, links);
     });
   },
 
@@ -1270,6 +1279,13 @@ const catalogue: CatalogueService = {
 
       group.modifiers = [...group.modifiers, modifier];
       return modifier;
+    });
+  },
+
+  async listItemModifierGroups(itemId) {
+    return transport(() => {
+      const linkedIds = itemModifierGroupLinks.get(itemId) ?? new Set<string>();
+      return modifierGroups.filter((row) => linkedIds.has(row.id));
     });
   },
 

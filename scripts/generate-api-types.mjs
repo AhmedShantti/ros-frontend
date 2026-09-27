@@ -185,31 +185,55 @@ writeFileSync(outPath, chunks.join("\n"), "utf8");
 
 const BARE_VERBS = new Set(["get", "post", "put", "patch", "delete"]);
 
+const byTag = new Map();
+for (const op of operations) {
+  if (!byTag.has(op.tag)) byTag.set(op.tag, []);
+  byTag.get(op.tag).push(op);
+}
+
+/**
+ * Per tag, how many operations share the SAME raw tail (the operationId
+ * segment after the controller name). `OrdersController_cancel` and
+ * `ServiceChargePolicyController_cancel` both tagged `sales` both have the
+ * raw tail `cancel` — a genuine two-controllers-one-verb collision, not a
+ * bare-HTTP-verb one. Computed structurally, once, ahead of naming, so a
+ * NEW same-named business action colliding under one tag is caught the same
+ * way automatically, instead of needing a hand-added entry every time.
+ */
+const tagTailCounts = new Map();
+for (const [tag, ops] of byTag) {
+  const counts = new Map();
+  for (const op of ops) {
+    const separator = op.id.indexOf("_");
+    const tail = separator === -1 ? op.id : op.id.slice(separator + 1);
+    counts.set(tail, (counts.get(tail) ?? 0) + 1);
+  }
+  tagTailCounts.set(tag, counts);
+}
+
 /**
  * `CatalogueController_listItems` → `listItems`.
  *
- * When the tail is a bare HTTP verb the controller name is folded back in —
- * `DayCloseController_get` becomes `getDayClose` rather than `get`, which at
- * a call site (`api.treasury.get(branchId, businessDay)`) names nothing and
- * collides with every other resource the tag happens to carry.
+ * When the tail is a bare HTTP verb, OR it collides with another
+ * operation's tail under the SAME tag, the controller name is folded back
+ * in — `DayCloseController_get` becomes `getDayClose` rather than `get`
+ * (which at a call site names nothing and collides with every other
+ * resource the tag happens to carry), and `ServiceChargePolicyController_
+ * cancel` becomes `cancelServiceChargePolicy` rather than colliding with
+ * `OrdersController_cancel`'s own `cancel`.
  */
-function methodName(operationId) {
+function methodName(operationId, tag) {
   const separator = operationId.indexOf("_");
   const tail = separator === -1 ? operationId : operationId.slice(separator + 1);
+  const collides = (tagTailCounts.get(tag)?.get(tail) ?? 0) > 1;
 
-  if (separator !== -1 && BARE_VERBS.has(tail)) {
+  if (separator !== -1 && (BARE_VERBS.has(tail) || collides)) {
     const subject = operationId.slice(0, separator).replace(/Controller$/, "");
     if (subject) return `${tail}${subject[0].toUpperCase()}${subject.slice(1)}`;
   }
 
   // `toggle86` is a valid identifier; a leading digit would not be.
   return /^[A-Za-z_$]/.test(tail) ? tail : `op${tail}`;
-}
-
-const byTag = new Map();
-for (const op of operations) {
-  if (!byTag.has(op.tag)) byTag.set(op.tag, []);
-  byTag.get(op.tag).push(op);
 }
 
 /** `workforce-attendance` → `workforceAttendance`; a tag is not guaranteed to already be a valid identifier. */
@@ -244,7 +268,7 @@ for (const [tag, ops] of byTag) {
   endpointChunks.push(`export const ${tagIdentifier(tag)} = {`);
 
   for (const op of ops) {
-    const name = methodName(op.id);
+    const name = methodName(op.id, tag);
     const key = `${tag}.${name}`;
     if (usedNames.has(key)) {
       throw new Error(`Two operations map to ${key}: ${usedNames.get(key)} and ${op.id}`);

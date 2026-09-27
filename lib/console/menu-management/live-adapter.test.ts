@@ -15,6 +15,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const listCategories = vi.fn();
 const createCategory = vi.fn();
 const listPlacements = vi.fn();
+const listVariants = vi.fn();
 
 vi.mock("@/lib/api/endpoints", () => ({
   api: {
@@ -22,6 +23,7 @@ vi.mock("@/lib/api/endpoints", () => ({
       listCategories: (...args: unknown[]) => listCategories(...args),
       createCategory: (...args: unknown[]) => createCategory(...args),
       listPlacements: (...args: unknown[]) => listPlacements(...args),
+      listVariants: (...args: unknown[]) => listVariants(...args),
     },
   },
 }));
@@ -66,7 +68,10 @@ describe("live-adapter — menus-scoped categories", () => {
 });
 
 describe("live-adapter — items with resolved placements", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listVariants.mockResolvedValue([]);
+  });
 
   it("resolves each item's real category placements via a per-item fan-out, never a fabricated categoryId", async () => {
     itemsList.mockResolvedValue({
@@ -100,5 +105,37 @@ describe("live-adapter — items with resolved placements", () => {
     const rows = await listItemsWithPlacements(scope);
 
     expect(rows).toEqual([expect.objectContaining({ id: "i1", categoryId: "", placements: [] })]);
+  });
+
+  it("resolves each item's real direct-priced variants, including combo definition metadata", async () => {
+    itemsList.mockResolvedValue({ rows: [{ id: "i1", categoryId: "", name: { en: "Meal Deal", ar: "" }, isCombo: true }], total: 1 });
+    listPlacements.mockResolvedValue([]);
+    listVariants.mockResolvedValue([
+      {
+        id: "v1",
+        menuItemId: "i1",
+        name: { en: "Meal Deal", ar: "" },
+        barcode: null,
+        isActive: true,
+        price: "1500",
+        currency: "EGP",
+        sortOrder: 0,
+        comboPricingStrategy: "fixed",
+        comboDiscountBps: null,
+        comboAllocationBasis: "equal",
+      },
+    ]);
+
+    const rows = await listItemsWithPlacements({ tenantId: "t1", brandId: null, branchId: null });
+
+    expect(listVariants).toHaveBeenCalledWith("i1");
+    expect(rows[0]!.variants).toEqual([
+      expect.objectContaining({
+        id: "v1",
+        basePrice: { amount: 1500, currency: "EGP" },
+        comboPricingStrategy: "fixed",
+        comboAllocationBasis: "equal",
+      }),
+    ]);
   });
 });

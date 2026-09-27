@@ -3,62 +3,63 @@
 /**
  * Menu Management — LIVE workspace (production/HTTP mode).
  *
- * The demo workspace (`./menu-management.tsx`) simulates a full menu editor
- * — combos, per-channel/per-size pricing, a "Hidden" status, a fake
- * publish/dirty flag — against an empty in-memory store, because the
- * backend does not implement any of it. This component is the truthful
- * counterpart shown once a real backend is configured (`DATA_MODE ===
- * "http"`, see `app/(console)/menu/management/page.tsx`): it only offers
- * what `/catalogue/*` actually supports —
+ * Visual/structural target: commit `2d4a054` (`./menu-management.tsx` +
+ * `./cards.tsx`/`./item-editor.tsx`/`./combo-editor.tsx`/
+ * `./create-menu-modal.tsx`/`./menu-preview.tsx`, and their shared
+ * `menu-management.css`, already token-based and dark-mode-safe — see that
+ * file's own `.dark` block). This component reuses that SAME stylesheet and
+ * class structure, but every read and write goes through the real
+ * `/catalogue/*` API — it only offers what the backend actually supports:
  *
  *   Menus       — list / create / activate-deactivate / branch assignment /
- *                 branch resolution (no draft/publish lifecycle exists).
+ *                 branch resolution (no draft/publish lifecycle exists, so
+ *                 there is no publish button here).
  *   Categories  — list / create (no delete or deactivate endpoint exists).
  *   Items       — create / edit / category placement / tax class /
- *                 available-unavailable(86) / variants (display + add, each
- *                 directly priced — there is no Price List concept anywhere
- *                 in this workspace; a variant's price is set in the same
- *                 create/edit step and edited directly, never through a
- *                 separate pricing workspace).
- *
- * Phase 3 adds:
- *
+ *                 available-unavailable(86) / variants, each directly
+ *                 priced — there is no Price List concept anywhere in this
+ *                 workspace; a variant's price is set in the same
+ *                 create/edit step and edited directly.
+ *   Combos      — REAL, COMBO-COMPONENT-IDENTITY-P0 (FR-POS-030/031/032):
+ *                 `MenuItem.isCombo` + a directly-priced variant carrying
+ *                 pricing-strategy/discount/allocation-basis metadata, each
+ *                 slot a real `ModifierGroup`, each option a real `Modifier`
+ *                 linked to an actual existing item's variant. CREATE and
+ *                 EDIT: reopening a saved combo reads its real parts via
+ *                 `GET items/:itemId/modifier-groups`
+ *                 (CONSOLE-COMBO-READ-P0) and lets basic info/pricing/an
+ *                 existing part's label, plus brand-new parts/options, be
+ *                 changed through real mutations — see
+ *                 `live-combo-editor.tsx`'s docblock for exactly which
+ *                 single-option edits still have no backend mutation to
+ *                 back them (never faked; rendered read-only instead).
  *   Availability — 86/restore through the real availability-rules flow,
  *                  with a truthful reason (audit-only, never read back) and
  *                  a genuine (lazily-evaluated) auto-re-enable time.
  *   Customizations — the reusable Modifier Group/Modifier catalogue
  *                  (create/read/update groups; read/create modifiers, no
  *                  edit/delete — the API supports none). Deliberately does
- *                  NOT manage item↔group attachment: `POST
- *                  /catalogue/items/:id/modifier-groups` is write-only, with
- *                  no read/update/unlink endpoint at all, so a management UI
- *                  here would create durable state this workspace could
- *                  never show again after a reload. That stays absent until
- *                  the backend adds a read path — see `/menu/items`'s
- *                  `ModifierGroupLinker` for the same honest constraint.
+ *                  NOT manage ORDINARY item↔group attachment as its own
+ *                  management UI: `POST /catalogue/items/:id/modifier-
+ *                  groups` is still write-only for that purpose (the new
+ *                  read endpoint above exists specifically to reopen a
+ *                  COMBO's parts, not as a general attachment editor here).
+ *   Customer preview — read-only, client-side, over already-loaded/read
+ *                  data (a combo's real parts via the same
+ *                  CONSOLE-COMBO-READ-P0 endpoint); no new backend
+ *                  contract beyond that read, no channel switch (no
+ *                  per-channel price exists to switch between).
  *
- * Deliberately NOT here: Combos (no backend at all), Recipes, item↔group
- * attachment (see above), and a "Hidden" status (there is no such flag —
- * "not placed in any category" is a placement condition, never a boolean).
- * They stay on `/menu/combos`, `/menu/recipes` and `/menu/items` until a
- * later slice migrates them for real.
+ * Deliberately NOT here: Recipes, a general item↔group attachment editor
+ * (see above), a "Hidden" status (there is no such flag — "not placed in
+ * any category" is a placement condition, never a boolean), and "Duplicate"
+ * (no clone endpoint exists). They stay on `/menu/recipes`/`/menu/items` or
+ * are simply absent, rather than faked.
  */
 
 import { useMemo, useState } from "react";
-import {
-  Ban,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  ChevronLeft,
-  Pencil,
-  Plus,
-  SlidersHorizontal,
-  Store,
-  Tag,
-  TriangleAlert,
-} from "lucide-react";
-import type { Currency, Menu, Localised, Modifier, ModifierGroup, Money } from "@/lib/console/types";
+import { CheckCircle2, Store, TriangleAlert } from "lucide-react";
+import type { Currency, Localised, Menu, Modifier, ModifierGroup } from "@/lib/console/types";
 import type { ConsoleKey } from "@/content/console/en";
 import { services } from "@/lib/console/services";
 import { useAsync, useTransientMessage, type AsyncState } from "@/lib/console/hooks";
@@ -67,31 +68,14 @@ import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import {
   currencyExponent,
   excessPrecision,
-  formatDateTime,
   formatMoney,
   formatNumber,
-  minorFromInput,
   signedMinorFromInput,
   type FormatOptions,
 } from "@/lib/console/format";
 import { MODIFIER_KIND, labelOf } from "@/lib/console/labels";
 import { AsyncPanel } from "@/components/console/states";
-import {
-  Badge,
-  Button,
-  Callout,
-  DescList,
-  DescRow,
-  Drawer,
-  Field,
-  Input,
-  Modal,
-  Select,
-  Textarea,
-  Toast,
-  Toggle,
-} from "@/components/console/ui";
-import { TaxClassField, useTaxClassLabel } from "@/components/console/catalogue/tax-class-field";
+import { Badge, Button, Callout, Drawer, Field, Select, Toast, Toggle } from "@/components/console/ui";
 import {
   createMenuCategory,
   listItemsWithPlacements,
@@ -99,8 +83,41 @@ import {
   type LiveCategory,
   type LiveItem,
 } from "@/lib/console/menu-management/live-adapter";
+import { EmptyState, Icon } from "./common";
+import "./menu-management.css";
+import { LiveComboCard, LiveItemCard } from "./live-cards";
+import LiveItemEditor from "./live-item-editor";
+import LiveComboEditor from "./live-combo-editor";
+import LiveCreateMenuModal from "./live-create-menu-modal";
+import LiveMenuPreview from "./live-menu-preview";
 
-const ORDER_TYPE_CHOICES = ["dine_in", "takeaway", "delivery", "drive_thru", "pickup"] as const;
+// "Sort by" choices — client-side, over the already-loaded canonical data.
+type SortKey = "menu" | "name-asc" | "name-desc" | "price-asc" | "price-desc" | "status";
+const SORTS: { key: SortKey; label: string }[] = [
+  { key: "menu", label: "Menu order" },
+  { key: "name-asc", label: "Name (A–Z)" },
+  { key: "name-desc", label: "Name (Z–A)" },
+  { key: "price-asc", label: "Price (low to high)" },
+  { key: "price-desc", label: "Price (high to low)" },
+  { key: "status", label: "Availability" },
+];
+
+function sortItems(list: LiveItem[], sortBy: SortKey, tx: (v: Localised) => string): LiveItem[] {
+  if (sortBy === "menu") return list;
+  const byName = (a: LiveItem, b: LiveItem) => tx(a.name).localeCompare(tx(b.name), undefined, { sensitivity: "base", numeric: true });
+  const priceOf = (row: LiveItem) => row.variants[0]?.basePrice.amount ?? 0;
+  const cmp: Record<Exclude<SortKey, "menu">, (a: LiveItem, b: LiveItem) => number> = {
+    "name-asc": byName,
+    "name-desc": (a, b) => byName(b, a),
+    "price-asc": (a, b) => priceOf(a) - priceOf(b) || byName(a, b),
+    "price-desc": (a, b) => priceOf(b) - priceOf(a) || byName(a, b),
+    status: (a, b) => Number(!a.available) - Number(!b.available) || byName(a, b),
+  };
+  return [...list].sort(cmp[sortBy]);
+}
+
+const COMBOS = "combos";
+type View = "all" | typeof COMBOS | string;
 
 /** A stable key for "has the tenant/brand/branch scope changed". */
 function scopeKeyOf(scope: { tenantId: string; brandId: string | null; branchId: string | null }): string {
@@ -118,24 +135,93 @@ function currentCurrency(session: { branch: { currency: Currency } | null; tenan
   return session.branch?.currency ?? session.tenant.baseCurrency;
 }
 
+/**
+ * Reference-style scope selector (`.scope-bar`/`.scope-select`/`.scope-
+ * dropdown` — the SAME classes the demo `menu-management.tsx`'s own
+ * `ScopeSelect` already uses). Unlike the demo's local-only filter, this one
+ * drives the REAL console session scope (`useSession().setBrandId`/
+ * `setBranchId` — the exact function the console's own top-bar switcher
+ * calls) rather than a second, disconnected filtering mechanism: picking a
+ * brand/branch here changes what `menus`/`items` below actually fetch.
+ */
+function ScopeSelect({
+  icon,
+  label,
+  allLabel,
+  options,
+  value,
+  onChange,
+}: {
+  icon: "store" | "pin";
+  label: string;
+  allLabel: string;
+  options: { id: string; name: string }[];
+  value: string | null;
+  onChange: (id: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((o) => o.id === value);
+  const pick = (id: string | null) => {
+    onChange(id);
+    setOpen(false);
+  };
+  return (
+    <div className="scope-select">
+      <button className={`scope-btn ${open ? "open" : ""}`} onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
+        <Icon name={icon} size={15} />
+        <span className="scope-text">
+          <small>{label}</small>
+          {selected ? selected.name : allLabel}
+        </span>
+        <span className="menu-select-chev">
+          <Icon name="chevron" size={15} />
+        </span>
+      </button>
+      {open ? (
+        <>
+          <div className="menu-backdrop" onClick={() => setOpen(false)}></div>
+          <div className="scope-dropdown" role="listbox">
+            <button className={value == null ? "selected" : ""} onClick={() => pick(null)}>
+              {allLabel}
+              {value == null ? <Icon name="check" size={14} /> : null}
+            </button>
+            {options.map((o) => (
+              <button key={o.id} className={o.id === value ? "selected" : ""} onClick={() => pick(o.id)}>
+                {o.name}
+                {o.id === value ? <Icon name="check" size={14} /> : null}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 export default function LiveMenuManagement() {
   const { t, tx, fmt } = useI18n();
   const session = useSession();
-  const { scope, availableBranches } = session;
+  const { scope, availableBranches, availableBrands, setBrandId, setBranchId } = session;
   const canManage = usePermission("menu.item.manage");
   const canToggleAvailability = usePermission("menu.availability.toggle");
-  const canReadPrice = usePermission("menu.price.read");
   const canChangePrice = usePermission("menu.price.change");
+  const currency = currentCurrency(session);
 
   const [message, setMessage] = useTransientMessage();
   const [menuId, setMenuId] = useState<string | null>(null);
-  const [view, setView] = useState<"all" | string>("all");
+  const [view, setView] = useState<View>("all");
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<SortKey>("menu");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
   const [creatingMenu, setCreatingMenu] = useState(false);
   const [managingBranches, setManagingBranches] = useState(false);
   const [creatingCategory, setCreatingCategory] = useState(false);
   const [categoryName, setCategoryName] = useState("");
   const [editorState, setEditorState] = useState<{ item?: LiveItem } | null>(null);
+  const [comboEditor, setComboEditor] = useState<{ item: LiveItem | null } | null>(null);
   const [customizationsOpen, setCustomizationsOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const menus = useAsync(
     () => services.catalogue.menus.list({ limit: 200, scope }),
@@ -143,11 +229,10 @@ export default function LiveMenuManagement() {
   );
   const menuRows = useMemo(() => menus.data?.rows ?? [], [menus.data]);
 
-  // Adjusted during render, not in an effect (react-hooks/set-state-in-effect;
-  // the same "storing information from previous renders" pattern the demo
-  // workspace already uses for its own menu switch) — so a scope change or
-  // the menu list resolving is reflected before anything paints, and a
-  // stale-scope menu is never shown even for one frame.
+  // Adjusted during render, not in an effect — the same "storing information
+  // from previous renders" pattern the demo workspace uses for its own menu
+  // switch — so a scope change or the menu list resolving is reflected
+  // before anything paints.
   const [scopeKeySeen, setScopeKeySeen] = useState(() => scopeKeyOf(scope));
   const currentScopeKey = scopeKeyOf(scope);
   let effectiveMenuId = menuId;
@@ -175,27 +260,37 @@ export default function LiveMenuManagement() {
   );
   const allItemRows = useMemo(() => items.data ?? [], [items.data]);
 
-  // Items placed in one of THIS menu's categories, or "All items" across them.
+  // Items placed in one of THIS menu's categories.
   const categoryIds = useMemo(() => new Set(categoryRows.map((row) => row.id)), [categoryRows]);
   const menuItemRows = useMemo(
     () => allItemRows.filter((row) => row.placements.some((p) => categoryIds.has(p.categoryId))),
     [allItemRows, categoryIds],
   );
-  const shownItems = useMemo(
-    () =>
-      view === "all"
-        ? menuItemRows
-        : menuItemRows.filter((row) => row.placements.some((p) => p.categoryId === view)),
-    [menuItemRows, view],
+  const nonComboRows = useMemo(() => menuItemRows.filter((row) => !row.isCombo), [menuItemRows]);
+  const comboRows = useMemo(() => menuItemRows.filter((row) => row.isCombo), [menuItemRows]);
+
+  // Scope bar — the branch selector's own option list narrows to the
+  // currently-selected brand's branches, exactly like the reference.
+  const scopedBranchOptions = useMemo(
+    () => availableBranches.filter((b) => scope.brandId == null || b.brandId === scope.brandId),
+    [availableBranches, scope.brandId],
   );
 
-  // A different menu always starts on "All items" — same render-time
-  // adjustment as above, not an effect.
+  // A different menu always starts on "All items" with an empty search —
+  // the same render-time adjustment as above, not an effect.
   const [viewForMenuId, setViewForMenuId] = useState(effectiveMenuId);
   if (effectiveMenuId !== viewForMenuId) {
     setViewForMenuId(effectiveMenuId);
     setView("all");
+    setSearch("");
   }
+
+  const category = categoryRows.find((row) => row.id === view) ?? null;
+  const q = search.trim().toLowerCase();
+  const matches = (row: LiveItem) => !q || `${tx(row.name)} ${tx(row.description)}`.toLowerCase().includes(q);
+  const baseList =
+    view === COMBOS ? comboRows : view === "all" ? nonComboRows : nonComboRows.filter((row) => row.placements.some((p) => p.categoryId === view));
+  const shownItems = sortItems(baseList.filter(matches), sortBy, tx);
 
   async function toggleMenuActive() {
     if (!currentMenu) return;
@@ -221,185 +316,364 @@ export default function LiveMenuManagement() {
     }
   }
 
+  async function toggle86(item: LiveItem) {
+    if (item.available) {
+      // Opens the reason prompt inside the item editor — a genuine 86 always
+      // requires a reason, so the quick toolbar action opens the full
+      // editor rather than skipping that step.
+      setEditorState({ item });
+      return;
+    }
+    try {
+      await services.catalogue.toggleAvailability(item.id, true);
+      setMessage(t("menu.restored"));
+      items.reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : t("state.errorTitle"));
+    }
+  }
+
+  /** The row menu's real "Deactivate" — same `items.remove()` the item editor's own footer button already uses. */
+  async function deactivateItem(item: LiveItem) {
+    try {
+      await services.catalogue.items.remove(item.id);
+      setMessage(t("common.deactivate"));
+      items.reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : t("state.errorTitle"));
+    }
+  }
+
   if (menus.loading && menuRows.length === 0) {
     return (
-      <div className="space-y-4">
-        <WorkspaceHeader t={t} />
+      <div className="mm-root menu-page" dir="ltr">
         <AsyncPanel state={menus}>{() => null}</AsyncPanel>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <WorkspaceHeader t={t} action={canManage ? { label: t("menu.newMenu"), onClick: () => setCreatingMenu(true) } : null} />
+    <div className="mm-root menu-page" dir="ltr">
+      <section className="content">
+        <div className="scope-bar">
+          <ScopeSelect
+            icon="store"
+            label={t("common.brand")}
+            allLabel={t("menu.allBrands")}
+            options={availableBrands.map((b) => ({ id: b.id, name: tx(b.name) }))}
+            value={scope.brandId}
+            onChange={(id) => {
+              setBrandId(id);
+              setBranchId(null);
+            }}
+          />
+          <ScopeSelect
+            icon="pin"
+            label={t("common.branch")}
+            allLabel={t("menu.allBranches")}
+            options={scopedBranchOptions.map((b) => ({ id: b.id, name: tx(b.name) }))}
+            value={scope.branchId}
+            onChange={setBranchId}
+          />
+        </div>
 
-      {/* Customizations — the reusable Modifier Group/Modifier catalogue.
-          Not scoped to any one menu, so it sits beside the menu switcher
-          rather than inside it. */}
-      <div>
-        <Button variant="ghost" icon={<SlidersHorizontal size={14} />} onClick={() => setCustomizationsOpen(true)}>
-          {t("menu.customizations")}
-        </Button>
-      </div>
-
-      {menus.error ? <Callout tone="bad">{menus.error.message}</Callout> : null}
-
-      {menuRows.length === 0 ? (
-        <Callout tone="muted" title={t("menu.menusTitle")}>
-          {t("menu.managementEmpty")}
-        </Callout>
-      ) : (
-        <div className="border-line bg-surface overflow-hidden rounded-xl border">
-          {/* One workspace toolbar: the menu switcher IS the context switch —
-              there is no separate list-of-menus page here, by design. */}
-          <div className="border-line flex flex-wrap items-center gap-3 border-b p-3">
-            <MenuSwitcher
-              menus={menuRows}
-              value={effectiveMenuId}
-              tx={tx}
-              onChange={setMenuId}
-            />
-            {currentMenu ? (
-              <>
-                <Badge tone={currentMenu.active ? "good" : "muted"} dot>
-                  {currentMenu.active ? t("common.active") : t("common.inactive")}
-                </Badge>
-                {canManage ? (
-                  <Button variant="ghost" onClick={toggleMenuActive}>
-                    {currentMenu.active ? t("common.deactivate") : t("common.activate")}
-                  </Button>
-                ) : null}
-                <Button variant="ghost" icon={<Store size={14} />} onClick={() => setManagingBranches(true)}>
-                  {t("menu.assignedBranches")}
-                </Button>
-                <div className="text-fg-subtle ms-auto flex items-center gap-4 text-xs">
-                  <span>
-                    <b className="text-fg">{formatNumber(categoryRows.length, fmt)}</b> {t("menu.categoriesTitle")}
-                  </span>
-                  <span>
-                    <b className="text-fg">{formatNumber(menuItemRows.length, fmt)}</b> {t("menu.itemsTitle")}
-                  </span>
-                </div>
-              </>
-            ) : null}
+        <div className="page-head">
+          <div>
+            <div className="breadcrumb">{t("nav.menu")}</div>
+            <h1>{t("nav.menuManagement")}</h1>
+            <p>{t("menu.workspaceSubtitle")}</p>
           </div>
+          {currentMenu && canManage ? (
+            <div className="head-actions">
+              <button className="secondary" onClick={() => setComboEditor({ item: null })}>
+                <Icon name="combo" size={16} /> {t("menu.createCombo")}
+              </button>
+              <button className="primary" onClick={() => setEditorState({ item: undefined })}>
+                <Icon name="plus" size={17} /> {t("menu.addItemButton")}
+              </button>
+            </div>
+          ) : null}
+        </div>
 
-          {currentMenu ? (
-            <div className="grid grid-cols-1 md:grid-cols-[220px_1fr]">
-              <aside className="border-line space-y-1 border-b p-3 md:border-b-0 md:border-e">
-                <button
-                  type="button"
-                  onClick={() => setView("all")}
-                  className={`hover:bg-sunken flex w-full items-center justify-between rounded-md px-2.5 py-2 text-start text-sm transition-colors ${view === "all" ? "bg-accent-soft text-accent font-medium" : "text-fg"}`}
-                >
-                  <span>{t("menu.allItems")}</span>
-                  <span className="text-fg-subtle text-xs">{formatNumber(menuItemRows.length, fmt)}</span>
+        {menus.error ? <Callout tone="bad">{menus.error.message}</Callout> : null}
+
+        {!currentMenu ? (
+          <div className="workspace single">
+            <EmptyState
+              icon="book"
+              title={t("menu.menusTitle")}
+              text={t("menu.managementEmpty")}
+              actionLabel={canManage ? t("menu.newMenu") : undefined}
+              onAction={canManage ? () => setCreatingMenu(true) : undefined}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="menu-toolbar">
+              <div className="menu-select-wrap">
+                <button className={`menu-select ${menuOpen ? "open" : ""}`} onClick={() => setMenuOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={menuOpen}>
+                  <span className="menu-select-text">
+                    <span className="small-label">MENU</span>
+                    <strong>{tx(currentMenu.name)}</strong>
+                  </span>
+                  <span className="menu-select-chev">
+                    <Icon name="chevron" size={16} />
+                  </span>
                 </button>
-                {categoryRows.map((category) => (
+                {menuOpen ? (
+                  <>
+                    <div className="menu-backdrop" onClick={() => setMenuOpen(false)}></div>
+                    <div className="menu-dropdown">
+                      <div className="dropdown-title">Your menus</div>
+                      {menuRows.map((m) => (
+                        <button
+                          key={m.id}
+                          onClick={() => {
+                            setMenuId(m.id);
+                            setMenuOpen(false);
+                          }}
+                          className={m.id === effectiveMenuId ? "selected" : ""}
+                        >
+                          {tx(m.name)}
+                          {m.id === effectiveMenuId && <Icon name="check" size={15} />}
+                        </button>
+                      ))}
+                      {canManage ? (
+                        <button
+                          className="add-menu"
+                          onClick={() => {
+                            setCreatingMenu(true);
+                            setMenuOpen(false);
+                          }}
+                        >
+                          + Create new menu
+                        </button>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+
+              <Badge tone={currentMenu.active ? "good" : "muted"} dot>
+                {currentMenu.active ? t("common.active") : t("common.inactive")}
+              </Badge>
+              {canManage ? (
+                <Button variant="ghost" onClick={toggleMenuActive}>
+                  {currentMenu.active ? t("common.deactivate") : t("common.activate")}
+                </Button>
+              ) : null}
+              <Button variant="ghost" icon={<Store size={14} />} onClick={() => setManagingBranches(true)}>
+                {t("menu.assignedBranches")}
+              </Button>
+
+              <div className="menu-stats">
+                <span>
+                  <b>{formatNumber(categoryRows.length, fmt)}</b> categories
+                </span>
+                <span>
+                  <b>{formatNumber(nonComboRows.length, fmt)}</b> items
+                </span>
+                <span>
+                  <b>{formatNumber(comboRows.length, fmt)}</b> combos
+                </span>
+              </div>
+              <button className="secondary" onClick={() => setCustomizationsOpen(true)}>
+                <Icon name="settings" size={16} /> {t("menu.customizations")}
+              </button>
+              <button className="preview-btn" onClick={() => setPreviewOpen(true)}>
+                Preview menu <Icon name="arrow" size={15} />
+              </button>
+            </div>
+
+            <div className="workspace">
+              <aside className="category-panel">
+                <div className="panel-title">
+                  <div>
+                    <span className="small-label">CATEGORIES</span>
+                    <h3>{tx(currentMenu.name)}</h3>
+                  </div>
+                </div>
+
+                <button className={`category-row all ${view === "all" ? "chosen" : ""}`} onClick={() => setView("all")}>
+                  <span>{t("menu.allItems")}</span>
+                  <span className="count">{formatNumber(nonComboRows.length, fmt)}</span>
+                </button>
+
+                {categoryRows.map((c) => (
                   <button
-                    key={category.id}
-                    type="button"
-                    onClick={() => setView(category.id)}
-                    className={`hover:bg-sunken flex w-full items-center justify-between rounded-md px-2.5 py-2 text-start text-sm transition-colors ${view === category.id ? "bg-accent-soft text-accent font-medium" : "text-fg"}`}
+                    key={c.id}
+                    className={`category-row ${view === c.id ? "chosen" : ""}`}
+                    onClick={() => {
+                      setView(c.id);
+                      setSearch("");
+                    }}
                   >
-                    <span className="truncate">{tx(category.name)}</span>
-                    <span className="text-fg-subtle text-xs">
-                      {formatNumber(
-                        menuItemRows.filter((row) => row.placements.some((p) => p.categoryId === category.id))
-                          .length,
-                        fmt,
-                      )}
-                    </span>
+                    <span className="truncate">{tx(c.name)}</span>
+                    <span className="count">{formatNumber(nonComboRows.filter((row) => row.placements.some((p) => p.categoryId === c.id)).length, fmt)}</span>
                   </button>
                 ))}
 
                 {canManage ? (
                   creatingCategory ? (
-                    <div className="space-y-2 p-1">
-                      <Input
+                    <div className="category-form">
+                      <input
                         autoFocus
                         value={categoryName}
-                        onChange={(event) => setCategoryName(event.target.value)}
-                        placeholder={t("menu.categoryNamePlaceholder")}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
+                        onChange={(e) => setCategoryName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
                             submitCategory();
                           }
-                          if (event.key === "Escape") setCreatingCategory(false);
+                          if (e.key === "Escape") setCreatingCategory(false);
                         }}
+                        placeholder={t("menu.categoryNamePlaceholder")}
                       />
-                      <div className="flex gap-2">
-                        <Button variant="ghost" onClick={() => setCreatingCategory(false)}>
-                          {t("common.cancel")}
-                        </Button>
-                        <Button variant="primary" disabled={!categoryName.trim()} onClick={submitCategory}>
+                      <div>
+                        <button onClick={() => setCreatingCategory(false)}>{t("common.cancel")}</button>
+                        <button className="primary small" disabled={!categoryName.trim()} onClick={submitCategory}>
                           {t("common.add")}
-                        </Button>
+                        </button>
                       </div>
                     </div>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => setCreatingCategory(true)}
-                      className="text-accent flex w-full items-center gap-1.5 rounded-md px-2.5 py-2 text-start text-sm"
-                    >
-                      <Plus size={14} /> {t("menu.newCategory")}
+                    <button className="add-category" onClick={() => setCreatingCategory(true)}>
+                      + {t("menu.newCategory")}
                     </button>
                   )
                 ) : null}
+
+                <div className="panel-divider">
+                  <span className="small-label">DEALS</span>
+                </div>
+                <button
+                  className={`category-row ${view === COMBOS ? "chosen" : ""}`}
+                  onClick={() => {
+                    setView(COMBOS);
+                    setSearch("");
+                  }}
+                >
+                  <span className="row-with-icon">
+                    <Icon name="combo" size={15} /> Combos
+                  </span>
+                  <span className="count">{formatNumber(comboRows.length, fmt)}</span>
+                </button>
               </aside>
 
-              <section className="min-w-0 space-y-3 p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <h2 className="text-fg text-sm font-semibold">
-                    {view === "all"
-                      ? t("menu.allItems")
-                      : tx(categoryRows.find((row) => row.id === view)?.name ?? { en: "", ar: "" })}
-                  </h2>
-                  {canManage ? (
-                    <Button
-                      variant="primary"
-                      icon={<Plus size={14} />}
-                      disabled={categoryRows.length === 0}
-                      onClick={() => setEditorState({})}
-                    >
-                      {t("menu.newItem")}
-                    </Button>
-                  ) : null}
+              <section className="items-panel">
+                <div className="items-head">
+                  <div>
+                    <span className="small-label">{view === COMBOS ? "DEALS" : view === "all" ? "ALL ITEMS" : "CATEGORY"}</span>
+                    <h2>{view === COMBOS ? "Combos" : view === "all" ? t("menu.allItems") : category ? tx(category.name) : ""}</h2>
+                  </div>
+                  <div className="items-actions">
+                    <div className="search">
+                      <Icon name="search" size={17} />
+                      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={view === COMBOS ? "Search combos..." : "Search items..."} />
+                    </div>
+                    <SortSelect value={sortBy} onChange={setSortBy} open={sortOpen} setOpen={setSortOpen} />
+                    {canManage ? (
+                      view === COMBOS ? (
+                        <button className="primary" onClick={() => setComboEditor({ item: null })}>
+                          <Icon name="plus" size={16} /> {t("menu.createCombo")}
+                        </button>
+                      ) : (
+                        <button className="primary" disabled={categoryRows.length === 0} onClick={() => setEditorState({ item: undefined })}>
+                          <Icon name="plus" size={16} /> {t("menu.newItem")}
+                        </button>
+                      )
+                    ) : null}
+                  </div>
                 </div>
 
-                {categoryRows.length === 0 ? (
-                  <Callout tone="muted">{t("menu.placementHint")}</Callout>
-                ) : items.loading ? (
-                  <Callout tone="muted">{t("state.loading")}</Callout>
-                ) : shownItems.length === 0 ? (
-                  <Callout tone="muted">{t("menu.categoriesEmpty")}</Callout>
-                ) : (
-                  <div className="space-y-2">
-                    {shownItems.map((row) => (
-                      <ItemRow key={row.id} item={row} t={t} tx={tx} onOpen={() => setEditorState({ item: row })} />
-                    ))}
-                  </div>
-                )}
+                <div className="item-list">
+                  {categoryRows.length === 0 && view !== COMBOS ? (
+                    <EmptyState
+                      icon="folder"
+                      title="No categories yet"
+                      text="Start by adding a category — for example Starters, Burgers or Drinks — then add items inside it."
+                      actionLabel={canManage ? "Add category" : undefined}
+                      onAction={canManage ? () => setCreatingCategory(true) : undefined}
+                    />
+                  ) : items.loading || categories.loading ? (
+                    <div className="list-state">{t("state.loading")}</div>
+                  ) : items.error ? (
+                    <div className="list-state error">
+                      {items.error.message}{" "}
+                      <button className="link-button" onClick={() => items.reload()}>
+                        Retry
+                      </button>
+                    </div>
+                  ) : shownItems.length === 0 ? (
+                    view === COMBOS ? (
+                      <EmptyState
+                        icon="combo"
+                        title={comboRows.length ? "No combos match your search" : "No combos yet"}
+                        text="Bundle items into a meal deal — e.g. a burger, a side and a drink — with its own price."
+                        actionLabel={canManage ? t("menu.createCombo") : undefined}
+                        onAction={canManage ? () => setComboEditor({ item: null }) : undefined}
+                      />
+                    ) : q ? (
+                      <EmptyState icon="search" title="No items match your search" text="Try a different name." />
+                    ) : (
+                      <EmptyState onAction={canManage ? () => setEditorState({ item: undefined }) : undefined} />
+                    )
+                  ) : view === COMBOS ? (
+                    shownItems.map((item) => (
+                      <LiveComboCard
+                        key={item.id}
+                        item={item}
+                        fmt={fmt}
+                        tx={tx}
+                        t={t}
+                        onEdit={() => setComboEditor({ item })}
+                        onToggle86={() => toggle86(item)}
+                        onDeactivate={canManage ? () => deactivateItem(item) : undefined}
+                        canToggleAvailability={canToggleAvailability}
+                        canManage={canManage}
+                      />
+                    ))
+                  ) : (
+                    shownItems.map((item) => (
+                      <LiveItemCard
+                        key={item.id}
+                        item={item}
+                        currency={currency}
+                        fmt={fmt}
+                        tx={tx}
+                        t={t}
+                        showCategory={view === "all"}
+                        categoryName={categoryRows.find((c) => item.placements.some((p) => p.categoryId === c.id))?.name && tx(categoryRows.find((c) => item.placements.some((p) => p.categoryId === c.id))!.name)}
+                        onEdit={() => setEditorState({ item })}
+                        onToggle86={() => toggle86(item)}
+                        onDeactivate={canManage ? () => deactivateItem(item) : undefined}
+                        canToggleAvailability={canToggleAvailability}
+                        canManage={canManage}
+                      />
+                    ))
+                  )}
+                </div>
               </section>
             </div>
-          ) : null}
-        </div>
-      )}
+          </>
+        )}
+      </section>
 
-      <NewMenuDrawer
-        open={creatingMenu}
-        availableBranches={availableBranches}
-        onClose={() => setCreatingMenu(false)}
-        onCreated={(id) => {
-          setCreatingMenu(false);
-          setMessage(t("menu.menuCreated"));
-          setMenuId(id);
-          menus.reload();
-        }}
-      />
+      {creatingMenu ? (
+        <LiveCreateMenuModal
+          availableBranches={availableBranches}
+          defaultBranchId={scope.branchId}
+          tx={tx}
+          t={t}
+          onClose={() => setCreatingMenu(false)}
+          onCreated={(menu) => {
+            setCreatingMenu(false);
+            setMessage(t("menu.menuCreated"));
+            setMenuId(menu.id);
+            menus.reload();
+          }}
+        />
+      ) : null}
 
       {currentMenu ? (
         <MenuBranchesDrawer
@@ -414,28 +688,65 @@ export default function LiveMenuManagement() {
         />
       ) : null}
 
-      <ItemEditorDrawer
-        open={editorState !== null}
-        item={editorState?.item ?? null}
-        categories={categoryRows}
-        defaultCategoryId={view !== "all" ? view : undefined}
-        branchId={scope.branchId}
-        canManage={canManage}
-        canToggleAvailability={canToggleAvailability}
-        canReadPrice={canReadPrice}
-        canChangePrice={canChangePrice}
-        currency={currentCurrency(session)}
-        onClose={() => setEditorState(null)}
-        onChanged={(note) => {
-          setMessage(note);
-          items.reload();
-        }}
-      />
+      {editorState ? (
+        <LiveItemEditor
+          item={editorState.item ?? null}
+          categories={categoryRows}
+          defaultCategoryId={view !== "all" && view !== COMBOS ? view : undefined}
+          branchId={scope.branchId}
+          currency={currency}
+          canManage={canManage}
+          canToggleAvailability={canToggleAvailability}
+          canChangePrice={canChangePrice}
+          onClose={() => setEditorState(null)}
+          onChanged={(note) => {
+            setMessage(note);
+            items.reload();
+          }}
+          onOpenCustomizations={() => {
+            setEditorState(null);
+            setCustomizationsOpen(true);
+          }}
+        />
+      ) : null}
+
+      {comboEditor && currentMenu ? (
+        <LiveComboEditor
+          existingItem={comboEditor.item ?? undefined}
+          categories={categoryRows}
+          nonComboItems={nonComboRows}
+          defaultCategoryId={view !== "all" && view !== COMBOS ? view : undefined}
+          currency={currency}
+          fmt={fmt}
+          tx={tx}
+          t={t}
+          onClose={() => setComboEditor(null)}
+          onCreated={(note) => {
+            setComboEditor(null);
+            setView(COMBOS);
+            setMessage(note);
+            items.reload();
+          }}
+        />
+      ) : null}
+
+      {previewOpen && currentMenu ? (
+        <LiveMenuPreview
+          menuName={tx(currentMenu.name)}
+          categories={categoryRows}
+          items={menuItemRows}
+          currency={currency}
+          fmt={fmt}
+          tx={tx}
+          t={t}
+          onClose={() => setPreviewOpen(false)}
+        />
+      ) : null}
 
       <CustomizationsDrawer
         open={customizationsOpen}
         canManage={canManage}
-        currency={currentCurrency(session)}
+        currency={currency}
         onClose={() => setCustomizationsOpen(false)}
         onChanged={setMessage}
       />
@@ -445,240 +756,52 @@ export default function LiveMenuManagement() {
   );
 }
 
-// ---------------------------------------------------------------------------
-
-/**
- * The workspace's own compact header — a breadcrumb-style label, the title,
- * and the one primary action. Deliberately not `PageHeader`/`TileGrid`
- * (the generic list-page chrome `/menu/menus` etc. use): this is a single
- * workspace, not an index of rows, and dashboard-style metric tiles above a
- * menu switcher read as "yet another admin table page" rather than the
- * one-screen editor the new Menu Management UX is.
- */
-function WorkspaceHeader({
-  t,
-  action,
-}: {
-  t: (key: ConsoleKey) => string;
-  action?: { label: string; onClick: () => void } | null;
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <p className="text-fg-subtle text-[10px] font-semibold tracking-wide uppercase">{t("nav.menu")}</p>
-        <h1 className="text-fg text-xl font-semibold tracking-tight">{t("nav.menuManagement")}</h1>
-      </div>
-      {action ? (
-        <Button variant="primary" icon={<Plus size={14} />} onClick={action.onClick}>
-          {action.label}
-        </Button>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * The menu switcher — a button naming the current menu that opens a small
- * dropdown of every other menu, the same "this IS the context, not a link to
- * another page" interaction the demo workspace uses. RTL-safe (logical
- * `start-0`/`ms-auto`, no hardcoded `left`/`right`), unlike the demo's own
- * `.menu-select` (LTR-only CSS, see `menu-management.css`), which is why this
- * is a small rebuild rather than a literal import of that component.
- */
-function MenuSwitcher({
-  menus,
+/** "Sort by" dropdown for the item / combo list — client-side only. */
+function SortSelect({
   value,
-  tx,
   onChange,
+  open,
+  setOpen,
 }: {
-  menus: Menu[];
-  value: string | null;
-  tx: (value: Localised) => string;
-  onChange: (id: string) => void;
+  value: SortKey;
+  onChange: (key: SortKey) => void;
+  open: boolean;
+  setOpen: (v: boolean | ((was: boolean) => boolean)) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const current = menus.find((row) => row.id === value) ?? null;
-
+  const current = SORTS.find((o) => o.key === value) || SORTS[0]!;
   return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((was) => !was)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        className="border-line bg-sunken hover:border-accent flex min-w-52 items-center gap-2 rounded-lg border px-3 py-2 text-start transition-colors"
-      >
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{current ? tx(current.name) : ""}</span>
-        <ChevronDown size={15} className={`text-fg-subtle shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+    <div className="scope-select">
+      <button className={`sort-btn ${open ? "open" : ""} ${value !== "menu" ? "active" : ""}`} onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
+        <Icon name="sort" size={15} />
+        <span>
+          Sort: <b>{current.label}</b>
+        </span>
+        <span className="sort-chev">
+          <Icon name="chevron" size={14} />
+        </span>
       </button>
       {open ? (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div
-            role="listbox"
-            className="border-line bg-raised absolute start-0 top-[calc(100%+6px)] z-20 max-h-72 w-64 overflow-auto rounded-lg border p-1 shadow-lg"
-          >
-            {menus.map((row) => (
+          <div className="menu-backdrop" onClick={() => setOpen(false)}></div>
+          <div className="scope-dropdown sort-dropdown" role="listbox">
+            <div className="dropdown-title">Sort by</div>
+            {SORTS.map((o) => (
               <button
-                key={row.id}
-                type="button"
-                role="option"
-                aria-selected={row.id === value}
+                key={o.key}
+                className={o.key === value ? "selected" : ""}
                 onClick={() => {
-                  onChange(row.id);
+                  onChange(o.key);
                   setOpen(false);
                 }}
-                className={`hover:bg-sunken flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-start text-sm ${row.id === value ? "text-accent font-medium" : "text-fg"}`}
               >
-                <span className="truncate">{tx(row.name)}</span>
-                {row.id === value ? <Check size={14} className="shrink-0" /> : null}
+                {o.label}
+                {o.key === value && <Icon name="check" size={14} />}
               </button>
             ))}
           </div>
         </>
       ) : null}
     </div>
-  );
-}
-
-/**
- * One item, as a card — the same information density and card-based list
- * concept as the demo's `ItemCard` (name, status, price, an edit affordance)
- * reconstructed on the console's own RTL-safe primitives rather than a
- * literal import (see `MenuSwitcher` for why).
- */
-function ItemRow({
-  item,
-  t,
-  tx,
-  onOpen,
-}: {
-  item: LiveItem;
-  t: (key: ConsoleKey) => string;
-  tx: (value: Localised) => string;
-  onOpen: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="border-line hover:border-accent bg-surface flex w-full items-center gap-3 rounded-lg border p-3 text-start transition-colors"
-    >
-      <div className="min-w-0 flex-1">
-        <p className="text-fg truncate text-sm font-medium">{tx(item.name)}</p>
-        {tx(item.kitchenName) ? <p className="text-fg-subtle truncate text-xs">{tx(item.kitchenName)}</p> : null}
-      </div>
-      <Badge tone={item.available ? "good" : "bad"} dot>
-        {item.available ? t("menu.available") : t("menu.unavailable")}
-      </Badge>
-      <Pencil size={14} className="text-fg-subtle shrink-0" aria-hidden />
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
-function NewMenuDrawer({
-  open,
-  availableBranches,
-  onClose,
-  onCreated,
-}: {
-  open: boolean;
-  availableBranches: { id: string; name: { en: string; ar: string } }[];
-  onClose: () => void;
-  onCreated: (menuId: string) => void;
-}) {
-  const { t, tx } = useI18n();
-  const action = useAction();
-  const [name, setName] = useState("");
-  const [priority, setPriority] = useState("10");
-  const [orderTypes, setOrderTypes] = useState<string[]>(["dine_in"]);
-  const [branchIds, setBranchIds] = useState<string[]>([]);
-
-  if (!open) return null;
-
-  async function create() {
-    if (!name.trim()) return;
-    await action.run(
-      async () => {
-        const menu = await services.catalogue.menus.create({
-          name: { en: name.trim(), ar: name.trim() },
-          priority: Number(priority) || 0,
-          orderTypes,
-        });
-        // Assign every requested branch. A failure partway through is
-        // surfaced (not swallowed) and the caller reloads from the server,
-        // so a half-assigned menu is never presented as fully assigned.
-        for (const branchId of branchIds) {
-          await services.catalogue.assignMenuToBranch(menu.id, branchId);
-        }
-        return menu;
-      },
-      { onSuccess: (menu: Menu) => onCreated(menu.id) },
-    );
-  }
-
-  return (
-    <Drawer
-      open
-      onClose={onClose}
-      title={t("menu.newMenu")}
-      footer={
-        <div className="flex gap-2">
-          <Button variant="primary" loading={action.pending} disabled={!name.trim()} onClick={create}>
-            {t("common.create")}
-          </Button>
-          <Button variant="ghost" onClick={onClose}>
-            {t("common.cancel")}
-          </Button>
-        </div>
-      }
-    >
-      <div className="space-y-4">
-        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
-
-        <Field label={t("common.name")} required>
-          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
-        </Field>
-
-        <Field label={t("menu.priority")} hint={t("menu.menuPriorityHint")}>
-          <Input inputMode="numeric" dir="ltr" value={priority} onChange={(event) => setPriority(event.target.value)} />
-        </Field>
-
-        <fieldset className="space-y-2">
-          <legend className="text-fg-subtle mb-1 text-xs font-medium">{t("menu.orderTypes")}</legend>
-          {ORDER_TYPE_CHOICES.map((type) => (
-            <Toggle
-              key={type}
-              checked={orderTypes.includes(type)}
-              onChange={(next) =>
-                setOrderTypes((current) => (next ? [...current, type] : current.filter((row) => row !== type)))
-              }
-              label={type}
-            />
-          ))}
-        </fieldset>
-
-        {availableBranches.length > 0 ? (
-          <fieldset className="space-y-2">
-            <legend className="text-fg-subtle mb-1 text-xs font-medium">{t("menu.assignedBranches")}</legend>
-            {availableBranches.map((branch) => (
-              <Toggle
-                key={branch.id}
-                checked={branchIds.includes(branch.id)}
-                onChange={(next) =>
-                  setBranchIds((current) =>
-                    next ? [...current, branch.id] : current.filter((id) => id !== branch.id),
-                  )
-                }
-                label={tx(branch.name)}
-              />
-            ))}
-          </fieldset>
-        ) : null}
-      </div>
-    </Drawer>
   );
 }
 
@@ -853,568 +976,6 @@ function BranchResolution({ branchIds }: { branchIds: string[] }) {
 
 // ---------------------------------------------------------------------------
 
-function ItemEditorDrawer({
-  open,
-  item,
-  categories,
-  defaultCategoryId,
-  branchId,
-  canManage,
-  canToggleAvailability,
-  canReadPrice,
-  canChangePrice,
-  currency,
-  onClose,
-  onChanged,
-}: {
-  open: boolean;
-  item: LiveItem | null;
-  categories: LiveCategory[];
-  defaultCategoryId?: string;
-  branchId: string | null;
-  canManage: boolean;
-  canToggleAvailability: boolean;
-  canReadPrice: boolean;
-  canChangePrice: boolean;
-  currency: Currency;
-  onClose: () => void;
-  onChanged: (message: string) => void;
-}) {
-  const { t, tx, fmt } = useI18n();
-  const action = useAction();
-  const [name, setName] = useState(item ? tx(item.name) : "");
-  const [kitchenName, setKitchenName] = useState(item ? tx(item.kitchenName) : "");
-  const [description, setDescription] = useState(item ? tx(item.description) : "");
-  const [categoryId, setCategoryId] = useState(item?.categoryId || defaultCategoryId || "");
-  const [taxClassId, setTaxClassId] = useState(item?.taxClassId ?? "");
-  const [pending86, setPending86] = useState(false);
-  const [addingVariant, setAddingVariant] = useState(false);
-  const [variantName, setVariantName] = useState("");
-  const [variantPrice, setVariantPrice] = useState("");
-  // The default variant's price, entered in the SAME create form — an item
-  // is never created without one, so there is no second workflow required
-  // to make it sellable.
-  const [price, setPrice] = useState("");
-
-  const exponent = currencyExponent(currency);
-  const priceTooPrecise = excessPrecision(price, exponent);
-  const variantPriceTooPrecise = excessPrecision(variantPrice, exponent);
-
-  // Re-read on open so the drawer always reflects server truth, including
-  // variants (`GET /catalogue/items` never returns them — only `get()` does).
-  const detail = useAsync(
-    async () => (item ? services.catalogue.items.get(item.id) : null),
-    [item?.id, open],
-  );
-  const taxLabel = useTaxClassLabel((detail.data ?? item)?.taxClassId ?? null, branchId);
-
-  if (!open) return null;
-
-  const current = detail.data ?? item;
-
-  async function save() {
-    if (!name.trim()) return;
-
-    if (!item) {
-      // Create flow: price is required in this SAME form, and the item plus
-      // its default variant are created atomically in one call — never
-      // "create the item, then separately add a variant" to price it.
-      const minorAmount = minorFromInput(price, exponent);
-      if (minorAmount === null || priceTooPrecise) return;
-      await action.run(
-        async () => {
-          const created = await services.catalogue.items.create({
-            name: { en: name.trim(), ar: name.trim() },
-            kitchenName: kitchenName.trim() ? { en: kitchenName.trim(), ar: kitchenName.trim() } : undefined,
-            description: description.trim() ? { en: description.trim(), ar: description.trim() } : undefined,
-            taxClassId: taxClassId || undefined,
-            variants: [
-              {
-                name: { en: name.trim(), ar: name.trim() },
-                price: { amount: minorAmount, currency },
-              },
-            ],
-          });
-          if (categoryId) {
-            await services.catalogue.placeItem(created.id, categoryId);
-          }
-          return created;
-        },
-        { onSuccess: () => onChanged(t("menu.itemCreated")) },
-      );
-      onClose();
-      return;
-    }
-
-    await action.run(
-      async () => {
-        const updated = await services.catalogue.items.update(item.id, {
-          name: { en: name.trim(), ar: name.trim() },
-          kitchenName: kitchenName.trim() ? { en: kitchenName.trim(), ar: kitchenName.trim() } : undefined,
-          description: description.trim() ? { en: description.trim(), ar: description.trim() } : undefined,
-          taxClassId: taxClassId || undefined,
-        });
-        // C-02 — moving/placing an item is a separate call; if the category
-        // changed, place it in the chosen one.
-        if (categoryId && categoryId !== item.categoryId) {
-          await services.catalogue.placeItem(item.id, categoryId);
-        }
-        return updated;
-      },
-      { onSuccess: () => onChanged(t("menu.itemPlaced")) },
-    );
-    onClose();
-  }
-
-  async function setAvailability(available: boolean, reason?: string, autoReenableAt?: string) {
-    if (!item) return;
-    await action.run(
-      () => services.catalogue.toggleAvailability(item.id, available, reason, autoReenableAt),
-      {
-        onSuccess: () => {
-          setPending86(false);
-          // The reason is an action-time note, never persistent item state
-          // (the API records it to the audit trail only — see
-          // `MenuItem.unavailableReason`'s own doc comment) — echoing it
-          // into this transient toast is the one honest place to show it,
-          // since a toast disappears rather than implying it was saved.
-          onChanged(
-            available ? t("menu.restored") : reason ? `${t("menu.eightySixed")} — ${reason}` : t("menu.eightySixed"),
-          );
-          detail.reload();
-        },
-      },
-    );
-  }
-
-  async function deactivate() {
-    if (!item) return;
-    await action.run(() => services.catalogue.items.remove(item.id), {
-      onSuccess: () => {
-        onChanged(t("common.deactivate"));
-        onClose();
-      },
-    });
-  }
-
-  /** A FURTHER variant on an item that already exists (and is therefore already sellable). */
-  async function addVariant() {
-    if (!item || !variantName.trim()) return;
-    const minorAmount = minorFromInput(variantPrice, exponent);
-    if (minorAmount === null || variantPriceTooPrecise) return;
-    await action.run(
-      () =>
-        services.catalogue.addVariant(item.id, {
-          name: { en: variantName.trim(), ar: variantName.trim() },
-          price: { amount: minorAmount, currency },
-        }),
-      {
-        onSuccess: () => {
-          setVariantName("");
-          setVariantPrice("");
-          setAddingVariant(false);
-          detail.reload();
-          onChanged(t("menu.variantAdded"));
-        },
-      },
-    );
-  }
-
-  return (
-    <Drawer
-      open
-      onClose={onClose}
-      title={item ? tx(item.name) : t("menu.newItem")}
-      footer={
-        // The two permissions gate independently — a session with ONLY
-        // `menu.availability.toggle` (no `menu.item.manage`) must still see
-        // the 86/restore control; nesting it under `canManage` would hide a
-        // mutation this exact session is allowed to perform.
-        canManage || canToggleAvailability ? (
-          <div className="flex w-full items-center justify-between gap-2">
-            <div>
-              {item && canManage ? (
-                <Button variant="ghost" disabled={action.pending} onClick={deactivate}>
-                  {t("common.deactivate")}
-                </Button>
-              ) : null}
-            </div>
-            <div className="flex gap-2">
-              {item && canToggleAvailability ? (
-                current?.available ? (
-                  <Button variant="danger" icon={<Ban size={14} />} onClick={() => setPending86(true)}>
-                    {t("menu.toggle86")}
-                  </Button>
-                ) : (
-                  <Button variant="primary" icon={<CheckCircle2 size={14} />} onClick={() => setAvailability(true)}>
-                    {t("menu.toggleAvailable")}
-                  </Button>
-                )
-              ) : null}
-              {canManage ? (
-                <Button
-                  variant="primary"
-                  loading={action.pending}
-                  disabled={
-                    !name.trim() ||
-                    !categoryId ||
-                    (!item && (!price.trim() || priceTooPrecise))
-                  }
-                  onClick={save}
-                >
-                  {t("common.save")}
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        ) : null
-      }
-    >
-      <div className="space-y-5">
-        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
-
-        {/* `unavailableReason` is truthy exactly while a manual 86 is in
-            effect — never the operator's typed reason (the API never
-            returns that; see the field's own doc comment). Shown as a
-            truthful status, not as if it were the reason read back. */}
-        {current?.unavailableReason ? (
-          <Callout tone="bad" title={t("menu.unavailable")}>
-            <p>{t("menu.eightySixedNotice")}</p>
-            {current.autoReenableAt ? (
-              <p className="mt-1">
-                {t("menu.autoReenableActive").replace("{time}", formatDateTime(current.autoReenableAt, fmt))}
-              </p>
-            ) : null}
-          </Callout>
-        ) : null}
-
-        {/* `isActive === false` with no manual 86 in effect — a distinct,
-            master-data lifecycle state (menu.item.manage), never conflated
-            with 86 (menu.availability.toggle) or a "hidden" flag (there is
-            no such thing). */}
-        {current && !current.available && !current.unavailableReason ? (
-          <Callout tone="muted" title={t("menu.deactivated")}>
-            {t("menu.deactivatedNotice")}
-          </Callout>
-        ) : null}
-
-        <Field label={t("common.name")} required>
-          <Input autoFocus={!item} value={name} onChange={(event) => setName(event.target.value)} maxLength={120} disabled={!canManage} />
-        </Field>
-
-        <Field label={t("menu.kitchenName")} hint={t("menu.kitchenNameHint")}>
-          <Input value={kitchenName} onChange={(event) => setKitchenName(event.target.value)} maxLength={120} disabled={!canManage} />
-        </Field>
-
-        <Field label={t("common.category")} hint={t("menu.placementHint")} required>
-          <Select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} disabled={!canManage}>
-            <option value="">—</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {tx(category.name)}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        {/*
-          Direct price entry, in the SAME create form — no Price List, no
-          separate pricing workspace, no second step before the item is
-          sellable. Only shown while creating: an existing item's price is
-          edited per-variant, below.
-        */}
-        {!item ? (
-          <div>
-            <Field label={t("menu.price")} required hint={`${currency} · ${t("menu.priceHint")}`}>
-              <Input
-                inputMode="decimal"
-                dir="ltr"
-                value={price}
-                onChange={(event) => setPrice(event.target.value)}
-                disabled={!canManage}
-              />
-            </Field>
-            {priceTooPrecise ? (
-              <div className="mt-1">
-                <Callout tone="bad">{t("menu.priceExcessPrecision")}</Callout>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
-        <Field label={t("common.description")}>
-          <Textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} disabled={!canManage} />
-        </Field>
-
-        {canManage ? (
-          <TaxClassField branchId={branchId} value={taxClassId} disabled={action.pending} onChange={setTaxClassId} />
-        ) : (
-          <DescList>
-            <DescRow label={t("menu.taxClass")}>
-              <Badge tone={taxLabel.tone}>{taxLabel.text}</Badge>
-            </DescRow>
-          </DescList>
-        )}
-
-        {/*
-          Every variant's direct price, edited right here — no separate
-          pricing workspace, no Price List to create or select first.
-        */}
-        {item ? (
-          <section>
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <h3 className="text-fg text-sm font-semibold">{t("menu.variants")}</h3>
-              {canManage ? (
-                <Button variant="ghost" icon={<Plus size={13} />} onClick={() => setAddingVariant(true)}>
-                  {t("common.add")}
-                </Button>
-              ) : null}
-            </div>
-
-            {!current || current.variants.length === 0 ? (
-              <Callout tone="muted">{t("menu.noVariants")}</Callout>
-            ) : (
-              <ul className="divide-line divide-y">
-                {current.variants.map((variant) =>
-                  canChangePrice ? (
-                    <PriceRow
-                      key={variant.id}
-                      variantName={tx(variant.name)}
-                      currentPrice={variant.basePrice}
-                      currency={currency}
-                      onSave={(minorAmount) =>
-                        services.catalogue.updateVariantPrice(variant.id, { amount: minorAmount, currency })
-                      }
-                      onSaved={() => {
-                        detail.reload();
-                        onChanged(t("menu.priceSaved"));
-                      }}
-                    />
-                  ) : (
-                    <li key={variant.id} className="flex items-center justify-between gap-4 py-2">
-                      <span className="text-fg truncate text-sm">{tx(variant.name)}</span>
-                      {canReadPrice ? (
-                        <span className="text-fg font-mono text-sm tabular-nums">
-                          {formatMoney(variant.basePrice, fmt)}
-                        </span>
-                      ) : null}
-                    </li>
-                  ),
-                )}
-              </ul>
-            )}
-
-            {addingVariant ? (
-              <div className="mt-2 space-y-2">
-                <Field label={t("menu.newVariant")}>
-                  <Input value={variantName} onChange={(event) => setVariantName(event.target.value)} maxLength={80} />
-                </Field>
-                <div className="flex items-end gap-2">
-                  <div className="flex-1">
-                    <Field label={t("menu.price")} hint={`${currency} · ${t("menu.priceHint")}`}>
-                      <Input
-                        inputMode="decimal"
-                        dir="ltr"
-                        value={variantPrice}
-                        onChange={(event) => setVariantPrice(event.target.value)}
-                      />
-                    </Field>
-                    {variantPriceTooPrecise ? (
-                      <div className="mt-1">
-                        <Callout tone="bad">{t("menu.priceExcessPrecision")}</Callout>
-                      </div>
-                    ) : null}
-                  </div>
-                  <Button
-                    variant="secondary"
-                    disabled={!variantName.trim() || !variantPrice.trim() || variantPriceTooPrecise || action.pending}
-                    onClick={addVariant}
-                  >
-                    {t("common.add")}
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-
-        <Callout tone="muted">{t("menu.hiddenNote")}</Callout>
-      </div>
-
-      {pending86 ? (
-        <Eighty6Modal
-          onCancel={() => setPending86(false)}
-          onConfirm={(reason, autoReenableAt) => setAvailability(false, reason, autoReenableAt)}
-        />
-      ) : null}
-    </Drawer>
-  );
-}
-
-/**
- * One variant's direct price — its own `useAction`, so one row saving or
- * failing never disturbs the others. On failure, `amount` stays exactly what
- * the person typed (never reset) while `currentPrice` — passed down from the
- * parent's reloaded item — is what actually renders as "the current price";
- * a failed write never overwrites it, since `onSaved` (which triggers that
- * reload) never fires on failure. No optimistic update happens in this row.
- */
-function PriceRow({
-  variantName,
-  currentPrice,
-  currency,
-  onSave,
-  onSaved,
-}: {
-  variantName: string;
-  currentPrice: Money;
-  currency: Currency;
-  onSave: (minorAmount: number) => Promise<unknown>;
-  onSaved: () => void;
-}) {
-  const { t, fmt } = useI18n();
-  const action = useAction();
-  const [editing, setEditing] = useState(false);
-  const [amount, setAmount] = useState("");
-  const exponent = currencyExponent(currency);
-  // A currency-aware guard, not a hardcoded "2 decimals": a 3-exponent
-  // currency (e.g. a future BHD/KWD tenant) permits a third digit here.
-  const tooPrecise = excessPrecision(amount, exponent);
-
-  async function save() {
-    if (tooPrecise) return;
-    const minorAmount = minorFromInput(amount, exponent);
-    if (minorAmount === null) return;
-    await action.run(() => onSave(minorAmount), {
-      onSuccess: () => {
-        setEditing(false);
-        setAmount("");
-        onSaved();
-      },
-    });
-  }
-
-  return (
-    <li className="space-y-2 py-2">
-      <div className="flex items-center justify-between gap-4">
-        <span className="text-fg truncate text-sm">{variantName}</span>
-        <div className="flex items-center gap-2">
-          <span className="text-fg font-mono text-sm tabular-nums">{formatMoney(currentPrice, fmt)}</span>
-          {!editing ? (
-            <Button
-              variant="ghost"
-              icon={<Pencil size={12} />}
-              onClick={() => {
-                setAmount("");
-                setEditing(true);
-              }}
-            >
-              {t("common.edit")}
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
-      {editing ? (
-        <div className="flex items-end gap-2">
-          <div className="flex-1">
-            <Field label={t("menu.price")} hint={`${currency} · ${t("menu.priceHint")}`}>
-              <Input
-                autoFocus
-                inputMode="decimal"
-                dir="ltr"
-                value={amount}
-                onChange={(event) => setAmount(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    save();
-                  }
-                  if (event.key === "Escape") setEditing(false);
-                }}
-              />
-            </Field>
-            {tooPrecise ? (
-              <div className="mt-1">
-                <Callout tone="bad">{t("menu.priceExcessPrecision")}</Callout>
-              </div>
-            ) : null}
-          </div>
-          <Button
-            variant="secondary"
-            loading={action.pending}
-            disabled={amount.trim() === "" || tooPrecise}
-            onClick={save}
-          >
-            {t("common.save")}
-          </Button>
-          <Button variant="ghost" onClick={() => setEditing(false)}>
-            {t("common.cancel")}
-          </Button>
-        </div>
-      ) : null}
-
-      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
-    </li>
-  );
-}
-
-function Eighty6Modal({
-  onCancel,
-  onConfirm,
-}: {
-  onCancel: () => void;
-  // `autoReenableAt` is an ISO datetime, only ever set — never undefined
-  // just because the field was left blank vs. genuinely omitted; the caller
-  // only cares whether one was entered.
-  onConfirm: (reason: string, autoReenableAt?: string) => void;
-}) {
-  const { t } = useI18n();
-  const [reason, setReason] = useState("");
-  const [autoReenableAt, setAutoReenableAt] = useState("");
-  const trimmed = reason.trim();
-
-  function confirm() {
-    // `datetime-local` has no timezone of its own — read in the browser's
-    // own local time, which is exactly what a manager means by "6pm".
-    const iso = autoReenableAt ? new Date(autoReenableAt).toISOString() : undefined;
-    onConfirm(trimmed, iso);
-  }
-
-  return (
-    <Modal
-      open
-      onClose={onCancel}
-      title={t("menu.toggle86")}
-      footer={
-        <>
-          <Button onClick={onCancel}>{t("common.cancel")}</Button>
-          <Button variant="danger" disabled={trimmed.length === 0} onClick={confirm}>
-            {t("menu.toggle86")}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <Field label={t("menu.86Reason")} hint={t("menu.86ReasonHint")} required>
-          <Textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder={t("menu.86Placeholder")} />
-        </Field>
-
-        <Field label={t("menu.autoReenableAt")} hint={t("menu.autoReenableHint")}>
-          <Input
-            type="datetime-local"
-            dir="ltr"
-            value={autoReenableAt}
-            onChange={(event) => setAutoReenableAt(event.target.value)}
-          />
-        </Field>
-      </div>
-    </Modal>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
 /** Only `min <= max`, and `required` implies `min >= 1` — the same two
  * rules the backend enforces (`violatesSelectionRules`); checked here for
  * immediate feedback, but the server call is still the authority — its own
@@ -1443,6 +1004,20 @@ function selectionRuleError(
  * create or imply durable state this workspace could never show again
  * after a reload — that stays absent until the backend adds a read path.
  */
+/**
+ * Reference-style Customizations editor (`.overlay`/`.modal.wide`/
+ * `.modifier-layout`/`.modifier-list`/`.modifier-editor` — the SAME shape
+ * `modifier-modal.tsx` uses in the reference), wired to the real canonical
+ * CRUD unchanged from before this restyle:
+ *  - Groups: list/create/update (`modifierGroups.list/create/update`) — no
+ *    delete, no active/inactive flag; neither exists on this backend.
+ *  - Modifiers: list (via `modifierGroups.get`)/create (`addModifier`) — no
+ *    edit, no delete; the API supports neither, so an existing modifier
+ *    renders read-only, never a fake editable/removable row.
+ *  - No "used by" section, no unlink control: there is no endpoint that
+ *    returns which items a group is attached to, or that detaches one — see
+ *    `live-item-editor.tsx`'s own docblock for the same documented gap.
+ */
 function CustomizationsDrawer({
   open,
   canManage,
@@ -1456,7 +1031,7 @@ function CustomizationsDrawer({
   onClose: () => void;
   onChanged: (message: string) => void;
 }) {
-  const { t, tx, fmt } = useI18n();
+  const { t, tx } = useI18n();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creatingGroup, setCreatingGroup] = useState(false);
 
@@ -1476,75 +1051,84 @@ function CustomizationsDrawer({
     detail.reload();
   }
 
+  function close() {
+    setSelectedId(null);
+    setCreatingGroup(false);
+    onClose();
+  }
+
   return (
-    <Drawer
-      open
-      onClose={() => {
-        setSelectedId(null);
-        setCreatingGroup(false);
-        onClose();
-      }}
-      title={selectedId && detail.data ? tx(detail.data.name) : t("menu.customizations")}
-      subtitle={!selectedId && !creatingGroup ? t("menu.customizationsHint") : undefined}
-    >
-      <div className="space-y-4">
-        {groups.error ? <Callout tone="bad">{groups.error.message}</Callout> : null}
-
-        {selectedId ? (
-          <GroupDetailPanel
-            detail={detail}
-            canManage={canManage}
-            currency={currency}
-            onBack={() => setSelectedId(null)}
-            onChanged={reload}
-          />
-        ) : creatingGroup ? (
-          <NewGroupForm
-            onCancel={() => setCreatingGroup(false)}
-            onCreated={(id) => {
-              setCreatingGroup(false);
-              onChanged(t("menu.groupCreated"));
-              groups.reload();
-              setSelectedId(id);
-            }}
-          />
-        ) : (
-          <>
+    <div className="overlay" role="dialog" aria-modal="true" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal wide">
+        <div className="drawer-head">
+          <div>
+            <span className="small-label">{t("menu.customizationsLabel")}</span>
+            <h2>{t("menu.customizations")}</h2>
+          </div>
+          <button className="icon-btn" onClick={close} aria-label={t("common.close")}>
+            <Icon name="close" />
+          </button>
+        </div>
+        <div className="modifier-layout">
+          <aside className="modifier-list">
+            {groups.error ? <p className="warn-text">{groups.error.message}</p> : null}
+            {groups.loading && rows.length === 0 ? <p className="section-help">{t("state.loading")}</p> : null}
+            {rows.map((group) => (
+              <button
+                key={group.id}
+                className={selectedId === group.id ? "active" : ""}
+                onClick={() => {
+                  setCreatingGroup(false);
+                  setSelectedId(group.id);
+                }}
+              >
+                {tx(group.name)}
+                <span>{group.required ? t("menu.required") : t("common.optional")}</span>
+              </button>
+            ))}
             {canManage ? (
-              <Button variant="ghost" icon={<Plus size={14} />} onClick={() => setCreatingGroup(true)}>
-                {t("menu.newGroup")}
-              </Button>
+              <button
+                className="add-category"
+                onClick={() => {
+                  setSelectedId(null);
+                  setCreatingGroup(true);
+                }}
+              >
+                + {t("menu.newGroup")}
+              </button>
             ) : null}
-
-            {groups.loading ? (
-              <Callout tone="muted">{t("state.loading")}</Callout>
-            ) : rows.length === 0 ? (
-              <Callout tone="muted">{t("menu.noModifierGroups")}</Callout>
+          </aside>
+          <div className="modifier-editor">
+            {selectedId ? (
+              <GroupDetailPanel detail={detail} canManage={canManage} currency={currency} onChanged={reload} />
+            ) : creatingGroup ? (
+              <NewGroupForm
+                onCancel={() => setCreatingGroup(false)}
+                onCreated={(id) => {
+                  setCreatingGroup(false);
+                  onChanged(t("menu.groupCreated"));
+                  groups.reload();
+                  setSelectedId(id);
+                }}
+              />
             ) : (
-              <ul className="divide-line divide-y">
-                {rows.map((group) => (
-                  <li key={group.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(group.id)}
-                      className="hover:bg-sunken flex w-full items-center justify-between gap-3 rounded-md px-1 py-2.5 text-start"
-                    >
-                      <span className="min-w-0 flex-1 truncate text-sm">{tx(group.name)}</span>
-                      <Badge tone={group.required ? "accent" : "muted"}>
-                        {group.required ? t("menu.required") : t("common.optional")}
-                      </Badge>
-                      <span dir="ltr" className="text-fg-subtle shrink-0 text-xs">
-                        {formatNumber(group.minSelections, fmt)}/{formatNumber(group.maxSelections, fmt)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <div className="empty">
+                <div className="empty-icon">
+                  <Icon name="sliders" size={22} />
+                </div>
+                {rows.length === 0 && !groups.loading ? <h3>{t("menu.noModifierGroups")}</h3> : null}
+                <p>{t("menu.customizationsHint")}</p>
+                {canManage ? (
+                  <button className="primary" onClick={() => setCreatingGroup(true)}>
+                    <Icon name="plus" size={16} /> {t("menu.newGroup")}
+                  </button>
+                ) : null}
+              </div>
             )}
-          </>
-        )}
+          </div>
+        </div>
       </div>
-    </Drawer>
+    </div>
   );
 }
 
@@ -1585,36 +1169,42 @@ function NewGroupForm({
   }
 
   return (
-    <div className="space-y-4">
-      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+    <>
+      <label>
+        {t("common.name")}
+        <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Sauces" />
+      </label>
 
-      <Field label={t("common.name")} required>
-        <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
-      </Field>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={t("menu.minSelections")}>
-          <Input inputMode="numeric" dir="ltr" value={minInput} onChange={(event) => setMinInput(event.target.value)} />
-        </Field>
-        <Field label={t("menu.maxSelections")}>
-          <Input inputMode="numeric" dir="ltr" value={maxInput} onChange={(event) => setMaxInput(event.target.value)} />
-        </Field>
+      <div className="rules">
+        <div className="modifier-rule-grid">
+          <label>
+            {t("menu.minSelections")}
+            <input inputMode="numeric" dir="ltr" value={minInput} onChange={(event) => setMinInput(event.target.value)} />
+          </label>
+          <label>
+            {t("menu.maxSelections")}
+            <input inputMode="numeric" dir="ltr" value={maxInput} onChange={(event) => setMaxInput(event.target.value)} />
+          </label>
+        </div>
+        <Toggle checked={required} onChange={setRequired} label={t("menu.required")} />
+        <Toggle checked={allowRepeat} onChange={setAllowRepeat} label={t("menu.allowRepeat")} />
       </div>
 
-      <Toggle checked={required} onChange={setRequired} label={t("menu.required")} />
-      <Toggle checked={allowRepeat} onChange={setAllowRepeat} label={t("menu.allowRepeat")} />
+      {ruleError ? <p className="warn-text">{ruleError}</p> : null}
+      {action.error ? <p className="warn-text">{action.error}</p> : null}
 
-      {ruleError ? <Callout tone="bad">{ruleError}</Callout> : null}
-
-      <div className="flex gap-2">
-        <Button variant="primary" loading={action.pending} disabled={!canCreate} onClick={create}>
-          {t("common.create")}
-        </Button>
-        <Button variant="ghost" onClick={onCancel}>
-          {t("common.cancel")}
-        </Button>
+      <div className="drawer-footer">
+        <div></div>
+        <div className="footer-right">
+          <button className="secondary" onClick={onCancel}>
+            {t("common.cancel")}
+          </button>
+          <button className="primary" disabled={!canCreate || action.pending} onClick={create}>
+            {action.pending ? `${t("common.saving")}…` : t("common.create")}
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -1623,13 +1213,11 @@ function GroupDetailPanel({
   detail,
   canManage,
   currency,
-  onBack,
   onChanged,
 }: {
   detail: AsyncState<ModifierGroup | null>;
   canManage: boolean;
   currency: Currency;
-  onBack: () => void;
   onChanged: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
@@ -1659,15 +1247,8 @@ function GroupDetailPanel({
 
   if (!group) {
     return (
-      <div className="space-y-3">
-        <Button variant="ghost" icon={<ChevronLeft size={14} />} onClick={onBack}>
-          {t("common.back")}
-        </Button>
-        {detail.error ? (
-          <Callout tone="bad">{detail.error.message}</Callout>
-        ) : (
-          <Callout tone="muted">{t("state.loading")}</Callout>
-        )}
+      <div className="empty">
+        {detail.error ? <p className="warn-text">{detail.error.message}</p> : <p className="section-help">{t("state.loading")}</p>}
       </div>
     );
   }
@@ -1693,87 +1274,89 @@ function GroupDetailPanel({
   }
 
   return (
-    <div className="space-y-4">
-      <Button variant="ghost" icon={<ChevronLeft size={14} />} onClick={onBack}>
-        {t("common.back")}
-      </Button>
+    <>
+      <label>
+        {t("common.name")}
+        <input value={name} onChange={(event) => setName(event.target.value)} disabled={!canManage} />
+      </label>
 
-      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
-
-      <Field label={t("common.name")} required>
-        <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} disabled={!canManage} />
-      </Field>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={t("menu.minSelections")}>
-          <Input
-            inputMode="numeric"
-            dir="ltr"
-            value={minInput}
-            onChange={(event) => setMinInput(event.target.value)}
-            disabled={!canManage}
-          />
-        </Field>
-        <Field label={t("menu.maxSelections")}>
-          <Input
-            inputMode="numeric"
-            dir="ltr"
-            value={maxInput}
-            onChange={(event) => setMaxInput(event.target.value)}
-            disabled={!canManage}
-          />
-        </Field>
+      <div className="rules">
+        <div className="modifier-rule-grid">
+          <label>
+            {t("menu.minSelections")}
+            <input
+              inputMode="numeric"
+              dir="ltr"
+              value={minInput}
+              onChange={(event) => setMinInput(event.target.value)}
+              disabled={!canManage}
+            />
+          </label>
+          <label>
+            {t("menu.maxSelections")}
+            <input
+              inputMode="numeric"
+              dir="ltr"
+              value={maxInput}
+              onChange={(event) => setMaxInput(event.target.value)}
+              disabled={!canManage}
+            />
+          </label>
+        </div>
+        <Toggle checked={required} onChange={setRequired} label={t("menu.required")} disabled={!canManage} />
+        <Toggle checked={allowRepeat} onChange={setAllowRepeat} label={t("menu.allowRepeat")} disabled={!canManage} />
       </div>
 
-      <Toggle checked={required} onChange={setRequired} label={t("menu.required")} disabled={!canManage} />
-      <Toggle checked={allowRepeat} onChange={setAllowRepeat} label={t("menu.allowRepeat")} disabled={!canManage} />
-
-      {ruleError ? <Callout tone="bad">{ruleError}</Callout> : null}
+      {ruleError ? <p className="warn-text">{ruleError}</p> : null}
+      {action.error ? <p className="warn-text">{action.error}</p> : null}
 
       {canManage ? (
-        <Button variant="primary" loading={action.pending} disabled={!canSave} onClick={save}>
-          {t("common.save")}
-        </Button>
+        <div className="drawer-footer">
+          <div></div>
+          <div className="footer-right">
+            <button className="primary" disabled={!canSave || action.pending} onClick={save}>
+              {action.pending ? `${t("common.saving")}…` : t("common.save")}
+            </button>
+          </div>
+        </div>
       ) : null}
 
-      <section>
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-fg text-sm font-semibold">{t("nav.modifiers")}</h3>
-          {canManage && !addingModifier ? (
-            <Button variant="ghost" icon={<Plus size={13} />} onClick={() => setAddingModifier(true)}>
-              {t("common.add")}
-            </Button>
-          ) : null}
-        </div>
+      <h3>{t("nav.modifiers")}</h3>
 
-        {group.modifiers.length === 0 ? (
-          <Callout tone="muted">{t("menu.noModifiers")}</Callout>
-        ) : (
-          <ul className="divide-line divide-y">
-            {group.modifiers.map((modifier) => (
-              <ModifierRow key={modifier.id} modifier={modifier} currency={currency} fmt={fmt} tx={tx} t={t} />
-            ))}
-          </ul>
-        )}
-
-        {group.modifiers.length > 0 ? <Callout tone="muted">{t("menu.existingModifiersNote")}</Callout> : null}
-
-        {canManage ? (
-          <div className="mt-3">
-            <NewModifierForm
-              open={addingModifier}
-              groupId={group.id}
-              currency={currency}
-              onCancel={() => setAddingModifier(false)}
-              onCreated={() => {
-                setAddingModifier(false);
-                onChanged(t("menu.modifierAdded"));
-              }}
-            />
+      {group.modifiers.length === 0 ? (
+        <p className="section-help">{t("menu.noModifiers")}</p>
+      ) : (
+        <div className="option-table">
+          <div className="option-head">
+            <span>{t("common.name")}</span>
+            <span>{t("menu.priceDelta")}</span>
+            <span></span>
           </div>
-        ) : null}
-      </section>
-    </div>
+          {group.modifiers.map((modifier) => (
+            <ModifierRow key={modifier.id} modifier={modifier} currency={currency} fmt={fmt} tx={tx} t={t} />
+          ))}
+        </div>
+      )}
+      {group.modifiers.length > 0 ? <p className="section-help">{t("menu.existingModifiersNote")}</p> : null}
+
+      {canManage ? (
+        addingModifier ? (
+          <NewModifierForm
+            groupId={group.id}
+            currency={currency}
+            onCancel={() => setAddingModifier(false)}
+            onCreated={() => {
+              setAddingModifier(false);
+              onChanged(t("menu.modifierAdded"));
+            }}
+          />
+        ) : (
+          <button className="link-button" onClick={() => setAddingModifier(true)}>
+            <Icon name="plus" size={13} /> {t("common.add")}
+          </button>
+        )
+      ) : null}
+    </>
   );
 }
 
@@ -1801,18 +1384,18 @@ function ModifierRow({
     amount > 0 ? t("menu.priceDeltaExtra") : amount < 0 ? t("menu.priceDeltaDiscount") : t("menu.priceDeltaNone");
 
   return (
-    <li className="flex items-center justify-between gap-3 py-2">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <span className="text-fg truncate text-sm">{tx(modifier.name)}</span>
-        <Badge tone={kind.tone}>{tx(kind.label)}</Badge>
-      </div>
-      <div className="shrink-0 text-end">
-        <div className="text-fg font-mono text-sm tabular-nums">
-          {amount === 0 ? "—" : `${amount > 0 ? "+" : ""}${formatMoney({ amount, currency }, fmt)}`}
-        </div>
-        <div className="text-fg-subtle text-xs">{signLabel}</div>
-      </div>
-    </li>
+    <div className="option-row">
+      <span>
+        {tx(modifier.name)} <span className="category-badge">{tx(kind.label)}</span>
+        {modifier.linkedVariantId ? <span className="category-badge">{t("menu.comboComponentBadge")}</span> : null}
+      </span>
+      <span>
+        {amount === 0 ? "—" : `${amount > 0 ? "+" : ""}${formatMoney({ amount, currency }, fmt)}`}
+        <br />
+        <small>{signLabel}</small>
+      </span>
+      <span></span>
+    </div>
   );
 }
 
@@ -1821,13 +1404,11 @@ function ModifierRow({
  * DTO with no server-accepted default, so it is always a real choice here.
  */
 function NewModifierForm({
-  open,
   groupId,
   currency,
   onCancel,
   onCreated,
 }: {
-  open: boolean;
   groupId: string;
   currency: Currency;
   onCancel: () => void;
@@ -1840,8 +1421,6 @@ function NewModifierForm({
   const [amount, setAmount] = useState("0");
   const exponent = currencyExponent(currency);
   const tooPrecise = excessPrecision(amount, exponent);
-
-  if (!open) return null;
 
   const parsedAmount = signedMinorFromInput(amount, exponent);
   const canCreate = name.trim() !== "" && !tooPrecise && parsedAmount !== null;
@@ -1860,35 +1439,45 @@ function NewModifierForm({
   }
 
   return (
-    <div className="border-line space-y-4 rounded-lg border p-3">
-      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+    <div className="used-by">
+      <label>
+        {t("common.name")}
+        <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Extra cheese" />
+      </label>
 
-      <Field label={t("common.name")} required>
-        <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
-      </Field>
-
-      <Field label={t("menu.modifierKind")} hint={t("menu.modifierKindHint")} required>
-        <Select value={kind} onChange={(event) => setKind(event.target.value as Modifier["kind"])}>
+      <label>
+        {t("menu.modifierKind")}
+        <select value={kind} onChange={(event) => setKind(event.target.value as Modifier["kind"])}>
           {(["addition", "removal", "substitution"] as const).map((value) => (
             <option key={value} value={value}>
               {tx(labelOf(MODIFIER_KIND, value).label)}
             </option>
           ))}
-        </Select>
-      </Field>
+        </select>
+        <small>{t("menu.modifierKindHint")}</small>
+      </label>
 
-      <Field label={t("menu.priceDelta")} hint={`${currency} · ${t("menu.priceHint")}`}>
-        <Input inputMode="decimal" dir="ltr" value={amount} onChange={(event) => setAmount(event.target.value)} />
-      </Field>
-      {tooPrecise ? <Callout tone="bad">{t("menu.priceExcessPrecision")}</Callout> : null}
+      <label>
+        {t("menu.priceDelta")}
+        <div className="price-field">
+          <span>{currency}</span>
+          <input inputMode="decimal" dir="ltr" value={amount} onChange={(event) => setAmount(event.target.value)} />
+        </div>
+        <small>{t("menu.priceHint")}</small>
+      </label>
+      {tooPrecise ? <p className="warn-text">{t("menu.priceExcessPrecision")}</p> : null}
+      {action.error ? <p className="warn-text">{action.error}</p> : null}
 
-      <div className="flex gap-2">
-        <Button variant="primary" loading={action.pending} disabled={!canCreate} onClick={create}>
-          {t("common.create")}
-        </Button>
-        <Button variant="ghost" onClick={onCancel}>
-          {t("common.cancel")}
-        </Button>
+      <div className="drawer-footer">
+        <div></div>
+        <div className="footer-right">
+          <button className="secondary" onClick={onCancel}>
+            {t("common.cancel")}
+          </button>
+          <button className="primary" disabled={!canCreate || action.pending} onClick={create}>
+            {action.pending ? `${t("common.saving")}…` : t("common.create")}
+          </button>
+        </div>
       </div>
     </div>
   );

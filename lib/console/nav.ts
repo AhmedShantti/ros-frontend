@@ -12,7 +12,6 @@
 import {
   Activity,
   AlertTriangle,
-  BookOpen,
   ArrowLeftRight,
   Banknote,
   BadgePercent,
@@ -41,7 +40,6 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
-  Sparkles,
   Store,
   LayoutGrid,
   Table2,
@@ -183,17 +181,7 @@ export const NAV_SECTIONS: NavSection[] = [
     labelKey: "nav.menu",
     icon: Utensils,
     items: [
-      /**
-       * MENU-MANAGEMENT — the one-workspace menu editor, kept beside the
-       * separate screens below so both can be compared. Same read gate as
-       * every other catalogue screen.
-       */
       { href: "/menu/management", labelKey: "nav.menuManagement", icon: LayoutGrid, permissions: ["menu.item.read"] },
-      { href: "/menu/menus", labelKey: "nav.menus", icon: BookOpen, permissions: ["menu.item.read"] },
-      { href: "/menu/categories", labelKey: "nav.categories", icon: Layers, permissions: ["menu.item.read"] },
-      { href: "/menu/items", labelKey: "nav.items", icon: Utensils, permissions: ["menu.item.read"], matchPrefix: true },
-      { href: "/menu/modifiers", labelKey: "nav.modifiers", icon: Tags, permissions: ["menu.item.read"] },
-      { href: "/menu/combos", labelKey: "nav.combos", icon: Sparkles, permissions: ["menu.item.read"] },
       { href: "/menu/recipes", labelKey: "nav.recipes", icon: ClipboardCheck, permissions: ["recipe.view"], matchPrefix: true },
     ],
   },

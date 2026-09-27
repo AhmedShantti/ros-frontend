@@ -386,6 +386,9 @@ export interface CatalogueCompleteness {
   itemsWithoutActiveVariant: Id[];
 }
 
+export type ComboVariantPricingStrategy = "fixed" | "sum_components_minus_discount" | "component_price_override";
+export type ComboVariantAllocationBasis = "equal" | "list_price" | "cost";
+
 export interface MenuItemVariant {
   id: Id;
   name: Localised;
@@ -393,6 +396,16 @@ export interface MenuItemVariant {
   barcode: string | null;
   recipeId: Id | null;
   available: boolean;
+  /**
+   * COMBO-COMPONENT-IDENTITY-P0 — definition metadata for a combo variant
+   * only (undefined for an ordinary variant), so the Console combo editor
+   * can reopen and reconstruct the definition faithfully. `basePrice` above
+   * remains the single source of truth for what is actually charged — these
+   * fields never drive server-side pricing on their own.
+   */
+  comboPricingStrategy?: ComboVariantPricingStrategy;
+  comboDiscountBps?: number;
+  comboAllocationBasis?: ComboVariantAllocationBasis;
 }
 
 export interface MenuItem {
@@ -453,6 +466,19 @@ export interface Modifier {
   /** FR-MNU-013 — how this modifier changes the parent recipe. */
   recipeDelta: RecipeDelta[];
   isDefault: boolean;
+  /**
+   * COMBO-COMPONENT-IDENTITY-P0 (FR-POS-030) — when this option IS a real
+   * combo slot choice, the actual `MenuItemVariant` it represents. `null`/
+   * undefined for an ordinary (non-component) modifier. Mutually exclusive
+   * with a recipe effect on this same modifier (enforced server-side).
+   */
+  linkedVariantId?: Id | null;
+  /**
+   * FR-POS-031 `component_price_override` strategy — this option's
+   * definition-time contribution to the combo's composed listed price.
+   * Only meaningful on the slot's default option.
+   */
+  comboComponentPriceOverride?: Money | null;
 }
 
 export interface RecipeDelta {

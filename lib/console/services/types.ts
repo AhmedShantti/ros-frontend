@@ -26,6 +26,8 @@ import type {
   CentralKitchen,
   ChannelProfitabilityRow,
   Combo,
+  ComboVariantAllocationBasis,
+  ComboVariantPricingStrategy,
   ContributionMarginRow,
   CountSession,
   CountryPack,
@@ -490,6 +492,17 @@ export interface CreateVariantInput {
   name: Localised;
   price: Money;
   barcode?: string;
+  /** COMBO-COMPONENT-IDENTITY-P0 — see `MenuItemVariant`. Omit for an ordinary (non-combo) variant. */
+  comboPricingStrategy?: ComboVariantPricingStrategy;
+  comboDiscountBps?: number;
+  comboAllocationBasis?: ComboVariantAllocationBasis;
+}
+
+/** Optional combo-definition metadata carried on a direct price edit. */
+export interface UpdateVariantPriceOptions {
+  comboPricingStrategy?: ComboVariantPricingStrategy;
+  comboDiscountBps?: number;
+  comboAllocationBasis?: ComboVariantAllocationBasis;
 }
 
 /**
@@ -556,7 +569,7 @@ export interface CatalogueService {
   /** C-09 — activate/deactivate a variant, audited. */
   setVariantActive(variantId: Id, active: boolean): Promise<void>;
   /** Direct price edit — no Price List concept, no separate pricing workspace. */
-  updateVariantPrice(variantId: Id, price: Money): Promise<MenuItemVariant>;
+  updateVariantPrice(variantId: Id, price: Money, combo?: UpdateVariantPriceOptions): Promise<MenuItemVariant>;
   /** FR-MNU-010 — attach a reusable modifier group to an item. */
   linkModifierGroup(
     itemId: Id,
@@ -565,6 +578,13 @@ export interface CatalogueService {
   ): Promise<void>;
   /** Add a modifier to a group. */
   addModifier(groupId: Id, input: Partial<Modifier>): Promise<Modifier>;
+  /**
+   * CONSOLE-COMBO-READ-P0 — the read side of `linkModifierGroup`: every
+   * modifier group currently attached to this item, each with its own
+   * modifiers, in attachment order. The only way to reopen a combo (or any
+   * customized item) for editing.
+   */
+  listItemModifierGroups(itemId: Id): Promise<ModifierGroup[]>;
 
   // -- Readiness -------------------------------------------------------------
   /** SRS §7.3 #7 — what is stopping the catalogue being sellable. */

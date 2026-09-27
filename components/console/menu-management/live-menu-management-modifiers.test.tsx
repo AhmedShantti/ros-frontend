@@ -85,6 +85,7 @@ vi.mock("@/lib/console/menu-management/live-adapter", () => ({
 vi.mock("@/components/console/catalogue/tax-class-field", () => ({
   TaxClassField: () => null,
   useTaxClassLabel: () => ({ text: "—", tone: "muted" as const }),
+  useTaxClasses: () => ({ loading: false, noBranch: false, taxClasses: [] }),
 }));
 
 let granted = new Set<string>(["menu.item.manage", "menu.item.read", "menu.availability.toggle"]);
@@ -101,6 +102,9 @@ vi.mock("@/lib/console/providers", () => ({
   useSession: () => ({
     scope: { tenantId: "t1", brandId: null, branchId: null },
     availableBranches: [{ id: "br1", name: { en: "Downtown", ar: "" }, brandId: "b1" }],
+    availableBrands: [],
+    setBrandId: () => {},
+    setBranchId: () => {},
     tenant: { id: "t1", name: { en: "Acme", ar: "أكمي" }, baseCurrency: "EGP" },
     brand: null,
     branch: null,
@@ -449,7 +453,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
 
   // -- 25-27: no item-group attach management UI ------------------------------
 
-  it("25. no production item↔group attach management UI is shown in the item editor", async () => {
+  it("25. the item editor links out to the shared catalogue rather than faking a per-item attach picker", async () => {
     const { listItemsWithPlacements } = await import("@/lib/console/menu-management/live-adapter");
     vi.mocked(listItemsWithPlacements).mockResolvedValue([
       {
@@ -485,12 +489,18 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
 
     const user = userEvent.setup();
     render(<LiveMenuManagement />);
-    await user.click(await screen.findByRole("button", { name: /Burger/ }));
+    const card = (await screen.findByText("Burger")).closest(".item-card") as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: /Edit/ }));
     const editor = within(await screen.findByRole("dialog"));
 
+    // A real, single link to the shared catalogue is fine (and expected —
+    // see `live-item-editor.tsx`'s own docblock); a FAKE per-item attach
+    // picker (a checkbox list of groups, an "attached groups" listing, or an
+    // unlink control) is what must never appear here.
+    expect(editor.getByRole("button", { name: "menu.openCustomizationsCatalogue" })).toBeInTheDocument();
     expect(editor.queryByText(/modifier group/i)).not.toBeInTheDocument();
-    expect(editor.queryByText(/attach/i)).not.toBeInTheDocument();
-    expect(editor.queryByRole("button", { name: /customiz/i })).not.toBeInTheDocument();
+    expect(editor.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(editor.queryByRole("button", { name: /unlink/i })).not.toBeInTheDocument();
   });
 
   it("26. no unlink/remove control for an attached group exists anywhere", async () => {
@@ -505,7 +515,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
 
   it("27. no multi-step 'create customization from item' flow exists in HTTP mode", async () => {
     render(<LiveMenuManagement />);
-    await screen.findByText("Lunch");
+    await screen.findByRole("button", { name: /Lunch/ });
 
     expect(screen.queryByText(/create customization/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /new customization/i })).not.toBeInTheDocument();

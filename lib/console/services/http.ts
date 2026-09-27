@@ -1104,6 +1104,9 @@ const items: CatalogueService["items"] = {
         barcode: variant.barcode,
         price: String(variant.price.amount),
         currency: variant.price.currency,
+        comboPricingStrategy: variant.comboPricingStrategy,
+        comboDiscountBps: variant.comboDiscountBps,
+        comboAllocationBasis: variant.comboAllocationBasis,
       })),
     });
     invalidateCatalogue();
@@ -1403,6 +1406,9 @@ const catalogue: CatalogueService = {
       barcode: input.barcode ?? undefined,
       price: map.toMinorUnitString(input.price),
       currency: input.price.currency,
+      comboPricingStrategy: input.comboPricingStrategy,
+      comboDiscountBps: input.comboDiscountBps,
+      comboAllocationBasis: input.comboAllocationBasis,
     });
     invalidateCatalogue();
     return map.toVariant(row);
@@ -1414,10 +1420,13 @@ const catalogue: CatalogueService = {
   },
 
   /** Direct price edit — no Price List concept, no separate pricing workspace. */
-  async updateVariantPrice(variantId, price) {
+  async updateVariantPrice(variantId, price, combo) {
     const row = await api.catalogue.updateVariantPrice(variantId, {
       price: map.toMinorUnitString(price),
       currency: price.currency,
+      comboPricingStrategy: combo?.comboPricingStrategy,
+      comboDiscountBps: combo?.comboDiscountBps,
+      comboAllocationBasis: combo?.comboAllocationBasis,
     });
     invalidateCatalogue();
     return map.toVariant(row);
@@ -1440,9 +1449,23 @@ const catalogue: CatalogueService = {
       priceDelta:
         input.priceDelta === undefined ? undefined : String(input.priceDelta.amount),
       isDefault: input.isDefault,
+      linkedVariantId: input.linkedVariantId ?? undefined,
+      comboComponentPriceOverride:
+        input.comboComponentPriceOverride == null
+          ? undefined
+          : String(input.comboComponentPriceOverride.amount),
     });
     invalidateCatalogue();
     return map.toModifier(row);
+  },
+
+  /**
+   * CONSOLE-COMBO-READ-P0 — the read side of `linkModifierGroup`: needed to
+   * reopen a combo (or any customized item) for editing.
+   */
+  async listItemModifierGroups(itemId) {
+    const rows = await api.catalogue.listItemModifierGroups(itemId);
+    return rows.map((row) => map.toModifierGroup(row, getTenantId() ?? "", row.modifiers.map(map.toModifier)));
   },
 
   // -- Readiness -------------------------------------------------------------
@@ -2229,7 +2252,7 @@ const orderMutations: import("./types").OrderMutationService = {
    * elevated path anyway without them, and this call never needs it.
    */
   async cancel(businessDay, orderId, input, options = {}) {
-    const response = await api.sales.cancel(
+    const response = await api.sales.cancelOrders(
       businessDay,
       orderId,
       { reasonCodeId: input.reasonCodeId },

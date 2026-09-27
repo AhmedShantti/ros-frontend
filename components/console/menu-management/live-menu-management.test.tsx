@@ -83,6 +83,7 @@ vi.mock("@/lib/console/menu-management/live-adapter", () => ({
 vi.mock("@/components/console/catalogue/tax-class-field", () => ({
   TaxClassField: () => null,
   useTaxClassLabel: () => ({ text: "—", tone: "muted" as const }),
+  useTaxClasses: () => ({ loading: false, noBranch: false, taxClasses: [] }),
 }));
 
 let granted = new Set<string>(["menu.item.manage", "menu.availability.toggle"]);
@@ -92,6 +93,9 @@ let granted = new Set<string>(["menu.item.manage", "menu.availability.toggle"]);
 let session = {
   scope: { tenantId: "t1", brandId: null as string | null, branchId: null as string | null },
   availableBranches: [{ id: "br1", name: { en: "Downtown", ar: "" }, brandId: "b1" }],
+  availableBrands: [],
+  setBrandId: () => {},
+  setBranchId: () => {},
   tenant: { id: "t1", name: { en: "Acme", ar: "أكمي" }, baseCurrency: "EGP" },
   brand: null as { id: string; name: { en: string; ar: string } } | null,
   branch: null as { id: string; name: { en: string; ar: string }; currency: string } | null,
@@ -129,6 +133,9 @@ describe("Live Menu Management", () => {
     session = {
       scope: { tenantId: "t1", brandId: null, branchId: null },
       availableBranches: [{ id: "br1", name: { en: "Downtown", ar: "" }, brandId: "b1" }],
+      availableBrands: [],
+      setBrandId: () => {},
+      setBranchId: () => {},
       tenant: { id: "t1", name: { en: "Acme", ar: "أكمي" }, baseCurrency: "EGP" },
       brand: null,
       branch: null,
@@ -143,7 +150,10 @@ describe("Live Menu Management", () => {
 
     render(<LiveMenuManagement />);
 
-    expect(await screen.findByText("Lunch")).toBeInTheDocument();
+    // "Lunch" legitimately appears twice (the menu switcher AND the category
+    // panel title, matching the reference workspace's own layout) — assert
+    // on the switcher specifically.
+    expect(await screen.findByRole("button", { name: /Lunch/ })).toBeInTheDocument();
     expect(menusList).toHaveBeenCalledWith(expect.objectContaining({ scope: { tenantId: "t1", brandId: null, branchId: null } }));
     expect(screen.queryByText(/Publish/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Published ✓")).not.toBeInTheDocument();
@@ -157,8 +167,8 @@ describe("Live Menu Management", () => {
     render(<LiveMenuManagement />);
 
     await user.click(await screen.findByRole("button", { name: "menu.newMenu" }));
-    await user.type(screen.getByLabelText(/common\.name/), "Dinner");
-    await user.click(screen.getByRole("button", { name: "common.create" }));
+    await user.type(screen.getByPlaceholderText("e.g. Main Menu"), "Dinner");
+    await user.click(screen.getByRole("button", { name: "menu.createMenuButton" }));
 
     await waitFor(() => expect(menusCreate).toHaveBeenCalledWith(expect.objectContaining({ name: { en: "Dinner", ar: "Dinner" } })));
   });
@@ -186,7 +196,7 @@ describe("Live Menu Management", () => {
     const user = userEvent.setup();
     render(<LiveMenuManagement />);
 
-    await screen.findByText("Lunch");
+    await screen.findByRole("button", { name: /Lunch/ });
     await user.click(await screen.findByRole("button", { name: /menu.newCategory/ }));
     const input = await screen.findByPlaceholderText("menu.categoryNamePlaceholder");
     await user.type(input, "Mains");
@@ -203,10 +213,37 @@ describe("Live Menu Management", () => {
 
     render(<LiveMenuManagement />);
 
-    await screen.findByText("Lunch");
-    expect(screen.queryByRole("button", { name: "menu.newMenu" })).not.toBeInTheDocument();
+    await screen.findByRole("button", { name: /Lunch/ });
+    expect(screen.queryByText("menu.createCombo")).not.toBeInTheDocument();
+    expect(screen.queryByText("menu.addItemButton")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "common.activate" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "common.deactivate" })).not.toBeInTheDocument();
     expect(within(document.body).queryByRole("button", { name: /menu.newCategory/ })).not.toBeInTheDocument();
+  });
+
+  it("the scope bar's Brand/Branch pickers drive the REAL session scope (setBrandId/setBranchId), not a second local filter", async () => {
+    const setBrandIdSpy = vi.fn();
+    const setBranchIdSpy = vi.fn();
+    session = {
+      ...session,
+      availableBrands: [{ id: "brand-1", name: { en: "Acme Burgers", ar: "" } }] as never,
+      availableBranches: [{ id: "br1", name: { en: "Downtown", ar: "" }, brandId: "brand-1" }],
+      setBrandId: setBrandIdSpy,
+      setBranchId: setBranchIdSpy,
+    };
+    menusList.mockResolvedValue({ rows: [menu()], total: 1 });
+
+    const user = userEvent.setup();
+    render(<LiveMenuManagement />);
+
+    await screen.findByRole("button", { name: /Lunch/ });
+    await user.click(screen.getByRole("button", { name: /Acme Burgers|menu.allBrands/i }));
+    const listbox = screen.getByRole("listbox");
+    await user.click(within(listbox).getByRole("button", { name: "Acme Burgers" }));
+
+    expect(setBrandIdSpy).toHaveBeenCalledWith("brand-1");
+    // Picking a brand also clears any previously-selected branch — a stale
+    // branch outside the new brand must never linger.
+    expect(setBranchIdSpy).toHaveBeenCalledWith(null);
   });
 });

@@ -25,7 +25,7 @@
 
 import { api } from "@/lib/api/endpoints";
 import { getTenantId } from "@/lib/api/session";
-import { localised, toNameMap } from "@/lib/console/services/map";
+import { localised, toNameMap, toVariant } from "@/lib/console/services/map";
 import { services } from "@/lib/console/services";
 import type { Scope } from "@/lib/console/services";
 import type { Id, MenuCategory, MenuItem } from "@/lib/console/types";
@@ -80,19 +80,26 @@ export interface LiveItem extends MenuItem {
 }
 
 /**
- * Every tenant item, with its real category placements resolved.
+ * Every tenant item, with its real category placements AND variants
+ * resolved.
  *
  * `services.catalogue.items.list()` is the source of the item rows
  * themselves (name, tax class, availability, sort order — everything that is
- * NOT placement); this only adds what `list()` cannot carry.
+ * NOT placement or variant); this adds both, each its own `Promise.all` fan-
+ * out over the raw `/catalogue/items/{id}/*` routes (not the heavier
+ * `items.get()`, which would also redundantly re-fetch the tenant-wide 86
+ * index once per item) — the SAME N+1 shape this function already accepted
+ * for placements, extended by one more parallel wave rather than doubled.
  */
 export async function listItemsWithPlacements(scope: Scope): Promise<LiveItem[]> {
   const page = await services.catalogue.items.list({ limit: 500, scope });
-  const placements = await Promise.all(
-    page.rows.map((item) => api.catalogue.listPlacements(item.id).catch(() => [])),
-  );
+  const [placements, variantRows] = await Promise.all([
+    Promise.all(page.rows.map((item) => api.catalogue.listPlacements(item.id).catch(() => []))),
+    Promise.all(page.rows.map((item) => api.catalogue.listVariants(item.id).catch(() => []))),
+  ]);
   return page.rows.map((item, index) => {
     const rows = placements[index] ?? [];
-    return { ...item, categoryId: rows[0]?.categoryId ?? "", placements: rows };
+    const variants = (variantRows[index] ?? []).map((row) => toVariant(row));
+    return { ...item, categoryId: rows[0]?.categoryId ?? "", placements: rows, variants };
   });
 }

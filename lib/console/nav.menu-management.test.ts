@@ -17,10 +17,11 @@ describe("Console navigation — Menu > Menu Management", () => {
     expect(first.stub).not.toBe(true);
   });
 
-  it("keeps every existing menu screen", () => {
+  it("contains only Menu Management and Recipes — every legacy Menu screen was removed", () => {
     const hrefs = menu!.items.map((item) => item.href);
-    for (const href of ["/menu/menus", "/menu/categories", "/menu/items", "/menu/modifiers", "/menu/combos", "/menu/recipes"]) {
-      expect(hrefs).toContain(href);
+    expect(hrefs).toEqual(["/menu/management", "/menu/recipes"]);
+    for (const href of ["/menu/menus", "/menu/categories", "/menu/items", "/menu/modifiers", "/menu/combos"]) {
+      expect(hrefs).not.toContain(href);
     }
   });
 

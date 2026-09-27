@@ -686,6 +686,9 @@ export function toVariant(row: WireVariant): MenuItemVariant {
     barcode: row.barcode,
     recipeId: null, // filled from /recipes when the recipe list is loaded.
     available: row.isActive,
+    comboPricingStrategy: row.comboPricingStrategy ?? undefined,
+    comboDiscountBps: row.comboDiscountBps ?? undefined,
+    comboAllocationBasis: row.comboAllocationBasis ?? undefined,
   };
 }
 
@@ -753,6 +756,9 @@ export function toModifier(row: WireModifier): Modifier {
     priceDelta: minorMoney(row.priceDelta),
     recipeDelta: [], // gap: recipeDelta is an opaque blob on the API.
     isDefault: row.isDefault,
+    linkedVariantId: row.linkedVariantId ?? null,
+    comboComponentPriceOverride:
+      row.comboComponentPriceOverride == null ? null : minorMoney(row.comboComponentPriceOverride),
   };
 }
 

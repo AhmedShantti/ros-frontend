@@ -129,8 +129,10 @@
 .mm-root .modifier-list button.active{background:#fff0d4;color:#81590f;font-weight:600}
 .mm-root .modifier-list button span{color:#999}
 .mm-root .modifier-editor{padding:20px;overflow:auto}
-.mm-root .modifier-editor>label{display:block;font-size:11px;color:#666}
-.mm-root .modifier-editor input{width:100%;margin-top:6px;padding:10px;border:1px solid #ddd;border-radius:7px}
+.mm-root .modifier-editor label{display:block;font-size:11px;color:#666;margin-bottom:14px}
+.mm-root .modifier-editor input,.mm-root .modifier-editor select{width:100%;margin-top:6px;padding:10px;border:1px solid #ddd;border-radius:7px}
+.mm-root .modifier-editor small{display:block;margin-top:5px;font-weight:400;color:#999}
+.mm-root .modifier-rule-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .mm-root .toggle-grid{display:flex;gap:18px;margin:17px 0}
 .mm-root .checkline{font-size:11px;color:#666}
 .mm-root .checkline input{width:auto;margin-right:6px}
@@ -468,8 +470,9 @@
 .dark .mm-root .modifier-list button{color:var(--c-fg-muted)}
 .dark .mm-root .modifier-list button.active{background:var(--c-accent-soft);color:var(--c-accent)}
 .dark .mm-root .modifier-list button span{color:var(--c-fg-subtle)}
-.dark .mm-root .modifier-editor>label{color:var(--c-fg-muted)}
-.dark .mm-root .modifier-editor input{border:1px solid var(--c-line)}
+.dark .mm-root .modifier-editor label{color:var(--c-fg-muted)}
+.dark .mm-root .modifier-editor input,.dark .mm-root .modifier-editor select{border:1px solid var(--c-line);background:var(--c-raised);color:var(--c-fg)}
+.dark .mm-root .modifier-editor small{color:var(--c-fg-subtle)}
 .dark .mm-root .checkline{color:var(--c-fg-muted)}
 .dark .mm-root .option-head{color:var(--c-fg-subtle)}
 .dark .mm-root .option-row>button{color:var(--c-fg-subtle)}

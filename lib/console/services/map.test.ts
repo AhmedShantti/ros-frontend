@@ -463,6 +463,9 @@ describe("toVariant — direct price, minor-unit round trip, never a float", () 
     prepTimeSeconds: null,
     sortOrder: 0,
     isActive: true,
+    comboPricingStrategy: null,
+    comboDiscountBps: null,
+    comboAllocationBasis: null,
   };
 
   it("reads the wire's minor-unit integer string exactly, no float involved", () => {
@@ -507,6 +510,8 @@ describe("toModifier — priceDelta minor-unit round trip, never a float, never 
     recipeDelta: null,
     isDefault: false,
     sortOrder: 0,
+    linkedVariantId: null,
+    comboComponentPriceOverride: null,
   });
 
   it("a positive priceDelta round-trips exactly (not 100x inflated)", () => {

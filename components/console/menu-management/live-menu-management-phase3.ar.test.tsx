@@ -104,6 +104,7 @@ vi.mock("@/lib/console/menu-management/live-adapter", () => ({
 vi.mock("@/components/console/catalogue/tax-class-field", () => ({
   TaxClassField: () => null,
   useTaxClassLabel: () => ({ text: "—", tone: "muted" as const }),
+  useTaxClasses: () => ({ loading: false, noBranch: false, taxClasses: [] }),
 }));
 
 vi.mock("@/lib/console/providers", async () => {
@@ -121,6 +122,9 @@ vi.mock("@/lib/console/providers", async () => {
     useSession: () => ({
       scope: { tenantId: "t1", brandId: null, branchId: null },
       availableBranches: [],
+      availableBrands: [],
+      setBrandId: () => {},
+      setBranchId: () => {},
       tenant: { id: "t1", name: { en: "Acme", ar: "أكمي" }, baseCurrency: "EGP" },
       brand: null,
       branch: null,

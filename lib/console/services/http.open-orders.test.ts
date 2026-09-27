@@ -29,7 +29,7 @@ vi.mock("@/lib/api/endpoints", () => ({
     },
     sales: {
       list: (...args: unknown[]) => salesList(...args),
-      cancel: (...args: unknown[]) => salesCancel(...args),
+      cancelOrders: (...args: unknown[]) => salesCancel(...args),
     },
   },
 }));
