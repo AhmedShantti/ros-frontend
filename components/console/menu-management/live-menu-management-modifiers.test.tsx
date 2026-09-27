@@ -490,7 +490,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     const user = userEvent.setup();
     render(<LiveMenuManagement />);
     const card = (await screen.findByText("Burger")).closest(".item-card") as HTMLElement;
-    await user.click(within(card).getByRole("button", { name: /Edit/ }));
+    await user.click(within(card).getByRole("button", { name: /common\.edit/ }));
     const editor = within(await screen.findByRole("dialog"));
 
     // A real, single link to the shared catalogue is fine (and expected —

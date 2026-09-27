@@ -127,17 +127,32 @@ function useMounted(): boolean {
 
 export function ChartFrame({
   height = 240,
+  empty = false,
   children,
 }: {
   height?: number;
+  /** Nothing to plot: say so, instead of drawing bare grid lines. */
+  empty?: boolean;
   children: ReactNode;
 }) {
   const mounted = useMounted();
+  const { t } = useI18n();
 
   if (!mounted) {
     return (
       <div style={{ height }} className="w-full">
         <Skeleton className="h-full w-full rounded-lg" />
+      </div>
+    );
+  }
+
+  if (empty) {
+    return (
+      <div
+        style={{ height }}
+        className="text-fg-subtle border-line flex w-full items-center justify-center rounded-lg border border-dashed text-xs"
+      >
+        {t("chart.noData")}
       </div>
     );
   }
@@ -149,6 +164,11 @@ export function ChartFrame({
       </ResponsiveContainer>
     </div>
   );
+}
+
+/** True when a series has no point worth drawing (no rows, or every value 0). */
+function isEmptySeries(values: (number | null | undefined)[]): boolean {
+  return values.every((value) => !value);
 }
 
 interface TooltipItem {
@@ -248,7 +268,7 @@ export function TrendChart({
   const hasComparison = data.some((point) => typeof point.comparison === "number");
 
   return (
-    <ChartFrame height={height}>
+    <ChartFrame height={height} empty={isEmptySeries(data.flatMap((point) => [point.value, point.comparison]))}>
       <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
         <defs>
           <linearGradient id="ros-trend-fill" x1="0" y1="0" x2="0" y2="1">
@@ -338,7 +358,7 @@ export function HourlyChart({
   const formatValue = format ?? ((value: number) => formatNumber(value, fmt));
 
   return (
-    <ChartFrame height={height}>
+    <ChartFrame height={height} empty={isEmptySeries(data.flatMap((point) => [point.sales, point.labourCost, point.forecast]))}>
       <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
         <CartesianGrid stroke={theme.line} strokeDasharray="3 3" vertical={false} />
         <XAxis dataKey="hour" reversed={rtl} interval={1} {...axisProps(theme)} />
@@ -414,7 +434,7 @@ export function CategoryBarChart({
   const formatValue = format ?? ((value: number) => formatNumber(value, fmt));
 
   return (
-    <ChartFrame height={height}>
+    <ChartFrame height={height} empty={isEmptySeries(data.map((point) => point.value))}>
       <BarChart
         data={data}
         layout="vertical"
@@ -481,7 +501,7 @@ export function MixDonut({
 
   return (
     <div className="relative">
-      <ChartFrame height={height}>
+      <ChartFrame height={height} empty={isEmptySeries(data.map((point) => point.value))}>
         <PieChart>
           <Tooltip
             content={(props) => (
@@ -514,7 +534,7 @@ export function MixDonut({
         </PieChart>
       </ChartFrame>
 
-      {centreValue ? (
+      {centreValue && !isEmptySeries(data.map((point) => point.value)) ? (
         <div className="pointer-events-none absolute inset-x-0 top-[38%] -translate-y-1/2 text-center">
           <p className="text-fg font-mono text-lg tabular-nums">{centreValue}</p>
           {centreLabel ? <p className="text-fg-subtle text-[0.68rem]">{centreLabel}</p> : null}
@@ -602,7 +622,7 @@ export function MetricTile({
       <div>
         <div className="flex items-start justify-between gap-2">
           <p className="text-fg-muted text-xs">{label}</p>
-          {spec ? (
+          {spec && process.env.NODE_ENV !== "production" ? (
             <span className="border-line text-fg-subtle rounded border px-1.5 py-0.5 font-mono text-[0.6rem] tracking-wide uppercase">
               {spec}
             </span>

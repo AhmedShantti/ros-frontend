@@ -20,7 +20,7 @@ import type { Currency, Localised } from "@/lib/console/types";
 import { formatMoney, type FormatOptions } from "@/lib/console/format";
 import type { LiveItem } from "@/lib/console/menu-management/live-adapter";
 import type { ConsoleKey } from "@/content/console/en";
-import { Icon } from "./common";
+import { Icon, useEscape } from "./common";
 
 /**
  * Reference-style dropdown row menu (`.dots-wrap`/`.row-menu`/`.row-menu-
@@ -60,6 +60,7 @@ function LiveRowMenu({
     setOpen(false);
     setConfirm(false);
   };
+  useEscape(open, close);
   const act = (fn: () => void) => () => {
     fn();
     close();
@@ -160,7 +161,7 @@ export function LiveItemCard({
       <div className="item-price">
         {item.variants.length > 0 ? formatMoney(item.variants[0]!.basePrice, fmt) : formatMoney({ amount: 0, currency }, fmt)}
       </div>
-      <button className="edit-item" aria-label={`Edit ${tx(item.name)}`} onClick={onEdit}>
+      <button className="edit-item" aria-label={`${t("common.edit")} ${tx(item.name)}`} onClick={onEdit}>
         <Icon name="edit" size={15} /> {t("common.edit")}
       </button>
       <LiveRowMenu
@@ -222,7 +223,7 @@ export function LiveComboCard({
         </div>
       </div>
       <div className="item-price">{variant ? formatMoney(variant.basePrice, fmt) : "—"}</div>
-      <button className="edit-item" aria-label={`Edit ${tx(item.name)}`} onClick={onEdit}>
+      <button className="edit-item" aria-label={`${t("common.edit")} ${tx(item.name)}`} onClick={onEdit}>
         <Icon name="edit" size={15} /> {t("common.edit")}
       </button>
       <LiveRowMenu

@@ -93,13 +93,13 @@ import LiveMenuPreview from "./live-menu-preview";
 
 // "Sort by" choices — client-side, over the already-loaded canonical data.
 type SortKey = "menu" | "name-asc" | "name-desc" | "price-asc" | "price-desc" | "status";
-const SORTS: { key: SortKey; label: string }[] = [
-  { key: "menu", label: "Menu order" },
-  { key: "name-asc", label: "Name (A–Z)" },
-  { key: "name-desc", label: "Name (Z–A)" },
-  { key: "price-asc", label: "Price (low to high)" },
-  { key: "price-desc", label: "Price (high to low)" },
-  { key: "status", label: "Availability" },
+const SORTS: { key: SortKey; label: ConsoleKey }[] = [
+  { key: "menu", label: "mm.sortMenuOrder" },
+  { key: "name-asc", label: "mm.sortNameAsc" },
+  { key: "name-desc", label: "mm.sortNameDesc" },
+  { key: "price-asc", label: "mm.sortPriceAsc" },
+  { key: "price-desc", label: "mm.sortPriceDesc" },
+  { key: "status", label: "mm.sortAvailability" },
 ];
 
 function sortItems(list: LiveItem[], sortBy: SortKey, tx: (v: Localised) => string): LiveItem[] {
@@ -413,7 +413,7 @@ export default function LiveMenuManagement() {
               <div className="menu-select-wrap">
                 <button className={`menu-select ${menuOpen ? "open" : ""}`} onClick={() => setMenuOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={menuOpen}>
                   <span className="menu-select-text">
-                    <span className="small-label">MENU</span>
+                    <span className="small-label">{t("mm.menuLabel")}</span>
                     <strong>{tx(currentMenu.name)}</strong>
                   </span>
                   <span className="menu-select-chev">
@@ -424,7 +424,7 @@ export default function LiveMenuManagement() {
                   <>
                     <div className="menu-backdrop" onClick={() => setMenuOpen(false)}></div>
                     <div className="menu-dropdown">
-                      <div className="dropdown-title">Your menus</div>
+                      <div className="dropdown-title">{t("mm.yourMenus")}</div>
                       {menuRows.map((m) => (
                         <button
                           key={m.id}
@@ -446,7 +446,7 @@ export default function LiveMenuManagement() {
                             setMenuOpen(false);
                           }}
                         >
-                          + Create new menu
+                          + {t("mm.createNewMenu")}
                         </button>
                       ) : null}
                     </div>
@@ -481,7 +481,7 @@ export default function LiveMenuManagement() {
                 <Icon name="settings" size={16} /> {t("menu.customizations")}
               </button>
               <button className="preview-btn" onClick={() => setPreviewOpen(true)}>
-                Preview menu <Icon name="arrow" size={15} />
+                {t("mm.previewMenu")} <Icon name="arrow" size={15} />
               </button>
             </div>
 
@@ -489,7 +489,7 @@ export default function LiveMenuManagement() {
               <aside className="category-panel">
                 <div className="panel-title">
                   <div>
-                    <span className="small-label">CATEGORIES</span>
+                    <span className="small-label">{t("mm.categoriesLabel")}</span>
                     <h3>{tx(currentMenu.name)}</h3>
                   </div>
                 </div>
@@ -544,7 +544,7 @@ export default function LiveMenuManagement() {
                 ) : null}
 
                 <div className="panel-divider">
-                  <span className="small-label">DEALS</span>
+                  <span className="small-label">{t("mm.dealsLabel")}</span>
                 </div>
                 <button
                   className={`category-row ${view === COMBOS ? "chosen" : ""}`}
@@ -554,7 +554,7 @@ export default function LiveMenuManagement() {
                   }}
                 >
                   <span className="row-with-icon">
-                    <Icon name="combo" size={15} /> Combos
+                    <Icon name="combo" size={15} /> {t("mm.combos")}
                   </span>
                   <span className="count">{formatNumber(comboRows.length, fmt)}</span>
                 </button>
@@ -563,13 +563,13 @@ export default function LiveMenuManagement() {
               <section className="items-panel">
                 <div className="items-head">
                   <div>
-                    <span className="small-label">{view === COMBOS ? "DEALS" : view === "all" ? "ALL ITEMS" : "CATEGORY"}</span>
-                    <h2>{view === COMBOS ? "Combos" : view === "all" ? t("menu.allItems") : category ? tx(category.name) : ""}</h2>
+                    <span className="small-label">{view === COMBOS ? t("mm.dealsLabel") : view === "all" ? t("mm.allItemsLabel") : t("mm.categoryLabel")}</span>
+                    <h2>{view === COMBOS ? t("mm.combos") : view === "all" ? t("menu.allItems") : category ? tx(category.name) : ""}</h2>
                   </div>
                   <div className="items-actions">
                     <div className="search">
                       <Icon name="search" size={17} />
-                      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={view === COMBOS ? "Search combos..." : "Search items..."} />
+                      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={view === COMBOS ? t("mm.searchCombos") : t("mm.searchItems")} />
                     </div>
                     <SortSelect value={sortBy} onChange={setSortBy} open={sortOpen} setOpen={setSortOpen} />
                     {canManage ? (
@@ -590,9 +590,9 @@ export default function LiveMenuManagement() {
                   {categoryRows.length === 0 && view !== COMBOS ? (
                     <EmptyState
                       icon="folder"
-                      title="No categories yet"
-                      text="Start by adding a category — for example Starters, Burgers or Drinks — then add items inside it."
-                      actionLabel={canManage ? "Add category" : undefined}
+                      title={t("mm.noCategoriesTitle")}
+                      text={t("mm.noCategoriesText")}
+                      actionLabel={canManage ? t("mm.addCategory") : undefined}
                       onAction={canManage ? () => setCreatingCategory(true) : undefined}
                     />
                   ) : items.loading || categories.loading ? (
@@ -601,22 +601,27 @@ export default function LiveMenuManagement() {
                     <div className="list-state error">
                       {items.error.message}{" "}
                       <button className="link-button" onClick={() => items.reload()}>
-                        Retry
+                        {t("form.retry")}
                       </button>
                     </div>
                   ) : shownItems.length === 0 ? (
                     view === COMBOS ? (
                       <EmptyState
                         icon="combo"
-                        title={comboRows.length ? "No combos match your search" : "No combos yet"}
-                        text="Bundle items into a meal deal — e.g. a burger, a side and a drink — with its own price."
+                        title={comboRows.length ? t("mm.noCombosMatch") : t("mm.noCombosTitle")}
+                        text={t("mm.noCombosText")}
                         actionLabel={canManage ? t("menu.createCombo") : undefined}
                         onAction={canManage ? () => setComboEditor({ item: null }) : undefined}
                       />
                     ) : q ? (
-                      <EmptyState icon="search" title="No items match your search" text="Try a different name." />
+                      <EmptyState icon="search" title={t("mm.noItemsMatch")} text={t("mm.tryDifferentName")} />
                     ) : (
-                      <EmptyState onAction={canManage ? () => setEditorState({ item: undefined }) : undefined} />
+                      <EmptyState
+                        title={t("mm.noItemsTitle")}
+                        text={t("mm.noItemsText")}
+                        actionLabel={t("mm.addItem")}
+                        onAction={canManage ? () => setEditorState({ item: undefined }) : undefined}
+                      />
                     )
                   ) : view === COMBOS ? (
                     shownItems.map((item) => (
@@ -768,13 +773,14 @@ function SortSelect({
   open: boolean;
   setOpen: (v: boolean | ((was: boolean) => boolean)) => void;
 }) {
+  const { t } = useI18n();
   const current = SORTS.find((o) => o.key === value) || SORTS[0]!;
   return (
     <div className="scope-select">
       <button className={`sort-btn ${open ? "open" : ""} ${value !== "menu" ? "active" : ""}`} onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
         <Icon name="sort" size={15} />
         <span>
-          Sort: <b>{current.label}</b>
+          {t("mm.sortLabel")} <b>{t(current.label)}</b>
         </span>
         <span className="sort-chev">
           <Icon name="chevron" size={14} />
@@ -784,7 +790,7 @@ function SortSelect({
         <>
           <div className="menu-backdrop" onClick={() => setOpen(false)}></div>
           <div className="scope-dropdown sort-dropdown" role="listbox">
-            <div className="dropdown-title">Sort by</div>
+            <div className="dropdown-title">{t("mm.sortBy")}</div>
             {SORTS.map((o) => (
               <button
                 key={o.key}
@@ -794,7 +800,7 @@ function SortSelect({
                   setOpen(false);
                 }}
               >
-                {o.label}
+                {t(o.label)}
                 {o.key === value && <Icon name="check" size={14} />}
               </button>
             ))}
@@ -1172,7 +1178,7 @@ function NewGroupForm({
     <>
       <label>
         {t("common.name")}
-        <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Sauces" />
+        <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder={t("mm.placeholderGroup")} />
       </label>
 
       <div className="rules">
@@ -1442,7 +1448,7 @@ function NewModifierForm({
     <div className="used-by">
       <label>
         {t("common.name")}
-        <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Extra cheese" />
+        <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder={t("mm.placeholderModifier")} />
       </label>
 
       <label>

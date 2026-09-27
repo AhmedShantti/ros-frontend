@@ -89,7 +89,13 @@ export function CardHeader({
 }
 
 /** The requirement tag that links a screen back to the specification. */
+/**
+ * The requirement a screen implements (FR-POS-001, §19.4). A cross-reference
+ * for the team reading the SRS — shown in local development only, never to
+ * the people using the product.
+ */
 export function SpecTag({ id }: { id: string }) {
+  if (process.env.NODE_ENV === "production") return null;
   return (
     <span className="border-line text-fg-subtle rounded border px-1.5 py-0.5 font-mono text-[0.62rem] tracking-wide whitespace-nowrap uppercase">
       {id}

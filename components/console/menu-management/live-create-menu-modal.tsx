@@ -13,7 +13,8 @@ import { useState } from "react";
 import type { Branch, Localised, Menu } from "@/lib/console/types";
 import type { ConsoleKey } from "@/content/console/en";
 import { services } from "@/lib/console/services";
-import { Icon, Section, useSaver } from "./common";
+import { ORDER_TYPE } from "@/lib/console/labels";
+import { Icon, Section, useEscape, useSaver } from "./common";
 
 const ORDER_TYPE_CHOICES = ["dine_in", "takeaway", "delivery", "drive_thru", "pickup"] as const;
 
@@ -27,7 +28,8 @@ interface LiveCreateMenuModalProps {
 }
 
 export default function LiveCreateMenuModal({ availableBranches, defaultBranchId, tx, t, onClose, onCreated }: LiveCreateMenuModalProps) {
-  const { saving, error, run } = useSaver();
+  const { saving, error, run } = useSaver(t("mm.somethingWrong"));
+  useEscape(!saving, onClose);
   const [name, setName] = useState("");
   const [priority, setPriority] = useState("10");
   const [orderTypes, setOrderTypes] = useState<string[]>(["dine_in"]);
@@ -73,11 +75,12 @@ export default function LiveCreateMenuModal({ availableBranches, defaultBranchId
           <Section title={t("menu.basicInfo")}>
             <label>
               {t("menu.menuName")}
-              <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Main Menu" />
+              <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={t("mm.placeholderMenuName")} />
             </label>
             <label>
               {t("menu.priority")}
               <input inputMode="numeric" dir="ltr" value={priority} onChange={(e) => setPriority(e.target.value)} />
+              <small className="field-hint">{t("mm.priorityHint")}</small>
             </label>
           </Section>
 
@@ -85,7 +88,7 @@ export default function LiveCreateMenuModal({ availableBranches, defaultBranchId
             <div className="radio-grid three">
               {ORDER_TYPE_CHOICES.map((type) => (
                 <button key={type} className={orderTypes.includes(type) ? "radio-card chosen" : "radio-card"} onClick={() => toggleOrderType(type)}>
-                  <b>{type.replace("_", " ")}</b>
+                  <b>{tx(ORDER_TYPE[type].label)}</b>
                 </button>
               ))}
             </div>

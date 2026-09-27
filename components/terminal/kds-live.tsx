@@ -503,12 +503,19 @@ function KdsSignOn({
 
   return (
     <Card>
-      <CardHeader title={t("shift.signOnTitle")} hint={t("shift.signOnNote")} spec="FR-SEC-020" />
+      <CardHeader title={t("shift.signOnTitle")} hint={t("kds.signOnNote")} spec="FR-SEC-020" />
 
       {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
       {tenantId ? null : <Callout tone="warn">{t("shift.signOnNoTenant")}</Callout>}
 
-      <div className="mt-4 space-y-4">
+      {/* A real form, so pressing Enter in the PIN box signs on. */}
+      <form
+        className="mt-4 space-y-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (valid && !action.pending) signOn();
+        }}
+      >
         <Field label={t("shift.employeeCode")} required>
           <Input
             dir="ltr"
@@ -530,15 +537,15 @@ function KdsSignOn({
         </Field>
 
         <Button
+          type="submit"
           variant="primary"
           className="w-full"
           loading={action.pending}
           disabled={!valid}
-          onClick={signOn}
         >
           {t("shift.signOn")}
         </Button>
-      </div>
+      </form>
     </Card>
   );
 }

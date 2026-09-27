@@ -24,6 +24,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Building2, ChefHat, Check, ScanLine } from "lucide-react";
+import { useDocumentTitle } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { setActiveBranchId } from "@/lib/api/session";
 import { setReturnTo } from "@/lib/console/auth";
@@ -31,6 +32,7 @@ import { Button, Callout, Card, Field, Input, Select, Spinner } from "@/componen
 
 export default function SelectBranchPage() {
   const { t, tx } = useI18n();
+  useDocumentTitle(t("branch.selectTitle"));
   const router = useRouter();
   const { authenticated, branch, availableBranches, org } = useSession();
 
@@ -139,11 +141,11 @@ export default function SelectBranchPage() {
       </Button>
 
       <Link
-        href="/login"
+        href="/dashboard"
         className="text-fg-muted hover:text-fg mt-4 inline-flex items-center gap-1.5 text-xs transition-colors"
       >
         <ArrowLeft size={12} className="rtl:rotate-180" aria-hidden />
-        {t("auth.backToSignIn")}
+        {t("branch.backToConsole")}
       </Link>
     </Card>
   );
@@ -194,11 +196,11 @@ function BranchSelected({ name }: { name: string }) {
           {t("branch.openKds")}
         </Button>
         <Link
-          href="/login"
+          href="/dashboard"
           className="text-fg-muted hover:text-fg inline-flex items-center justify-center gap-1.5 py-1 text-xs transition-colors"
         >
           <ArrowLeft size={12} className="rtl:rotate-180" aria-hidden />
-          {t("auth.backToSignIn")}
+          {t("branch.backToConsole")}
         </Link>
       </div>
     </Card>

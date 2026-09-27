@@ -592,3 +592,8 @@
 
 /* Directional arrows point the reading direction in Arabic (RTL). */
 [dir="rtl"] .mm-root .preview-btn svg{transform:scaleX(-1)}
+
+/* The console header already shows the brand/branch pickers from 640px up;
+   keep the page's own copy only on phones, where the header hides them. */
+@media (min-width:640px){.mm-root .scope-bar{display:none}}
+.mm-root .field-hint{display:block;margin-top:5px;font-size:11px;color:#8a8a84;line-height:1.4}

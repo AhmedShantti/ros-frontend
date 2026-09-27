@@ -122,7 +122,7 @@ export default function OpenOrdersPage() {
             label={t("pos.balance")}
             value={formatMoney(money(outstanding, currency), fmt)}
           />
-          <MetricTile label={t("pos.fire")} value={String(unfired)} spec="FR-POS-035" />
+          <MetricTile label={t("orders.notSentToKitchen")} value={String(unfired)} spec="FR-POS-035" />
         </TileGrid>
 
         {feed.error ? <ErrorPanel error={feed.error} onRetry={feed.reload} /> : null}

@@ -20,13 +20,14 @@
  * they are not allowed to read.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Building2, LogIn, ShieldCheck } from "lucide-react";
 import { ROLE_DEFINITIONS } from "@/lib/console/permissions";
 import { AuthError, DEMO_ACCOUNTS, DEMO_PASSWORD, authenticate } from "@/lib/console/mock/accounts";
 import { roleFromPermissions, setPendingRole, takeReturnTo } from "@/lib/console/auth";
+import { useDocumentTitle } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { DATA_MODE, describeTarget } from "@/lib/api/config";
 import {
@@ -36,6 +37,7 @@ import {
   type Membership,
 } from "@/lib/api/auth";
 import { ServiceError } from "@/lib/console/services";
+import { getTenantId, isSignedIn } from "@/lib/api/session";
 import { Badge, Button, Callout, Card, Input } from "@/components/console/ui";
 import { Form, FormField, useZodForm } from "@/components/console/form";
 import { loginSchema, type LoginInput } from "@/schemas/auth";
@@ -50,15 +52,30 @@ const FAILURE_KEY = {
 export default function LoginPage() {
   const router = useRouter();
   const { t } = useI18n();
+  useDocumentTitle(t("auth.signIn"));
   const { signIn } = useSession();
 
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  /*
+   * The failure is kept as a translation key (or the server's own text), not
+   * as an already-translated string, so switching language after a failed
+   * sign-in re-renders the message in the new language.
+   */
+  const [submitFailure, setSubmitFailure] = useState<Failure | null>(null);
+  const submitError = submitFailure ? renderFailure(submitFailure, t) : null;
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   /** Set when the account belongs to more than one tenant and must choose. */
   const [choices, setChoices] = useState<Membership[] | null>(null);
 
   const live = DATA_MODE === "http";
+
+  // Someone who is already signed in has nothing to do here: send them on,
+  // rather than showing a sign-in form for a session they already have.
+  useEffect(() => {
+    if (live && isSignedIn() && getTenantId()) {
+      router.replace(takeReturnTo() ?? "/dashboard");
+    }
+  }, [live, router]);
 
   const form = useZodForm(loginSchema, {
     defaultValues: { email: "", password: "", remember: true },
@@ -67,7 +84,7 @@ export default function LoginPage() {
   function fill(email: string) {
     form.setValue("email", email);
     form.setValue("password", DEMO_PASSWORD);
-    setSubmitError(null);
+    setSubmitFailure(null);
   }
 
   /** The token is scoped; ask the server what it will actually allow. */
@@ -81,18 +98,18 @@ export default function LoginPage() {
 
   async function chooseTenant(tenantId: string) {
     setSubmitting(true);
-    setSubmitError(null);
+    setSubmitFailure(null);
     try {
       await selectTenant(tenantId);
       await enterConsole();
     } catch (error) {
-      setSubmitError(describeFailure(error, t));
+      setSubmitFailure(describeFailure(error));
       setSubmitting(false);
     }
   }
 
   async function onSubmit(values: LoginInput) {
-    setSubmitError(null);
+    setSubmitFailure(null);
     setNotice(null);
     setSubmitting(true);
 
@@ -114,7 +131,7 @@ export default function LoginPage() {
 
         await enterConsole();
       } catch (error) {
-        setSubmitError(describeFailure(error, t));
+        setSubmitFailure(describeFailure(error));
         setSubmitting(false);
       }
       return;
@@ -139,7 +156,7 @@ export default function LoginPage() {
       router.replace(takeReturnTo() ?? account.home);
     } catch (error) {
       const reason = error instanceof AuthError ? error.reason : "bad_password";
-      setSubmitError(t(FAILURE_KEY[reason]));
+      setSubmitFailure({ key: FAILURE_KEY[reason] });
       setSubmitting(false);
     }
   }
@@ -213,21 +230,14 @@ export default function LoginPage() {
           </Button>
 
           <div className="text-fg-subtle flex flex-wrap items-center justify-between gap-2 text-xs">
-            <Link href="/forgot-password" className="hover:text-fg transition-colors">
+            <Link href="/forgot-password" className="hover:text-fg inline-flex min-h-10 items-center transition-colors">
               {t("auth.forgot")}
-            </Link>
-            <Link
-              href="/select-branch"
-              className="hover:text-fg inline-flex items-center gap-1.5 transition-colors"
-            >
-              <Building2 size={12} aria-hidden />
-              {t("branch.selectTitle")}
             </Link>
           </div>
 
           <p className="text-fg-subtle border-line border-t pt-4 text-center text-xs">
             {t("signup.noAccount")}{" "}
-            <Link href="/signup" className="text-accent font-medium">
+            <Link href="/signup" className="text-accent inline-flex min-h-10 items-center font-medium">
               {t("signup.title")}
             </Link>
           </p>
@@ -242,13 +252,20 @@ export default function LoginPage() {
 // ---------------------------------------------------------------------------
 
 /** The server's own wording is the most useful thing on a failed sign-in. */
-function describeFailure(error: unknown, t: (key: "auth.errorInvalid" | "auth.errorNetwork") => string): string {
+type Failure = { key: string; detail?: string } | { text: string };
+
+function describeFailure(error: unknown): Failure {
   if (error instanceof ServiceError) {
-    if (error.code === "NETWORK_UNREACHABLE") return `${t("auth.errorNetwork")} ${error.detail ?? ""}`.trim();
-    if (error.status === 401) return t("auth.errorInvalid");
-    return error.message;
+    if (error.code === "NETWORK_UNREACHABLE") return { key: "auth.errorNetwork", detail: error.detail };
+    if (error.status === 401) return { key: "auth.errorInvalid" };
+    return { text: error.message };
   }
-  return t("auth.errorNetwork");
+  return { key: "auth.errorNetwork" };
+}
+
+function renderFailure(failure: Failure, t: (key: never) => string): string {
+  if ("text" in failure) return failure.text;
+  return `${t(failure.key as never)} ${failure.detail ?? ""}`.trim();
 }
 
 /**

@@ -167,7 +167,7 @@ describe("Live Menu Management", () => {
     render(<LiveMenuManagement />);
 
     await user.click(await screen.findByRole("button", { name: "menu.newMenu" }));
-    await user.type(screen.getByPlaceholderText("e.g. Main Menu"), "Dinner");
+    await user.type(screen.getByPlaceholderText("mm.placeholderMenuName"), "Dinner");
     await user.click(screen.getByRole("button", { name: "menu.createMenuButton" }));
 
     await waitFor(() => expect(menusCreate).toHaveBeenCalledWith(expect.objectContaining({ name: { en: "Dinner", ar: "Dinner" } })));

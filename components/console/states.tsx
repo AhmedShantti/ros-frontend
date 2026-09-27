@@ -221,7 +221,9 @@ export function UnsupportedPanel({
       body={
         <>
           {t("state.unsupportedBody")}
-          {detail ? (
+          {/* The endpoint detail is for developers; users get the translated
+              message above only. */}
+          {detail && process.env.NODE_ENV === "development" ? (
             <span className="border-line text-fg-subtle mt-2 block rounded border px-2 py-1 font-mono text-[0.62rem] leading-relaxed break-words">
               {t("state.unsupportedDetail")}: {detail}
             </span>
