@@ -96,9 +96,14 @@ export function AuthShell({ children }: { children: ReactNode }) {
           </ul>
         </div>
 
-        <p className="text-fg-subtle relative font-mono text-[0.68rem]" dir="ltr">
-          {t("auth.docNote")}
-        </p>
+        {/* The spec reference is for the team, not for visitors. */}
+        {process.env.NODE_ENV === "development" ? (
+          <p className="text-fg-subtle relative font-mono text-[0.68rem]" dir="ltr">
+            {t("auth.docNote")}
+          </p>
+        ) : (
+          <span aria-hidden />
+        )}
       </aside>
 
       {/* ---------------------------- Form ----------------------------- */}

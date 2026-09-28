@@ -51,12 +51,15 @@ export function currencyExponent(currency: Currency): number {
 export function formatMoney(money: Money, opts: FormatOptions, compact = false): string {
   const exponent = CURRENCY_EXPONENT[money.currency];
   const value = money.amount / 10 ** exponent;
+  // Compact only shortens what is actually large (EGP 12K). Below that it
+  // keeps the decimals, so "EGP 0" and "EGP 0.00" never sit side by side.
+  const shorten = compact && Math.abs(value) >= 10_000;
   return new Intl.NumberFormat(intlLocale(opts), {
     style: "currency",
     currency: money.currency,
-    minimumFractionDigits: compact ? 0 : exponent,
-    maximumFractionDigits: compact ? 0 : exponent,
-    notation: compact && Math.abs(value) >= 10_000 ? "compact" : "standard",
+    minimumFractionDigits: shorten ? 0 : exponent,
+    maximumFractionDigits: shorten ? 0 : exponent,
+    notation: shorten ? "compact" : "standard",
   }).format(value);
 }
 

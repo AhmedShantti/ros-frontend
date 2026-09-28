@@ -204,12 +204,12 @@ describe("Live Menu Management — direct variant pricing", () => {
     render(<LiveMenuManagement />);
 
     const card = (await screen.findByText("Burger")).closest(".item-card") as HTMLElement;
-    await user.click(within(card).getByRole("button", { name: /Edit/ }));
+    await user.click(within(card).getByRole("button", { name: /common\.edit/ }));
     const variantRow = (await screen.findByText("Regular")).closest(".size-row") as HTMLElement;
 
-    await user.click(within(variantRow).getByRole("button", { name: "Edit price" }));
+    await user.click(within(variantRow).getByRole("button", { name: "mm.editPrice" }));
     await user.type(within(variantRow).getByRole("spinbutton"), "15.00");
-    await user.click(within(variantRow).getByRole("button", { name: "Save price" }));
+    await user.click(within(variantRow).getByRole("button", { name: "mm.savePrice" }));
 
     await waitFor(() => expect(updateVariantPrice).toHaveBeenCalledWith("variant-1", { amount: 1500, currency: "EGP" }));
   });

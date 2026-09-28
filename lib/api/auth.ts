@@ -31,6 +31,7 @@ import {
   getDeviceTenantId,
   getPosEmployee,
   getTenantId,
+  setConsoleUser,
   setPosEmployee,
   setTenantId,
   setTokens,
@@ -76,6 +77,7 @@ export async function signIn(email: string, password: string): Promise<SignInRes
   }
 
   const user = await api.auth.me();
+  setConsoleUser({ displayName: user.displayName, email: user.email });
 
   return { user, memberships: usable, tenantId, mustResetPassword: user.mustReset };
 }

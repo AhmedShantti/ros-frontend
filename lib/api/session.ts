@@ -331,6 +331,7 @@ export function announceSessionChange(): void {
 }
 
 function clearIdentity(surface: AuthSurface): void {
+  if (surface === "console") write(CONSOLE_USER_KEY, null);
   const keys = keysFor(surface);
   write(keys.access, null);
   write(keys.refresh, null);
@@ -366,6 +367,34 @@ function clearIdentity(surface: AuthSurface): void {
  * "the current surface" already means "this one, not the other" — a KDS
  * sign-on/sign-off must never touch POS's token or vice versa.
  */
+/**
+ * The signed-in console user as the backend knows them (`GET /auth/me`) —
+ * so the account menu shows who actually signed in, not a demo fixture.
+ */
+const CONSOLE_USER_KEY = "ros.api.user";
+
+export interface ConsoleUser {
+  displayName: string;
+  email: string;
+}
+
+export function setConsoleUser(user: ConsoleUser | null): void {
+  write(CONSOLE_USER_KEY, user ? JSON.stringify({ displayName: user.displayName, email: user.email }) : null);
+}
+
+export function getConsoleUser(): ConsoleUser | null {
+  const raw = read(CONSOLE_USER_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<ConsoleUser>;
+    return typeof parsed.email === "string"
+      ? { displayName: typeof parsed.displayName === "string" ? parsed.displayName : "", email: parsed.email }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function clearSession(): void {
   clearIdentity(activeSurface);
   announce();

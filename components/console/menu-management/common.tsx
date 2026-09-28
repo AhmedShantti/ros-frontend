@@ -2,7 +2,7 @@
 
 /** Menu Management — shared building blocks (icons, badges, menus, footers). */
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { STATUS } from "@/lib/console/menu-management/menu";
 import type { MmStatus } from "@/lib/console/menu-management/types";
 
@@ -152,15 +152,27 @@ export function EditorFooter({
   </div>;
 }
 
+/** Calls `handler` when Esc is pressed, while `active` (a dialog or menu is open). */
+export function useEscape(active: boolean, handler: () => void) {
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") handler();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active, handler]);
+}
+
 /** Runs an async save, tracking busy + error state for an editor. */
-export function useSaver() {
+export function useSaver(fallbackMessage = "Something went wrong. Try again.") {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   async function run(fn: () => Promise<unknown>) {
     setSaving(true);
     setError("");
     try { await fn(); }
-    catch (e) { setError((e instanceof Error && e.message) || "Something went wrong. Try again."); }
+    catch (e) { setError((e instanceof Error && e.message) || fallbackMessage); }
     finally { setSaving(false); }
   }
   return { saving, error, run, setError };

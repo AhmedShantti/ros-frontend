@@ -493,3 +493,19 @@ describe("isSessionOverHardLimit — POS-KDS-SESSION-LIFETIME-POLICY-P0, as amen
     expect(isSessionOverHardLimit()).toBe(false); // POS: exempt regardless, same instant
   });
 });
+
+describe("console user (GET /auth/me) — shown in the account menu", () => {
+  it("round-trips the signed-in user's name and email", async () => {
+    const S = await import("./session");
+    S.setConsoleUser({ displayName: "Nour Ibrahim", email: "nour@example.com" });
+    expect(S.getConsoleUser()).toEqual({ displayName: "Nour Ibrahim", email: "nour@example.com" });
+  });
+
+  it("is forgotten when the console session is cleared", async () => {
+    const S = await import("./session");
+    S.setConsoleUser({ displayName: "Nour Ibrahim", email: "nour@example.com" });
+    S.setActiveSurface("console");
+    S.clearSession();
+    expect(S.getConsoleUser()).toBeNull();
+  });
+});

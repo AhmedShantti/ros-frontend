@@ -198,6 +198,33 @@ describe("LiveKds — PIN sign-on contract (FRONTEND-POS-KDS-TERMINAL-DECOUPLING
     expect(payload).not.toHaveProperty("terminalId");
   });
 
+  it("pressing Enter in the PIN box signs on — exactly once", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+
+    render(<LiveKds />);
+
+    await user.type(await screen.findByLabelText(/shift\.employeeCode/), "EMP02");
+    await user.type(screen.getByLabelText(/shift\.pinLabel/), "5678{Enter}");
+
+    await waitFor(() => expect(signInWithPin).toHaveBeenCalledTimes(1));
+  });
+
+  it("clicking Sign on still signs on exactly once (no double submit)", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+
+    render(<LiveKds />);
+
+    await user.type(await screen.findByLabelText(/shift\.employeeCode/), "EMP02");
+    await user.type(screen.getByLabelText(/shift\.pinLabel/), "5678");
+    await user.click(screen.getByRole("button", { name: "shift.signOn" }));
+
+    await waitFor(() => expect(signInWithPin).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(signInWithPin).toHaveBeenCalledTimes(1);
+  });
+
   it("boots normally even when the device still carries legacy Terminal localStorage from before this migration", async () => {
     window.localStorage.setItem("ros.api.terminalId", "legacy-term-1");
     window.localStorage.setItem("ros.api.terminalName", "Old KDS Display");

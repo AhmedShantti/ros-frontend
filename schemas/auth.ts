@@ -52,7 +52,7 @@ export const signUpSchema = z
     email: emailField,
     phone: optionalPhone,
     roleKey: z.enum(ROLE_KEYS),
-    organisation: requiredString(120),
+    organisation: requiredString(120).min(3, V.min(3)),
     /** The brand, branch or branch group the role is scoped to, by name. */
     scopeName: z.string().trim().max(120, V.max(120)).optional(),
     /** POS and KDS sign-on. Blank for roles that never touch a terminal. */

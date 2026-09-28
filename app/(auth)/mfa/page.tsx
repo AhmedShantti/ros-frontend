@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { ROLE_DEFINITIONS, type RoleKey } from "@/lib/console/permissions";
 import { clearPendingRole, readPendingRole } from "@/lib/console/auth";
+import { useDocumentTitle } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { Badge, Button, Callout, Card } from "@/components/console/ui";
 
@@ -21,6 +22,7 @@ const LENGTH = 6;
 export default function MfaPage() {
   const router = useRouter();
   const { t, tx } = useI18n();
+  useDocumentTitle(t("auth.mfaTitle"));
   const { signIn } = useSession();
 
   const [role, setRole] = useState<RoleKey | null>(null);

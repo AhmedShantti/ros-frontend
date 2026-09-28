@@ -468,3 +468,26 @@ export function useDialogRefs(open: boolean, onClose: () => void) {
     [dismissRef, focusRef],
   );
 }
+
+/**
+ * Sets the browser tab title for a client page ("Request an account —
+ * TRENDOW"), in the UI language. Client pages cannot export Next.js
+ * `metadata`, so without this every auth screen inherited the layout's
+ * "Sign in — TRENDOW", even /signup, and the title never followed Arabic.
+ */
+export function useDocumentTitle(title: string): void {
+  useEffect(() => {
+    if (!title) return;
+    const wanted = `${title} — TRENDOW`;
+    const apply = () => {
+      if (document.title !== wanted) document.title = wanted;
+    };
+    apply();
+    // Next.js writes the layout's metadata title after this effect has run
+    // (streamed metadata), which would put "Sign in — TRENDOW" back. Keep
+    // this page's title applied while the page is mounted.
+    const observer = new MutationObserver(apply);
+    observer.observe(document.head, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [title]);
+}

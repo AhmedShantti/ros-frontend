@@ -12,6 +12,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, MailCheck, Send } from "lucide-react";
+import { useDocumentTitle } from "@/lib/console/hooks";
 import { useI18n } from "@/lib/console/providers";
 import { api } from "@/lib/api/endpoints";
 import { DATA_MODE } from "@/lib/api/config";
@@ -22,6 +23,7 @@ import { forgotPasswordSchema, type ForgotPasswordInput } from "@/schemas/auth";
 
 export default function ForgotPasswordPage() {
   const { t } = useI18n();
+  useDocumentTitle(t("auth.forgotTitle"));
   const [sent, setSent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);

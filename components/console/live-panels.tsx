@@ -44,6 +44,9 @@ export function LiveNotice({ source = "device" }: { source?: "device" | "backend
   }
 
   if (source === "backend") {
+    // "This comes from the backend" is the normal case on a deployed site —
+    // worth saying to a developer, noise to everyone else.
+    if (process.env.NODE_ENV === "production") return null;
     return (
       <Callout tone="accent" title={t("live.httpTitle")}>
         {t("live.httpNote")}

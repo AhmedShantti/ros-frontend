@@ -13,8 +13,9 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ExternalLink, Menu as MenuIcon, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { NAV_SECTIONS, isItemActive, type NavItem } from "@/lib/console/nav";
-import { useDismissable } from "@/lib/console/hooks";
+import { useDismissable, useDocumentTitle } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
+import { setReturnTo } from "@/lib/console/auth";
 import { AccountMenu, LanguageToggle, RoleSwitcher, ScopeSummary, ScopeSwitcher, ThemeToggle } from "./switchers";
 import { IconButton, cx } from "./ui";
 import { LoadingPanel } from "./states";
@@ -308,9 +309,15 @@ function useAuthGuard() {
   const router = useRouter();
   const { authenticated } = useSession();
 
+  const pathname = usePathname();
+
   useEffect(() => {
-    if (!authenticated) router.replace("/login");
-  }, [authenticated, router]);
+    if (!authenticated) {
+      // Come back to this page after signing in, not to the dashboard.
+      setReturnTo(`${pathname}${window.location.search}`);
+      router.replace("/login");
+    }
+  }, [authenticated, router, pathname]);
 
   return authenticated;
 }
@@ -331,6 +338,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
    * never blanks a page that is already showing.
    */
   const scopeReady = DATA_MODE !== "http" || org.ready;
+  useDocumentTitle(t("app.console"));
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {

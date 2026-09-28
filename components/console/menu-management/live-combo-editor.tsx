@@ -48,7 +48,7 @@ import type { LiveCategory, LiveItem } from "@/lib/console/menu-management/live-
 import type { ConsoleKey } from "@/content/console/en";
 import { itemStatus } from "./live-cards";
 import { AvailabilityPicker, Eighty6Prompt } from "./live-item-editor";
-import { Icon, Section, useSaver } from "./common";
+import { Icon, Section, useEscape, useSaver } from "./common";
 
 type ComboPricingStrategy = "fixed" | "sum_components_minus_discount" | "component_price_override";
 type ComboAllocationBasis = "equal" | "list_price" | "cost";
@@ -115,7 +115,8 @@ export default function LiveComboEditor({
   onClose,
   onCreated,
 }: LiveComboEditorProps) {
-  const { saving, error, run, setError } = useSaver();
+  const { saving, error, run, setError } = useSaver(t("mm.somethingWrong"));
+  useEscape(!saving, onClose);
   const isEdit = !!existingItem;
   const [pending86, setPending86] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -191,9 +192,9 @@ export default function LiveComboEditor({
     existingItem
       ? []
       : [
-          { key: tempKey(), label: "Main", isRequired: true, options: [] },
-          { key: tempKey(), label: "Side", isRequired: true, options: [] },
-          { key: tempKey(), label: "Drink", isRequired: true, options: [] },
+          { key: tempKey(), label: t("mm.partMain"), isRequired: true, options: [] },
+          { key: tempKey(), label: t("mm.partSide"), isRequired: true, options: [] },
+          { key: tempKey(), label: t("mm.partDrink"), isRequired: true, options: [] },
         ],
   );
   const [loadingExisting, setLoadingExisting] = useState(isEdit);
@@ -232,7 +233,7 @@ export default function LiveComboEditor({
         setSlots(loaded);
       })
       .catch(() => {
-        if (!cancelled) setLoadError("Could not load this combo's parts. Close and try again.");
+        if (!cancelled) setLoadError(t("mm.comboLoadError"));
       })
       .finally(() => {
         if (!cancelled) setLoadingExisting(false);
@@ -398,14 +399,14 @@ export default function LiveComboEditor({
           // (`PATCH modifier-groups/:groupId`) — synced every save, harmless
           // when unchanged.
           await services.catalogue.modifierGroups.update(groupId, {
-            name: { en: slot.label.trim() || "Choice", ar: slot.label.trim() || "Choice" },
+            name: { en: slot.label.trim() || t("mm.choice"), ar: slot.label.trim() || t("mm.choice") },
             required: slot.isRequired,
             minSelections: slot.isRequired ? 1 : 0,
             maxSelections: 1,
           });
         } else {
           const group = await services.catalogue.modifierGroups.create({
-            name: { en: slot.label.trim() || "Choice", ar: slot.label.trim() || "Choice" },
+            name: { en: slot.label.trim() || t("mm.choice"), ar: slot.label.trim() || t("mm.choice") },
             minSelections: slot.isRequired ? 1 : 0,
             maxSelections: 1,
             required: slot.isRequired,
@@ -460,11 +461,11 @@ export default function LiveComboEditor({
           <Section title={t("menu.basicInfo")}>
             <label>
               {t("menu.comboName")}
-              <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Chicken Meal" />
+              <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={t("mm.placeholderComboName")} />
             </label>
             <label>
               {t("common.description")}
-              <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Burger, side and a drink" />
+              <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("mm.placeholderComboDescription")} />
             </label>
             <label>
               {t("common.category")}
@@ -495,7 +496,7 @@ export default function LiveComboEditor({
                 <div className="combo-slot" key={slot.key}>
                   <div className="combo-slot-head">
                     <span className="slot-num">{idx + 1}</span>
-                    <input value={slot.label} onChange={(e) => updateSlot(slot.key, { label: e.target.value })} placeholder="Part name, e.g. Drink" />
+                    <input value={slot.label} onChange={(e) => updateSlot(slot.key, { label: e.target.value })} placeholder={t("mm.placeholderPartName")} />
                     {!slot.existingGroupId ? (
                       <button className="row-remove" aria-label={t("menu.removePart")} onClick={() => setSlots((cur) => cur.filter((s) => s.key !== slot.key))}>
                         ×
@@ -534,13 +535,13 @@ export default function LiveComboEditor({
                                 style={{ width: 64 }}
                                 value={option.overrideAmount}
                                 onChange={(e) => updateOption(slot.key, option.key, { overrideAmount: e.target.value })}
-                                placeholder="price"
+                                placeholder={t("mm.placeholderPrice")}
                               />
                             )
                           ) : null}
                           {unavailable ? <b className="chip-warn">{t("menu.unavailable")}</b> : null}
                           {!option.existing ? (
-                            <button aria-label={`Remove ${name}`} onClick={() => removeOption(slot.key, option.key)}>
+                            <button aria-label={`${t("mm.remove")} ${name}`} onClick={() => removeOption(slot.key, option.key)}>
                               ×
                             </button>
                           ) : null}

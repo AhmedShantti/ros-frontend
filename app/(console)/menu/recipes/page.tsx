@@ -226,9 +226,10 @@ function RecipesScreen() {
             spec="BR-MNU-012"
             footer={
               incompleteCount > 0 ? (
+                // Label first, count after: reads correctly for any number in
+                // Arabic, where "1 صنفًا" / "2 صنفًا" need different forms.
                 <span>
-                  {formatNumber(incompleteCount, fmt)}{" "}
-                  {t("recipes.itemsWithout")}
+                  {t("recipes.itemsWithout")}: {formatNumber(incompleteCount, fmt)}
                 </span>
               ) : null
             }

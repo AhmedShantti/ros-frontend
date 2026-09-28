@@ -40,7 +40,6 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   BadgeCheck,
-  KeyRound,
   Mail,
   ShieldAlert,
   UserPlus,
@@ -54,6 +53,7 @@ import {
   type Surface,
 } from "@/lib/console/permissions";
 import { roleFromPermissions, takeReturnTo } from "@/lib/console/auth";
+import { useDocumentTitle } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { ServiceError } from "@/lib/console/services";
 import { describeError } from "@/lib/console/actions";
@@ -128,6 +128,7 @@ const SURFACE_LABEL: Record<Surface, string> = {
 
 export default function SignUpPage() {
   const { t, tx } = useI18n();
+  useDocumentTitle(t("signup.title"));
   const router = useRouter();
   const { signIn } = useSession();
 
@@ -548,10 +549,6 @@ function ChosenRole({ roleKey, onChange }: { roleKey: RoleKey; onChange: () => v
 
       <span className="flex flex-wrap items-center gap-1">
         <Badge tone="muted">{t(SCOPE_LABEL[role.defaultScope])}</Badge>
-        <Badge tone={role.permissions.length > 80 ? "warn" : "muted"}>
-          <KeyRound size={11} aria-hidden />
-          {t("signup.permissionCount").replace("{n}", String(role.permissions.length))}
-        </Badge>
       </span>
 
       <button

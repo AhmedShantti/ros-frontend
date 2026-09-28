@@ -40,7 +40,7 @@ import { useTaxClasses } from "@/components/console/catalogue/tax-class-field";
 import type { LiveCategory, LiveItem } from "@/lib/console/menu-management/live-adapter";
 import type { ConsoleKey } from "@/content/console/en";
 import { itemStatus } from "./live-cards";
-import { Icon, Section, useSaver } from "./common";
+import { Icon, Section, useEscape, useSaver } from "./common";
 
 interface LiveItemEditorProps {
   item: LiveItem | null;
@@ -70,7 +70,8 @@ export default function LiveItemEditor({
   onOpenCustomizations,
 }: LiveItemEditorProps) {
   const { t, tx, fmt } = useI18n();
-  const { saving, error, run, setError } = useSaver();
+  const { saving, error, run, setError } = useSaver(t("mm.somethingWrong"));
+  useEscape(!saving, onClose);
   const [name, setName] = useState(item ? tx(item.name) : "");
   const [kitchenName, setKitchenName] = useState(item ? tx(item.kitchenName) : "");
   const [description, setDescription] = useState(item ? tx(item.description) : "");
@@ -190,7 +191,7 @@ export default function LiveItemEditor({
       onChanged(available ? t("menu.restored") : reason ? `${t("menu.eightySixed")} — ${reason}` : t("menu.eightySixed"));
       onClose();
     } catch (e) {
-      setError((e instanceof Error && e.message) || "Something went wrong. Try again.");
+      setError((e instanceof Error && e.message) || t("mm.somethingWrong"));
     }
   }
 
@@ -254,7 +255,7 @@ export default function LiveItemEditor({
       <div className="drawer">
         <div className="drawer-head">
           <div>
-            <span className="small-label">{item ? "EDIT ITEM" : "NEW ITEM"}</span>
+            <span className="small-label">{item ? t("mm.editItemLabel") : t("mm.newItemLabel")}</span>
             <h2>{item ? tx(item.name) : t("menu.newItem")}</h2>
           </div>
           <button className="icon-btn" onClick={onClose}>
@@ -265,17 +266,17 @@ export default function LiveItemEditor({
           <Section title={t("menu.basicInfo")}>
             <label>
               {t("menu.itemNameLabel")}
-              <input autoFocus={!item} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Chicken Burger" disabled={!canManage} />
+              <input autoFocus={!item} value={name} onChange={(e) => setName(e.target.value)} placeholder={t("mm.placeholderItemName")} disabled={!canManage} />
             </label>
             <label>
               {t("menu.kitchenName")}
-              <input value={kitchenName} onChange={(e) => setKitchenName(e.target.value)} placeholder="Name shown to kitchen (defaults to item name)" disabled={!canManage} />
+              <input value={kitchenName} onChange={(e) => setKitchenName(e.target.value)} placeholder={t("mm.placeholderKitchenName")} disabled={!canManage} />
             </label>
             <label>
               {t("common.category")}
               <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} disabled={!canManage}>
                 <option value="">—</option>
-                {categories.length === 0 && <option value="">No categories yet</option>}
+                {categories.length === 0 && <option value="">{t("mm.noCategoriesTitle")}</option>}
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>
                     {tx(c.name)}
@@ -285,7 +286,7 @@ export default function LiveItemEditor({
             </label>
             <label>
               {t("common.description")}
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short description customers will see" disabled={!canManage} />
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("mm.placeholderDescription")} disabled={!canManage} />
             </label>
             <label>
               {t("menu.taxClass")}
@@ -469,7 +470,7 @@ function LivePriceRow({
   canChangePrice: boolean;
   onSaved: () => void;
 }) {
-  const { fmt } = useI18n();
+  const { t, fmt } = useI18n();
   const action = useAction();
   const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState("");
@@ -502,11 +503,11 @@ function LivePriceRow({
       )}
       {canChangePrice ? (
         editing ? (
-          <button className="row-remove" aria-label="Save price" onClick={save} disabled={action.pending}>
+          <button className="row-remove" aria-label={t("mm.savePrice")} onClick={save} disabled={action.pending}>
             <Icon name="check" size={14} />
           </button>
         ) : (
-          <button className="row-remove" aria-label="Edit price" onClick={() => { setAmount(""); setEditing(true); }}>
+          <button className="row-remove" aria-label={t("mm.editPrice")} onClick={() => { setAmount(""); setEditing(true); }}>
             <Icon name="edit" size={14} />
           </button>
         )

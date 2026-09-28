@@ -8,6 +8,7 @@
  * console can be explored from any seat. Preferences are per-device.
  */
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Building2,
@@ -26,6 +27,7 @@ import { ROLE_DEFINITIONS, ROLE_KEYS, roleRequiresMfa } from "@/lib/console/perm
 import { initials } from "@/lib/console/format";
 import { useI18n, usePreferences, useSession } from "@/lib/console/providers";
 import { DATA_MODE } from "@/lib/api/config";
+import { getConsoleUser, type ConsoleUser } from "@/lib/api/session";
 import {
   Badge,
   Menu,
@@ -72,7 +74,12 @@ export function ScopeSwitcher() {
       <Menu
         label={t("scope.brand")}
         trigger={({ toggle }) => (
-          <button type="button" onClick={toggle} className={TRIGGER_CLASS}>
+          <button
+            type="button"
+            onClick={toggle}
+            className={TRIGGER_CLASS}
+            aria-label={`${t("scope.brand")}: ${tx(brand?.name) || t("scope.allBrands")}`}
+          >
             <Store size={13} className="text-fg-subtle shrink-0" />
             <span className="truncate">{tx(brand?.name) || t("scope.allBrands")}</span>
             <ChevronDown size={13} className="text-fg-subtle shrink-0" />
@@ -97,7 +104,12 @@ export function ScopeSwitcher() {
       <Menu
         label={t("scope.branch")}
         trigger={({ toggle }) => (
-          <button type="button" onClick={toggle} className={TRIGGER_CLASS}>
+          <button
+            type="button"
+            onClick={toggle}
+            className={TRIGGER_CLASS}
+            aria-label={`${t("scope.branch")}: ${tx(branch?.name) || t("scope.allBranches")}`}
+          >
             <Building2 size={13} className="text-fg-subtle shrink-0" />
             <span className="truncate">{tx(branch?.name) || t("scope.allBranches")}</span>
             <ChevronDown size={13} className="text-fg-subtle shrink-0" />
@@ -254,7 +266,25 @@ export function AccountMenu() {
   const { session, roleKey, signOut } = useSession();
 
   const definition = ROLE_DEFINITIONS[roleKey];
-  const name = session ? tx(session.user.name) : tx(definition.name);
+
+  /*
+   * Live, `session.user` is a demo fixture chosen by role (it is how the
+   * account menu came to show "يوسف رشاد" for everyone). The real person is
+   * whoever `GET /auth/me` returned at sign-in; read it after mount, since
+   * it lives in localStorage the server render cannot see.
+   */
+  const live = DATA_MODE === "http";
+  const [liveUser, setLiveUser] = useState<ConsoleUser | null>(null);
+  useEffect(() => {
+    if (live) setLiveUser(getConsoleUser());
+  }, [live]);
+
+  const name = live
+    ? liveUser?.displayName || liveUser?.email || tx(definition.name)
+    : session
+      ? tx(session.user.name)
+      : tx(definition.name);
+  const email = live ? liveUser?.email : session?.user.email;
   const permissionCount = session?.permissions.size ?? definition.permissions.length;
 
   return (
@@ -265,15 +295,21 @@ export function AccountMenu() {
           type="button"
           onClick={toggle}
           aria-label={t("pref.account")}
-          className="bg-accent-soft text-accent hover:bg-accent hover:text-accent-fg inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold transition-colors"
+          className="group inline-flex items-center gap-2 rounded-full"
         >
-          {initials(name)}
+          <span className="bg-accent-soft text-accent group-hover:bg-accent group-hover:text-accent-fg inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold transition-colors">
+            {initials(name)}
+          </span>
+          {/* Who is signed in, visible without opening the menu (desktop). */}
+          <span className="text-fg hidden max-w-[10rem] truncate text-xs font-medium lg:inline">
+            {name}
+          </span>
         </button>
       )}
     >
       <div className="px-2.5 py-2">
         <p className="text-fg truncate text-sm font-medium">{name}</p>
-        <p className="text-fg-subtle truncate text-xs">{session?.user.email}</p>
+        <p className="text-fg-subtle truncate text-xs">{email}</p>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <Badge tone="accent">{tx(definition.name)}</Badge>
           <span className="text-fg-subtle text-[0.68rem]">

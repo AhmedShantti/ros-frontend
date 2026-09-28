@@ -13,6 +13,7 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Check, Lock, X } from "lucide-react";
+import { useDocumentTitle } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { DEMO_ACCOUNTS } from "@/lib/console/mock/accounts";
 import { api } from "@/lib/api/endpoints";
@@ -35,6 +36,7 @@ export default function ResetPasswordPage() {
 function ResetPasswordForm() {
   const router = useRouter();
   const { t } = useI18n();
+  useDocumentTitle(t("auth.resetTitle"));
   const { signIn } = useSession();
   const searchParams = useSearchParams();
   const [submitting, setSubmitting] = useState(false);
