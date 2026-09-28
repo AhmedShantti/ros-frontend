@@ -988,11 +988,27 @@ export function toMovement(row: WireMovement, context: MovementContext): StockMo
 
 type WireExpiring = S.InventoryController_expiringResponse[number];
 
-export function toBatch(row: WireExpiring, context: LevelContext = {}): Batch {
+/**
+ * Whole calendar days from the viewer's local "today" to a DATE value.
+ *
+ * The wire sends a DATE column as midnight UTC (`2026-09-28T00:00:00.000Z`),
+ * so subtracting `Date.now()` from it and rounding made the answer depend on
+ * the time of day: a batch expiring today flipped to -1 ("expired") in the
+ * afternoon, and one expiring tomorrow read 0 ("today"). Compare the two
+ * calendar dates instead — both pinned to UTC midnight — so the count only
+ * changes when the date does.
+ */
+export function daysUntilDate(isoDate: string, now: Date = new Date()): number {
+  const [y, m, d] = isoDate.slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return 0;
+  const target = Date.UTC(y, m - 1, d);
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((target - today) / 86_400_000);
+}
+
+export function toBatch(row: WireExpiring, context: LevelContext = {}, now: Date = new Date()): Batch {
   const expiry = row.expiryDate ?? "";
-  const days = expiry
-    ? Math.round((new Date(expiry).getTime() - Date.now()) / 86_400_000)
-    : 0;
+  const days = expiry ? daysUntilDate(expiry, now) : 0;
   const unitCost = context.item?.unitCost ?? money(0);
   const qty = numberOf(row.quantityRemaining);
 
