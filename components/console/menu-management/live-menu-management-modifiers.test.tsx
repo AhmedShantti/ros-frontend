@@ -154,6 +154,17 @@ async function openCustomizations(user: ReturnType<typeof userEvent.setup>) {
   return within(await screen.findByRole("dialog"));
 }
 
+/**
+ * The drawer auto-selects the first group the instant it opens, so a
+ * group's name now also appears inside the auto-shown detail panel's
+ * `.rule-preview` line ("Customer sees: **Sauces** — ..."), not just the
+ * sidebar. Scope to the sidebar (`role="complementary"`) specifically so
+ * clicking/asserting on a group name is never ambiguous.
+ */
+function sidebar(dialog: ReturnType<typeof within>) {
+  return within(dialog.getByRole("complementary"));
+}
+
 describe("Live Menu Management — Customizations (modifier groups/modifiers)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -175,13 +186,13 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     const dialog = await openCustomizations(user);
 
     await waitFor(() => expect(modifierGroupsList).toHaveBeenCalled());
-    expect(dialog.getByText("Sauces")).toBeInTheDocument();
+    expect(sidebar(dialog).getByText("Sauces")).toBeInTheDocument();
   });
 
   // -- 11/12: create/update persist ---------------------------------------
 
   it("11. creating a group persists through modifierGroups.create", async () => {
-    modifierGroupsList.mockResolvedValueOnce({ rows: [], total: 0 });
+    modifierGroupsList.mockResolvedValue({ rows: [], total: 0 });
     const user = userEvent.setup();
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
@@ -202,7 +213,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     const nameField = await dialog.findByLabelText(/common\.name/i);
     await user.clear(nameField);
     await user.type(nameField, "Sauces (updated)");
@@ -219,7 +230,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
   // -- 13: required/min/max validation -------------------------------------
 
   it("13a. min > max is blocked client-side before it ever reaches the server", async () => {
-    modifierGroupsList.mockResolvedValueOnce({ rows: [], total: 0 });
+    modifierGroupsList.mockResolvedValue({ rows: [], total: 0 });
     const user = userEvent.setup();
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
@@ -234,13 +245,16 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     await user.type(maxField, "1");
 
     expect(dialog.getByText("menu.selectionRuleError")).toBeInTheDocument();
-    expect(dialog.getByRole("button", { name: "common.create" })).toBeDisabled();
+    // The shared Done/Save footer is never disabled for an invalid draft
+    // (matching the reference's own model) — clicking it must still be
+    // blocked client-side, surfacing the same validation instead of
+    // silently persisting.
     await user.click(dialog.getByRole("button", { name: "common.create" }));
     expect(modifierGroupsCreate).not.toHaveBeenCalled();
   });
 
   it("13b. required with min < 1 is blocked client-side", async () => {
-    modifierGroupsList.mockResolvedValueOnce({ rows: [], total: 0 });
+    modifierGroupsList.mockResolvedValue({ rows: [], total: 0 });
     const user = userEvent.setup();
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
@@ -250,11 +264,12 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     await user.click(dialog.getByRole("switch", { name: /menu\.required/i }));
 
     expect(dialog.getByText("menu.requiredMinError")).toBeInTheDocument();
-    expect(dialog.getByRole("button", { name: "common.create" })).toBeDisabled();
+    await user.click(dialog.getByRole("button", { name: "common.create" }));
+    expect(modifierGroupsCreate).not.toHaveBeenCalled();
   });
 
   it("13c. a 400 from the server on an otherwise-valid submit surfaces and is not swallowed", async () => {
-    modifierGroupsList.mockResolvedValueOnce({ rows: [], total: 0 });
+    modifierGroupsList.mockResolvedValue({ rows: [], total: 0 });
     modifierGroupsCreate.mockRejectedValue(new MockServiceError("VALIDATION", "minSelections must be less than or equal to maxSelections.", 400));
 
     const user = userEvent.setup();
@@ -275,7 +290,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     expect(dialog.queryByRole("button", { name: /delete/i })).not.toBeInTheDocument();
     expect(modifierGroupsRemove).not.toHaveBeenCalled();
   });
@@ -285,7 +300,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     expect(dialog.queryByRole("button", { name: /activate/i })).not.toBeInTheDocument();
     expect(dialog.queryByRole("button", { name: /deactivate/i })).not.toBeInTheDocument();
     expect(dialog.queryByText(/^common\.active$/)).not.toBeInTheDocument();
@@ -299,7 +314,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     expect(await dialog.findByText("Ketchup")).toBeInTheDocument();
   });
 
@@ -312,7 +327,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     await user.click(dialog.getByRole("button", { name: "common.add" }));
     await user.type(dialog.getAllByLabelText(/common\.name/i).at(-1)!, "Mayo");
     await user.type(dialog.getByLabelText(/menu\.priceDelta/i), "5");
@@ -330,7 +345,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     await dialog.findByText("Ketchup");
     expect(dialog.queryByRole("button", { name: "common.edit" })).not.toBeInTheDocument();
   });
@@ -341,7 +356,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     await dialog.findByText("Ketchup");
     expect(dialog.queryByRole("button", { name: /delete/i })).not.toBeInTheDocument();
   });
@@ -354,7 +369,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     await user.click(dialog.getByRole("button", { name: "common.add" }));
     await user.type(dialog.getAllByLabelText(/common\.name/i).at(-1)!, "Extra cheese");
     const amountField = dialog.getByLabelText(/menu\.priceDelta/i);
@@ -371,7 +386,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     await user.click(dialog.getByRole("button", { name: "common.add" }));
     await user.type(dialog.getAllByLabelText(/common\.name/i).at(-1)!, "No change");
     const amountField = dialog.getByLabelText(/menu\.priceDelta/i);
@@ -388,7 +403,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     await user.click(dialog.getByRole("button", { name: "common.add" }));
     await user.type(dialog.getAllByLabelText(/common\.name/i).at(-1)!, "No cheese");
     const amountField = dialog.getByLabelText(/menu\.priceDelta/i);
@@ -405,7 +420,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     await user.click(dialog.getByRole("button", { name: "common.add" }));
     await user.type(dialog.getAllByLabelText(/common\.name/i).at(-1)!, "Too precise");
     const amountField = dialog.getByLabelText(/menu\.priceDelta/i);
@@ -424,7 +439,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     await user.click(dialog.getByRole("button", { name: "common.add" }));
     await user.type(dialog.getAllByLabelText(/common\.name/i).at(-1)!, "Extra cheese");
     await user.type(dialog.getByLabelText(/menu\.priceDelta/i), "3");
@@ -442,7 +457,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     await dialog.findByText("Extra cheese");
 
     expect(dialog.getByText("menu.priceDeltaExtra")).toBeInTheDocument();
@@ -472,6 +487,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
         isCombo: false,
         isOpenPrice: false,
         isWeighed: false,
+        isActive: true,
         available: true,
         unavailableReason: null,
         autoReenableAt: null,
@@ -480,6 +496,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
         colour: "#000",
         imageEmoji: "",
         placements: [{ categoryId: "c1", menuId: "m1" }],
+        modifierGroups: [],
       },
     ]);
     const { listMenuCategories } = await import("@/lib/console/menu-management/live-adapter");
@@ -508,7 +525,7 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     expect(dialog.queryByRole("button", { name: /unlink/i })).not.toBeInTheDocument();
     expect(dialog.queryByRole("button", { name: /remove/i })).not.toBeInTheDocument();
   });
@@ -530,9 +547,9 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    expect(dialog.queryByRole("button", { name: "menu.newGroup" })).not.toBeInTheDocument();
+    expect(dialog.queryByRole("button", { name: /menu\.newGroup/ })).not.toBeInTheDocument();
 
-    await user.click(await dialog.findByText("Sauces"));
+    await user.click(await sidebar(dialog).findByText("Sauces"));
     expect(dialog.queryByRole("button", { name: "common.save" })).not.toBeInTheDocument();
     expect(dialog.queryByRole("button", { name: "common.add" })).not.toBeInTheDocument();
     expect(dialog.getByLabelText(/common\.name/i)).toBeDisabled();
@@ -544,6 +561,6 @@ describe("Live Menu Management — Customizations (modifier groups/modifiers)", 
     render(<LiveMenuManagement />);
     const dialog = await openCustomizations(user);
 
-    expect(dialog.getByRole("button", { name: "menu.newGroup" })).toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: /menu\.newGroup/ })).toBeInTheDocument();
   });
 });

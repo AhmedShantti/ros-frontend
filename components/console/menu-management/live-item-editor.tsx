@@ -14,11 +14,15 @@
  *  - Creating an item creates it AND its one priced variant atomically, in
  *    one call (`services.catalogue.items.create`) — never a second
  *    "add variant" step just to make it sellable.
- *  - Availability is the real FR-MNU-030 86/restore flow (a reason is
- *    required to 86), not the reference's instant three-way status picker —
- *    there is no "hidden" status on this backend. `isActive=false` with no
- *    manual 86 in effect (deactivation) is a DISTINCT master-data lifecycle
- *    state, never conflated with 86.
+ *  - Availability visually reuses the reference's three-way `.radio-grid`/
+ *    `.radio-card` status picker, but mapped to the three REAL states this
+ *    backend has — Available, 86'd (FR-MNU-030, always requires a reason),
+ *    Deactivated (`isActive=false`, a distinct master-data lifecycle state,
+ *    never conflated with 86) — never the reference's fictional "hidden"
+ *    status. `isActive` and `unavailableReason` are independent booleans, so
+ *    an item can be BOTH deactivated and still carry a stale 86 rule;
+ *    reaching "Available" from there sends both real mutations explicitly
+ *    rather than faking a single instant transition.
  *  - Attaching a customization group to THIS item has no read/update/unlink
  *    endpoint at all (`POST /catalogue/items/:id/modifier-groups` is
  *    write-only) — see `live-menu-management.tsx`'s own docblock. This
@@ -26,14 +30,16 @@
  *    a fake "attached groups" picker.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Currency } from "@/lib/console/types";
-import { currencyExponent, excessPrecision, formatDateTime, formatMoney, minorFromInput } from "@/lib/console/format";
+import { currencyExponent, excessPrecision, formatDateTime, formatMoney, minorFromInput, toMajorUnits, type FormatOptions } from "@/lib/console/format";
 import { useAction } from "@/lib/console/actions";
 import { useI18n } from "@/lib/console/providers";
 import { services } from "@/lib/console/services";
 import { useTaxClasses } from "@/components/console/catalogue/tax-class-field";
 import type { LiveCategory, LiveItem } from "@/lib/console/menu-management/live-adapter";
+import type { ConsoleKey } from "@/content/console/en";
+import { itemStatus } from "./live-cards";
 import { Icon, Section, useEscape, useSaver } from "./common";
 
 interface LiveItemEditorProps {
@@ -71,8 +77,40 @@ export default function LiveItemEditor({
   const [description, setDescription] = useState(item ? tx(item.description) : "");
   const [categoryId, setCategoryId] = useState(item?.categoryId || defaultCategoryId || "");
   const [taxClassId, setTaxClassId] = useState(item?.taxClassId ?? "");
-  const [price, setPrice] = useState("");
+  // The reference's single "Price" field, ported literally — for a NEW item
+  // it seeds the one variant created atomically; for an EXISTING item it
+  // shows/edits the default (first) real variant's real price directly, in
+  // the same visual position, via the same `updateVariantPrice` mutation the
+  // "Variant prices" disclosure below uses per row — never a second,
+  // parallel piece of local price state.
+  const primaryVariant = item?.variants[0] ?? null;
+  const [price, setPrice] = useState(primaryVariant ? String(toMajorUnits(primaryVariant.basePrice)) : "");
+  // Mirrors the reference's own default — collapsed only when there's
+  // nothing real to disclose yet (a brand-new item); an item that already
+  // carries real variant prices opens with them visible, matching the
+  // reference's own default for an item whose pricing mode isn't "single".
+  const [pricesOpen, setPricesOpen] = useState(Boolean(item));
+  // Unsaved CREATE-mode availability choice — the create DTO cannot set
+  // isActive/86 atomically (confirmed against http.ts's `items.create`, which
+  // sends no availability field at all), so this stays local form state and
+  // is applied as a real, separate canonical mutation inside the SAME Save
+  // action once the item exists, never faked as persisted before then.
+  const [createStatus, setCreateStatus] = useState<"available" | "unavailable" | "deactivated">("available");
+  const [createUnavailableReason, setCreateUnavailableReason] = useState("");
+  const [createAutoReenableAt, setCreateAutoReenableAt] = useState("");
+  // Shaped exactly like the real fields `AvailabilityPicker`/`itemStatus`
+  // read off a saved `LiveItem`, so the SAME picker renders identically pre-
+  // and post-save — no separate create-mode component.
+  const createDraftAvailability = {
+    isActive: createStatus !== "deactivated",
+    unavailableReason: createStatus === "unavailable" ? createUnavailableReason : null,
+    autoReenableAt: createAutoReenableAt || null,
+  };
   const [pending86, setPending86] = useState(false);
+  // Selecting text inside the drawer and releasing the mouse outside it must
+  // not close the drawer — only a press that STARTED on the backdrop does.
+  const pressedOutside = useRef(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
   const { taxClasses } = useTaxClasses(branchId);
 
   const exponent = currencyExponent(currency);
@@ -82,7 +120,7 @@ export default function LiveItemEditor({
   if (!name.trim()) problem = t("menu.addAnItemName");
   else if (categories.length === 0) problem = t("menu.createCategoryFirst");
   else if (!categoryId) problem = t("menu.chooseACategory");
-  else if (!item && (!price.trim() || priceTooPrecise)) problem = t("menu.addAPrice");
+  else if ((!item || primaryVariant) && (!price.trim() || priceTooPrecise)) problem = t("menu.addAPrice");
 
   async function save() {
     if (problem) return;
@@ -98,6 +136,15 @@ export default function LiveItemEditor({
           variants: [{ name: { en: name.trim(), ar: name.trim() }, price: { amount: minorAmount, currency } }],
         });
         if (categoryId) await services.catalogue.placeItem(created.id, categoryId);
+        // The item is created active/available by default (the create DTO
+        // never sends an availability field) — if the user picked a
+        // different state in the picker above, apply the SAME real mutation
+        // an existing item would use, right here, inside this one Save.
+        if (createStatus === "unavailable") {
+          await services.catalogue.toggleAvailability(created.id, false, createUnavailableReason, createAutoReenableAt || undefined);
+        } else if (createStatus === "deactivated") {
+          await services.catalogue.items.remove(created.id);
+        }
         onChanged(t("menu.itemCreated"));
         onClose();
       });
@@ -112,6 +159,15 @@ export default function LiveItemEditor({
       });
       if (categoryId && categoryId !== item.categoryId) {
         await services.catalogue.placeItem(item.id, categoryId);
+      }
+      // The primary Price field is real `updateVariantPrice` on the default
+      // variant, bundled into this SAME save — not a second, fake local copy
+      // of what the "Variant prices" rows below already edit for themselves.
+      if (primaryVariant && canChangePrice) {
+        const minorAmount = minorFromInput(price, exponent);
+        if (minorAmount !== null && minorAmount !== primaryVariant.basePrice.amount) {
+          await services.catalogue.updateVariantPrice(primaryVariant.id, { amount: minorAmount, currency });
+        }
       }
       onChanged(t("menu.itemPlaced"));
       onClose();
@@ -139,8 +195,63 @@ export default function LiveItemEditor({
     }
   }
 
+  /**
+   * The visual three-way status picker's click handler. Each target maps to
+   * the ONE real transition it needs — never a fake instant flip:
+   *   → unavailable: opens the reason prompt (a genuine 86 always requires
+   *     one); the actual mutation happens in `setAvailability` above.
+   *   → deactivated: `items.remove()` (existing `deactivate`).
+   *   → available: reaches Available from WHEREVER the item currently is,
+   *     which can take two canonical mutations in the compound case (already
+   *     deactivated AND still carrying a stale 86 rule) — both are sent
+   *     explicitly, never faked as one.
+   */
+  async function setStatus(target: "available" | "unavailable" | "deactivated") {
+    if (!item) {
+      // CREATE mode: nothing exists to mutate yet — stays local draft state
+      // until Save (see the create branch of `save()` above).
+      if (createStatus === target) return;
+      if (target === "unavailable") {
+        setPending86(true);
+        return;
+      }
+      setCreateStatus(target);
+      setCreateUnavailableReason("");
+      setCreateAutoReenableAt("");
+      return;
+    }
+    if (itemStatus(item) === target) return;
+    if (target === "unavailable") {
+      setPending86(true);
+      return;
+    }
+    if (target === "deactivated") {
+      await deactivate();
+      return;
+    }
+    await run(async () => {
+      if (!item.isActive) {
+        await services.catalogue.items.update(item.id, { available: true });
+      }
+      if (item.unavailableReason) {
+        await services.catalogue.toggleAvailability(item.id, true, undefined, undefined);
+      }
+      onChanged(t("menu.itemActivated"));
+      onClose();
+    });
+  }
+
   return (
-    <div className="overlay" role="dialog" aria-modal="true" onClick={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}>
+    <div
+      className="overlay"
+      role="dialog"
+      aria-modal="true"
+      onMouseDown={(e) => { pressedOutside.current = e.target === e.currentTarget; }}
+      onClick={(e) => {
+        if (pressedOutside.current && e.target === e.currentTarget && !saving) onClose();
+        pressedOutside.current = false;
+      }}
+    >
       <div className="drawer">
         <div className="drawer-head">
           <div>
@@ -154,7 +265,7 @@ export default function LiveItemEditor({
         <div className="drawer-body">
           <Section title={t("menu.basicInfo")}>
             <label>
-              {t("common.name")}
+              {t("menu.itemNameLabel")}
               <input autoFocus={!item} value={name} onChange={(e) => setName(e.target.value)} placeholder={t("mm.placeholderItemName")} disabled={!canManage} />
             </label>
             <label>
@@ -190,74 +301,96 @@ export default function LiveItemEditor({
             </label>
           </Section>
 
-          <Section title={t("menu.availability")}>
-            {item ? (
-              <>
-                {item.unavailableReason ? (
-                  <>
-                    <h4 className="warn-title">{t("menu.unavailable")}</h4>
-                    <p className="warn-text">{t("menu.eightySixedNotice")}</p>
-                    {item.autoReenableAt ? (
-                      <p className="warn-text">{t("menu.autoReenableActive").replace("{time}", formatDateTime(item.autoReenableAt, fmt))}</p>
-                    ) : null}
-                  </>
-                ) : !item.available ? (
-                  <>
-                    <h4>{t("menu.deactivated")}</h4>
-                    <p className="section-help">{t("menu.deactivatedNotice")}</p>
-                  </>
-                ) : (
-                  <p className="section-help">{t("menu.available")}</p>
-                )}
-                {canToggleAvailability ? (
-                  item.available && !item.unavailableReason ? (
-                    <button className="secondary" onClick={() => setPending86(true)}>
-                      <Icon name="ban" size={15} /> {t("menu.toggle86")}
-                    </button>
-                  ) : item.unavailableReason ? (
-                    <button className="primary small" onClick={() => setAvailability(true)}>
-                      <Icon name="eye" size={15} /> {t("menu.toggleAvailable")}
-                    </button>
-                  ) : null
-                ) : null}
-              </>
-            ) : (
-              <p className="section-help">{t("menu.newItemsAvailableNote")}</p>
-            )}
+          <Section title={t("menu.availabilitySectionTitle")}>
+            {item ? <p className="section-help">{t("menu.availabilitySectionHelp")}</p> : null}
+            <AvailabilityPicker
+              item={item ?? createDraftAvailability}
+              canManage={canManage}
+              canToggleAvailability={canToggleAvailability}
+              fmt={fmt}
+              t={t}
+              onSetStatus={setStatus}
+            />
+            {!item ? <p className="section-help">{t("menu.newItemsAvailableNote")}</p> : null}
           </Section>
 
           <Section title={t("menu.pricingSectionTitle")}>
-            {!item ? (
-              <label>
-                {t("menu.price")}
-                <div className="price-field">
-                  <span>{currency}</span>
-                  <input type="number" min="0" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" disabled={!canManage} />
-                </div>
-              </label>
+            {item && item.variants.length === 0 ? (
+              <p className="section-help">{t("menu.noVariants")}</p>
             ) : (
-              <div className="size-prices">
-                <div className="size-head">
-                  <span>{t("menu.variantColumn")}</span>
-                  <span>{t("menu.price")}</span>
-                  <span></span>
-                </div>
-                {item.variants.length === 0 ? (
-                  <p className="section-help">{t("menu.noVariants")}</p>
-                ) : (
-                  item.variants.map((variant) => (
-                    <LivePriceRow
-                      key={variant.id}
-                      variantId={variant.id}
-                      variantName={tx(variant.name)}
-                      currentPrice={variant.basePrice}
-                      currency={currency}
-                      canChangePrice={canChangePrice}
-                      onSaved={() => onChanged(t("menu.priceSaved"))}
+              <>
+                <label>
+                  {t("menu.price")}
+                  <div className="price-field">
+                    <span>{currency}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
+                      placeholder="0.00"
+                      disabled={item ? !canChangePrice : !canManage}
                     />
-                  ))
-                )}
-              </div>
+                  </div>
+                </label>
+
+                <button className={pricesOpen ? "advanced-row open" : "advanced-row"} onClick={() => setPricesOpen((o) => !o)}>
+                  <span>
+                    <strong>{t("menu.variants")}</strong>
+                    <small>{t("menu.variantPricesCount").replace("{n}", String(item ? item.variants.length : 1))}</small>
+                  </span>
+                  <span className="chev">
+                    <Icon name="chevron" size={16} />
+                  </span>
+                </button>
+
+                {pricesOpen ? (
+                  <div className="prices-panel">
+                    <div className="size-prices">
+                      <div className="size-head">
+                        <span>{t("menu.variantColumn")}</span>
+                        <span>{t("menu.price")}</span>
+                        <span></span>
+                      </div>
+                      {item ? (
+                        item.variants.map((variant) => (
+                          <LivePriceRow
+                            key={variant.id}
+                            variantId={variant.id}
+                            variantName={tx(variant.name)}
+                            currentPrice={variant.basePrice}
+                            currency={currency}
+                            canChangePrice={canChangePrice}
+                            onSaved={() => onChanged(t("menu.priceSaved"))}
+                          />
+                        ))
+                      ) : (
+                        // Not a second variant — the SAME unsaved create price,
+                        // shown in the reference's row shell. Bound to the
+                        // identical `price` state as the primary field above,
+                        // so editing either stays in sync by construction.
+                        <div className="size-row">
+                          <div className="static-price">{t("menu.defaultVariant")}</div>
+                          <div className="price-field">
+                            <span>{currency}</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={price}
+                              onChange={(e) => setPrice(e.target.value)}
+                              placeholder="0.00"
+                              disabled={!canManage}
+                            />
+                          </div>
+                          <span></span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </>
             )}
             {priceTooPrecise ? <p className="warn-text">{t("menu.priceTooPrecise").replace("{currency}", currency)}</p> : null}
           </Section>
@@ -271,7 +404,23 @@ export default function LiveItemEditor({
         </div>
 
         <div className="drawer-footer">
-          <div>{item && canManage ? <button className="delete" onClick={deactivate}>{t("common.deactivate")}</button> : null}</div>
+          <div>
+            {item && canManage ? (
+              deleteConfirm ? (
+                <span className="delete-confirm">
+                  {t("menu.deactivateConfirmPrompt")}{" "}
+                  <button className="delete" onClick={deactivate}>
+                    {t("menu.deactivateConfirmYes")}
+                  </button>
+                  <button onClick={() => setDeleteConfirm(false)}>{t("common.keep")}</button>
+                </span>
+              ) : (
+                <button className="delete" onClick={() => setDeleteConfirm(true)}>
+                  {t("menu.deactivateItemButton")}
+                </button>
+              )
+            ) : null}
+          </div>
           <div className="footer-right">
             {error ? <span className="footer-hint error">{error}</span> : problem && <span className="footer-hint">{problem}</span>}
             <button className="secondary" onClick={onClose} disabled={saving}>
@@ -287,7 +436,19 @@ export default function LiveItemEditor({
       </div>
 
       {pending86 ? (
-        <Eighty6Prompt onCancel={() => setPending86(false)} onConfirm={(reason, autoReenableAt) => setAvailability(false, reason, autoReenableAt)} />
+        <Eighty6Prompt
+          onCancel={() => setPending86(false)}
+          onConfirm={(reason, autoReenableAt) => {
+            if (!item) {
+              setCreateStatus("unavailable");
+              setCreateUnavailableReason(reason);
+              setCreateAutoReenableAt(autoReenableAt ?? "");
+              setPending86(false);
+              return;
+            }
+            setAvailability(false, reason, autoReenableAt);
+          }}
+        />
       ) : null}
     </div>
   );
@@ -331,7 +492,7 @@ function LivePriceRow({
 
   return (
     <div className="size-row">
-      <span>{variantName}</span>
+      <div className="static-price">{variantName}</div>
       {editing ? (
         <div className="price-field">
           <span>{currency}</span>
@@ -350,12 +511,90 @@ function LivePriceRow({
             <Icon name="edit" size={14} />
           </button>
         )
-      ) : null}
+      ) : (
+        <span></span>
+      )}
     </div>
   );
 }
 
-function Eighty6Prompt({
+/**
+ * The three-way real-state availability picker — shared between the item
+ * editor and the combo editor (a combo is a real `MenuItem` with exactly the
+ * same `isActive`/`unavailableReason` fields as any other item). `isActive`
+ * takes priority over `unavailableReason`: an item can be BOTH deactivated
+ * and still carry a stale 86 rule, and in that compound case it is
+ * truthfully "deactivated", never "86'd".
+ */
+export function AvailabilityPicker({
+  item,
+  canManage,
+  canToggleAvailability,
+  fmt,
+  t,
+  onSetStatus,
+}: {
+  item: Pick<LiveItem, "isActive" | "unavailableReason" | "autoReenableAt">;
+  canManage: boolean;
+  canToggleAvailability: boolean;
+  fmt: FormatOptions;
+  t: (key: ConsoleKey) => string;
+  onSetStatus: (target: "available" | "unavailable" | "deactivated") => void;
+}) {
+  const status = itemStatus(item);
+  // Reaching "available" from here can need BOTH permissions at once in the
+  // compound case (deactivated AND still 86'd) — gate on whichever
+  // mutations that specific transition would actually send, never on a
+  // single blanket permission.
+  const canReachAvailable = (item.isActive || canManage) && (!item.unavailableReason || canToggleAvailability);
+  return (
+    <>
+      <div className="radio-grid three">
+        <button
+          className={status === "available" ? "radio-card chosen" : "radio-card"}
+          disabled={status === "available" || !canReachAvailable}
+          onClick={() => onSetStatus("available")}
+        >
+          <b>
+            <Icon name="eye" size={14} /> {t("menu.available")}
+          </b>
+          <small>{t("menu.availabilityAvailableHelp")}</small>
+        </button>
+        <button
+          className={status === "unavailable" ? "radio-card chosen" : "radio-card"}
+          disabled={status === "unavailable" || !canToggleAvailability}
+          onClick={() => onSetStatus("unavailable")}
+        >
+          <b>
+            <Icon name="ban" size={14} /> {t("menu.unavailable")}
+          </b>
+          <small>{t("menu.availabilityUnavailableHelp")}</small>
+        </button>
+        <button
+          className={status === "deactivated" ? "radio-card chosen" : "radio-card"}
+          disabled={status === "deactivated" || !canManage}
+          onClick={() => onSetStatus("deactivated")}
+        >
+          <b>
+            <Icon name="trash" size={14} /> {t("menu.deactivated")}
+          </b>
+          <small>{t("menu.availabilityDeactivatedHelp")}</small>
+        </button>
+      </div>
+      {item.unavailableReason ? (
+        <>
+          <p className="warn-text">{t("menu.eightySixedNotice")}</p>
+          {item.autoReenableAt ? (
+            <p className="warn-text">{t("menu.autoReenableActive").replace("{time}", formatDateTime(item.autoReenableAt, fmt))}</p>
+          ) : null}
+        </>
+      ) : null}
+      {status === "deactivated" ? <p className="section-help">{t("menu.deactivatedNotice")}</p> : null}
+    </>
+  );
+}
+
+export function Eighty6Prompt({
   onCancel,
   onConfirm,
 }: {

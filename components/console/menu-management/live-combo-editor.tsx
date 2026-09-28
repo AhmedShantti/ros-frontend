@@ -46,6 +46,8 @@ import { currencyExponent, formatMoney, minorFromInput, signedMinorFromInput, to
 import { services } from "@/lib/console/services";
 import type { LiveCategory, LiveItem } from "@/lib/console/menu-management/live-adapter";
 import type { ConsoleKey } from "@/content/console/en";
+import { itemStatus } from "./live-cards";
+import { AvailabilityPicker, Eighty6Prompt } from "./live-item-editor";
 import { Icon, Section, useEscape, useSaver } from "./common";
 
 type ComboPricingStrategy = "fixed" | "sum_components_minus_discount" | "component_price_override";
@@ -56,6 +58,8 @@ interface Candidate {
   variantId: string;
   name: string;
   price: { amount: number; currency: Currency };
+  available: boolean;
+  categoryName: string;
 }
 
 interface SlotOption {
@@ -91,6 +95,8 @@ interface LiveComboEditorProps {
   fmt: FormatOptions;
   tx: (value: Localised) => string;
   t: (key: ConsoleKey) => string;
+  canManage: boolean;
+  canToggleAvailability: boolean;
   onClose: () => void;
   onCreated: (message: string) => void;
 }
@@ -104,12 +110,16 @@ export default function LiveComboEditor({
   fmt,
   tx,
   t,
+  canManage,
+  canToggleAvailability,
   onClose,
   onCreated,
 }: LiveComboEditorProps) {
-  const { saving, error, run } = useSaver(t("mm.somethingWrong"));
+  const { saving, error, run, setError } = useSaver(t("mm.somethingWrong"));
   useEscape(!saving, onClose);
   const isEdit = !!existingItem;
+  const [pending86, setPending86] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   // The picker needs every candidate's REAL variant + price, which the item
   // list view does not carry for free (see `LiveItem.variants`, populated by
@@ -118,6 +128,12 @@ export default function LiveComboEditor({
   // never a fetch of its own. Keyed by itemId (its FIRST variant only — the
   // common single-variant case; a multi-variant standalone item is a known
   // limitation, unchanged from create mode).
+  const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, tx(c.name)])), [categories, tx]);
+  const categoryNameOf = (item: LiveItem) => {
+    const categoryId = item.placements[0]?.categoryId;
+    return (categoryId && categoryNameById.get(categoryId)) || t("menu.uncategorised");
+  };
+
   const candidates = useMemo<Candidate[]>(
     () =>
       nonComboItems
@@ -127,8 +143,11 @@ export default function LiveComboEditor({
           variantId: item.variants[0]!.id,
           name: tx(item.name),
           price: item.variants[0]!.basePrice,
+          available: item.available && item.variants[0]!.available,
+          categoryName: categoryNameOf(item),
         })),
-    [nonComboItems, tx],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nonComboItems, tx, categoryNameById],
   );
   const candidateById = useMemo(() => new Map(candidates.map((c) => [c.itemId, c])), [candidates]);
 
@@ -137,11 +156,19 @@ export default function LiveComboEditor({
     const lookup = new Map<string, Candidate>();
     for (const item of nonComboItems) {
       for (const variant of item.variants) {
-        lookup.set(variant.id, { itemId: item.id, variantId: variant.id, name: tx(item.name), price: variant.basePrice });
+        lookup.set(variant.id, {
+          itemId: item.id,
+          variantId: variant.id,
+          name: tx(item.name),
+          price: variant.basePrice,
+          available: item.available && variant.available,
+          categoryName: categoryNameOf(item),
+        });
       }
     }
     return lookup;
-  }, [nonComboItems, tx]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nonComboItems, tx, categoryNameById]);
 
   const existingVariant = existingItem?.variants[0];
   const originalCategoryId = existingItem?.placements[0]?.categoryId ?? "";
@@ -281,6 +308,51 @@ export default function LiveComboEditor({
   else if (strategy === "sum_components_minus_discount" && !(Number(discountPercent) > 0 && Number(discountPercent) < 100))
     problem = t("menu.discountRangeError");
   else if (strategy === "component_price_override" && !overridesValid) problem = t("menu.setEveryPartDefaultPrice");
+
+  // A combo is a real MenuItem with the exact same isActive/unavailableReason
+  // lifecycle as any other item — see `AvailabilityPicker`'s own docblock.
+  async function deactivateCombo() {
+    if (!existingItem) return;
+    await run(async () => {
+      await services.catalogue.items.remove(existingItem.id);
+      onCreated(t("common.deactivate"));
+      onClose();
+    });
+  }
+
+  async function setComboStatus(target: "available" | "unavailable" | "deactivated") {
+    if (!existingItem || itemStatus(existingItem) === target) return;
+    if (target === "unavailable") {
+      setPending86(true);
+      return;
+    }
+    if (target === "deactivated") {
+      await deactivateCombo();
+      return;
+    }
+    await run(async () => {
+      if (!existingItem.isActive) {
+        await services.catalogue.items.update(existingItem.id, { available: true });
+      }
+      if (existingItem.unavailableReason) {
+        await services.catalogue.toggleAvailability(existingItem.id, true, undefined, undefined);
+      }
+      onCreated(t("menu.itemActivated"));
+      onClose();
+    });
+  }
+
+  async function setComboAvailability(available: boolean, reason?: string, autoReenableAt?: string) {
+    if (!existingItem) return;
+    try {
+      await services.catalogue.toggleAvailability(existingItem.id, available, reason, autoReenableAt);
+      setPending86(false);
+      onCreated(available ? t("menu.restored") : reason ? `${t("menu.eightySixed")} — ${reason}` : t("menu.eightySixed"));
+      onClose();
+    } catch (e) {
+      setError((e instanceof Error && e.message) || "Something went wrong. Try again.");
+    }
+  }
 
   async function save() {
     if (problem || computedPriceMinor === null || computedPriceMinor <= 0) return;
@@ -437,8 +509,9 @@ export default function LiveComboEditor({
                       const candidate = candidateFor(option);
                       const name = candidate?.name ?? t("menu.itemNoLongerAvailable");
                       const priceLabel = candidate ? formatMoney(candidate.price, fmt) : "";
+                      const unavailable = candidate ? !candidate.available : false;
                       return (
-                        <span key={option.key} className="slot-chip">
+                        <span key={option.key} className={`slot-chip ${unavailable ? "dim" : ""}`}>
                           {name} {priceLabel ? <em>{priceLabel}</em> : null}
                           {optIdx === 0 ? (
                             <b>{t("menu.default")}</b>
@@ -466,6 +539,7 @@ export default function LiveComboEditor({
                               />
                             )
                           ) : null}
+                          {unavailable ? <b className="chip-warn">{t("menu.unavailable")}</b> : null}
                           {!option.existing ? (
                             <button aria-label={`${t("mm.remove")} ${name}`} onClick={() => removeOption(slot.key, option.key)}>
                               ×
@@ -482,13 +556,20 @@ export default function LiveComboEditor({
                     }}
                   >
                     <option value="">{t("menu.addItemToPart").replace("{part}", slot.label || t("menu.thisPart"))}</option>
-                    {candidates
-                      .filter((c) => !slot.options.some((o) => o.candidateItemId === c.itemId))
-                      .map((c) => (
-                        <option key={c.itemId} value={c.itemId}>
-                          {c.name} — {formatMoney(c.price, fmt)}
-                        </option>
-                      ))}
+                    {Array.from(new Set(candidates.filter((c) => !slot.options.some((o) => o.candidateItemId === c.itemId)).map((c) => c.categoryName))).map(
+                      (categoryName) => (
+                        <optgroup key={categoryName} label={categoryName}>
+                          {candidates
+                            .filter((c) => c.categoryName === categoryName && !slot.options.some((o) => o.candidateItemId === c.itemId))
+                            .map((c) => (
+                              <option key={c.itemId} value={c.itemId}>
+                                {c.name} — {formatMoney(c.price, fmt)}
+                                {!c.available ? ` (${t("menu.unavailable")})` : ""}
+                              </option>
+                            ))}
+                        </optgroup>
+                      ),
+                    )}
                   </select>
                 </div>
               ))
@@ -501,7 +582,7 @@ export default function LiveComboEditor({
           </Section>
 
           <Section title={t("menu.pricingSectionTitle")}>
-            <div className="radio-grid">
+            <div className="radio-grid three">
               <button className={strategy === "fixed" ? "radio-card chosen" : "radio-card"} onClick={() => setStrategy("fixed")}>
                 <b>{t("menu.fixedPriceLabel")}</b>
                 <small>{t("menu.fixedPriceHelp")}</small>
@@ -561,14 +642,61 @@ export default function LiveComboEditor({
                   <span>{t("menu.comboPriceLabel")}</span>
                   <b>{computedPriceMinor !== null && computedPriceMinor > 0 ? formatMoney({ amount: computedPriceMinor, currency }, fmt) : "—"}</b>
                 </div>
+                {computedPriceMinor !== null && computedPriceMinor > 0
+                  ? (() => {
+                      const saving = defaultsTotalMinor - computedPriceMinor;
+                      const pct = defaultsTotalMinor > 0 && saving > 0 ? Math.round((saving / defaultsTotalMinor) * 100) : null;
+                      return (
+                        <div className={saving > 0 ? "good" : saving < 0 ? "bad" : ""}>
+                          <span>{saving < 0 ? t("menu.comboCostsMore") : saving > 0 ? t("menu.comboCustomerSaves") : t("menu.comboSameAsSeparate")}</span>
+                          <b>
+                            {saving !== 0 ? formatMoney({ amount: Math.abs(saving), currency }, fmt) : ""}
+                            {pct !== null ? ` (${pct}%)` : ""}
+                          </b>
+                        </div>
+                      );
+                    })()
+                  : null}
               </div>
             ) : (
               <p className="section-help summary-hint">{t("menu.addItemsToSeePrice")}</p>
             )}
           </Section>
+
+          <Section title={t("menu.availabilitySectionTitle")}>
+            {existingItem ? <p className="section-help">{t("menu.availabilitySectionHelp")}</p> : null}
+            {existingItem ? (
+              <AvailabilityPicker
+                item={existingItem}
+                canManage={canManage}
+                canToggleAvailability={canToggleAvailability}
+                fmt={fmt}
+                t={t}
+                onSetStatus={setComboStatus}
+              />
+            ) : (
+              <p className="section-help">{t("menu.newItemsAvailableNote")}</p>
+            )}
+          </Section>
         </div>
         <div className="drawer-footer">
-          <div></div>
+          <div>
+            {existingItem && canManage ? (
+              deleteConfirm ? (
+                <span className="delete-confirm">
+                  {t("menu.deactivateConfirmPrompt")}{" "}
+                  <button className="delete" onClick={deactivateCombo}>
+                    {t("menu.deactivateConfirmYes")}
+                  </button>
+                  <button onClick={() => setDeleteConfirm(false)}>{t("common.keep")}</button>
+                </span>
+              ) : (
+                <button className="delete" onClick={() => setDeleteConfirm(true)}>
+                  {t("menu.deactivateComboButton")}
+                </button>
+              )
+            ) : null}
+          </div>
           <div className="footer-right">
             {error ? <span className="footer-hint error">{error}</span> : problem ? <span className="footer-hint">{problem}</span> : null}
             <button className="secondary" onClick={onClose} disabled={saving}>
@@ -580,6 +708,10 @@ export default function LiveComboEditor({
           </div>
         </div>
       </div>
+
+      {pending86 ? (
+        <Eighty6Prompt onCancel={() => setPending86(false)} onConfirm={(reason, autoReenableAt) => setComboAvailability(false, reason, autoReenableAt)} />
+      ) : null}
     </div>
   );
 }

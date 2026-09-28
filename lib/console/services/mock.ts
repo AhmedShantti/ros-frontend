@@ -928,6 +928,7 @@ const itemsCollection: CollectionService<MenuItem> = makeCollection<MenuItem>({
     isCombo: false,
     isOpenPrice: input.isOpenPrice ?? false,
     isWeighed: input.isWeighed ?? false,
+    isActive: true,
     available: true,
     unavailableReason: null,
     autoReenableAt: null,
@@ -1042,6 +1043,17 @@ const catalogue: CatalogueService = {
           available: true,
         })),
       });
+    },
+    // FR-MNU: an item that has been sold is never deleted, only deactivated
+    // — mirrors the real backend's `setItemActive(false)`, distinct from a
+    // manual 86 (`isActive` vs `unavailableReason`).
+    async remove(id) {
+      await itemsCollection.update(id, { isActive: false, available: false });
+    },
+    // A caller setting `available` explicitly is always setting `isActive`
+    // (activate/deactivate) — mirrors the real `setItemActive` write path.
+    async update(id, patch) {
+      return itemsCollection.update(id, patch.available !== undefined ? { ...patch, isActive: patch.available } : patch);
     },
   },
   modifierGroups: makeCollection({

@@ -38,6 +38,13 @@ interface LiveMenuPreviewProps {
   onClose: () => void;
 }
 
+/** "Required · choose 1" / "Optional · up to N" — the reference's own rule summary, over the real minSelections/maxSelections/required fields. */
+function ruleText(group: Pick<ModifierGroup, "required" | "maxSelections">, t: (key: ConsoleKey) => string): string {
+  const need = group.required ? t("menu.previewRuleRequired") : t("menu.previewRuleOptional");
+  const pick = group.maxSelections > 1 ? t("menu.previewRuleUpTo").replace("{n}", String(group.maxSelections)) : t("menu.previewRuleChooseOne");
+  return `${need} · ${pick}`;
+}
+
 export default function LiveMenuPreview({ menuName, categories, items, currency, fmt, tx, t, onClose }: LiveMenuPreviewProps) {
   const comboItems = items.filter((item) => item.isCombo);
   const categoriesWithItems = categories
@@ -59,27 +66,30 @@ export default function LiveMenuPreview({ menuName, categories, items, currency,
     }
   }
 
-  const comboIds = comboItems.map((c) => c.id).join(",");
-  const [comboGroups, setComboGroups] = useState<Map<string, ModifierGroup[]>>(new Map());
+  // Every item's real attached groups — combos show their slot detail, and
+  // (matching the reference's own `groupsFor`) regular items with real
+  // customizations show them too, both from the SAME read contract.
+  const allIds = items.map((i) => i.id).join(",");
+  const [itemGroups, setItemGroups] = useState<Map<string, ModifierGroup[]>>(new Map());
 
   useEffect(() => {
-    if (comboItems.length === 0) return;
+    if (items.length === 0) return;
     let cancelled = false;
     Promise.all(
-      comboItems.map((combo) =>
+      items.map((item) =>
         services.catalogue
-          .listItemModifierGroups(combo.id)
-          .then((groups) => [combo.id, groups] as const)
-          .catch(() => [combo.id, [] as ModifierGroup[]] as const),
+          .listItemModifierGroups(item.id)
+          .then((groups) => [item.id, groups] as const)
+          .catch(() => [item.id, [] as ModifierGroup[]] as const),
       ),
     ).then((entries) => {
-      if (!cancelled) setComboGroups(new Map(entries));
+      if (!cancelled) setItemGroups(new Map(entries));
     });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [comboIds]);
+  }, [allIds]);
 
   return (
     <div className="preview-overlay">
@@ -109,7 +119,16 @@ export default function LiveMenuPreview({ menuName, categories, items, currency,
                 {comboItems.map((combo) => {
                   const soldOut = !combo.available;
                   const price = combo.variants[0]?.basePrice ?? { amount: 0, currency };
-                  const groups = comboGroups.get(combo.id) ?? [];
+                  const groups = itemGroups.get(combo.id) ?? [];
+                  // The reference's "regular price" — sum of each slot's
+                  // real default option, from the same already-loaded data.
+                  const regularAmount = groups.reduce((sum, group) => {
+                    const def = group.modifiers.find((m) => m.isDefault) ?? group.modifiers[0];
+                    if (!def) return sum;
+                    const linked = def.linkedVariantId ? variantLookup.get(def.linkedVariantId) : undefined;
+                    return sum + (linked?.price.amount ?? def.comboComponentPriceOverride?.amount ?? def.priceDelta.amount ?? 0);
+                  }, 0);
+                  const saving = regularAmount - price.amount;
                   return (
                     <article className={`customer-item ${soldOut ? "sold-out" : ""}`} key={combo.id}>
                       <div className="customer-food-copy">
@@ -117,7 +136,13 @@ export default function LiveMenuPreview({ menuName, categories, items, currency,
                           <h4>{tx(combo.name)}</h4>
                           <strong>{formatMoney(price, fmt)}</strong>
                         </div>
-                        {soldOut ? <span className="sold-tag">{t("menu.previewSoldOut")}</span> : null}
+                        {soldOut ? (
+                          <span className="sold-tag">{t("menu.previewSoldOut")}</span>
+                        ) : saving > 0 ? (
+                          <span className="save-tag">
+                            {t("menu.comboSaveLabel")} {formatMoney({ amount: saving, currency: price.currency }, fmt)}
+                          </span>
+                        ) : null}
                         {tx(combo.description) ? <p>{tx(combo.description)}</p> : null}
                         {groups.length > 0 ? (
                           <ul className="combo-lines">
@@ -159,6 +184,7 @@ export default function LiveMenuPreview({ menuName, categories, items, currency,
                     {rows.map((item) => {
                       const soldOut = !item.available;
                       const price = item.variants[0]?.basePrice ?? { amount: 0, currency };
+                      const groups = (itemGroups.get(item.id) ?? []).filter((g) => g.modifiers.length > 0);
                       return (
                         <article className={`customer-item ${soldOut ? "sold-out" : ""}`} key={item.id}>
                           <div className="customer-food-copy">
@@ -168,6 +194,14 @@ export default function LiveMenuPreview({ menuName, categories, items, currency,
                             </div>
                             {soldOut ? <span className="sold-tag">{t("menu.previewSoldOut")}</span> : null}
                             {tx(item.description) ? <p>{tx(item.description)}</p> : null}
+                            {groups.map((group) => (
+                              <small className="mod-line" key={group.id}>
+                                <b>{tx(group.name)}</b> ({ruleText(group, t)}):{" "}
+                                {group.modifiers
+                                  .map((modifier) => (modifier.priceDelta.amount > 0 ? `${tx(modifier.name)} +${formatMoney(modifier.priceDelta, fmt)}` : tx(modifier.name)))
+                                  .join(", ")}
+                              </small>
+                            ))}
                           </div>
                         </article>
                       );

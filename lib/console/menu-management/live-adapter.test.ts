@@ -33,8 +33,14 @@ vi.mock("@/lib/api/session", () => ({
 }));
 
 const itemsList = vi.fn();
+const listItemModifierGroups = vi.fn();
 vi.mock("@/lib/console/services", () => ({
-  services: { catalogue: { items: { list: (...args: unknown[]) => itemsList(...args) } } },
+  services: {
+    catalogue: {
+      items: { list: (...args: unknown[]) => itemsList(...args) },
+      listItemModifierGroups: (...args: unknown[]) => listItemModifierGroups(...args),
+    },
+  },
 }));
 
 import { createMenuCategory, listItemsWithPlacements, listMenuCategories } from "./live-adapter";
@@ -71,6 +77,7 @@ describe("live-adapter — items with resolved placements", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     listVariants.mockResolvedValue([]);
+    listItemModifierGroups.mockResolvedValue([]);
   });
 
   it("resolves each item's real category placements via a per-item fan-out, never a fabricated categoryId", async () => {
@@ -137,5 +144,27 @@ describe("live-adapter — items with resolved placements", () => {
         comboAllocationBasis: "equal",
       }),
     ]);
+  });
+
+  it("resolves each item's real attached modifier groups, for the reference's modifier-chip/slot-summary display", async () => {
+    itemsList.mockResolvedValue({ rows: [{ id: "i1", categoryId: "", name: { en: "Burger", ar: "" } }], total: 1 });
+    listPlacements.mockResolvedValue([]);
+    const groups = [{ id: "g1", tenantId: "t1", name: { en: "Sauces", ar: "" }, minSelections: 0, maxSelections: 1, required: false, allowRepeat: false, freeQuantityThreshold: null, modifiers: [], attachedItemCount: 0 }];
+    listItemModifierGroups.mockResolvedValue(groups);
+
+    const rows = await listItemsWithPlacements({ tenantId: "t1", brandId: null, branchId: null });
+
+    expect(listItemModifierGroups).toHaveBeenCalledWith("i1");
+    expect(rows[0]!.modifierGroups).toEqual(groups);
+  });
+
+  it("never fails the whole list when one item's modifier-groups call errors", async () => {
+    itemsList.mockResolvedValue({ rows: [{ id: "i1", categoryId: "", name: { en: "Burger", ar: "" } }], total: 1 });
+    listPlacements.mockResolvedValue([]);
+    listItemModifierGroups.mockRejectedValue(new Error("network"));
+
+    const rows = await listItemsWithPlacements({ tenantId: "t1", brandId: null, branchId: null });
+
+    expect(rows[0]!.modifierGroups).toEqual([]);
   });
 });

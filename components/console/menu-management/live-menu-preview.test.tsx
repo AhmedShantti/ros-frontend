@@ -74,6 +74,7 @@ function mkItem(overrides: Partial<LiveItem> = {}): LiveItem {
     isCombo: false,
     isOpenPrice: false,
     isWeighed: false,
+    isActive: true,
     available: true,
     unavailableReason: null,
     autoReenableAt: null,
@@ -82,6 +83,7 @@ function mkItem(overrides: Partial<LiveItem> = {}): LiveItem {
     colour: "#000",
     imageEmoji: "",
     placements: [{ categoryId: "cat-1", menuId: "menu-1" }],
+    modifierGroups: [],
     ...overrides,
   };
 }
@@ -167,31 +169,37 @@ describe("LiveMenuPreview", () => {
         { id: "combo-var-1", name: { en: "Meal Deal", ar: "وجبة" }, basePrice: { amount: 2500, currency: "EGP" }, barcode: null, recipeId: null, available: true },
       ],
     });
-    listItemModifierGroups.mockResolvedValue([
-      {
-        id: "group-1",
-        tenantId: "t",
-        name: { en: "Side", ar: "Side" },
-        minSelections: 1,
-        maxSelections: 1,
-        required: true,
-        allowRepeat: false,
-        freeQuantityThreshold: null,
-        attachedItemCount: 1,
-        modifiers: [
-          {
-            id: "mod-1",
-            name: { en: "Fries", ar: "Fries" },
-            kind: "addition",
-            priceDelta: { amount: 0, currency: "EGP" },
-            recipeDelta: [],
-            isDefault: true,
-            linkedVariantId: "fries-var",
-            comboComponentPriceOverride: null,
-          },
-        ],
-      },
-    ]);
+    listItemModifierGroups.mockImplementation((itemId: string) =>
+      Promise.resolve(
+        itemId === "combo-1"
+          ? [
+              {
+                id: "group-1",
+                tenantId: "t",
+                name: { en: "Side", ar: "Side" },
+                minSelections: 1,
+                maxSelections: 1,
+                required: true,
+                allowRepeat: false,
+                freeQuantityThreshold: null,
+                attachedItemCount: 1,
+                modifiers: [
+                  {
+                    id: "mod-1",
+                    name: { en: "Fries", ar: "Fries" },
+                    kind: "addition",
+                    priceDelta: { amount: 0, currency: "EGP" },
+                    recipeDelta: [],
+                    isDefault: true,
+                    linkedVariantId: "fries-var",
+                    comboComponentPriceOverride: null,
+                  },
+                ],
+              },
+            ]
+          : [],
+      ),
+    );
 
     render(
       <LiveMenuPreview
@@ -209,6 +217,105 @@ describe("LiveMenuPreview", () => {
     await waitFor(() => expect(listItemModifierGroups).toHaveBeenCalledWith("combo-1"));
     expect(await screen.findByText(/Side/)).toBeInTheDocument();
     expect(screen.getAllByText(/Fries/).length).toBeGreaterThan(0);
+  });
+
+  it("shows a real save-tag on a combo, computed from the default option's real linked price vs the combo's real price", async () => {
+    const fries = mkItem({
+      id: "item-fries",
+      name: { en: "Fries", ar: "Fries" },
+      variants: [{ id: "fries-var", name: { en: "Fries", ar: "Fries" }, basePrice: { amount: 300, currency: "EGP" }, barcode: null, recipeId: null, available: true }],
+    });
+    const combo = mkItem({
+      id: "combo-1",
+      name: { en: "Meal Deal", ar: "وجبة" },
+      isCombo: true,
+      placements: [],
+      variants: [{ id: "combo-var-1", name: { en: "Meal Deal", ar: "وجبة" }, basePrice: { amount: 200, currency: "EGP" }, barcode: null, recipeId: null, available: true }],
+    });
+    listItemModifierGroups.mockImplementation((itemId: string) =>
+      Promise.resolve(
+        itemId === "combo-1"
+          ? [
+              {
+                id: "group-1",
+                tenantId: "t",
+                name: { en: "Side", ar: "Side" },
+                minSelections: 1,
+                maxSelections: 1,
+                required: true,
+                allowRepeat: false,
+                freeQuantityThreshold: null,
+                attachedItemCount: 1,
+                modifiers: [
+                  {
+                    id: "mod-1",
+                    name: { en: "Fries", ar: "Fries" },
+                    kind: "addition",
+                    priceDelta: { amount: 0, currency: "EGP" },
+                    recipeDelta: [],
+                    isDefault: true,
+                    linkedVariantId: "fries-var",
+                    comboComponentPriceOverride: null,
+                  },
+                ],
+              },
+            ]
+          : [],
+      ),
+    );
+
+    render(
+      <LiveMenuPreview menuName="Lunch" categories={[mkCategory()]} items={[combo, fries]} currency="EGP" fmt={fmt} tx={tx} t={t} onClose={() => {}} />,
+    );
+
+    expect(await screen.findByText(new RegExp(t("menu.comboSaveLabel")))).toBeInTheDocument();
+  });
+
+  it("shows a real modifier-group summary line for a REGULAR (non-combo) item with real customizations", async () => {
+    const burger = mkItem({
+      id: "item-burger",
+      name: { en: "Burger", ar: "برجر" },
+      variants: [{ id: "burger-var", name: { en: "Burger", ar: "" }, basePrice: { amount: 5000, currency: "EGP" }, barcode: null, recipeId: null, available: true }],
+    });
+    listItemModifierGroups.mockImplementation((itemId: string) =>
+      Promise.resolve(
+        itemId === "item-burger"
+          ? [
+              {
+                id: "group-sauce",
+                tenantId: "t",
+                name: { en: "Sauce", ar: "" },
+                minSelections: 0,
+                maxSelections: 1,
+                required: false,
+                allowRepeat: false,
+                freeQuantityThreshold: null,
+                attachedItemCount: 1,
+                modifiers: [
+                  {
+                    id: "mod-ketchup",
+                    name: { en: "Ketchup", ar: "" },
+                    kind: "addition",
+                    priceDelta: { amount: 0, currency: "EGP" },
+                    recipeDelta: [],
+                    isDefault: true,
+                    linkedVariantId: null,
+                    comboComponentPriceOverride: null,
+                  },
+                ],
+              },
+            ]
+          : [],
+      ),
+    );
+
+    render(
+      <LiveMenuPreview menuName="Lunch" categories={[mkCategory()]} items={[burger]} currency="EGP" fmt={fmt} tx={tx} t={t} onClose={() => {}} />,
+    );
+
+    expect(await screen.findByText("Sauce")).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(t("menu.previewRuleOptional")))).toBeInTheDocument();
+    expect(screen.getByText(/Ketchup/)).toBeInTheDocument();
   });
 
   it("shows an empty state when there is nothing to preview", () => {
