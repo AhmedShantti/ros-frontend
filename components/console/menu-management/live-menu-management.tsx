@@ -415,7 +415,7 @@ export default function LiveMenuManagement() {
   }
 
   return (
-    <div className="mm-root menu-page" dir="ltr">
+    <div className="mm-root menu-page">
       <section className="content">
         <div className="scope-bar">
           <ScopeSelect

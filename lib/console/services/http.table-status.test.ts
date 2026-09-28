@@ -28,6 +28,7 @@ const {
   listBranches,
   getAccessibleScope,
   salesList,
+  salesHistory,
 } = vi.hoisted(() => ({
   tableStatus: vi.fn(),
   posListTables: vi.fn(),
@@ -35,6 +36,7 @@ const {
   listBranches: vi.fn(),
   getAccessibleScope: vi.fn(),
   salesList: vi.fn(),
+  salesHistory: vi.fn(),
 }));
 
 /**
@@ -54,6 +56,7 @@ vi.mock("@/lib/api/endpoints", () => {
       tableStatus: (...args: unknown[]) => tableStatus(...args),
       listTables: (...args: unknown[]) => posListTables(...args),
       list: (...args: unknown[]) => salesList(...args),
+      history: (...args: unknown[]) => salesHistory(...args),
     }),
     organisation: group("organisation", {
       listTables: (...args: unknown[]) => orgListTables(...args),
@@ -121,6 +124,7 @@ beforeEach(async () => {
   // it is not what these tests are about and must simply not throw here.
   listBranches.mockResolvedValue([]);
   salesList.mockResolvedValue({ orders: [], nextCursor: null });
+  salesHistory.mockResolvedValue({ orders: [], nextCursor: null });
   ({ httpServices } = await import("./http"));
   ({ ServiceError } = await import("./types"));
 });
@@ -224,6 +228,16 @@ describe("http.ts — Dashboard 'Tables occupied' tile (dashboard.get)", () => {
     const down = await httpServices.dashboard.get(scope(BRANCH_2_ID));
     expect(down.live.tablesOccupied).toBeNull();
     expect(down.live.tablesTotal).toBeNull();
+  });
+
+  it("reads orders from GET /orders/history (pos.order.view_history), never the POS-only GET /orders", async () => {
+    tableStatus.mockResolvedValue(STATUS_ROWS);
+
+    await httpServices.dashboard.get(scope(BRANCH_ID));
+
+    expect(salesHistory).toHaveBeenCalled();
+    expect(salesHistory.mock.calls[0]![0]).toMatchObject({ branchId: BRANCH_ID, limit: 100 });
+    expect(salesList).not.toHaveBeenCalled();
   });
 
   it("a branch with no tables is a truthful 0 of 0 (the read succeeded), distinct from a dash", async () => {

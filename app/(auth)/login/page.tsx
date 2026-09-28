@@ -160,7 +160,13 @@ export default function LoginPage() {
       <Card className="ros-fade-in">
         <h1 className="text-fg text-lg font-semibold">{t("auth.signInTitle")}</h1>
         <p className="text-fg-muted mt-1.5 text-xs leading-relaxed">
-          {live ? `${t("auth.liveApi")} ${describeTarget()}` : t("auth.signInLede")}
+          {/* The backend address is a developer aid: show it only in a local
+              `next dev` build, never to visitors of a deployed site. */}
+          {!live
+            ? t("auth.signInLede")
+            : process.env.NODE_ENV === "development"
+              ? `${t("auth.liveApi")} ${describeTarget()}`
+              : t("auth.signInLive")}
         </p>
 
         {notice ? (

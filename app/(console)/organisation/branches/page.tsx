@@ -42,6 +42,36 @@ import {
 } from "@/components/console/ui";
 import { RecordDrawer } from "@/components/console/record-drawer";
 
+/**
+ * Branch code: 2–12 characters, capital letters, digits and "-", starting
+ * with a letter or digit. It prints on receipts and order numbers (MAIN-7),
+ * so it is kept short and unambiguous. Typed lowercase, it is upper-cased.
+ */
+const BRANCH_CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{1,11}$/;
+
+/**
+ * The countries a branch can be created in — the country codes the platform
+ * models (`CountryCode`) — with each one's currency and time zone, so a
+ * branch can no longer be saved with a typo such as "XX" or "Afrca/Cairo".
+ */
+const BRANCH_COUNTRIES = [
+  { code: "EG", currency: "EGP", timezone: "Africa/Cairo" },
+  { code: "SA", currency: "SAR", timezone: "Asia/Riyadh" },
+  { code: "AE", currency: "AED", timezone: "Asia/Dubai" },
+  { code: "JO", currency: "JOD", timezone: "Asia/Amman" },
+  { code: "KW", currency: "KWD", timezone: "Asia/Kuwait" },
+  { code: "QA", currency: "QAR", timezone: "Asia/Qatar" },
+] as const;
+
+/** A country or currency name in the UI language, falling back to the code. */
+function displayName(locale: string, type: "region" | "currency", code: string): string {
+  try {
+    return new Intl.DisplayNames([locale], { type }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 export default function BranchesPage() {
   return (
     <Gate permissions={["org.manage", "settings.branch.manage", "report.view.sales"]}>
@@ -51,8 +81,8 @@ export default function BranchesPage() {
 }
 
 function BranchesScreen() {
-  const { t, tx, fmt } = useI18n();
-  const { scope, availableBrands } = useSession();
+  const { t, tx, fmt, locale } = useI18n();
+  const { scope, availableBrands, org } = useSession();
   const canManage = usePermission("settings.branch.manage");
   const [selected, setSelected] = useState<Branch | null>(null);
   const [creating, setCreating] = useState(false);
@@ -243,7 +273,22 @@ function BranchesScreen() {
         title={t("org.newBranch")}
         fields={[
           { name: "name", label: t("common.name"), required: true, maxLength: 120 },
-          { name: "code", label: t("common.code"), required: true, maxLength: 12, ltr: true },
+          {
+            name: "code",
+            label: t("common.code"),
+            hint: t("org.branchCodeHint"),
+            required: true,
+            maxLength: 12,
+            ltr: true,
+            validate: (value) => {
+              const code = value.trim().toUpperCase();
+              if (!BRANCH_CODE_PATTERN.test(code)) return t("org.branchCodeInvalid");
+              const taken = [...org.branches, ...collection.rows].some(
+                (branch) => branch.code.toUpperCase() === code,
+              );
+              return taken ? t("org.branchCodeTaken") : null;
+            },
+          },
           {
             name: "brandId",
             label: t("common.brand"),
@@ -251,15 +296,45 @@ function BranchesScreen() {
             required: true,
             options: availableBrands.map((brand) => ({ value: brand.id, label: tx(brand.name) })),
           },
-          { name: "countryCode", label: t("org.country"), initial: "EG", maxLength: 2, ltr: true },
-          { name: "currency", label: t("org.currency"), initial: "EGP", maxLength: 3, ltr: true },
-          { name: "timezone", label: t("org.timezone"), initial: "Africa/Cairo", ltr: true },
+          {
+            name: "countryCode",
+            label: t("org.country"),
+            kind: "select",
+            required: true,
+            initial: "EG",
+            options: BRANCH_COUNTRIES.map((country) => ({
+              value: country.code,
+              label: displayName(locale, "region", country.code),
+            })),
+          },
+          {
+            name: "currency",
+            label: t("org.currency"),
+            kind: "select",
+            required: true,
+            initial: "EGP",
+            options: BRANCH_COUNTRIES.map((country) => ({
+              value: country.currency,
+              label: `${displayName(locale, "currency", country.currency)} (${country.currency})`,
+            })),
+          },
+          {
+            name: "timezone",
+            label: t("org.timezone"),
+            kind: "select",
+            required: true,
+            initial: "Africa/Cairo",
+            options: BRANCH_COUNTRIES.map((country) => ({
+              value: country.timezone,
+              label: country.timezone,
+            })),
+          },
         ]}
         onClose={() => setCreating(false)}
         onSubmit={(values) =>
           services.organisation.branches.create({
             name: { en: values.name.trim(), ar: values.name.trim() },
-            code: values.code.trim(),
+            code: values.code.trim().toUpperCase(),
             brandId: values.brandId,
             countryCode: values.countryCode.trim().toUpperCase() as never,
             currency: values.currency.trim().toUpperCase() as never,
