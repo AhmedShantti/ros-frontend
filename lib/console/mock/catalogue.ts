@@ -819,6 +819,7 @@ const menuItemsSeeded: MenuItem[] = MENU_SEEDS.map((seed, i) => {
     isCombo: false,
     isOpenPrice: false,
     isWeighed: false,
+    isActive: true,
     available: !unavailable,
     unavailableReason: unavailable ? "Out of a key ingredient" : null,
     autoReenableAt: null,

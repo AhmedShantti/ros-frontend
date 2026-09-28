@@ -14,6 +14,7 @@ import { consoleEn } from "@/content/console/en";
 
 const itemsCreate = vi.fn();
 const itemsUpdate = vi.fn();
+const itemsRemove = vi.fn();
 const placeItem = vi.fn();
 const modifierGroupsCreate = vi.fn();
 const modifierGroupsUpdate = vi.fn();
@@ -21,6 +22,7 @@ const linkModifierGroup = vi.fn();
 const addModifier = vi.fn();
 const listItemModifierGroups = vi.fn();
 const updateVariantPrice = vi.fn();
+const toggleAvailability = vi.fn();
 
 vi.mock("@/lib/console/services", () => ({
   services: {
@@ -28,6 +30,7 @@ vi.mock("@/lib/console/services", () => ({
       items: {
         create: (...args: unknown[]) => itemsCreate(...args),
         update: (...args: unknown[]) => itemsUpdate(...args),
+        remove: (...args: unknown[]) => itemsRemove(...args),
       },
       placeItem: (...args: unknown[]) => placeItem(...args),
       modifierGroups: {
@@ -38,6 +41,7 @@ vi.mock("@/lib/console/services", () => ({
       addModifier: (...args: unknown[]) => addModifier(...args),
       listItemModifierGroups: (...args: unknown[]) => listItemModifierGroups(...args),
       updateVariantPrice: (...args: unknown[]) => updateVariantPrice(...args),
+      toggleAvailability: (...args: unknown[]) => toggleAvailability(...args),
     },
   },
 }));
@@ -88,6 +92,7 @@ function mkStandalone(id: string, name: string, priceMinor: number): LiveItem {
     isCombo: false,
     isOpenPrice: false,
     isWeighed: false,
+    isActive: true,
     available: true,
     unavailableReason: null,
     autoReenableAt: null,
@@ -96,6 +101,7 @@ function mkStandalone(id: string, name: string, priceMinor: number): LiveItem {
     colour: "#000",
     imageEmoji: "",
     placements: [],
+    modifierGroups: [],
   };
 }
 
@@ -106,6 +112,8 @@ const cola = mkStandalone("item-cola", "Cola", 1500);
 beforeEach(() => {
   itemsCreate.mockReset().mockResolvedValue({ id: "combo-1" });
   itemsUpdate.mockReset().mockResolvedValue(undefined);
+  itemsRemove.mockReset().mockResolvedValue(undefined);
+  toggleAvailability.mockReset().mockResolvedValue(undefined);
   placeItem.mockReset().mockResolvedValue(undefined);
   modifierGroupsCreate.mockReset().mockResolvedValue({ id: "group-1" });
   modifierGroupsUpdate.mockReset().mockResolvedValue(undefined);
@@ -154,6 +162,8 @@ describe("LiveComboEditor", () => {
         fmt={fmt}
         tx={tx}
         t={t}
+        canManage
+        canToggleAvailability
         onClose={() => {}}
         onCreated={() => {}}
       />,
@@ -170,6 +180,8 @@ describe("LiveComboEditor", () => {
         fmt={fmt}
         tx={tx}
         t={t}
+        canManage
+        canToggleAvailability
         onClose={() => {}}
         onCreated={() => {}}
       />,
@@ -214,6 +226,8 @@ describe("LiveComboEditor", () => {
         fmt={fmt}
         tx={tx}
         t={t}
+        canManage
+        canToggleAvailability
         onClose={() => {}}
         onCreated={() => {}}
       />,
@@ -279,6 +293,8 @@ describe("LiveComboEditor", () => {
         fmt={fmt}
         tx={tx}
         t={t}
+        canManage
+        canToggleAvailability
         onClose={() => {}}
         onCreated={() => {}}
       />,
@@ -329,6 +345,8 @@ describe("LiveComboEditor", () => {
         fmt={fmt}
         tx={tx}
         t={t}
+        canManage
+        canToggleAvailability
         onClose={() => {}}
         onCreated={() => {}}
       />,
@@ -372,6 +390,8 @@ describe("LiveComboEditor", () => {
         fmt={fmt}
         tx={tx}
         t={t}
+        canManage
+        canToggleAvailability
         onClose={() => {}}
         onCreated={() => {}}
       />,
@@ -383,5 +403,100 @@ describe("LiveComboEditor", () => {
 
     await waitFor(() => expect(modifierGroupsCreate).toHaveBeenCalledTimes(1));
     expect(linkModifierGroup).toHaveBeenCalledTimes(1);
+  });
+
+  it("groups the item picker by each candidate's real category, via optgroup — the reference's own grouping", async () => {
+    const category2: LiveCategory = { ...category, id: "cat-2", name: { en: "Drinks", ar: "" } };
+    const burgerInMains = { ...burger, placements: [{ categoryId: "cat-1", menuId: "menu-1" }] };
+    const colaInDrinks = { ...cola, placements: [{ categoryId: "cat-2", menuId: "menu-1" }] };
+    render(
+      <LiveComboEditor
+        categories={[category, category2]}
+        nonComboItems={[burgerInMains, colaInDrinks]}
+        currency="EGP"
+        fmt={fmt}
+        tx={tx}
+        t={t}
+        canManage
+        canToggleAvailability
+        onClose={() => {}}
+        onCreated={() => {}}
+      />,
+    );
+    const placeholderOption = screen.getAllByText(/add an item to "Main"/i)[0]!;
+    const select = placeholderOption.closest("select") as HTMLSelectElement;
+    const optgroups = within(select).getAllByRole("group") as HTMLOptGroupElement[];
+    const labels = optgroups.map((g) => g.label);
+    expect(labels).toContain("Combos");
+    expect(labels).toContain("Drinks");
+  });
+
+  it("dims a slot chip and shows an unavailable warning when its real linked item isn't available", async () => {
+    const unavailableFries = { ...fries, available: false };
+    render(
+      <LiveComboEditor
+        categories={[category]}
+        nonComboItems={[burger, unavailableFries]}
+        currency="EGP"
+        fmt={fmt}
+        tx={tx}
+        t={t}
+        canManage
+        canToggleAvailability
+        onClose={() => {}}
+        onCreated={() => {}}
+      />,
+    );
+    await addOptionToSlot(/Main/, "Fries");
+    expect(screen.getByText(t("menu.unavailable"))).toBeInTheDocument();
+    expect(document.querySelector(".slot-chip.dim")).toBeTruthy();
+  });
+
+  it("shows a real savings row computed from the default options' real prices vs the actual combo price", async () => {
+    render(
+      <LiveComboEditor
+        categories={[category]}
+        nonComboItems={[burger, fries]}
+        currency="EGP"
+        fmt={fmt}
+        tx={tx}
+        t={t}
+        canManage
+        canToggleAvailability
+        onClose={() => {}}
+        onCreated={() => {}}
+      />,
+    );
+    await userEvent.type(screen.getByPlaceholderText(/chicken meal/i), "Value Meal");
+    await addOptionToSlot(/Main/, "Burger");
+    await addOptionToSlot(/Side/, "Fries");
+    // burger 5000 + fries 2000 = 7000 "bought separately"; fixed price below that is a real saving.
+    await userEvent.type(screen.getByPlaceholderText("0.00"), "60");
+    expect(screen.getByText(t("menu.comboCustomerSaves"))).toBeInTheDocument();
+  });
+
+  it("offers the real 3-way availability picker and a separate confirm-to-deactivate footer control for an existing combo", async () => {
+    listItemModifierGroups.mockResolvedValue([]);
+    render(
+      <LiveComboEditor
+        existingItem={mkExistingCombo()}
+        categories={[category]}
+        nonComboItems={[burger, fries]}
+        currency="EGP"
+        fmt={fmt}
+        tx={tx}
+        t={t}
+        canManage
+        canToggleAvailability
+        onClose={() => {}}
+        onCreated={() => {}}
+      />,
+    );
+    expect(await screen.findByRole("button", { name: new RegExp(t("menu.available")) })).toHaveClass("chosen");
+
+    await userEvent.click(screen.getByRole("button", { name: t("menu.deactivateComboButton") }));
+    expect(itemsRemove).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: t("menu.deactivateConfirmYes") }));
+    await waitFor(() => expect(itemsRemove).toHaveBeenCalledWith("combo-existing"));
   });
 });

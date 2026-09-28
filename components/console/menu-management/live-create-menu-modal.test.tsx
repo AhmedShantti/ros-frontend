@@ -59,7 +59,7 @@ beforeEach(() => {
 describe("LiveCreateMenuModal", () => {
   it("blocks creation until a name is entered", () => {
     render(
-      <LiveCreateMenuModal availableBranches={[]} tx={tx} t={t} onClose={() => {}} onCreated={() => {}} />,
+      <LiveCreateMenuModal availableBrands={[]} availableBranches={[]} tx={tx} t={t} onClose={() => {}} onCreated={() => {}} />,
     );
     expect(screen.getByRole("button", { name: /create menu/i })).toBeDisabled();
   });
@@ -68,6 +68,7 @@ describe("LiveCreateMenuModal", () => {
     const onCreated = vi.fn();
     render(
       <LiveCreateMenuModal
+        availableBrands={[]}
         availableBranches={[mkBranch()]}
         defaultBranchId="branch-1"
         tx={tx}
@@ -90,7 +91,7 @@ describe("LiveCreateMenuModal", () => {
 
   it("does not assign any branch when none is selected", async () => {
     render(
-      <LiveCreateMenuModal availableBranches={[mkBranch()]} tx={tx} t={t} onClose={() => {}} onCreated={() => {}} />,
+      <LiveCreateMenuModal availableBrands={[]} availableBranches={[mkBranch()]} tx={tx} t={t} onClose={() => {}} onCreated={() => {}} />,
     );
     await userEvent.type(screen.getByPlaceholderText(/main menu/i), "Lunch");
     await userEvent.click(screen.getByRole("button", { name: /create menu/i }));
@@ -101,9 +102,43 @@ describe("LiveCreateMenuModal", () => {
   it("calls onClose from the close button", async () => {
     const onClose = vi.fn();
     render(
-      <LiveCreateMenuModal availableBranches={[]} tx={tx} t={t} onClose={onClose} onCreated={() => {}} />,
+      <LiveCreateMenuModal availableBrands={[]} availableBranches={[]} tx={tx} t={t} onClose={onClose} onCreated={() => {}} />,
     );
     await userEvent.click(screen.getByRole("button", { name: "" }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the reference's create-intro block", () => {
+    render(
+      <LiveCreateMenuModal availableBrands={[]} availableBranches={[]} tx={tx} t={t} onClose={() => {}} onCreated={() => {}} />,
+    );
+    expect(screen.getByText(t("menu.createIntroTitle"))).toBeInTheDocument();
+  });
+
+  it("uses real checkboxes for the branch picker, never radio-card buttons — no branch selected means all branches", async () => {
+    render(
+      <LiveCreateMenuModal availableBrands={[]} availableBranches={[mkBranch(), mkBranch({ id: "branch-2", name: { en: "Uptown", ar: "" } })]} tx={tx} t={t} onClose={() => {}} onCreated={() => {}} />,
+    );
+    const checkbox = screen.getByRole("checkbox", { name: /Downtown/ });
+    expect(checkbox).not.toBeChecked();
+    await userEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+  });
+
+  it("a Brand selection narrows the branch picker to that brand's real branches only", async () => {
+    const brands = [
+      { id: "brand-1", tenantId: "t", name: { en: "Acme", ar: "" }, code: "A", colour: "#000", branchCount: 1, active: true },
+      { id: "brand-2", tenantId: "t", name: { en: "Other", ar: "" }, code: "B", colour: "#000", branchCount: 1, active: true },
+    ];
+    const branches = [mkBranch({ id: "b1", brandId: "brand-1", name: { en: "Downtown", ar: "" } }), mkBranch({ id: "b2", brandId: "brand-2", name: { en: "Uptown", ar: "" } })];
+    render(
+      <LiveCreateMenuModal availableBrands={brands} availableBranches={branches} tx={tx} t={t} onClose={() => {}} onCreated={() => {}} />,
+    );
+    expect(screen.getByRole("checkbox", { name: /Downtown/ })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Uptown/ })).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByRole("combobox"), "brand-2");
+    expect(screen.queryByRole("checkbox", { name: /Downtown/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Uptown/ })).toBeInTheDocument();
   });
 });

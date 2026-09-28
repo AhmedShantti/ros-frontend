@@ -431,6 +431,16 @@ export interface MenuItem {
   isCombo: boolean;
   isOpenPrice: boolean;
   isWeighed: boolean;
+  /**
+   * Master-data lifecycle: false exactly when the item has been
+   * soft-deactivated (`items.remove()` / `setItemActive(false)`) — a
+   * DISTINCT state from a manual 86 (`unavailableReason`), which can be true
+   * or false independently of this flag. `available` below is the combined
+   * "can this be sold right now" signal every OTHER consumer should keep
+   * using; this field exists so Menu Management can tell the two causes
+   * apart and never send a fake availability restore for a deactivated item.
+   */
+  isActive: boolean;
   available: boolean;
   /**
    * FR-MNU-030 — non-null exactly while a manual 86 is in effect. This is
