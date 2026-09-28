@@ -10,7 +10,7 @@
  */
 
 import { useState } from "react";
-import type { Branch, Localised, Menu } from "@/lib/console/types";
+import type { Branch, Brand, Localised, Menu } from "@/lib/console/types";
 import type { ConsoleKey } from "@/content/console/en";
 import { services } from "@/lib/console/services";
 import { Icon, Section, useSaver } from "./common";
@@ -18,6 +18,7 @@ import { Icon, Section, useSaver } from "./common";
 const ORDER_TYPE_CHOICES = ["dine_in", "takeaway", "delivery", "drive_thru", "pickup"] as const;
 
 interface LiveCreateMenuModalProps {
+  availableBrands: Brand[];
   availableBranches: Branch[];
   defaultBranchId?: string | null;
   tx: (value: Localised) => string;
@@ -26,12 +27,18 @@ interface LiveCreateMenuModalProps {
   onCreated: (menu: Menu) => void;
 }
 
-export default function LiveCreateMenuModal({ availableBranches, defaultBranchId, tx, t, onClose, onCreated }: LiveCreateMenuModalProps) {
+export default function LiveCreateMenuModal({ availableBrands, availableBranches, defaultBranchId, tx, t, onClose, onCreated }: LiveCreateMenuModalProps) {
   const { saving, error, run } = useSaver();
   const [name, setName] = useState("");
   const [priority, setPriority] = useState("10");
   const [orderTypes, setOrderTypes] = useState<string[]>(["dine_in"]);
+  const defaultBranch = availableBranches.find((b) => b.id === defaultBranchId);
+  const [brandId, setBrandId] = useState<string | null>(defaultBranch?.brandId ?? availableBrands[0]?.id ?? null);
   const [branchIds, setBranchIds] = useState<string[]>(defaultBranchId ? [defaultBranchId] : []);
+
+  // Brand is a pure UI-narrowing filter over the real branch list — Menu
+  // itself carries no brandId (only branchIds are ever sent on create).
+  const brandBranches = availableBranches.filter((b) => brandId == null || b.brandId === brandId);
 
   const problem = !name.trim() ? t("menu.addAMenuName") : "";
 
@@ -59,7 +66,7 @@ export default function LiveCreateMenuModal({ availableBranches, defaultBranchId
 
   return (
     <div className="overlay" role="dialog" aria-modal="true" onClick={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}>
-      <div className="modal">
+      <div className="modal create-menu-modal">
         <div className="drawer-head">
           <div>
             <span className="small-label">{t("menu.newMenuLabel")}</span>
@@ -70,6 +77,16 @@ export default function LiveCreateMenuModal({ availableBranches, defaultBranchId
           </button>
         </div>
         <div className="drawer-body">
+          <div className="create-intro">
+            <div className="create-icon">
+              <Icon name="book" size={18} />
+            </div>
+            <div>
+              <strong>{t("menu.createIntroTitle")}</strong>
+              <p>{t("menu.createIntroText")}</p>
+            </div>
+          </div>
+
           <Section title={t("menu.basicInfo")}>
             <label>
               {t("menu.menuName")}
@@ -91,15 +108,39 @@ export default function LiveCreateMenuModal({ availableBranches, defaultBranchId
             </div>
           </Section>
 
-          {availableBranches.length > 0 ? (
+          {availableBrands.length > 0 || availableBranches.length > 0 ? (
             <Section title={t("menu.assignToBranches")}>
-              <div className="radio-grid three">
-                {availableBranches.map((branch) => (
-                  <button key={branch.id} className={branchIds.includes(branch.id) ? "radio-card chosen" : "radio-card"} onClick={() => toggleBranch(branch.id)}>
-                    <b>{tx(branch.name)}</b>
-                  </button>
-                ))}
-              </div>
+              {availableBrands.length > 0 ? (
+                <label>
+                  {t("common.brand")}
+                  <select
+                    value={brandId ?? ""}
+                    onChange={(e) => {
+                      const brand = availableBrands.find((b) => b.id === e.target.value);
+                      setBrandId(brand?.id ?? null);
+                      setBranchIds([]);
+                    }}
+                  >
+                    {availableBrands.map((brand) => (
+                      <option key={brand.id} value={brand.id}>
+                        {tx(brand.name)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              {brandBranches.length > 0 ? (
+                <div className="branch-picker">
+                  <span>
+                    {t("menu.branchesLabel")} <small>{t("menu.branchesNoneSelectedHint")}</small>
+                  </span>
+                  {brandBranches.map((branch) => (
+                    <label key={branch.id} className="checkline">
+                      <input type="checkbox" checked={branchIds.includes(branch.id)} onChange={() => toggleBranch(branch.id)} /> {tx(branch.name)}
+                    </label>
+                  ))}
+                </div>
+              ) : null}
             </Section>
           ) : null}
         </div>

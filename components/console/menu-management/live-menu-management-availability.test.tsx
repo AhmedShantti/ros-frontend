@@ -23,6 +23,7 @@ import userEvent from "@testing-library/user-event";
 const menusList = vi.fn();
 const itemsGet = vi.fn();
 const itemsRemove = vi.fn();
+const itemsUpdate = vi.fn();
 const toggleAvailability = vi.fn();
 
 const { MockServiceError } = vi.hoisted(() => ({
@@ -55,7 +56,7 @@ vi.mock("@/lib/console/services", () => ({
         list: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
         get: (...args: unknown[]) => itemsGet(...args),
         create: vi.fn(),
-        update: vi.fn(),
+        update: (...args: unknown[]) => itemsUpdate(...args),
         remove: (...args: unknown[]) => itemsRemove(...args),
       },
       addVariant: vi.fn(),
@@ -135,7 +136,16 @@ const category = () => ({
   tenantId: "t1",
 });
 
-function liveItem(overrides: Partial<{ id: string; name: string; available: boolean; unavailableReason: string | null; autoReenableAt: string | null }> = {}) {
+function liveItem(
+  overrides: Partial<{ id: string; name: string; available: boolean; isActive: boolean; unavailableReason: string | null; autoReenableAt: string | null }> = {},
+) {
+  const available = overrides.available ?? true;
+  const unavailableReason = overrides.unavailableReason ?? null;
+  // Default derivation matches real semantics: available implies isActive;
+  // otherwise isActive is true only when a manual 86 rule is the cause (a
+  // reason is set) — the plain "deactivated" case is the one where neither
+  // is true. Pass `isActive` explicitly to model the compound case.
+  const isActive = overrides.isActive ?? (available ? true : Boolean(unavailableReason));
   return {
     id: overrides.id ?? "i1",
     tenantId: "t1",
@@ -152,14 +162,16 @@ function liveItem(overrides: Partial<{ id: string; name: string; available: bool
     isCombo: false,
     isOpenPrice: false,
     isWeighed: false,
-    available: overrides.available ?? true,
-    unavailableReason: overrides.unavailableReason ?? null,
+    isActive,
+    available,
+    unavailableReason,
     autoReenableAt: overrides.autoReenableAt ?? null,
     remainingSellable: null,
     sortOrder: 0,
     colour: "#000",
     imageEmoji: "",
     placements: [{ categoryId: "c1", menuId: "m1" }],
+    modifierGroups: [],
   };
 }
 
@@ -209,7 +221,7 @@ describe("Live Menu Management — availability/86", () => {
     render(<LiveMenuManagement />);
     await openItemEditor(user, "Burger");
 
-    await user.click(itemDialog().getByRole("button", { name: "menu.toggle86" }));
+    await user.click(itemDialog().getByRole("button", { name: /menu\.unavailable/ }));
     await user.type(topDialog().getByLabelText(/menu\.86Reason/i), "Ran out of buns");
     await user.click(topDialog().getByRole("button", { name: "menu.toggle86" }));
 
@@ -225,11 +237,45 @@ describe("Live Menu Management — availability/86", () => {
     render(<LiveMenuManagement />);
     await openItemEditor(user, "Burger");
 
-    await user.click(itemDialog().getByRole("button", { name: "menu.toggleAvailable" }));
+    await user.click(itemDialog().getByRole("button", { name: /menu\.available/ }));
     await waitFor(() => expect(toggleAvailability).toHaveBeenCalledWith("i1", true, undefined, undefined));
+    expect(itemsUpdate).not.toHaveBeenCalled();
   });
 
-  it("4. the 86/restore control is gated by menu.availability.toggle, independently of menu.item.manage", async () => {
+  it("3b. Activate on a deactivated item (isActive=false, no 86 rule) calls items.update(..., {available:true}) — never a fake toggleAvailability restore", async () => {
+    listItemsWithPlacementsMock.mockResolvedValue([liveItem({ available: false, unavailableReason: null, isActive: false })]);
+    itemsGet.mockResolvedValue(liveItem({ available: false, unavailableReason: null, isActive: false }));
+    itemsUpdate.mockResolvedValue(liveItem({ available: true }));
+
+    const user = userEvent.setup();
+    render(<LiveMenuManagement />);
+    await openItemEditor(user, "Burger");
+
+    await user.click(itemDialog().getByRole("button", { name: /menu\.available/ }));
+    await waitFor(() => expect(itemsUpdate).toHaveBeenCalledWith("i1", { available: true }));
+    expect(toggleAvailability).not.toHaveBeenCalled();
+  });
+
+  it("3c. Activate on an item that is BOTH deactivated and still 86'd (compound state) sends BOTH real mutations explicitly, never fakes a single instant transition", async () => {
+    listItemsWithPlacementsMock.mockResolvedValue([liveItem({ available: false, unavailableReason: "manual_86", isActive: false })]);
+    itemsGet.mockResolvedValue(liveItem({ available: false, unavailableReason: "manual_86", isActive: false }));
+    itemsUpdate.mockResolvedValue(liveItem({ available: false, unavailableReason: "manual_86" }));
+    toggleAvailability.mockResolvedValue(liveItem({ available: true }));
+
+    const user = userEvent.setup();
+    render(<LiveMenuManagement />);
+    await openItemEditor(user, "Burger");
+
+    // The compound state is truthfully "Deactivated", not "86'd" — isActive
+    // takes priority — so the picker shows Deactivated as chosen.
+    expect(itemDialog().getByRole("button", { name: /menu\.deactivated/ })).toHaveClass("chosen");
+
+    await user.click(itemDialog().getByRole("button", { name: /menu\.available/ }));
+    await waitFor(() => expect(itemsUpdate).toHaveBeenCalledWith("i1", { available: true }));
+    expect(toggleAvailability).toHaveBeenCalledWith("i1", true, undefined, undefined);
+  });
+
+  it("4. the 86 control is gated by menu.availability.toggle, independently of menu.item.manage", async () => {
     granted = new Set(["menu.availability.toggle", "menu.item.read"]); // no menu.item.manage
     listItemsWithPlacementsMock.mockResolvedValue([liveItem({ available: true })]);
     itemsGet.mockResolvedValue(liveItem({ available: true }));
@@ -238,9 +284,8 @@ describe("Live Menu Management — availability/86", () => {
     render(<LiveMenuManagement />);
     await openItemEditor(user, "Burger");
 
-    expect(await screen.findByRole("button", { name: "menu.toggle86" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "common.deactivate" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "common.save" })).not.toBeInTheDocument();
+    expect(itemDialog().getByRole("button", { name: /menu\.unavailable/ })).not.toBeDisabled();
+    expect(itemDialog().getByRole("button", { name: /menu\.deactivated/ })).toBeDisabled();
   });
 
   it("5. deactivate is gated by menu.item.manage, independently of menu.availability.toggle", async () => {
@@ -252,10 +297,8 @@ describe("Live Menu Management — availability/86", () => {
     render(<LiveMenuManagement />);
     await openItemEditor(user, "Burger");
 
-    await screen.findByRole("dialog");
-    expect(itemDialog().getByRole("button", { name: "common.deactivate" })).toBeInTheDocument();
-    expect(itemDialog().queryByRole("button", { name: "menu.toggle86" })).not.toBeInTheDocument();
-    expect(itemDialog().queryByRole("button", { name: "menu.toggleAvailable" })).not.toBeInTheDocument();
+    expect(itemDialog().getByRole("button", { name: /menu\.deactivated/ })).not.toBeDisabled();
+    expect(itemDialog().getByRole("button", { name: /menu\.unavailable/ })).toBeDisabled();
   });
 
   it("6. 86 and deactivate call different, distinct service methods", async () => {
@@ -267,9 +310,24 @@ describe("Live Menu Management — availability/86", () => {
     render(<LiveMenuManagement />);
     await openItemEditor(user, "Burger");
 
-    await user.click(itemDialog().getByRole("button", { name: "common.deactivate" }));
+    await user.click(itemDialog().getByRole("button", { name: /menu\.deactivated/ }));
     await waitFor(() => expect(itemsRemove).toHaveBeenCalledWith("i1"));
     expect(toggleAvailability).not.toHaveBeenCalled();
+  });
+
+  it("6b. the footer's separate 'Deactivate item' control requires a second click to confirm, distinct from the availability picker's single-click Deactivated card", async () => {
+    listItemsWithPlacementsMock.mockResolvedValue([liveItem({ available: true })]);
+    itemsGet.mockResolvedValue(liveItem({ available: true }));
+    itemsRemove.mockResolvedValue(undefined);
+
+    const user = userEvent.setup();
+    render(<LiveMenuManagement />);
+    await openItemEditor(user, "Burger");
+
+    await user.click(itemDialog().getByRole("button", { name: "menu.deactivateItemButton" }));
+    expect(itemsRemove).not.toHaveBeenCalled();
+    await user.click(itemDialog().getByRole("button", { name: "menu.deactivateConfirmYes" }));
+    await waitFor(() => expect(itemsRemove).toHaveBeenCalledWith("i1"));
   });
 
   it("7. deactivated (isActive=false, no manual 86) renders a distinct 'Deactivated' state, never conflated with 86", async () => {
@@ -281,8 +339,9 @@ describe("Live Menu Management — availability/86", () => {
     render(<LiveMenuManagement />);
     await openItemEditor(user, "Burger");
 
-    expect(await screen.findByText("menu.deactivated")).toBeInTheDocument();
-    expect(screen.queryByText("menu.eightySixedNotice")).not.toBeInTheDocument();
+    expect(await itemDialog().findByText("menu.deactivatedNotice")).toBeInTheDocument();
+    expect(itemDialog().queryByText("menu.eightySixedNotice")).not.toBeInTheDocument();
+    expect(itemDialog().getByRole("button", { name: /menu\.deactivated/ })).toHaveClass("chosen");
   });
 
   it("8. the reason typed during 86 is never rendered later as if it were persisted server truth", async () => {
@@ -334,7 +393,7 @@ describe("Live Menu Management — availability/86", () => {
     render(<LiveMenuManagement />);
     await openItemEditor(user, "Burger");
 
-    await user.click(itemDialog().getByRole("button", { name: "menu.toggle86" }));
+    await user.click(itemDialog().getByRole("button", { name: /menu\.unavailable/ }));
     await user.type(topDialog().getByLabelText(/menu\.86Reason/i), "Ran out");
     const dtInput = document.querySelector('input[type="datetime-local"]') as HTMLInputElement;
     expect(dtInput).toBeTruthy();

@@ -726,6 +726,7 @@ export function toMenuItem(row: WireMenuItem, context: MenuItemContext): MenuIte
     isCombo: row.isCombo,
     isOpenPrice: row.isOpenPrice,
     isWeighed: row.isWeighed,
+    isActive: row.isActive,
     available: row.isActive && !context.unavailableReason,
     unavailableReason: context.unavailableReason ?? null,
     autoReenableAt: context.autoReenableAt ?? null,

@@ -187,9 +187,12 @@
 .mm-root .item-card{grid-template-columns:minmax(0,1fr) 125px 75px 35px}
 .mm-root .item-card.status-hidden{background:#fafaf8}
 .mm-root .item-card.status-hidden .item-copy,.mm-root .item-card.status-hidden .item-placeholder,.mm-root .item-card.status-hidden .item-price{opacity:.55}
+.mm-root .item-card.status-deactivated{background:#fafaf8}
+.mm-root .item-card.status-deactivated .item-copy,.mm-root .item-card.status-deactivated .item-placeholder,.mm-root .item-card.status-deactivated .item-price{opacity:.55}
 .mm-root .availability.available{background:#e9f5ec;color:#3e7a4d}
 .mm-root .availability.unavailable{background:#fbeee4;color:#a2582a}
 .mm-root .availability.hidden{background:#ecebe7;color:#6f6f6a}
+.mm-root .availability.deactivated{background:#ecebe7;color:#6f6f6a}
 .mm-root .warn-badge{font-size:10px;padding:3px 6px;border-radius:5px;background:#fdecea;color:#b24b3d}
 .mm-root .warn-text{color:#b0603a!important;font-size:11px!important;white-space:normal!important}
 .mm-root .item-price{display:flex;flex-direction:column;align-items:flex-end}
@@ -497,9 +500,11 @@
 .dark .mm-root .customer-empty{color:var(--c-fg-subtle)}
 .dark .mm-root .preview-footer{border-top:1px solid #5c4a24;color:var(--c-fg-subtle);background:var(--c-raised)}
 .dark .mm-root .item-card.status-hidden{background:#191e24}
+.dark .mm-root .item-card.status-deactivated{background:#191e24}
 .dark .mm-root .availability.available{background:var(--c-good-soft);color:var(--c-good)}
 .dark .mm-root .availability.unavailable{background:var(--c-warn-soft);color:var(--c-warn)}
 .dark .mm-root .availability.hidden{background:var(--c-sunken);color:var(--c-fg-muted)}
+.dark .mm-root .availability.deactivated{background:var(--c-sunken);color:var(--c-fg-muted)}
 .dark .mm-root .warn-badge{background:var(--c-bad-soft);color:var(--c-bad)}
 .dark .mm-root .warn-text{color:var(--c-warn)!important}
 .dark .mm-root .item-price small{color:var(--c-fg-subtle)}

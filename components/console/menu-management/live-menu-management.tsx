@@ -57,7 +57,7 @@
  * are simply absent, rather than faked.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { CheckCircle2, Store, TriangleAlert } from "lucide-react";
 import type { Currency, Localised, Menu, Modifier, ModifierGroup } from "@/lib/console/types";
 import type { ConsoleKey } from "@/content/console/en";
@@ -85,7 +85,7 @@ import {
 } from "@/lib/console/menu-management/live-adapter";
 import { EmptyState, Icon } from "./common";
 import "./menu-management.css";
-import { LiveComboCard, LiveItemCard } from "./live-cards";
+import { LiveComboCard, LiveItemCard, type VariantIndex } from "./live-cards";
 import LiveItemEditor from "./live-item-editor";
 import LiveComboEditor from "./live-combo-editor";
 import LiveCreateMenuModal from "./live-create-menu-modal";
@@ -148,6 +148,7 @@ function ScopeSelect({
   icon,
   label,
   allLabel,
+  emptyLabel,
   options,
   value,
   onChange,
@@ -155,6 +156,7 @@ function ScopeSelect({
   icon: "store" | "pin";
   label: string;
   allLabel: string;
+  emptyLabel: string;
   options: { id: string; name: string }[];
   value: string | null;
   onChange: (id: string | null) => void;
@@ -191,6 +193,7 @@ function ScopeSelect({
                 {o.id === value ? <Icon name="check" size={14} /> : null}
               </button>
             ))}
+            {options.length === 0 ? <div className="scope-empty">{emptyLabel}</div> : null}
           </div>
         </>
       ) : null}
@@ -229,6 +232,14 @@ export default function LiveMenuManagement() {
   );
   const menuRows = useMemo(() => menus.data?.rows ?? [], [menus.data]);
 
+  // Tenant-wide (unscoped) menu count — distinguishes "no menus exist at
+  // all" from "no menus in this brand/branch" for the empty state, exactly
+  // like the reference's own two-variant copy.
+  const tenantMenus = useAsync(
+    () => services.catalogue.menus.list({ limit: 1, scope: { tenantId: scope.tenantId, brandId: null, branchId: null } }),
+    [scope.tenantId],
+  );
+
   // Adjusted during render, not in an effect — the same "storing information
   // from previous renders" pattern the demo workspace uses for its own menu
   // switch — so a scope change or the menu list resolving is reflected
@@ -260,6 +271,11 @@ export default function LiveMenuManagement() {
   );
   const allItemRows = useMemo(() => items.data ?? [], [items.data]);
 
+  // Tenant-wide customization-group count for the toolbar stats row —
+  // `total` from a 1-row page, never the full 200-row list this workspace
+  // otherwise loads only when the Customizations drawer itself opens.
+  const modifierGroupsCount = useAsync(() => services.catalogue.modifierGroups.list({ limit: 1 }), [scope.tenantId]);
+
   // Items placed in one of THIS menu's categories.
   const categoryIds = useMemo(() => new Set(categoryRows.map((row) => row.id)), [categoryRows]);
   const menuItemRows = useMemo(
@@ -268,6 +284,20 @@ export default function LiveMenuManagement() {
   );
   const nonComboRows = useMemo(() => menuItemRows.filter((row) => !row.isCombo), [menuItemRows]);
   const comboRows = useMemo(() => menuItemRows.filter((row) => row.isCombo), [menuItemRows]);
+
+  // Every real, non-combo variant's availability/price, keyed by variant id
+  // — resolved once so combo cards can show the reference's slot summary /
+  // "can't be ordered" / savings badge using only real data.
+  const variantIndex = useMemo(() => {
+    const index: VariantIndex = new Map();
+    for (const row of allItemRows) {
+      if (row.isCombo) continue;
+      for (const variant of row.variants) {
+        index.set(variant.id, { available: row.available && variant.available, price: variant.basePrice, name: tx(row.name) });
+      }
+    }
+    return index;
+  }, [allItemRows, tx]);
 
   // Scope bar — the branch selector's own option list narrows to the
   // currently-selected brand's branches, exactly like the reference.
@@ -316,17 +346,36 @@ export default function LiveMenuManagement() {
     }
   }
 
+  /**
+   * The row menu's quick availability action. Three real, DISTINCT states —
+   * never conflated:
+   *   A) available, not 86'd     → open the editor's 86 flow (a genuine 86
+   *                                 always requires a reason).
+   *   B) 86'd (unavailableReason)→ restore via the availability rule
+   *                                 (`toggleAvailability`).
+   *   C) deactivated (isActive
+   *      false, no manual 86)    → reactivate via `items.update`, the ONLY
+   *                                 mutation that actually flips `isActive`.
+   * A restore call must never be sent for a deactivated item — it would
+   * "succeed" against a rule that was never the cause and leave the item
+   * deactivated, which is exactly the bug this distinguishes against.
+   */
   async function toggle86(item: LiveItem) {
     if (item.available) {
-      // Opens the reason prompt inside the item editor — a genuine 86 always
-      // requires a reason, so the quick toolbar action opens the full
-      // editor rather than skipping that step.
       setEditorState({ item });
       return;
     }
     try {
-      await services.catalogue.toggleAvailability(item.id, true);
-      setMessage(t("menu.restored"));
+      if (!item.isActive) {
+        // `isActive` takes priority: deactivating never clears a stale 86
+        // rule, so a deactivated-and-86'd item is truthfully "deactivated",
+        // never "just 86'd" — a restore call alone would never sell again.
+        await services.catalogue.items.update(item.id, { available: true });
+        setMessage(t("menu.itemActivated"));
+      } else {
+        await services.catalogue.toggleAvailability(item.id, true, undefined, undefined);
+        setMessage(t("menu.restored"));
+      }
       items.reload();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : t("state.errorTitle"));
@@ -346,8 +395,21 @@ export default function LiveMenuManagement() {
 
   if (menus.loading && menuRows.length === 0) {
     return (
-      <div className="mm-root menu-page">
-        <AsyncPanel state={menus}>{() => null}</AsyncPanel>
+      <div className="mm-root">
+        <div className="page-state">{t("menu.bootLoading")}</div>
+      </div>
+    );
+  }
+  if (menus.error && menuRows.length === 0) {
+    return (
+      <div className="mm-root">
+        <div className="page-state error">
+          <strong>{t("menu.bootErrorTitle")}</strong>
+          <p>{menus.error.message}</p>
+          <button className="secondary" onClick={() => window.location.reload()}>
+            {t("common.tryAgain")}
+          </button>
+        </div>
       </div>
     );
   }
@@ -360,6 +422,7 @@ export default function LiveMenuManagement() {
             icon="store"
             label={t("common.brand")}
             allLabel={t("menu.allBrands")}
+            emptyLabel={t("menu.scopeEmptyBrand")}
             options={availableBrands.map((b) => ({ id: b.id, name: tx(b.name) }))}
             value={scope.brandId}
             onChange={(id) => {
@@ -371,6 +434,7 @@ export default function LiveMenuManagement() {
             icon="pin"
             label={t("common.branch")}
             allLabel={t("menu.allBranches")}
+            emptyLabel={t("menu.scopeEmptyBranch")}
             options={scopedBranchOptions.map((b) => ({ id: b.id, name: tx(b.name) }))}
             value={scope.branchId}
             onChange={setBranchId}
@@ -379,7 +443,7 @@ export default function LiveMenuManagement() {
 
         <div className="page-head">
           <div>
-            <div className="breadcrumb">{t("nav.menu")}</div>
+            <div className="breadcrumb">{t("menu.breadcrumb")}</div>
             <h1>{t("nav.menuManagement")}</h1>
             <p>{t("menu.workspaceSubtitle")}</p>
           </div>
@@ -399,13 +463,23 @@ export default function LiveMenuManagement() {
 
         {!currentMenu ? (
           <div className="workspace single">
-            <EmptyState
-              icon="book"
-              title={t("menu.menusTitle")}
-              text={t("menu.managementEmpty")}
-              actionLabel={canManage ? t("menu.newMenu") : undefined}
-              onAction={canManage ? () => setCreatingMenu(true) : undefined}
-            />
+            {(tenantMenus.data?.total ?? 0) === 0 ? (
+              <EmptyState
+                icon="book"
+                title={t("menu.noMenusYetTitle")}
+                text={t("menu.managementEmpty")}
+                actionLabel={canManage ? t("menu.newMenu") : undefined}
+                onAction={canManage ? () => setCreatingMenu(true) : undefined}
+              />
+            ) : (
+              <EmptyState
+                icon="book"
+                title={t("menu.noMenusForScopeTitle")}
+                text={t("menu.noMenusForScopeText")}
+                actionLabel={canManage ? t("menu.newMenu") : undefined}
+                onAction={canManage ? () => setCreatingMenu(true) : undefined}
+              />
+            )}
           </div>
         ) : (
           <>
@@ -454,34 +528,33 @@ export default function LiveMenuManagement() {
                 ) : null}
               </div>
 
-              <Badge tone={currentMenu.active ? "good" : "muted"} dot>
-                {currentMenu.active ? t("common.active") : t("common.inactive")}
-              </Badge>
-              {canManage ? (
-                <Button variant="ghost" onClick={toggleMenuActive}>
-                  {currentMenu.active ? t("common.deactivate") : t("common.activate")}
-                </Button>
-              ) : null}
-              <Button variant="ghost" icon={<Store size={14} />} onClick={() => setManagingBranches(true)}>
-                {t("menu.assignedBranches")}
-              </Button>
-
               <div className="menu-stats">
                 <span>
-                  <b>{formatNumber(categoryRows.length, fmt)}</b> categories
+                  <b>{formatNumber(categoryRows.length, fmt)}</b> {t("menu.statsCategories")}
                 </span>
                 <span>
-                  <b>{formatNumber(nonComboRows.length, fmt)}</b> items
+                  <b>{formatNumber(nonComboRows.length, fmt)}</b> {t("menu.statsItems")}
                 </span>
                 <span>
-                  <b>{formatNumber(comboRows.length, fmt)}</b> combos
+                  <b>{formatNumber(comboRows.length, fmt)}</b> {t("menu.statsCombos")}
+                </span>
+                <span>
+                  <b>{formatNumber(modifierGroupsCount.data?.total ?? 0, fmt)}</b> {t("menu.statsCustomizations")}
                 </span>
               </div>
-              <button className="secondary" onClick={() => setCustomizationsOpen(true)}>
-                <Icon name="settings" size={16} /> {t("menu.customizations")}
-              </button>
               <button className="preview-btn" onClick={() => setPreviewOpen(true)}>
-                Preview menu <Icon name="arrow" size={15} />
+                {t("menu.previewMenuButton")} <Icon name="arrow" size={15} />
+              </button>
+              <span className={`availability ${currentMenu.active ? "available" : "unavailable"}`}>
+                {currentMenu.active ? t("common.active") : t("common.inactive")}
+              </span>
+              {canManage ? (
+                <button className="secondary" onClick={toggleMenuActive}>
+                  {currentMenu.active ? t("common.deactivate") : t("common.activate")}
+                </button>
+              ) : null}
+              <button className="secondary" onClick={() => setManagingBranches(true)}>
+                <Icon name="store" size={14} /> {t("menu.assignedBranches")}
               </button>
             </div>
 
@@ -554,7 +627,7 @@ export default function LiveMenuManagement() {
                   }}
                 >
                   <span className="row-with-icon">
-                    <Icon name="combo" size={15} /> Combos
+                    <Icon name="combo" size={15} /> {t("nav.combos")}
                   </span>
                   <span className="count">{formatNumber(comboRows.length, fmt)}</span>
                 </button>
@@ -572,6 +645,9 @@ export default function LiveMenuManagement() {
                       <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={view === COMBOS ? "Search combos..." : "Search items..."} />
                     </div>
                     <SortSelect value={sortBy} onChange={setSortBy} open={sortOpen} setOpen={setSortOpen} />
+                    <button className="secondary" onClick={() => setCustomizationsOpen(true)}>
+                      <Icon name="settings" size={16} /> {t("menu.customizations")}
+                    </button>
                     {canManage ? (
                       view === COMBOS ? (
                         <button className="primary" onClick={() => setComboEditor({ item: null })}>
@@ -626,6 +702,7 @@ export default function LiveMenuManagement() {
                         fmt={fmt}
                         tx={tx}
                         t={t}
+                        variantIndex={variantIndex}
                         onEdit={() => setComboEditor({ item })}
                         onToggle86={() => toggle86(item)}
                         onDeactivate={canManage ? () => deactivateItem(item) : undefined}
@@ -661,6 +738,7 @@ export default function LiveMenuManagement() {
 
       {creatingMenu ? (
         <LiveCreateMenuModal
+          availableBrands={availableBrands}
           availableBranches={availableBranches}
           defaultBranchId={scope.branchId}
           tx={tx}
@@ -720,6 +798,8 @@ export default function LiveMenuManagement() {
           fmt={fmt}
           tx={tx}
           t={t}
+          canManage={canManage}
+          canToggleAvailability={canToggleAvailability}
           onClose={() => setComboEditor(null)}
           onCreated={(note) => {
             setComboEditor(null);
@@ -748,7 +828,10 @@ export default function LiveMenuManagement() {
         canManage={canManage}
         currency={currency}
         onClose={() => setCustomizationsOpen(false)}
-        onChanged={setMessage}
+        onChanged={(msg) => {
+          setMessage(msg);
+          modifierGroupsCount.reload();
+        }}
       />
 
       <Toast message={message} />
@@ -991,6 +1074,13 @@ function selectionRuleError(
   return null;
 }
 
+/** "Required · choose 1" / "Optional · up to N" — the reference's own natural-language rule summary, over the real min/max/required fields. */
+function modifierRuleText(max: number, required: boolean, t: (key: ConsoleKey) => string): string {
+  const need = required ? t("menu.previewRuleRequired") : t("menu.previewRuleOptional");
+  const pick = max > 1 ? t("menu.previewRuleUpTo").replace("{n}", String(max)) : t("menu.previewRuleChooseOne");
+  return `${need} · ${pick}`;
+}
+
 /**
  * Customizations — the reusable Modifier Group/Modifier catalogue.
  * `GET/POST/PATCH /catalogue/modifier-groups`,
@@ -1034,9 +1124,31 @@ function CustomizationsDrawer({
   const { t, tx } = useI18n();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const [newGroupDraftName, setNewGroupDraftName] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [savePending, setSavePending] = useState(false);
+  const trySaveRef = useRef<() => Promise<boolean>>(async () => true);
+
+  async function manualSave() {
+    setSavePending(true);
+    try {
+      await trySaveRef.current();
+    } finally {
+      setSavePending(false);
+    }
+  }
 
   const groups = useAsync(() => services.catalogue.modifierGroups.list({ limit: 200 }), [open]);
   const rows = groups.data?.rows ?? [];
+
+  // Auto-select the first group on open — matches the reference's own
+  // `groups[0]` default, so the editor is never empty once any group exists.
+  const [autoSelectedFor, setAutoSelectedFor] = useState<boolean | null>(null);
+  if (open && autoSelectedFor !== open && !groups.loading && rows.length > 0 && selectedId === null && !creatingGroup) {
+    setAutoSelectedFor(open);
+    setSelectedId(rows[0]!.id);
+  }
+  if (!open && autoSelectedFor !== null) setAutoSelectedFor(null);
 
   const detail = useAsync(
     () => (selectedId ? services.catalogue.modifierGroups.get(selectedId) : Promise.resolve(null)),
@@ -1051,10 +1163,34 @@ function CustomizationsDrawer({
     detail.reload();
   }
 
+  /** Autosaves the current dirty draft (group fields, or a brand-new group)
+   * before navigating away from it — matches the reference's own
+   * switch-triggers-persistence model. A validation failure blocks the
+   * navigation, exactly like the reference's `saveDraft`. */
+  async function requestNavigation(next: () => void) {
+    if (dirty) {
+      const ok = await trySaveRef.current();
+      if (!ok) return;
+    }
+    next();
+  }
+
+  /** The header's × — closes WITHOUT saving, same as the reference's own
+   * "Close without saving" affordance. */
   function close() {
     setSelectedId(null);
     setCreatingGroup(false);
+    setDirty(false);
     onClose();
+  }
+
+  /** The footer's "Done" — saves the current dirty draft first, then closes. */
+  async function done() {
+    if (dirty) {
+      const ok = await trySaveRef.current();
+      if (!ok) return;
+    }
+    close();
   }
 
   return (
@@ -1065,7 +1201,7 @@ function CustomizationsDrawer({
             <span className="small-label">{t("menu.customizationsLabel")}</span>
             <h2>{t("menu.customizations")}</h2>
           </div>
-          <button className="icon-btn" onClick={close} aria-label={t("common.close")}>
+          <button className="icon-btn" onClick={close} aria-label={t("menu.closeWithoutSaving")}>
             <Icon name="close" />
           </button>
         </div>
@@ -1076,23 +1212,33 @@ function CustomizationsDrawer({
             {rows.map((group) => (
               <button
                 key={group.id}
-                className={selectedId === group.id ? "active" : ""}
-                onClick={() => {
-                  setCreatingGroup(false);
-                  setSelectedId(group.id);
-                }}
+                className={selectedId === group.id && !creatingGroup ? "active" : ""}
+                onClick={() =>
+                  requestNavigation(() => {
+                    setCreatingGroup(false);
+                    setSelectedId(group.id);
+                  })
+                }
               >
                 {tx(group.name)}
-                <span>{group.required ? t("menu.required") : t("common.optional")}</span>
+                <span>{group.modifiers.length}</span>
               </button>
             ))}
-            {canManage ? (
+            {creatingGroup ? (
+              <button className="active">
+                {newGroupDraftName || t("menu.newGroup")}
+                <span>{t("menu.newBadge")}</span>
+              </button>
+            ) : null}
+            {canManage && !creatingGroup ? (
               <button
                 className="add-category"
-                onClick={() => {
-                  setSelectedId(null);
-                  setCreatingGroup(true);
-                }}
+                onClick={() =>
+                  requestNavigation(() => {
+                    setSelectedId(null);
+                    setCreatingGroup(true);
+                  })
+                }
               >
                 + {t("menu.newGroup")}
               </button>
@@ -1100,12 +1246,15 @@ function CustomizationsDrawer({
           </aside>
           <div className="modifier-editor">
             {selectedId ? (
-              <GroupDetailPanel detail={detail} canManage={canManage} currency={currency} onChanged={reload} />
+              <GroupDetailPanel detail={detail} canManage={canManage} currency={currency} onChanged={reload} onDirtyChange={setDirty} saveRef={trySaveRef} />
             ) : creatingGroup ? (
               <NewGroupForm
-                onCancel={() => setCreatingGroup(false)}
+                onNameChange={setNewGroupDraftName}
+                onDirtyChange={setDirty}
+                saveRef={trySaveRef}
                 onCreated={(id) => {
                   setCreatingGroup(false);
+                  setDirty(false);
                   onChanged(t("menu.groupCreated"));
                   groups.reload();
                   setSelectedId(id);
@@ -1127,17 +1276,41 @@ function CustomizationsDrawer({
             )}
           </div>
         </div>
+        <div className="drawer-footer">
+          <div className="footer-status">
+            {selectedId || creatingGroup ? dirty ? <span className="footer-hint">{t("menu.unsavedChanges")}</span> : <span className="saved-hint">{t("menu.allChangesSaved")}</span> : null}
+          </div>
+          <div className="footer-right">
+            {(selectedId || creatingGroup) && dirty && canManage ? (
+              <button className="secondary" disabled={savePending} onClick={manualSave}>
+                {savePending ? `${t("common.saving")}…` : creatingGroup ? t("common.create") : t("common.save")}
+              </button>
+            ) : null}
+            <button className="primary" onClick={done}>
+              {t("menu.doneButton")}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-/** `POST /catalogue/modifier-groups` — the reusable group itself. */
+/**
+ * `POST /catalogue/modifier-groups` — the reusable group itself. Always
+ * "dirty" while open (the reference's own `isNew` semantics) — the parent's
+ * Done/switch-away autosaves it, validation blocking the navigation on an
+ * empty name exactly like the reference's `saveDraft`.
+ */
 function NewGroupForm({
-  onCancel,
+  onNameChange,
+  onDirtyChange,
+  saveRef,
   onCreated,
 }: {
-  onCancel: () => void;
+  onNameChange: (name: string) => void;
+  onDirtyChange: (dirty: boolean) => void;
+  saveRef: MutableRefObject<() => Promise<boolean>>;
   onCreated: (groupId: string) => void;
 }) {
   const { t } = useI18n();
@@ -1152,9 +1325,22 @@ function NewGroupForm({
   const max = Number(maxInput) || 0;
   const ruleError = selectionRuleError(min, max, required, t);
   const canCreate = name.trim() !== "" && ruleError === null;
+  const [blockedMessage, setBlockedMessage] = useState("");
 
-  async function create() {
-    if (!canCreate) return;
+  useEffect(() => {
+    onDirtyChange(true);
+    return () => onDirtyChange(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => onNameChange(name), [name, onNameChange]);
+
+  async function create(): Promise<boolean> {
+    if (!canCreate) {
+      setBlockedMessage(ruleError ?? t("menu.addAComboName"));
+      return false;
+    }
+    setBlockedMessage("");
+    let created = false;
     await action.run(
       () =>
         services.catalogue.modifierGroups.create({
@@ -1164,9 +1350,21 @@ function NewGroupForm({
           required,
           allowRepeat,
         }),
-      { onSuccess: (row) => onCreated(row.id) },
+      {
+        onSuccess: (row) => {
+          created = true;
+          onCreated(row.id);
+        },
+      },
     );
+    return created;
   }
+  // Re-registered every render so the parent always calls the LATEST
+  // closure (current name/min/max/required/allowRepeat) — an effect, not a
+  // render-time mutation, since a ref must never be written during render.
+  useEffect(() => {
+    saveRef.current = create;
+  });
 
   return (
     <>
@@ -1189,36 +1387,34 @@ function NewGroupForm({
         <Toggle checked={required} onChange={setRequired} label={t("menu.required")} />
         <Toggle checked={allowRepeat} onChange={setAllowRepeat} label={t("menu.allowRepeat")} />
       </div>
+      <div className="rule-preview">
+        {t("menu.customerSeesLabel")} <b>{name.trim() || t("menu.untitledGroup")}</b> — {modifierRuleText(max, required, t)}
+      </div>
 
       {ruleError ? <p className="warn-text">{ruleError}</p> : null}
+      {!ruleError && blockedMessage ? <p className="warn-text">{blockedMessage}</p> : null}
       {action.error ? <p className="warn-text">{action.error}</p> : null}
-
-      <div className="drawer-footer">
-        <div></div>
-        <div className="footer-right">
-          <button className="secondary" onClick={onCancel}>
-            {t("common.cancel")}
-          </button>
-          <button className="primary" disabled={!canCreate || action.pending} onClick={create}>
-            {action.pending ? `${t("common.saving")}…` : t("common.create")}
-          </button>
-        </div>
-      </div>
     </>
   );
 }
 
-/** A selected group's own config (PATCH) plus its modifiers (view + create). */
+/** A selected group's own config (PATCH) plus its modifiers (view + create).
+ * Dirty-tracked against the loaded snapshot — the parent's Done/switch-away
+ * autosaves a real change, exactly like the reference's own draft model. */
 function GroupDetailPanel({
   detail,
   canManage,
   currency,
   onChanged,
+  onDirtyChange,
+  saveRef,
 }: {
   detail: AsyncState<ModifierGroup | null>;
   canManage: boolean;
   currency: Currency;
   onChanged: (message: string) => void;
+  onDirtyChange: (dirty: boolean) => void;
+  saveRef: MutableRefObject<() => Promise<boolean>>;
 }) {
   const { t, tx, fmt } = useI18n();
   const action = useAction();
@@ -1230,6 +1426,7 @@ function GroupDetailPanel({
   const [required, setRequired] = useState(false);
   const [allowRepeat, setAllowRepeat] = useState(false);
   const [addingModifier, setAddingModifier] = useState(false);
+  const [original, setOriginal] = useState("");
 
   // Seeded once, the moment the group's data first arrives — this panel is
   // always a fresh mount per selected group (the parent only renders it
@@ -1243,33 +1440,50 @@ function GroupDetailPanel({
     setMaxInput(String(group.maxSelections));
     setRequired(group.required);
     setAllowRepeat(group.allowRepeat);
-  }
-
-  if (!group) {
-    return (
-      <div className="empty">
-        {detail.error ? <p className="warn-text">{detail.error.message}</p> : <p className="section-help">{t("state.loading")}</p>}
-      </div>
-    );
+    setOriginal(JSON.stringify([tx(group.name), group.minSelections, group.maxSelections, group.required, group.allowRepeat]));
   }
 
   const min = Number(minInput) || 0;
   const max = Number(maxInput) || 0;
   const ruleError = selectionRuleError(min, max, required, t);
   const canSave = name.trim() !== "" && ruleError === null;
+  const dirty = seeded && JSON.stringify([name.trim(), min, max, required, allowRepeat]) !== original;
 
-  async function save() {
-    if (!canSave) return;
+  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
+
+  async function save(): Promise<boolean> {
+    if (!group || !canSave) return false;
+    let ok = false;
     await action.run(
       () =>
-        services.catalogue.modifierGroups.update(group!.id, {
+        services.catalogue.modifierGroups.update(group.id, {
           name: { en: name.trim(), ar: name.trim() },
           minSelections: min,
           maxSelections: max,
           required,
           allowRepeat,
         }),
-      { onSuccess: () => onChanged(t("menu.groupUpdated")) },
+      {
+        onSuccess: () => {
+          ok = true;
+          setOriginal(JSON.stringify([name.trim(), min, max, required, allowRepeat]));
+          onChanged(t("menu.groupUpdated"));
+        },
+      },
+    );
+    return ok;
+  }
+  // Re-registered every render so the parent always calls the LATEST
+  // closure — an effect, not a render-time mutation.
+  useEffect(() => {
+    saveRef.current = save;
+  });
+
+  if (!group) {
+    return (
+      <div className="empty">
+        {detail.error ? <p className="warn-text">{detail.error.message}</p> : <p className="section-help">{t("state.loading")}</p>}
+      </div>
     );
   }
 
@@ -1306,20 +1520,12 @@ function GroupDetailPanel({
         <Toggle checked={required} onChange={setRequired} label={t("menu.required")} disabled={!canManage} />
         <Toggle checked={allowRepeat} onChange={setAllowRepeat} label={t("menu.allowRepeat")} disabled={!canManage} />
       </div>
+      <div className="rule-preview">
+        {t("menu.customerSeesLabel")} <b>{name.trim() || t("menu.untitledGroup")}</b> — {modifierRuleText(max, required, t)}
+      </div>
 
       {ruleError ? <p className="warn-text">{ruleError}</p> : null}
       {action.error ? <p className="warn-text">{action.error}</p> : null}
-
-      {canManage ? (
-        <div className="drawer-footer">
-          <div></div>
-          <div className="footer-right">
-            <button className="primary" disabled={!canSave || action.pending} onClick={save}>
-              {action.pending ? `${t("common.saving")}…` : t("common.save")}
-            </button>
-          </div>
-        </div>
-      ) : null}
 
       <h3>{t("nav.modifiers")}</h3>
 

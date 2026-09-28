@@ -59,6 +59,7 @@ const ARABIC_SCRIPT = /[؀-ۿ]/;
 
 const menusList = vi.fn();
 const modifierGroupsList = vi.fn();
+const modifierGroupsGet = vi.fn();
 
 vi.mock("@/lib/console/services", () => ({
   ServiceError: class ServiceError extends Error {},
@@ -85,7 +86,7 @@ vi.mock("@/lib/console/services", () => ({
       updateVariantPrice: vi.fn(),
       modifierGroups: {
         list: (...args: unknown[]) => modifierGroupsList(...args),
-        get: vi.fn(),
+        get: (...args: unknown[]) => modifierGroupsGet(...args),
         create: vi.fn(),
         update: vi.fn(),
         remove: vi.fn(),
@@ -155,6 +156,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   menusList.mockResolvedValue({ rows: [{ id: "m1", name: { en: "Lunch", ar: "غداء" }, priority: 10, orderTypes: [], branchIds: [], active: true, createdAt: "2026-01-01T00:00:00Z" }], total: 1 });
   modifierGroupsList.mockResolvedValue({ rows: [group()], total: 1 });
+  modifierGroupsGet.mockResolvedValue(group());
 });
 afterEach(() => cleanup());
 
@@ -177,7 +179,7 @@ describe("Phase 3 — localization", () => {
     const button = await screen.findByRole("button", { name: consoleAr["menu.customizations"] });
     await user.click(button);
 
-    expect(await screen.findByText("صلصات")).toBeInTheDocument();
+    expect((await screen.findAllByText("صلصات")).length).toBeGreaterThan(0);
     expect(document.body.textContent).not.toContain("MISSING:");
   });
 

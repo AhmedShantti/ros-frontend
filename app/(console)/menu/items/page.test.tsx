@@ -106,6 +106,7 @@ const BASE_ITEM: MenuItem = {
   isCombo: false,
   isOpenPrice: false,
   isWeighed: false,
+  isActive: true,
   available: true,
   unavailableReason: null,
   autoReenableAt: null,

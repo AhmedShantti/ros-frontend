@@ -28,7 +28,7 @@ import { getTenantId } from "@/lib/api/session";
 import { localised, toNameMap, toVariant } from "@/lib/console/services/map";
 import { services } from "@/lib/console/services";
 import type { Scope } from "@/lib/console/services";
-import type { Id, MenuCategory, MenuItem } from "@/lib/console/types";
+import type { Id, MenuCategory, MenuItem, ModifierGroup } from "@/lib/console/types";
 
 function toLiveCategory(row: {
   id: string;
@@ -77,29 +77,34 @@ export async function createMenuCategory(
 export interface LiveItem extends MenuItem {
   /** Every category (across every menu) this item is placed in. */
   placements: { categoryId: Id; menuId: Id }[];
+  /** This item's attached customization groups (reference's "modifier chips"/slot summary) — read via CONSOLE-COMBO-READ-P0. */
+  modifierGroups: ModifierGroup[];
 }
 
 /**
- * Every tenant item, with its real category placements AND variants
- * resolved.
+ * Every tenant item, with its real category placements, variants, AND
+ * attached modifier groups resolved.
  *
  * `services.catalogue.items.list()` is the source of the item rows
  * themselves (name, tax class, availability, sort order — everything that is
- * NOT placement or variant); this adds both, each its own `Promise.all` fan-
- * out over the raw `/catalogue/items/{id}/*` routes (not the heavier
- * `items.get()`, which would also redundantly re-fetch the tenant-wide 86
- * index once per item) — the SAME N+1 shape this function already accepted
- * for placements, extended by one more parallel wave rather than doubled.
+ * NOT placement, variant, or modifier-group attachment); this adds all
+ * three, each its own `Promise.all` fan-out over the raw
+ * `/catalogue/items/{id}/*` routes (not the heavier `items.get()`, which
+ * would also redundantly re-fetch the tenant-wide 86 index once per item) —
+ * the SAME N+1 shape this function already accepted for placements and
+ * variants, extended by one more parallel wave rather than doubled.
  */
 export async function listItemsWithPlacements(scope: Scope): Promise<LiveItem[]> {
   const page = await services.catalogue.items.list({ limit: 500, scope });
-  const [placements, variantRows] = await Promise.all([
+  const [placements, variantRows, modifierGroupRows] = await Promise.all([
     Promise.all(page.rows.map((item) => api.catalogue.listPlacements(item.id).catch(() => []))),
     Promise.all(page.rows.map((item) => api.catalogue.listVariants(item.id).catch(() => []))),
+    Promise.all(page.rows.map((item) => services.catalogue.listItemModifierGroups(item.id).catch(() => []))),
   ]);
   return page.rows.map((item, index) => {
     const rows = placements[index] ?? [];
     const variants = (variantRows[index] ?? []).map((row) => toVariant(row));
-    return { ...item, categoryId: rows[0]?.categoryId ?? "", placements: rows, variants };
+    const modifierGroups = modifierGroupRows[index] ?? [];
+    return { ...item, categoryId: rows[0]?.categoryId ?? "", placements: rows, variants, modifierGroups };
   });
 }

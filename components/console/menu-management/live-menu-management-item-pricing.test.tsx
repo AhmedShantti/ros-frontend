@@ -149,7 +149,7 @@ describe("Live Menu Management — direct variant pricing", () => {
     render(<LiveMenuManagement />);
 
     await user.click(await screen.findByRole("button", { name: "menu.newItem" }));
-    await user.type(screen.getByLabelText("common.name"), "Burger");
+    await user.type(screen.getByLabelText("menu.itemNameLabel"), "Burger");
     await user.selectOptions(screen.getByLabelText("common.category"), "c1");
     await user.type(screen.getByLabelText(/menu.price/), "12.50");
     const drawer = screen.getByText("menu.newItem", { selector: "h2" }).closest(".drawer") as HTMLElement;
@@ -191,6 +191,7 @@ describe("Live Menu Management — direct variant pricing", () => {
         autoReenableAt: null,
         variants: [{ id: "variant-1", name: { en: "Regular", ar: "" }, basePrice: { amount: 1000, currency: "EGP" } }],
         placements: [{ categoryId: "c1" }],
+        modifierGroups: [],
       },
     ]);
     updateVariantPrice.mockResolvedValue({
