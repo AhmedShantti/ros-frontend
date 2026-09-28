@@ -58,6 +58,7 @@ import type {
   TreasuryService,
   SubstituteGroup,
   ServiceRegistry,
+  UnitOfMeasure,
   WorkforceService,
 } from "./types";
 import { ServiceError } from "./types";
@@ -1382,6 +1383,23 @@ const demoReasonCodes: ReasonCode[] = [
   { id: "rsn_transfer", code: "XFER", category: "discrepancy", label: { en: "Transfer discrepancy", ar: "فرق تحويل" } },
 ];
 
+/**
+ * FR-INV-001 — demo unit-of-measure catalogue. Codes are drawn from the
+ * `UnitCode` union so `mockUnitCodeOf` below can resolve a submitted
+ * `baseUnitId` back to the display code the rest of demo mode expects.
+ */
+const demoUnitsOfMeasure: UnitOfMeasure[] = [
+  { id: "uom_g", code: "g", name: "Gram", dimension: "mass" },
+  { id: "uom_kg", code: "kg", name: "Kilogram", dimension: "mass" },
+  { id: "uom_ml", code: "ml", name: "Millilitre", dimension: "volume" },
+  { id: "uom_l", code: "l", name: "Litre", dimension: "volume" },
+  { id: "uom_pc", code: "pc", name: "Each", dimension: "count" },
+];
+
+function mockUnitCodeOf(baseUnitId: Id | undefined): UnitCode {
+  return (demoUnitsOfMeasure.find((row) => row.id === baseUnitId)?.code as UnitCode | undefined) ?? "g";
+}
+
 /** Reason categories that are consumption rather than loss — FR-INV-059. */
 const CONTROLLED_CATEGORIES = new Set(["policy"]);
 
@@ -1425,7 +1443,8 @@ const inventory: InventoryService = {
       sku: input.sku ?? `NEW-${id.slice(-4)}`,
       name: (input.name as Localised) ?? { en: "New item", ar: "صنف جديد" },
       category: (input.category as Localised) ?? { en: "Uncategorised", ar: "غير مصنّف" },
-      baseUnit: input.baseUnit ?? "g",
+      baseUnit: mockUnitCodeOf(input.baseUnitId),
+      baseUnitId: input.baseUnitId,
       purchaseUnit: input.purchaseUnit ?? "kg",
       purchaseConversion: input.purchaseConversion ?? 1000,
       costingMethod: input.costingMethod ?? "weighted_average",
@@ -1703,6 +1722,12 @@ const inventory: InventoryService = {
       demoReasonCodes.push(created);
       return created;
     });
+  },
+
+  // -- Units of measure --------------------------------------------------------
+
+  async unitsOfMeasure() {
+    return transport(() => [...demoUnitsOfMeasure]);
   },
 
   // -- Computed reports ------------------------------------------------------

@@ -492,6 +492,10 @@ export const inventory = {
   createReasonCode: (body: S.CreateReasonCodeDto) =>
     http.post<S.InventoryController_createReasonCodeResponse>("/inventory/reason-codes", { body }),
 
+  /** `GET /inventory/uoms` — List the unit-of-measure catalogue (FR-INV-001). — Every unit of measure known to the platform. */
+  listUoms: () =>
+    http.get<S.InventoryController_listUomsResponse>("/inventory/uoms"),
+
   /** `GET /inventory/reconciliation` — FR-INV-011/051 computation. Scheduling deferred (D-INV-08). — On-demand ledger-vs-projection reconciliation (FR-INV-011/051). Scheduling and alert delivery are deferred (D-INV-08). */
   reconcile: () =>
     http.get<S.InventoryController_reconcileResponse>("/inventory/reconciliation"),

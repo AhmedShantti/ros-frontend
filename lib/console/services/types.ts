@@ -635,6 +635,20 @@ export interface ReasonCode {
   label: Localised;
 }
 
+/**
+ * FR-INV-001 — one row of the platform's unit-of-measure catalogue
+ * (`GET /inventory/uoms`). Global, un-tenanted reference data — `id` is the
+ * real UUID a stock item's `baseUnitId`/`recipeUnitId` must carry; `name` is
+ * the display label, not localised (the backend `Uom` model has no
+ * per-locale name).
+ */
+export interface UnitOfMeasure {
+  id: Id;
+  code: string;
+  name: string;
+  dimension: string;
+}
+
 export interface InventoryService {
   items: CollectionService<StockItem>;
   levels: ReadonlyCollectionService<StockLevel>;
@@ -675,6 +689,10 @@ export interface InventoryService {
     category: string;
     label: Localised;
   }): Promise<ReasonCode>;
+
+  // -- Units of measure --------------------------------------------------------
+  /** FR-INV-001 — the catalogue `baseUnitId` (and `recipeUnitId`) are chosen from. */
+  unitsOfMeasure(): Promise<UnitOfMeasure[]>;
 
   // -- Computed reports ------------------------------------------------------
   lowStock(query?: ScopedQuery): Promise<LowStockRow[]>;

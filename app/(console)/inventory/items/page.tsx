@@ -17,7 +17,7 @@ import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import type { StockItem } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { formatMoney, formatNumber, unitLabel } from "@/lib/console/format";
 import { COSTING_METHOD, STORAGE, labelOf } from "@/lib/console/labels";
@@ -26,7 +26,7 @@ import { DATA_MODE } from "@/lib/api/config";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
-import { Gate } from "@/components/console/states";
+import { ErrorPanel, Gate } from "@/components/console/states";
 import {
   Badge,
   Button,
@@ -46,7 +46,7 @@ export default function StockItemsPage() {
   );
 }
 
-function StockItemsScreen() {
+export function StockItemsScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [selected, setSelected] = useState<StockItem | null>(null);
@@ -57,6 +57,17 @@ function StockItemsScreen() {
     (query) => services.inventory.items.list(query),
     { scope, initialSort: "sku", pageSize: 25 },
   );
+
+  // FR-INV-001 — the unit catalogue the "New stock item" drawer picks a base
+  // unit from. Creation stays disabled until this has loaded successfully
+  // with at least one row: there is no UUID text field to fall back to.
+  const uomsQuery = useAsync(() => services.inventory.unitsOfMeasure(), []);
+  const uoms = useMemo(() => uomsQuery.data ?? [], [uomsQuery.data]);
+  const uomOptions = useMemo(
+    () => uoms.map((uom) => ({ value: uom.id, label: uom.name })),
+    [uoms],
+  );
+  const canCreateItem = !uomsQuery.loading && !uomsQuery.error && uoms.length > 0;
 
   // Categories come from the loaded rows rather than a fixed list, so a new
   // category appears in the filter the moment an item uses it. Reading the
@@ -154,13 +165,25 @@ function StockItemsScreen() {
         subtitle={t("inv.itemsSubtitle")}
         spec="FR-INV-001"
         actions={
-          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
+          <Button
+            variant="primary"
+            icon={<Plus size={14} />}
+            loading={uomsQuery.loading}
+            disabled={!canCreateItem}
+            onClick={() => setCreating(true)}
+          >
             {t("common.new")}
           </Button>
         }
       />
 
       <PageBody>
+        {uomsQuery.error ? (
+          <ErrorPanel error={uomsQuery.error} onRetry={uomsQuery.reload} compact />
+        ) : !uomsQuery.loading && uoms.length === 0 ? (
+          <Callout tone="warn">{t("inv.noUnitsConfigured")}</Callout>
+        ) : null}
+
         <TileGrid columns={3}>
           <MetricTile label={t("inv.itemsTitle")} value={formatNumber(collection.total, fmt)} />
           <MetricTile
@@ -223,10 +246,10 @@ function StockItemsScreen() {
           { name: "sku", label: t("inv.sku"), required: true, maxLength: 40, ltr: true },
           {
             name: "baseUnitId",
-            label: t("inv.baseUnitId"),
-            hint: t("inv.baseUnitIdHint"),
+            label: t("inv.baseUnit"),
+            kind: "select",
             required: true,
-            ltr: true,
+            options: uomOptions,
           },
           {
             name: "costingMethod",
@@ -245,9 +268,7 @@ function StockItemsScreen() {
           services.inventory.items.create({
             name: { en: values.name.trim(), ar: values.name.trim() },
             sku: values.sku.trim(),
-            // The API keys units by id and publishes no unit catalogue, so
-            // the id is typed rather than picked. See BACKEND_INTEGRATION.md.
-            baseUnit: values.baseUnitId.trim() as never,
+            baseUnitId: values.baseUnitId,
             costingMethod: values.costingMethod as never,
           })
         }

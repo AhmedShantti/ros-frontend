@@ -3003,6 +3003,14 @@ export type InventoryController_createReasonCodeResponse = {
 
 export type InventoryController_createReasonCodeBody = CreateReasonCodeDto;
 
+/** `GET /inventory/uoms` — List the unit-of-measure catalogue (FR-INV-001). — Every unit of measure known to the platform. */
+export type InventoryController_listUomsResponse = ({
+  id: string;
+  code: string;
+  name: string;
+  dimension: string;
+})[];
+
 /** `GET /inventory/reconciliation` — FR-INV-011/051 computation. Scheduling deferred (D-INV-08). — On-demand ledger-vs-projection reconciliation (FR-INV-011/051). Scheduling and alert delivery are deferred (D-INV-08). */
 export type InventoryController_reconcileResponse = {
   divergences: ({
@@ -7836,6 +7844,7 @@ export const ROUTES = {
   InventoryController_negativeStock: { method: "GET", path: "/inventory/negative-stock" },
   InventoryController_listReasonCodes: { method: "GET", path: "/inventory/reason-codes" },
   InventoryController_createReasonCode: { method: "POST", path: "/inventory/reason-codes" },
+  InventoryController_listUoms: { method: "GET", path: "/inventory/uoms" },
   InventoryController_reconcile: { method: "GET", path: "/inventory/reconciliation" },
   InventoryController_dispatch: { method: "POST", path: "/inventory/transfers" },
   InventoryController_receive: { method: "POST", path: "/inventory/transfers/receive" },

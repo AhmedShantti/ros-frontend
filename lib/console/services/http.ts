@@ -163,6 +163,7 @@ export const API_COVERAGE = {
     "inventory.receiveTransfer",
     "inventory.setReorderConfig",
     "inventory.reasonCodes",
+    "inventory.unitsOfMeasure",
     "inventory.lowStock",
     "inventory.negativeStock",
     "inventory.reconciliation",
@@ -329,6 +330,7 @@ const stockItemsRaw = cached(() => api.inventory.listItems());
 const menusRaw = cached(() => api.catalogue.listMenus());
 const menuItemsRaw = cached(() => api.catalogue.listItems());
 const reasonCodesRaw = cached(() => api.inventory.listReasonCodes());
+const uomsRaw = cached(() => api.inventory.listUoms());
 const availabilityRaw = cached(() => api.catalogue.listAvailabilityRules(), 5_000);
 
 /** Every place stock can sit: warehouses, central kitchens, and branches. */
@@ -1530,15 +1532,17 @@ const stockItems: CollectionService<StockItem> = {
   },
 
   async create(input) {
-    if (!input.baseUnit) {
+    if (!input.baseUnitId) {
       throw new ServiceError("BAD_REQUEST", "Choose a base unit for the item.", 400);
     }
     const row = await api.inventory.createItem({
       sku: input.sku ?? "",
       names: map.toNameMap(input.name),
-      // The API keys units by id; the console works in unit codes. Register
-      // the tenant's units with `registerUnits()` for this to round-trip.
-      baseUnitId: input.baseUnit,
+      // `baseUnitId` — the unit's own real UUID, exactly the field
+      // `StockItem.baseUnitId` documents this for. `baseUnit` (a `UnitCode`)
+      // is the display-only code resolved through the unit registry; it is
+      // never itself a valid id and must not be sent to the API.
+      baseUnitId: input.baseUnitId,
       costingMethod: input.costingMethod,
       isBatchTracked: input.batchTracked,
       expiryTracked: input.expiryTracked,
@@ -1550,9 +1554,11 @@ const stockItems: CollectionService<StockItem> = {
   },
 
   async update(id, patch) {
-    // The API exposes targeted mutations, not a general PATCH.
-    if (patch.baseUnit) {
-      await api.inventory.changeBaseUnit(id, { baseUnitId: patch.baseUnit });
+    // The API exposes targeted mutations, not a general PATCH. `baseUnitId`
+    // (the real UUID) — same reasoning as `create` above; no UI currently
+    // triggers this specific patch, but it must stay correct regardless.
+    if (patch.baseUnitId) {
+      await api.inventory.changeBaseUnit(id, { baseUnitId: patch.baseUnitId });
     }
     invalidateInventory();
     const row = await api.inventory.getItem(id);
@@ -1931,6 +1937,18 @@ const inventory: InventoryService = {
       category: row.category,
       label: map.localised(row.label, { en: row.code, ar: row.code }),
     };
+  },
+
+  // -- Units of measure --------------------------------------------------------
+
+  async unitsOfMeasure() {
+    const rows = await uomsRaw();
+    return rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      dimension: row.dimension,
+    }));
   },
 
   // -- Computed reports ------------------------------------------------------
