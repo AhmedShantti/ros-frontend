@@ -2332,6 +2332,7 @@ export const consoleEn = {
   "inv.costingWeighted": "Weighted average",
   "inv.costingFifo": "FIFO",
   "inv.costingStandard": "Standard",
+  "inv.standardCost": "Standard cost",
   "org.newBranch": "New branch",
   "org.branchCreated": "Branch created.",
   "org.reassignBrand": "Move to another brand",

@@ -1554,7 +1554,10 @@ const stockItems: CollectionService<StockItem> = {
       isBatchTracked: input.batchTracked,
       expiryTracked: input.expiryTracked,
       shelfLifeDays: input.shelfLifeDays ?? undefined,
-      standardCost: input.unitCost ? map.toDecimal(input.unitCost) : undefined,
+      // `standardCost` is a minor-unit integer string on the wire (D-INV-03),
+      // never a shelf decimal — `toMinorUnitString`, not `toDecimal`, or a
+      // cost of "12.34" would be sent as 1234 EGP instead of 12.34 EGP.
+      standardCost: input.unitCost ? map.toMinorUnitString(input.unitCost) : undefined,
     });
     invalidateInventory();
     return map.toStockItem(row, getTenantId() ?? "");

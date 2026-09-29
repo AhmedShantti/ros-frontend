@@ -160,3 +160,145 @@ describe("Stock items — base unit selection (FR-INV-001)", () => {
     expect(within(dialog).queryByRole("button", { name: /inv\.baseUnit/ })).not.toBeInTheDocument();
   });
 });
+
+/*
+ * D-INV-03 / ck_standard_cost_present — production 500 fix. `costingMethod:
+ * "standard"` with no cost crashed the backend with a raw constraint
+ * violation; the drawer never offered a place to enter one at all. The
+ * Standard Cost field is conditional (`visibleWhen`) so weighted_average/fifo
+ * are completely unaffected — see the "still works" test below.
+ */
+describe("Stock items — standard costing requires a standard cost (D-INV-03)", () => {
+  // The page's own filter toolbar also has a "costingMethod" field, so the
+  // lookup is scoped to the open drawer to avoid matching both.
+  async function selectCostingMethod(user: ReturnType<typeof userEvent.setup>, label: string) {
+    const dialog = screen.getByRole("dialog");
+    const trigger = within(dialog).getByLabelText(/inv\.costingMethod/);
+    await user.click(trigger);
+    await user.click(screen.getByRole("option", { name: label }));
+  }
+
+  // Base Unit has no seeded default (a required field with no safe default
+  // to guess), so every submitting test picks one explicitly — same
+  // convention as the existing base-unit-selection tests above.
+  async function selectBaseUnit(user: ReturnType<typeof userEvent.setup>, label: string) {
+    const trigger = screen.getByLabelText(/inv\.baseUnit\b/);
+    await user.click(trigger);
+    await user.click(screen.getByRole("option", { name: label }));
+  }
+
+  it("hides the Standard Cost field until Standard costing is selected", async () => {
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    expect(screen.queryByLabelText("inv.standardCost")).not.toBeInTheDocument();
+  });
+
+  it("shows the Standard Cost field once Standard costing is selected", async () => {
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    await selectCostingMethod(user, "inv.costingStandard");
+    expect(await screen.findByLabelText("inv.standardCost")).toBeInTheDocument();
+  });
+
+  it("blocks submission when Standard is selected but no cost is entered", async () => {
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    await user.type(screen.getByLabelText(/common\.name/), "Truffle oil");
+    await user.type(screen.getByLabelText(/inv\.sku/), "TRF-001");
+    await selectCostingMethod(user, "inv.costingStandard");
+    await screen.findByLabelText("inv.standardCost");
+
+    expect(screen.getByRole("button", { name: "common.create" })).toBeDisabled();
+    expect(itemsCreate).not.toHaveBeenCalled();
+  });
+
+  it("sends a valid Standard Cost as a minor-unit amount in the create payload", async () => {
+    itemsCreate.mockResolvedValue({ ...ITEM_FLOUR, id: "item-new" });
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    await user.type(screen.getByLabelText(/common\.name/), "Truffle oil");
+    await user.type(screen.getByLabelText(/inv\.sku/), "TRF-001");
+    await selectBaseUnit(user, "Gram");
+    await selectCostingMethod(user, "inv.costingStandard");
+    await user.type(await screen.findByLabelText("inv.standardCost"), "12.50");
+
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+
+    await waitFor(() =>
+      expect(itemsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ unitCost: { amount: 1250, currency: "EGP" } }),
+      ),
+    );
+  });
+
+  it("omits Standard Cost entirely when switching back to Weighted Average", async () => {
+    itemsCreate.mockResolvedValue({ ...ITEM_FLOUR, id: "item-new" });
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    await user.type(screen.getByLabelText(/common\.name/), "Truffle oil");
+    await user.type(screen.getByLabelText(/inv\.sku/), "TRF-001");
+    await selectBaseUnit(user, "Gram");
+    await selectCostingMethod(user, "inv.costingStandard");
+    await user.type(await screen.findByLabelText("inv.standardCost"), "12.50");
+    await selectCostingMethod(user, "inv.costingWeighted");
+
+    expect(screen.queryByLabelText("inv.standardCost")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+
+    await waitFor(() => expect(itemsCreate).toHaveBeenCalled());
+    const [payload] = itemsCreate.mock.calls[0]!;
+    expect(payload).not.toHaveProperty("unitCost");
+    expect(payload.costingMethod).toBe("weighted_average");
+  });
+
+  it("the weighted_average create flow is unaffected — no Standard Cost field, create still works", async () => {
+    itemsCreate.mockResolvedValue({ ...ITEM_FLOUR, id: "item-new" });
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    await user.type(screen.getByLabelText(/common\.name/), "Sugar");
+    await user.type(screen.getByLabelText(/inv\.sku/), "SUG-002");
+    await selectBaseUnit(user, "Gram");
+    // costingMethod defaults to weighted_average; no Standard Cost field.
+    expect(screen.queryByLabelText("inv.standardCost")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+
+    await waitFor(() =>
+      expect(itemsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ costingMethod: "weighted_average" }),
+      ),
+    );
+    const [payload] = itemsCreate.mock.calls[0]!;
+    expect(payload).not.toHaveProperty("unitCost");
+  });
+
+  it("surfaces the backend's 4xx validation message instead of a generic failure", async () => {
+    itemsCreate.mockRejectedValue(new Error("Standard costing requires a standard cost."));
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    await user.type(screen.getByLabelText(/common\.name/), "Truffle oil");
+    await user.type(screen.getByLabelText(/inv\.sku/), "TRF-001");
+    await selectBaseUnit(user, "Gram");
+    await selectCostingMethod(user, "inv.costingStandard");
+    await user.type(await screen.findByLabelText("inv.standardCost"), "12.50");
+
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+
+    await screen.findByText("Standard costing requires a standard cost.");
+    expect(screen.queryByText(/internal server error/i)).not.toBeInTheDocument();
+  });
+});

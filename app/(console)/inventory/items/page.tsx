@@ -262,6 +262,16 @@ export function StockItemsScreen() {
               { value: "standard", label: t("inv.costingStandard") },
             ],
           },
+          {
+            // D-INV-03 / ck_standard_cost_present — standard costing needs a
+            // declared cost up front; only shown (and only required) when
+            // that method is selected, so weighted_average/fifo are unaffected.
+            name: "standardCost",
+            label: t("inv.standardCost"),
+            kind: "money",
+            required: true,
+            visibleWhen: (all) => all.costingMethod === "standard",
+          },
         ]}
         onClose={() => setCreating(false)}
         onSubmit={(values) =>
@@ -270,6 +280,11 @@ export function StockItemsScreen() {
             sku: values.sku.trim(),
             baseUnitId: values.baseUnitId,
             costingMethod: values.costingMethod as never,
+            // Only sent for standard costing — switching away from Standard
+            // never carries a stale cost into the request.
+            ...(values.costingMethod === "standard"
+              ? { unitCost: { amount: Number(values.standardCost), currency: "EGP" } }
+              : {}),
           })
         }
         onDone={() => {

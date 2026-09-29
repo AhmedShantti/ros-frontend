@@ -905,7 +905,10 @@ export function toStockItem(row: WireStockItem, tenantId: Id, category: Localise
     shelfLifeDays: row.shelfLifeDays,
     defaultSupplierId: null, // gap: purchasing is not implemented.
     allergens: [],
-    unitCost: money(row.standardCost),
+    // `standardCost` is already a minor-unit integer string on the wire —
+    // `minorMoney`, not `money` (which reads a *decimal* string and would
+    // scale an already-minor-unit "1234" up by another 100x).
+    unitCost: minorMoney(row.standardCost),
     active: row.isActive,
   };
 }

@@ -2318,6 +2318,7 @@ export const consoleAr: ConsoleCopy = {
   "inv.costingWeighted": "المتوسط المرجّح",
   "inv.costingFifo": "الوارد أولًا صادر أولًا",
   "inv.costingStandard": "معياري",
+  "inv.standardCost": "التكلفة المعيارية",
   "org.newBranch": "فرع جديد",
   "org.branchCreated": "تم إنشاء الفرع.",
   "org.reassignBrand": "النقل إلى علامة أخرى",
