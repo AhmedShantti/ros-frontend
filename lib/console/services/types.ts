@@ -769,8 +769,11 @@ export interface RecipeVersion {
 }
 
 /**
- * BR-MNU-012 — variants that cannot be costed because their recipe is
- * missing or incomplete.
+ * BR-MNU-012 — variants that cannot be costed truthfully: the recipe is
+ * missing or incomplete (sold at zero or partial cost), an ingredient has no
+ * cost yet (sold at the partial cost of what can be priced), or a recipe unit
+ * cannot be converted to the ingredient's stock unit (the sale is refused
+ * until it is fixed).
  */
 export interface RecipeCompletenessReport {
   branchId: Id | null;
@@ -778,10 +781,14 @@ export interface RecipeCompletenessReport {
   sellableVariantCount: number;
   absentCount: number;
   incompleteCount: number;
+  /** Sold at a partial cost because an ingredient has no cost yet. */
+  unpricedCount: number;
+  /** Cannot be sold until a recipe unit is fixed. */
+  unconvertibleCount: number;
   entries: {
     menuItemId: Id;
     variantId: Id;
-    reason: "absent_recipe" | "incomplete_recipe";
+    reason: "absent_recipe" | "incomplete_recipe" | "unpriced_ingredient" | "unconvertible_unit";
     recipeVersionId: Id | null;
     detail: string[];
   }[];

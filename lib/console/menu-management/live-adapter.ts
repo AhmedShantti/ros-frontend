@@ -24,6 +24,7 @@
  */
 
 import { api } from "@/lib/api/endpoints";
+import { DATA_MODE } from "@/lib/api/config";
 import { getTenantId } from "@/lib/api/session";
 import { localised, toNameMap, toVariant } from "@/lib/console/services/map";
 import { services } from "@/lib/console/services";
@@ -58,6 +59,7 @@ export interface LiveCategory extends MenuCategory {
 
 /** `GET /catalogue/menus/{menuId}/categories` — this menu's categories only. */
 export async function listMenuCategories(menuId: Id): Promise<LiveCategory[]> {
+  if (DATA_MODE === "mock") return (await demoCategories()).map((category) => ({ ...category, menuId }));
   const rows = await api.catalogue.listCategories(menuId);
   return rows.map(toLiveCategory).sort((a, b) => a.sortOrder - b.sortOrder);
 }
@@ -67,6 +69,13 @@ export async function createMenuCategory(
   menuId: Id,
   input: { name: string; sortOrder?: number },
 ): Promise<LiveCategory> {
+  if (DATA_MODE === "mock") {
+    const created = await services.catalogue.categories.create({
+      name: { en: input.name, ar: input.name },
+      sortOrder: input.sortOrder,
+    });
+    return { ...created, menuId };
+  }
   const row = await api.catalogue.createCategory(menuId, {
     name: toNameMap(input.name),
     sortOrder: input.sortOrder,
@@ -96,6 +105,7 @@ export interface LiveItem extends MenuItem {
  */
 export async function listItemsWithPlacements(scope: Scope): Promise<LiveItem[]> {
   const page = await services.catalogue.items.list({ limit: 500, scope });
+  if (DATA_MODE === "mock") return demoItems(page.rows);
   const [placements, variantRows, modifierGroupRows] = await Promise.all([
     Promise.all(page.rows.map((item) => api.catalogue.listPlacements(item.id).catch(() => []))),
     Promise.all(page.rows.map((item) => api.catalogue.listVariants(item.id).catch(() => []))),
@@ -107,4 +117,31 @@ export async function listItemsWithPlacements(scope: Scope): Promise<LiveItem[]>
     const modifierGroups = modifierGroupRows[index] ?? [];
     return { ...item, categoryId: rows[0]?.categoryId ?? "", placements: rows, variants, modifierGroups };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Demo mode (no backend configured)
+// ---------------------------------------------------------------------------
+
+/*
+ * The `/catalogue/*` routes above do not exist without a backend, so in demo
+ * mode the same shapes are read from the in-memory service layer instead.
+ * The demo catalogue has one tenant-wide set of categories (they carry no
+ * menu), so every menu shows the same categories; each item's single
+ * `categoryId` becomes its one placement, and its variants are already on
+ * the item row.
+ */
+
+async function demoCategories(): Promise<MenuCategory[]> {
+  const page = await services.catalogue.categories.list({ limit: 500 });
+  return [...page.rows].sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+async function demoItems(rows: MenuItem[]): Promise<LiveItem[]> {
+  const groups = await Promise.all(rows.map((item) => services.catalogue.listItemModifierGroups(item.id).catch(() => [])));
+  return rows.map((item, index) => ({
+    ...item,
+    placements: item.categoryId ? [{ categoryId: item.categoryId, menuId: "" }] : [],
+    modifierGroups: groups[index] ?? [],
+  }));
 }

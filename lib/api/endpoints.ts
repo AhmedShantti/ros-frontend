@@ -504,6 +504,10 @@ export const inventory = {
   receive: (body: S.ReceiveTransferDto) =>
     http.post<S.InventoryController_receiveResponse>("/inventory/transfers/receive", { body }),
 
+  /** `GET /inventory/uoms` — Units of measure and the conversions between them. — Every unit a stock item, recipe line or yield may reference, plus generic conversions and those specific to this tenant's stock items. */
+  listUnits: () =>
+    http.get<S.InventoryController_listUnitsResponse>("/inventory/uoms"),
+
   /** `GET /inventory/waste` — The most recent 200 waste records, newest first. */
   listWaste: () =>
     http.get<S.InventoryController_listWasteResponse>("/inventory/waste"),
@@ -1056,6 +1060,10 @@ export const reporting = {
   /** `GET /reports/branches/{branchId}/overview` — Branch operational overview — sales, cash, inventory, workforce, kds (dashboard-only; authorized against the branch it names). — The operational overview: sales, cash (WHOLE_SESSION scope, unchanged from daily-trading), inventory (branch-scoped low-stock count + calendar-day waste), workforce (branch-scoped calendar-day attendance summary), kds (business-day ticket counts + real prep duration where measurable), and a scope block disclosing exactly what this Demo/Operational slice does and does not cover. */
   getOperationalOverview: (branchId: string, options: { businessDay?: string } = {}) =>
     http.get<S.ReportingController_getOperationalOverviewResponse>("/reports/branches/{branchId}/overview", { params: { branchId }, query: { businessDay: options.businessDay } }),
+
+  /** `GET /reports/branches/{branchId}/sales-daily` — Branch sales totals per business day over a date range (dashboard-only; authorized against the branch it names). — Per-business-day sales totals for the range. */
+  getSalesDailyRange: (branchId: string, options: { from?: string; to?: string } = {}) =>
+    http.get<S.ReportingController_getSalesDailyRangeResponse>("/reports/branches/{branchId}/sales-daily", { params: { branchId }, query: { from: options.from, to: options.to } }),
 
 };
 

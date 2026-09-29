@@ -28,6 +28,9 @@ vi.mock("@/lib/api/endpoints", () => ({
   },
 }));
 
+// These tests cover the backend path; the demo path has its own file.
+vi.mock("@/lib/api/config", () => ({ DATA_MODE: "http" }));
+
 vi.mock("@/lib/api/session", () => ({
   getTenantId: () => "t1",
 }));

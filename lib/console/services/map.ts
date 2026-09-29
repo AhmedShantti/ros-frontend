@@ -798,6 +798,8 @@ export function toRecipeLine(row: WireRecipeLine, componentName: Localised = EMP
     componentId: row.stockItemId ?? row.subRecipeId ?? "",
     componentName,
     quantity: quantity(row.quantity, row.unitId),
+    unitId: row.unitId,
+    substituteGroupId: row.substituteGroupId ?? null,
     wastagePercentage: numberOf(row.wastagePercentage),
     isOptional: row.isOptional,
     unitCost: money(0), // gap: line costing is not returned with the version.

@@ -287,7 +287,7 @@ COMMIT;
     movements: [
       ["purchase_receipt", "+", "ترحيل استلام بضاعة"],
       ["purchase_return", "−", "مرتجع إلى المورد"],
-      ["sale_depletion", "−", "اكتمال طلب"],
+      ["sale_depletion", "−", "إرسال سطر إلى المطبخ"],
       ["sale_reversal", "+", "ارتجاع طلب، أو إلغاء سطر بعد الإرسال"],
       ["transfer_out", "−", "إرسال تحويل بين المواقع"],
       ["transfer_in", "+", "استلام تحويل بين المواقع"],

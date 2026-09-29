@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 195 paths, 132 request DTOs.
+ * `api/openapi.json`. 197 paths, 133 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -613,6 +613,8 @@ export interface IssueRefundDto {
   /** REQUIRED for a `cash` refund; refused for `manual_external_card`. */
   cashSessionId?: string;
   id?: string;
+  /** REFUND-INV-1 (FR-POS-070) — OPTIONAL; absent means no inventory effect. */
+  inventoryDisposition?: unknown;
   managerEmployeeCode?: string;
   managerPin?: string;
   /** REQUIRED — the exact Payment this refund is issued against. */
@@ -766,6 +768,12 @@ export interface RecountCashSessionCloseDto {
 
 export interface RefreshDto {
   refreshToken: string;
+}
+
+export interface RefundInventoryDispositionDto {
+  /** The order lines this disposition decision covers. */
+  orderLineIds: string[];
+  type: "return_to_stock" | "write_off";
 }
 
 export interface RegisterTenantDto {
@@ -3033,6 +3041,26 @@ export type InventoryController_receiveResponse = {
 };
 
 export type InventoryController_receiveBody = ReceiveTransferDto;
+
+/** `GET /inventory/uoms` — Units of measure and the conversions between them. — Every unit a stock item, recipe line or yield may reference, plus generic conversions and those specific to this tenant's stock items. */
+export type InventoryController_listUnitsResponse = {
+  conversions: ({
+    /** Multiply a quantity in fromUnit by this to get toUnit. */
+    factor: string;
+    fromUnitId: string;
+    /** Null for a generic conversion; else item-specific. */
+    stockItemId: string | null;
+    toUnitId: string;
+  })[];
+  units: ({
+    baseUnitOfDimension: boolean;
+    code: string;
+    /** e.g. mass, volume, count. */
+    dimension: string;
+    id: string;
+    name: string;
+  })[];
+};
 
 /** `GET /inventory/waste` — The most recent 200 waste records, newest first. */
 export type InventoryController_listWasteResponse = ({
@@ -6619,17 +6647,22 @@ export type ProductionController_recipesRequiringCompletionResponse = {
   /** The branch this report was resolved for; null for the tenant-wide view. */
   branchId: string | null;
   entries: ({
-    /** Empty for absent_recipe. */
+    /** Empty for absent_recipe; structural gap codes for incomplete_recipe; `<gap reason>:<component id>` (e.g. `no_valuation:<stock item id>`) for unpriced_ingredient and unconvertible_unit. */
     detail: string[];
     menuItemId: string;
-    reason: "absent_recipe" | "incomplete_recipe";
-    /** The incomplete published version; null for absent_recipe. */
+    /** absent_recipe / incomplete_recipe: BR-MNU-012, sold at zero or partial cost. unpriced_ingredient: a finished recipe with an ingredient that has no cost yet, sold at the partial cost of what can be priced. unconvertible_unit: a recipe unit cannot be converted to the ingredient stock unit; the sale is refused until it is fixed. */
+    reason: "absent_recipe" | "incomplete_recipe" | "unpriced_ingredient" | "unconvertible_unit";
+    /** The published version concerned; null for absent_recipe. */
     recipeVersionId: string | null;
     variantId: string;
   })[];
   incompleteCount: number;
   /** Active variants examined — the denominator of the completeness metric. */
   sellableVariantCount: number;
+  /** Entries with reason unconvertible_unit. */
+  unconvertibleCount: number;
+  /** Entries with reason unpriced_ingredient. */
+  unpricedCount: number;
 };
 
 /** `GET /recipes/{recipeId}/versions` — Version history, newest first, each with its lines. */
@@ -7054,6 +7087,38 @@ export type ReportingController_getOperationalOverviewResponse = {
     windowFrom: string;
     windowTo: string;
   };
+};
+
+/** `GET /reports/branches/{branchId}/sales-daily` — Branch sales totals per business day over a date range (dashboard-only; authorized against the branch it names). — Per-business-day sales totals for the range. */
+export type ReportingController_getSalesDailyRangeResponse = {
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  branchCurrentBusinessDay: string;
+  branchId: string;
+  /** ISO 4217 currency code. */
+  currency: string;
+  currencySource: "TRANSACTION" | "BRANCH_FALLBACK";
+  dataAsOf: string;
+  /** Ascending; days with no sales and no refunds are absent. */
+  days: ({
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discounts: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grossSales: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    netSales: string;
+    orderCount: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    refunds: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+  })[];
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  from: string;
+  /** The range actually answered; `to` is clamped to the branch’s current business day. */
+  to: string;
+  toClamped: boolean;
 };
 
 /** `POST /service-charge-policy/branch/{branchId}` — The newly created branch-level service-charge policy version. */
@@ -7774,6 +7839,7 @@ export const ROUTES = {
   InventoryController_reconcile: { method: "GET", path: "/inventory/reconciliation" },
   InventoryController_dispatch: { method: "POST", path: "/inventory/transfers" },
   InventoryController_receive: { method: "POST", path: "/inventory/transfers/receive" },
+  InventoryController_listUnits: { method: "GET", path: "/inventory/uoms" },
   InventoryController_listWaste: { method: "GET", path: "/inventory/waste" },
   InventoryController_recordWaste: { method: "POST", path: "/inventory/waste" },
   KdsStationsController_listStations: { method: "GET", path: "/kds/stations" },
@@ -7891,6 +7957,7 @@ export const ROUTES = {
   ReportingController_getDailyTradingReport: { method: "GET", path: "/reports/branches/{branchId}/daily-trading/{businessDay}" },
   ReportingController_getComboRevenueAllocation: { method: "GET", path: "/reports/branches/{branchId}/orders/{orderLineId}/combo-allocation/{businessDay}" },
   ReportingController_getOperationalOverview: { method: "GET", path: "/reports/branches/{branchId}/overview" },
+  ReportingController_getSalesDailyRange: { method: "GET", path: "/reports/branches/{branchId}/sales-daily" },
   ServiceChargePolicyController_createBranchPolicy: { method: "POST", path: "/service-charge-policy/branch/{branchId}" },
   ServiceChargePolicyController_createBrandPolicy: { method: "POST", path: "/service-charge-policy/brand/{brandId}" },
   ServiceChargePolicyController_resolve: { method: "GET", path: "/service-charge-policy/resolve" },
