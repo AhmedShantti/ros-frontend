@@ -1703,9 +1703,21 @@ const counts: CollectionService<CountSession> = {
     if (!input.locationId) {
       throw new ServiceError("BAD_REQUEST", "Choose the location to count.", 400);
     }
+    // `scopeType`/`itemIds` are not CountSession domain fields — smuggled
+    // through the same way `standardCost` is on the Stock Item form (D-INV-05).
+    const { scopeType, itemIds } = input as unknown as {
+      scopeType?: "full_location" | "category" | "item_list";
+      itemIds?: string[];
+    };
+    const resolvedScope = scopeType ?? "full_location";
     const row = await api.inventory.openCount({
       locationId: input.locationId,
-      scopeType: "full_location",
+      scopeType: resolvedScope,
+      // The backend rejects scopeId outright for any scope but "category"
+      // ("scopeId is only valid for a category scope") — omitted entirely
+      // here since this screen never submits a category scope yet (no real
+      // catalogue exists to pick one from).
+      itemIds: resolvedScope === "item_list" ? itemIds : undefined,
       isBlindCount: input.mode === "blind",
     });
     return map.toCountSession(row, { tenantId: getTenantId() ?? "" });
