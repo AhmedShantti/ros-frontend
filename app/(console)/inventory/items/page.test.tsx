@@ -218,7 +218,7 @@ describe("Stock items — standard costing requires a standard cost (D-INV-03)",
     expect(itemsCreate).not.toHaveBeenCalled();
   });
 
-  it("sends a valid Standard Cost as a minor-unit amount in the create payload", async () => {
+  it("sends a valid Standard Cost as the exact minor-unit integer string, never re-parsed through a JS Number", async () => {
     itemsCreate.mockResolvedValue({ ...ITEM_FLOUR, id: "item-new" });
     const user = userEvent.setup();
     render(<StockItemsScreen />);
@@ -233,9 +233,7 @@ describe("Stock items — standard costing requires a standard cost (D-INV-03)",
     await user.click(screen.getByRole("button", { name: "common.create" }));
 
     await waitFor(() =>
-      expect(itemsCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ unitCost: { amount: 1250, currency: "EGP" } }),
-      ),
+      expect(itemsCreate).toHaveBeenCalledWith(expect.objectContaining({ standardCost: "1250" })),
     );
   });
 
@@ -257,7 +255,7 @@ describe("Stock items — standard costing requires a standard cost (D-INV-03)",
 
     await waitFor(() => expect(itemsCreate).toHaveBeenCalled());
     const [payload] = itemsCreate.mock.calls[0]!;
-    expect(payload).not.toHaveProperty("unitCost");
+    expect(payload).not.toHaveProperty("standardCost");
     expect(payload.costingMethod).toBe("weighted_average");
   });
 
@@ -281,7 +279,7 @@ describe("Stock items — standard costing requires a standard cost (D-INV-03)",
       ),
     );
     const [payload] = itemsCreate.mock.calls[0]!;
-    expect(payload).not.toHaveProperty("unitCost");
+    expect(payload).not.toHaveProperty("standardCost");
   });
 
   it("surfaces the backend's 4xx validation message instead of a generic failure", async () => {

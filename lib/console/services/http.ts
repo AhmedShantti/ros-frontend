@@ -1554,10 +1554,13 @@ const stockItems: CollectionService<StockItem> = {
       isBatchTracked: input.batchTracked,
       expiryTracked: input.expiryTracked,
       shelfLifeDays: input.shelfLifeDays ?? undefined,
-      // `standardCost` is a minor-unit integer string on the wire (D-INV-03),
-      // never a shelf decimal — `toMinorUnitString`, not `toDecimal`, or a
-      // cost of "12.34" would be sent as 1234 EGP instead of 12.34 EGP.
-      standardCost: input.unitCost ? map.toMinorUnitString(input.unitCost) : undefined,
+      // `standardCost` is not a StockItem domain field — the page smuggles
+      // it through as `standardCost as never` (same idiom as `costingMethod`
+      // above). It arrives already the exact minor-unit integer string the
+      // wire wants (D-INV-03): passed straight through, never parsed as a
+      // JS Number, so a value up to the backend's 18-digit limit — well
+      // past Number.MAX_SAFE_INTEGER — can never lose precision here.
+      standardCost: (input as { standardCost?: string }).standardCost,
     });
     invalidateInventory();
     return map.toStockItem(row, getTenantId() ?? "");

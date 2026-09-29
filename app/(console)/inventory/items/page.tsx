@@ -281,9 +281,16 @@ export function StockItemsScreen() {
             baseUnitId: values.baseUnitId,
             costingMethod: values.costingMethod as never,
             // Only sent for standard costing — switching away from Standard
-            // never carries a stale cost into the request.
+            // never carries a stale cost into the request. `standardCost` is
+            // the money field's own minor-unit integer string, passed
+            // through exactly as RecordDrawer produced it — never re-parsed
+            // through a JS Number, so it can never lose precision (the wire
+            // contract accepts up to 18 digits, well past
+            // Number.MAX_SAFE_INTEGER). `as never` smuggles it past
+            // Partial<StockItem>, same as `costingMethod` above; it is not a
+            // StockItem field, only a create-time-only write.
             ...(values.costingMethod === "standard"
-              ? { unitCost: { amount: Number(values.standardCost), currency: "EGP" } }
+              ? { standardCost: values.standardCost as never }
               : {}),
           })
         }
