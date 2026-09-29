@@ -326,6 +326,14 @@ const accessibleBranchesRaw = cached(() =>
   api.organisation.getAccessibleScope().then((r) => r.branches),
 );
 const warehousesRaw = cached(() => api.organisation.listWarehouses());
+const centralKitchensRaw = cached(() => api.organisation.listCentralKitchens());
+/**
+ * FR-INV production regression — the org.locations registry row's OWN id is
+ * the only id Inventory's `locationId` (counts, transfers, adjustments,
+ * waste, batches, ...) accepts. It is NEVER the same id as the Branch,
+ * Warehouse or CentralKitchen it points at — see `locations` below.
+ */
+const inventoryLocationsRaw = cached(() => api.organisation.listLocations());
 const stockItemsRaw = cached(() => api.inventory.listItems());
 const menusRaw = cached(() => api.catalogue.listMenus());
 const menuItemsRaw = cached(() => api.catalogue.listItems());
@@ -334,14 +342,42 @@ const uomsRaw = cached(() => api.inventory.listUoms());
 const categoriesRaw = cached(() => api.inventory.listCategories());
 const availabilityRaw = cached(() => api.catalogue.listAvailabilityRules(), 5_000);
 
-/** Every place stock can sit: warehouses, central kitchens, and branches. */
+/**
+ * Every place stock can sit: warehouses, central kitchens, and branches —
+ * `id` is always the org.locations registry row's own id (`GET
+ * /org/locations`), never the underlying Branch/Warehouse/CentralKitchen id.
+ * A registry row whose referenced entity cannot be resolved (visible to this
+ * caller) is dropped rather than shown with a fabricated name.
+ */
 const locations = cached(async (): Promise<StockLocation[]> => {
   const tenantId = getTenantId() ?? "";
-  const [branches, warehouses] = await Promise.all([branchesRaw(), warehousesRaw()]);
-  return [
-    ...warehouses.map(map.warehouseLocation),
-    ...branches.map((row) => map.branchLocation(map.toBranch(row, tenantId))),
-  ];
+  const [registry, branches, warehouses, centralKitchens] = await Promise.all([
+    inventoryLocationsRaw(),
+    branchesRaw(),
+    warehousesRaw(),
+    centralKitchensRaw(),
+  ]);
+  const branchById = indexBy(branches, (row) => row.id);
+  const warehouseById = indexBy(warehouses, (row) => row.id);
+  const centralKitchenById = indexBy(
+    centralKitchens.map((row) => map.toCentralKitchen(row, tenantId)),
+    (row) => row.id,
+  );
+
+  return registry
+    .map((loc): StockLocation | null => {
+      if (loc.locationType === "branch") {
+        const branch = branchById.get(loc.refId);
+        return branch ? map.branchLocation(map.toBranch(branch, tenantId), loc.id) : null;
+      }
+      if (loc.locationType === "warehouse") {
+        const warehouse = warehouseById.get(loc.refId);
+        return warehouse ? map.warehouseLocation(warehouse, loc.id) : null;
+      }
+      const centralKitchen = centralKitchenById.get(loc.refId);
+      return centralKitchen ? map.centralKitchenLocation(centralKitchen, loc.id) : null;
+    })
+    .filter((row): row is StockLocation => row !== null);
 });
 
 const locationIndex = async () => indexBy(await locations(), (row) => row.id);

@@ -2324,6 +2324,7 @@ export const consoleAr: ConsoleCopy = {
   "inv.itemCreated": "تم إنشاء صنف المخزون.",
   "inv.newItemUnitNote": "لا يمكن تغيير الوحدة الأساسية بعد وجود أي حركة على الصنف (FR-INV-002)، فاخترها بعناية.",
   "inv.noUnitsConfigured": "لا توجد وحدات قياس مُعدّة.",
+  "inv.noLocationsConfigured": "لا تتوفر مواقع مخزون.",
   "inv.costingWeighted": "المتوسط المرجّح",
   "inv.costingFifo": "الوارد أولًا صادر أولًا",
   "inv.costingStandard": "معياري",

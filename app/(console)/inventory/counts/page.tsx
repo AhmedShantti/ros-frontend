@@ -695,7 +695,11 @@ function OpenCountDrawer({
 
         <Callout tone="muted">{t("inv.newCountNote")}</Callout>
 
-        <AsyncPanel state={locations} isEmpty={(rows) => rows.length === 0}>
+        <AsyncPanel
+          state={locations}
+          isEmpty={(rows) => rows.length === 0}
+          empty={<Callout tone="warn">{t("inv.noLocationsConfigured")}</Callout>}
+        >
           {(rows) => (
             <Field label={t("common.location")} required>
               <Select

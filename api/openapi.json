@@ -35477,6 +35477,81 @@
         ]
       }
     },
+    "/org/locations": {
+      "get": {
+        "operationId": "OrganisationController_listLocations",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "createdAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "locationType": {
+                        "enum": [
+                          "branch",
+                          "warehouse",
+                          "central_kitchen"
+                        ],
+                        "type": "string"
+                      },
+                      "refId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every Inventory-valid location in the tenant."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The unified location registry Inventory keys `locationId` on — a Branch,\na Warehouse or a Central Kitchen may each own one, and `id` here is the\nonly id Inventory endpoints (counts, movements, waste, ...) accept. A\ncaller resolves a readable name itself by joining `refId`/`locationType`\nagainst `GET /org/branches`/`GET /org/warehouses`/`GET /org/central-kitchens`.",
+        "tags": [
+          "organisation"
+        ]
+      }
+    },
     "/org/stations/{stationId}": {
       "get": {
         "operationId": "OrganisationController_getStation",

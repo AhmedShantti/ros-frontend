@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 /*
@@ -115,6 +115,48 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+});
+
+describe("Stock counts — location picker (production regression: \"Location not found.\")", () => {
+  it("shows the real location's readable name, and the location select uses services.organisation.locations()", async () => {
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Downtown")).toBeInTheDocument();
+    await waitFor(() => expect(locations).toHaveBeenCalled());
+  });
+
+  it("submits the exact locationId services.organisation.locations() returned, never a raw UUID typed by a person", async () => {
+    countsCreate.mockResolvedValue(COUNT_SESSION_FIXTURE);
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+
+    await waitFor(() =>
+      expect(countsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ locationId: LOCATION_A.id }),
+      ),
+    );
+  });
+
+  it("honestly blocks submission — never a fabricated location — when the tenant has no inventory locations", async () => {
+    locations.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+
+    await screen.findByText("inv.noLocationsConfigured");
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).queryByText(/common\.location/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "common.create" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+    expect(countsCreate).not.toHaveBeenCalled();
+  });
 });
 
 describe("Stock counts — scoped counting (FR-INV-040)", () => {

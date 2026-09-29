@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 197 paths, 134 request DTOs.
+ * `api/openapi.json`. 198 paths, 134 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -6045,6 +6045,14 @@ export type OrganisationController_updateCentralKitchenResponse = {
 
 export type OrganisationController_updateCentralKitchenBody = UpdateCentralKitchenDto;
 
+/** `GET /org/locations` — The unified location registry Inventory keys `locationId` on — a Branch, a Warehouse or a Central Kitchen may each own one, and `id` here is the only id Inventory endpoints (counts, movements, waste, ...) accept. A caller resolves a readable name itself by joining `refId`/`locationType` against `GET /org/branches`/`GET /org/warehouses`/`GET /org/central-kitchens`. — Every Inventory-valid location in the tenant. */
+export type OrganisationController_listLocationsResponse = ({
+  createdAt: string;
+  id: string;
+  locationType: "branch" | "warehouse" | "central_kitchen";
+  refId: string;
+})[];
+
 /** `GET /org/stations/{stationId}` — The station. */
 export type OrganisationController_getStationResponse = {
   branchId: string;
@@ -7879,6 +7887,7 @@ export const ROUTES = {
   OrganisationController_createCentralKitchen: { method: "POST", path: "/org/central-kitchens" },
   OrganisationController_getCentralKitchen: { method: "GET", path: "/org/central-kitchens/{centralKitchenId}" },
   OrganisationController_updateCentralKitchen: { method: "PATCH", path: "/org/central-kitchens/{centralKitchenId}" },
+  OrganisationController_listLocations: { method: "GET", path: "/org/locations" },
   OrganisationController_getStation: { method: "GET", path: "/org/stations/{stationId}" },
   OrganisationController_updateStation: { method: "PATCH", path: "/org/stations/{stationId}" },
   OrganisationController_updateTable: { method: "PATCH", path: "/org/tables/{tableId}" },

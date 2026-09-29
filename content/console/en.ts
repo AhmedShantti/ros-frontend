@@ -2338,6 +2338,7 @@ export const consoleEn = {
   "inv.itemCreated": "Stock item created.",
   "inv.newItemUnitNote": "The base unit cannot be changed once any movement exists against the item (FR-INV-002), so choose it deliberately.",
   "inv.noUnitsConfigured": "No units of measure are configured.",
+  "inv.noLocationsConfigured": "No inventory locations are available.",
   "inv.costingWeighted": "Weighted average",
   "inv.costingFifo": "FIFO",
   "inv.costingStandard": "Standard",

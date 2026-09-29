@@ -868,6 +868,10 @@ export const organisation = {
   updateCentralKitchen: (centralKitchenId: string, body: S.UpdateCentralKitchenDto) =>
     http.patch<S.OrganisationController_updateCentralKitchenResponse>("/org/central-kitchens/{centralKitchenId}", { params: { centralKitchenId }, body }),
 
+  /** `GET /org/locations` — The unified location registry Inventory keys `locationId` on — a Branch, a Warehouse or a Central Kitchen may each own one, and `id` here is the only id Inventory endpoints (counts, movements, waste, ...) accept. A caller resolves a readable name itself by joining `refId`/`locationType` against `GET /org/branches`/`GET /org/warehouses`/`GET /org/central-kitchens`. — Every Inventory-valid location in the tenant. */
+  listLocations: () =>
+    http.get<S.OrganisationController_listLocationsResponse>("/org/locations"),
+
   /** `GET /org/stations/{stationId}` — The station. */
   getStation: (stationId: string) =>
     http.get<S.OrganisationController_getStationResponse>("/org/stations/{stationId}", { params: { stationId } }),

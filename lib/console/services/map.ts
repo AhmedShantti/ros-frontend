@@ -433,17 +433,28 @@ export function toCentralKitchen(row: WireCentralKitchen, tenantId: Id): Central
   };
 }
 
-export function branchLocation(branch: Branch): StockLocation {
-  return { id: branch.id, kind: "branch", name: branch.name, code: branch.code };
+/**
+ * `locationId` is the org.locations registry row's OWN id — never
+ * `branch.id`. Inventory's authorization-target resolver looks a
+ * `locationId` up against that registry by its own id, so a Branch's own
+ * id is a different, unrelated UUID that never resolves (D-INV production
+ * regression: "Location not found.").
+ */
+export function branchLocation(branch: Branch, locationId: Id): StockLocation {
+  return { id: locationId, kind: "branch", name: branch.name, code: branch.code };
 }
 
-export function warehouseLocation(row: WireWarehouse): StockLocation {
+export function warehouseLocation(row: WireWarehouse, locationId: Id): StockLocation {
   return {
-    id: row.id,
+    id: locationId,
     kind: row.warehouseType === "central" ? "central_kitchen" : "warehouse",
     name: localised(row.name),
     code: row.warehouseType.toUpperCase().slice(0, 3),
   };
+}
+
+export function centralKitchenLocation(ck: CentralKitchen, locationId: Id): StockLocation {
+  return { id: locationId, kind: "central_kitchen", name: ck.name, code: ck.code };
 }
 
 // ---------------------------------------------------------------------------
