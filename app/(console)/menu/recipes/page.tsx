@@ -98,6 +98,11 @@ function RecipesScreen() {
   );
   const incompleteCount =
     (completeness.data?.absentCount ?? 0) + (completeness.data?.incompleteCount ?? 0);
+  // Sold at a partial cost until the ingredient gets a cost (receive stock or
+  // set a standard cost) — the backend lists these rather than refusing the sale.
+  const unpricedCount = completeness.data?.unpricedCount ?? 0;
+  // Refused at the till until the recipe line's unit is fixed.
+  const unconvertibleCount = completeness.data?.unconvertibleCount ?? 0;
 
   const collection = useCollection<Recipe>(
     (query) => services.catalogue.recipes.list(query),
@@ -225,11 +230,26 @@ function RecipesScreen() {
             value={formatNumber(totals.incomplete, fmt)}
             spec="BR-MNU-012"
             footer={
-              incompleteCount > 0 ? (
+              incompleteCount > 0 || unpricedCount > 0 || unconvertibleCount > 0 ? (
                 // Label first, count after: reads correctly for any number in
                 // Arabic, where "1 صنفًا" / "2 صنفًا" need different forms.
-                <span>
-                  {t("recipes.itemsWithout")}: {formatNumber(incompleteCount, fmt)}
+                // One reason per row.
+                <span className="flex flex-col gap-0.5">
+                  {incompleteCount > 0 ? (
+                    <span>
+                      {t("recipes.itemsWithout")}: {formatNumber(incompleteCount, fmt)}
+                    </span>
+                  ) : null}
+                  {unpricedCount > 0 ? (
+                    <span>
+                      {t("recipes.itemsUnpriced")}: {formatNumber(unpricedCount, fmt)}
+                    </span>
+                  ) : null}
+                  {unconvertibleCount > 0 ? (
+                    <span className="text-bad">
+                      {t("recipes.itemsUnconvertible")}: {formatNumber(unconvertibleCount, fmt)}
+                    </span>
+                  ) : null}
                 </span>
               ) : null
             }

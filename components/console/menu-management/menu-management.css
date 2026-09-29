@@ -397,6 +397,40 @@
 }
 @media(max-width:800px){.mm-root .content{padding:16px 12px 40px}}
 
+/* ===== Item recipe (Add / Edit item → Recipe) ===== */
+.mm-root .recipe-sizes{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.mm-root .recipe-sizes button{border:1px solid #ddd9cf;border-radius:7px;padding:6px 11px;color:#666;background:#fff;font-size:12px;display:inline-flex;align-items:center;gap:6px}
+.mm-root .recipe-sizes button.chosen{border-color:#bd9650;background:#fff4de;color:#805c15;font-weight:600}
+.mm-root .recipe-dot{width:6px;height:6px;border-radius:50%;background:#b0603a}
+.mm-root .recipe-lines{margin:4px 0 10px}
+.mm-root .recipe-head,.mm-root .recipe-row{display:grid;grid-template-columns:minmax(0,1fr) 170px 32px;gap:8px;align-items:center}
+.mm-root .recipe-head{font-size:10px;color:#999;padding:0 0 6px}
+.mm-root .recipe-row{margin-bottom:7px}
+.mm-root .recipe-name{min-width:0}
+.mm-root .recipe-name strong{display:block;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mm-root .recipe-name small{display:block;color:#999;font-size:10px;margin-top:2px}
+.mm-root .recipe-row.kept .static-price{font-size:12px}
+.mm-root .amount-field{display:flex;border:1px solid #dcdad4;border-radius:7px;overflow:hidden;background:#fff}
+.mm-root .amount-field.invalid{border-color:#c9785a}
+.mm-root .amount-field:focus-within{border-color:#b3914d;box-shadow:0 0 0 2px #b3914d16}
+.mm-root .drawer-section .amount-field input{border:0;margin:0;border-radius:0;padding:9px 10px;min-width:0;box-shadow:none}
+.mm-root .drawer-section .amount-field select{width:auto;border:0;margin:0;border-radius:0;padding:9px 6px;background:#f6f5f1;color:#666;border-inline-start:1px solid #e6e4de;box-shadow:none}
+.mm-root .amount-field span{padding:9px 10px;background:#f6f5f1;color:#888;font-size:12px;border-inline-start:1px solid #e6e4de;white-space:nowrap}
+.mm-root .recipe-empty{font-size:12px;color:#888;background:#faf9f6;border:1px dashed #dcdad4;border-radius:8px;padding:12px;margin:4px 0 10px;line-height:1.5}
+.mm-root .ingredient-picker{position:relative}
+.mm-root .add-ingredient{display:inline-flex;align-items:center;gap:6px;border:1px dashed #c9b27f;border-radius:8px;padding:9px 12px;color:#8a5c0b;font-size:12px;font-weight:500;width:100%;justify-content:center;background:#fffcf5}
+.mm-root .add-ingredient:hover{background:#fff4de}
+.mm-root .picker-panel{border:1px solid #d9c9a6;border-radius:10px;background:#fff;box-shadow:0 12px 30px #00000014;padding:8px}
+.mm-root .picker-panel .search{min-width:0;height:38px}
+.mm-root .drawer-section .picker-panel .search input{border:0;margin:0;padding:0;box-shadow:none}
+.mm-root .picker-list{list-style:none;margin:6px 0 0;padding:0;max-height:240px;overflow:auto}
+.mm-root .picker-list li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 9px;border-radius:7px;cursor:pointer}
+.mm-root .picker-list li.active{background:#fff4de}
+.mm-root .picker-list li strong{display:block;font-size:13px;font-weight:500}
+.mm-root .picker-list li small{display:block;color:#999;font-size:10px;margin-top:2px}
+.mm-root .picker-list li em{font-style:normal;font-size:10px;color:#777;background:#f2f0eb;border-radius:5px;padding:3px 6px;white-space:nowrap}
+.mm-root .picker-list .picker-empty{cursor:default;color:#999;font-size:12px;justify-content:center}
+
 /* ===== Dark theme =====
  * Follows the console's own switch (the `.dark` class it puts on <html>, see
  * components/console/theme-script.tsx) and draws from the console's dark
@@ -602,3 +636,18 @@
    keep the page's own copy only on phones, where the header hides them. */
 @media (min-width:640px){.mm-root .scope-bar{display:none}}
 .mm-root .field-hint{display:block;margin-top:5px;font-size:11px;color:#8a8a84;line-height:1.4}
+
+/* Item recipe — dark */
+.dark .mm-root .recipe-sizes button{border:1px solid #5c4a24;color:var(--c-fg-muted);background:var(--c-raised)}
+.dark .mm-root .recipe-sizes button.chosen{background:var(--c-accent-soft);color:var(--c-accent)}
+.dark .mm-root .recipe-head,.dark .mm-root .recipe-name small{color:var(--c-fg-subtle)}
+.dark .mm-root .amount-field{border:1px solid var(--c-line);background:var(--c-raised)}
+.dark .mm-root .drawer-section .amount-field input{border:0;background:var(--c-raised)}
+.dark .mm-root .drawer-section .amount-field select,.dark .mm-root .amount-field span{background:var(--c-sunken);color:var(--c-fg-muted);border:0;border-inline-start:1px solid var(--c-line)}
+.dark .mm-root .recipe-empty{background:var(--c-sunken);border:1px dashed var(--c-line);color:var(--c-fg-subtle)}
+.dark .mm-root .add-ingredient{border:1px dashed #5c4a24;background:var(--c-raised);color:var(--c-accent)}
+.dark .mm-root .add-ingredient:hover{background:var(--c-accent-soft)}
+.dark .mm-root .picker-panel{border:1px solid var(--c-line);background:var(--c-raised);box-shadow:0 12px 30px #0008}
+.dark .mm-root .picker-list li.active{background:var(--c-accent-soft)}
+.dark .mm-root .picker-list li small,.dark .mm-root .picker-list .picker-empty{color:var(--c-fg-subtle)}
+.dark .mm-root .picker-list li em{background:var(--c-sunken);color:var(--c-fg-muted)}

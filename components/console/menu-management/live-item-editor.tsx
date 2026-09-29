@@ -30,17 +30,18 @@
  *    a fake "attached groups" picker.
  */
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Currency } from "@/lib/console/types";
 import { currencyExponent, excessPrecision, formatDateTime, formatMoney, minorFromInput, toMajorUnits, type FormatOptions } from "@/lib/console/format";
 import { useAction } from "@/lib/console/actions";
-import { useI18n } from "@/lib/console/providers";
+import { useI18n, usePermission } from "@/lib/console/providers";
 import { services } from "@/lib/console/services";
 import { useTaxClasses } from "@/components/console/catalogue/tax-class-field";
 import type { LiveCategory, LiveItem } from "@/lib/console/menu-management/live-adapter";
 import type { ConsoleKey } from "@/content/console/en";
 import { itemStatus } from "./live-cards";
 import { Icon, Section, useEscape, useSaver } from "./common";
+import { ItemRecipeSection, recipeProblemText, useItemRecipe, type RecipeAccess, type RecipeSize } from "./item-recipe-section";
 
 interface LiveItemEditorProps {
   item: LiveItem | null;
@@ -69,7 +70,7 @@ export default function LiveItemEditor({
   onChanged,
   onOpenCustomizations,
 }: LiveItemEditorProps) {
-  const { t, tx, fmt } = useI18n();
+  const { t, tx, fmt, locale } = useI18n();
   const { saving, error, run, setError } = useSaver(t("mm.somethingWrong"));
   useEscape(!saving, onClose);
   const [name, setName] = useState(item ? tx(item.name) : "");
@@ -116,11 +117,37 @@ export default function LiveItemEditor({
   const exponent = currencyExponent(currency);
   const priceTooPrecise = excessPrecision(price, exponent);
 
+  // Recipe — one per size (SRS §10.6, FR-MNU-006). A new item has exactly
+  // one size, created in the same Save, so its recipe is saved last, once
+  // the size has an id. Combos take stock through their parts, not a recipe.
+  const canViewRecipe = usePermission("recipe.view");
+  const canEditRecipe = usePermission("recipe.edit");
+  const canPublishRecipe = usePermission("recipe.publish");
+  const canViewStock = usePermission("inventory.view");
+  const showRecipe = canViewRecipe && !item?.isCombo;
+  const recipeAccess: RecipeAccess = {
+    view: showRecipe,
+    edit: showRecipe && canEditRecipe && canManage,
+    publish: canPublishRecipe,
+    stock: canViewStock,
+  };
+  const recipeSizes: RecipeSize[] = useMemo(
+    () =>
+      item
+        ? item.variants.map((variant) => ({ key: variant.id, variantId: variant.id, name: tx(variant.name) }))
+        : [{ key: "new", variantId: null, name: "" }],
+    // The drawer is opened for one item; its sizes don't change underneath it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [item?.id],
+  );
+  const recipe = useItemRecipe(recipeSizes, recipeAccess);
+
   let problem = "";
   if (!name.trim()) problem = t("menu.addAnItemName");
   else if (categories.length === 0) problem = t("menu.createCategoryFirst");
   else if (!categoryId) problem = t("menu.chooseACategory");
   else if ((!item || primaryVariant) && (!price.trim() || priceTooPrecise)) problem = t("menu.addAPrice");
+  else if (recipe.problem) problem = recipeProblemText(recipe, recipeSizes, t, tx);
 
   async function save() {
     if (problem) return;
@@ -145,7 +172,16 @@ export default function LiveItemEditor({
         } else if (createStatus === "deactivated") {
           await services.catalogue.items.remove(created.id);
         }
-        onChanged(t("menu.itemCreated"));
+        // The item now exists, so a recipe failure must not leave this
+        // drawer in "new item" mode — pressing Save again would create the
+        // item twice. Say what happened and close.
+        let recipeError = "";
+        try {
+          await recipe.saveAll(() => created.variants[0]?.id ?? null, { en: name.trim(), ar: name.trim() });
+        } catch (e) {
+          recipeError = (e instanceof Error && e.message) || t("mm.somethingWrong");
+        }
+        onChanged(recipeError ? t("rcp.itemSavedRecipeFailed").replace("{error}", recipeError) : t("menu.itemCreated"));
         onClose();
       });
       return;
@@ -169,6 +205,9 @@ export default function LiveItemEditor({
           await services.catalogue.updateVariantPrice(primaryVariant.id, { amount: minorAmount, currency });
         }
       }
+      // Recipe changes ride on the same Save; on failure the drawer stays
+      // open with the error, and nothing about the item is lost.
+      await recipe.saveAll((size) => size.variantId, item.name);
       onChanged(t("menu.itemPlaced"));
       onClose();
     });
@@ -394,6 +433,12 @@ export default function LiveItemEditor({
             )}
             {priceTooPrecise ? <p className="warn-text">{t("menu.priceTooPrecise").replace("{currency}", currency)}</p> : null}
           </Section>
+
+          {showRecipe ? (
+            <Section title={t("rcp.title")}>
+              <ItemRecipeSection sizes={recipeSizes} state={recipe} access={recipeAccess} t={t} tx={tx} locale={locale} />
+            </Section>
+          ) : null}
 
           <Section title={t("menu.customizations")}>
             <p className="section-help">{t("menu.customizationsPerItemNote")}</p>

@@ -846,6 +846,8 @@ async function toRecipeVersion(
           ar: line.subRecipeId ? "وصفة فرعية" : (line.stockItemId ?? "—"),
         },
         quantity: map.quantity(line.quantity, line.unitId),
+        unitId: line.unitId,
+        substituteGroupId: line.substituteGroupId ?? null,
         wastagePercentage: Number(line.wastagePercentage ?? "0"),
         isOptional: line.isOptional,
         // gap: D-17-05 — the API never populates per-line cost in this phase.
@@ -913,6 +915,9 @@ const production: import("./types").ProductionService = {
       sellableVariantCount: report.sellableVariantCount,
       absentCount: report.absentCount,
       incompleteCount: report.incompleteCount,
+      // Older backends do not send these two counts; absent means none.
+      unpricedCount: report.unpricedCount ?? 0,
+      unconvertibleCount: report.unconvertibleCount ?? 0,
       entries: report.entries.map((entry) => ({
         menuItemId: entry.menuItemId,
         variantId: entry.variantId,

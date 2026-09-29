@@ -288,7 +288,7 @@ COMMIT;
     movements: [
       ["purchase_receipt", "+", "Goods receipt posted"],
       ["purchase_return", "−", "Return to supplier"],
-      ["sale_depletion", "−", "Order completed"],
+      ["sale_depletion", "−", "Line sent to the kitchen (fired)"],
       ["sale_reversal", "+", "Order refunded, or line voided after firing"],
       ["transfer_out", "−", "Inter-location transfer dispatch"],
       ["transfer_in", "+", "Inter-location transfer receipt"],

@@ -20,9 +20,11 @@ import type {
   Order,
   Page,
   PurchaseOrder,
+  RecipeLine,
   RestaurantTable,
   Station,
   Terminal,
+  UnitCode,
   Warehouse,
 } from "../types";
 import type {
@@ -46,6 +48,7 @@ import type {
   PurchasingService,
   ReadonlyCollectionService,
   ReasonCode,
+  RecipeLineInput,
   RecipeVersion,
   SalesService,
   Scope,
@@ -1112,8 +1115,8 @@ const catalogue: CatalogueService = {
       tenantId: tenants[0]!.id,
       name: (input.name as Localised) ?? { en: "New recipe", ar: "وصفة جديدة" },
       recipeType: input.recipeType ?? "menu_item",
-      targetId: null,
-      targetName: null,
+      targetId: input.targetId ?? null,
+      targetName: input.targetName ?? null,
       version: 1,
       status: "draft",
       yieldQuantity: input.yieldQuantity ?? { value: "1.000000", unit: "pc" },
@@ -2504,6 +2507,43 @@ const dashboardService: DashboardService = {
  */
 const demoVersions = new Map<Id, RecipeVersion[]>();
 
+/** Minor-unit conversions between the demo's metric units; counts are 1:1. */
+const DEMO_UNIT_FACTOR: Partial<Record<UnitCode, number>> = { g: 1, kg: 1000, ml: 1, l: 1000 };
+
+/**
+ * Recipe lines as the backend would store them: the unit the caller sent
+ * (demo units are codes, not ids), the component's name, and its cost at
+ * the stock item's current per-base-unit valuation, trim loss included.
+ */
+function demoRecipeLines(versionId: Id, lines: RecipeLineInput[]): RecipeLine[] {
+  return lines.map((line, index) => {
+    const item = stockItems.find((row) => row.id === line.stockItemId);
+    const unit: UnitCode = (line.unitId in DEMO_UNIT_FACTOR || line.unitId === "pc" ? line.unitId : item?.baseUnit ?? "g") as UnitCode;
+    const quantity = Number(line.quantity) || 0;
+    const wastage = Number(line.wastagePercentage ?? "0") || 0;
+    const toBase = item ? (DEMO_UNIT_FACTOR[unit] ?? 1) / (DEMO_UNIT_FACTOR[item.baseUnit] ?? 1) : 1;
+    const unitCost = item?.unitCost.amount ?? 0;
+    const lineCost = Math.round(quantity * toBase * unitCost * (1 + wastage / 100));
+    return {
+      id: `${versionId}_l${index + 1}`,
+      sequence: line.sequence,
+      componentType: line.componentType,
+      componentId: line.stockItemId ?? line.subRecipeId ?? "",
+      componentName:
+        item?.name ??
+        recipes.find((recipe) => recipe.id === line.subRecipeId)?.name ??
+        { en: "Component", ar: "مكوّن" },
+      quantity: { value: line.quantity, unit },
+      unitId: unit,
+      substituteGroupId: line.substituteGroupId ?? null,
+      wastagePercentage: wastage,
+      isOptional: line.isOptional ?? false,
+      unitCost: { amount: unitCost, currency: "EGP" },
+      lineCost: { amount: lineCost, currency: "EGP" },
+    };
+  });
+}
+
 function versionsOf(recipeId: Id): RecipeVersion[] {
   const existing = demoVersions.get(recipeId);
   if (existing) return existing;
@@ -2575,6 +2615,7 @@ const production: ProductionService = {
         publishedBy: null,
       };
 
+      next.lines = demoRecipeLines(next.id, input.lines ?? []);
       demoVersions.set(recipeId, [next, ...history]);
       return next;
     });
@@ -2588,20 +2629,7 @@ const production: ProductionService = {
         throw new ServiceError("CONFLICT", "A published version cannot be edited.", 409);
       }
 
-      target.lines = lines.map((line, index) => ({
-        id: `${target.id}_l${index + 1}`,
-        sequence: line.sequence,
-        componentType: line.componentType,
-        componentId: line.stockItemId ?? line.subRecipeId ?? "",
-        componentName:
-          stockItems.find((item) => item.id === line.stockItemId)?.name ??
-          { en: "Component", ar: "مكوّن" },
-        quantity: { value: line.quantity, unit: "g" },
-        wastagePercentage: Number(line.wastagePercentage ?? "0"),
-        isOptional: line.isOptional ?? false,
-        unitCost: { amount: 0, currency: "EGP" },
-        lineCost: { amount: 0, currency: "EGP" },
-      }));
+      target.lines = demoRecipeLines(target.id, lines);
     });
   },
 
@@ -2618,6 +2646,23 @@ const production: ProductionService = {
       target.status = "published";
       target.publishedBy = employees[0]!.id;
 
+      // Keep the flat recipe row (what the Recipes page lists) in step with
+      // the version that now costs a sale.
+      const row = recipes.findIndex((recipe) => recipe.id === recipeId);
+      if (row !== -1) {
+        const cost = target.lines.reduce((sum, line) => sum + line.lineCost.amount, 0);
+        recipes[row] = {
+          ...recipes[row]!,
+          version: target.version,
+          status: "published",
+          lines: target.lines,
+          computedCost: { amount: cost, currency: "EGP" },
+          costPerPortion: { amount: cost, currency: "EGP" },
+          costComputedAt: new Date().toISOString(),
+          complete: target.lines.length > 0,
+        };
+      }
+
       return { supersededVersionId: incumbent?.id ?? null };
     });
   },
@@ -2630,6 +2675,8 @@ const production: ProductionService = {
         sellableVariantCount: menuItems.reduce((sum, item) => sum + item.variants.length, 0),
         absentCount: 0,
         incompleteCount: incomplete.length,
+        unpricedCount: 0,
+        unconvertibleCount: 0,
         entries: incomplete.map((recipe) => ({
           menuItemId: recipe.targetId ?? "",
           variantId: recipe.targetId ?? "",
