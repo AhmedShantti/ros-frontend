@@ -912,14 +912,21 @@ const production: import("./types").ProductionService = {
 
   async requiringCompletion(branchId) {
     const report = await api.production.recipesRequiringCompletion({ branchId });
+    // The current backend's RecipeCompletenessReason is absent_recipe /
+    // incomplete_recipe only — it does not send unpricedCount/
+    // unconvertibleCount at all yet, so the generated wire type has no such
+    // fields. Our own richer domain type always carries them (UI depends on
+    // it); read them defensively and default to 0 until the backend adds
+    // those two reasons, rather than widening the generated response type
+    // to a shape the server doesn't actually produce.
+    const extra = report as unknown as { unpricedCount?: number; unconvertibleCount?: number };
     return {
       branchId: report.branchId,
       sellableVariantCount: report.sellableVariantCount,
       absentCount: report.absentCount,
       incompleteCount: report.incompleteCount,
-      // Older backends do not send these two counts; absent means none.
-      unpricedCount: report.unpricedCount ?? 0,
-      unconvertibleCount: report.unconvertibleCount ?? 0,
+      unpricedCount: extra.unpricedCount ?? 0,
+      unconvertibleCount: extra.unconvertibleCount ?? 0,
       entries: report.entries.map((entry) => ({
         menuItemId: entry.menuItemId,
         variantId: entry.variantId,
