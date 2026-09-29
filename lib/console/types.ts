@@ -600,6 +600,7 @@ export interface StockItem {
   sku: string;
   name: Localised;
   category: Localised;
+  categoryId: Id | null;
   baseUnit: UnitCode;
   /**
    * The unit's own id, when it came from the backend.

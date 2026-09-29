@@ -893,6 +893,7 @@ export function toStockItem(row: WireStockItem, tenantId: Id, category: Localise
     sku: row.sku,
     name: localised(row.names),
     category,
+    categoryId: row.categoryId,
     baseUnit: unitOf(row.baseUnitId),
     baseUnitId: row.baseUnitId,
     purchaseUnit: unitOf(row.baseUnitId), // gap: no purchase-unit conversion yet.

@@ -649,6 +649,17 @@ export interface UnitOfMeasure {
   dimension: string;
 }
 
+/**
+ * FR-INV-001 — one row of the tenant's stock item category catalogue
+ * (`GET /inventory/categories`). Unlike `UnitOfMeasure`, genuinely
+ * tenant-owned: every tenant defines its own categories.
+ */
+export interface StockItemCategory {
+  id: Id;
+  name: string;
+  parentId: Id | null;
+}
+
 export interface InventoryService {
   items: CollectionService<StockItem>;
   levels: ReadonlyCollectionService<StockLevel>;
@@ -693,6 +704,12 @@ export interface InventoryService {
   // -- Units of measure --------------------------------------------------------
   /** FR-INV-001 — the catalogue `baseUnitId` (and `recipeUnitId`) are chosen from. */
   unitsOfMeasure(): Promise<UnitOfMeasure[]>;
+
+  // -- Categories --------------------------------------------------------------
+  /** FR-INV-001 — the catalogue a stock item's `categoryId` is chosen from. */
+  categories(): Promise<StockItemCategory[]>;
+  /** FR-INV-001 — create a category, optionally nested under a parent. */
+  createCategory(input: { name: string; parentId?: Id }): Promise<StockItemCategory>;
 
   // -- Computed reports ------------------------------------------------------
   lowStock(query?: ScopedQuery): Promise<LowStockRow[]>;

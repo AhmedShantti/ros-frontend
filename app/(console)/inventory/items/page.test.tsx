@@ -23,6 +23,8 @@ import userEvent from "@testing-library/user-event";
 const itemsList = vi.fn();
 const itemsCreate = vi.fn();
 const unitsOfMeasure = vi.fn();
+const categories = vi.fn();
+const createCategory = vi.fn();
 
 vi.mock("@/lib/console/services", () => ({
   ServiceError: class ServiceError extends Error {},
@@ -33,6 +35,8 @@ vi.mock("@/lib/console/services", () => ({
         create: (...args: unknown[]) => itemsCreate(...args),
       },
       unitsOfMeasure: (...args: unknown[]) => unitsOfMeasure(...args),
+      categories: (...args: unknown[]) => categories(...args),
+      createCategory: (...args: unknown[]) => createCategory(...args),
     },
   },
 }));
@@ -62,6 +66,7 @@ const ITEM_FLOUR = {
   sku: "FLR-001",
   name: { en: "Flour" },
   category: { en: "Dry goods" },
+  categoryId: null,
   baseUnit: "kg",
   baseUnitId: UOM_KG.id,
   purchaseUnit: "kg",
@@ -77,6 +82,9 @@ const ITEM_FLOUR = {
   active: true,
 };
 
+const CATEGORY_DAIRY = { id: "cat-dairy-real-uuid", name: "Dairy", parentId: null };
+const CATEGORY_PRODUCE = { id: "cat-produce-real-uuid", name: "Produce", parentId: null };
+
 async function openNewItemDrawer(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole("button", { name: /common\.new/ }));
 }
@@ -85,6 +93,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   itemsList.mockResolvedValue({ rows: [ITEM_FLOUR], total: 1 });
   unitsOfMeasure.mockResolvedValue([UOM_GRAM, UOM_KG]);
+  categories.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -298,5 +307,163 @@ describe("Stock items — standard costing requires a standard cost (D-INV-03)",
 
     await screen.findByText("Standard costing requires a standard cost.");
     expect(screen.queryByText(/internal server error/i)).not.toBeInTheDocument();
+  });
+});
+
+/*
+ * FR-INV-001 — the minimum end-to-end Stock Item Category lifecycle: a
+ * category is optional on create, resolved back to a readable name on read
+ * (list and detail) without a backend join, and can be created inline from
+ * this same drawer — never a full Category Management page.
+ */
+describe("Stock items — category lifecycle (FR-INV-001)", () => {
+  it("fetches the category catalogue on mount", async () => {
+    render(<StockItemsScreen />);
+    await waitFor(() => expect(categories).toHaveBeenCalled());
+  });
+
+  it("offers a category select sourced from the real catalogue, with readable names", async () => {
+    categories.mockResolvedValue([CATEGORY_DAIRY, CATEGORY_PRODUCE]);
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    const dialog = await screen.findByRole("dialog");
+    const trigger = await within(dialog).findByLabelText(/common\.category/);
+    await user.click(trigger);
+    expect(screen.getByRole("option", { name: "Dairy" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Produce" })).toBeInTheDocument();
+  });
+
+  it("category is optional — an item can be created with none selected", async () => {
+    categories.mockResolvedValue([CATEGORY_DAIRY]);
+    itemsCreate.mockResolvedValue({ ...ITEM_FLOUR, id: "item-new" });
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    await user.type(await screen.findByLabelText(/common\.name/), "Sugar");
+    await user.type(screen.getByLabelText(/inv\.sku/), "SUG-001");
+    const unitTrigger = screen.getByLabelText(/inv\.baseUnit/);
+    await user.click(unitTrigger);
+    await user.click(screen.getByRole("option", { name: "Kilogram" }));
+
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+
+    await waitFor(() =>
+      expect(itemsCreate).toHaveBeenCalledWith(expect.objectContaining({ categoryId: null })),
+    );
+  });
+
+  it("selecting a category sends its real id, never its display name", async () => {
+    categories.mockResolvedValue([CATEGORY_DAIRY, CATEGORY_PRODUCE]);
+    itemsCreate.mockResolvedValue({ ...ITEM_FLOUR, id: "item-new" });
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    await user.type(await screen.findByLabelText(/common\.name/), "Sugar");
+    await user.type(screen.getByLabelText(/inv\.sku/), "SUG-001");
+    const unitTrigger = screen.getByLabelText(/inv\.baseUnit/);
+    await user.click(unitTrigger);
+    await user.click(screen.getByRole("option", { name: "Kilogram" }));
+
+    const dialog = screen.getByRole("dialog");
+    const categoryTrigger = within(dialog).getByLabelText(/common\.category/);
+    await user.click(categoryTrigger);
+    await user.click(screen.getByRole("option", { name: "Dairy" }));
+
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+
+    await waitFor(() =>
+      expect(itemsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ categoryId: CATEGORY_DAIRY.id }),
+      ),
+    );
+  });
+
+  it("resolves an item's categoryId to its readable name in the list, client-side", async () => {
+    categories.mockResolvedValue([CATEGORY_DAIRY]);
+    itemsList.mockResolvedValue({
+      rows: [{ ...ITEM_FLOUR, categoryId: CATEGORY_DAIRY.id }],
+      total: 1,
+    });
+    render(<StockItemsScreen />);
+
+    expect(await screen.findByText("Dairy")).toBeInTheDocument();
+    expect(screen.queryByText(CATEGORY_DAIRY.id)).not.toBeInTheDocument();
+  });
+
+  it("shows Uncategorised, never a raw UUID, for an item with no categoryId", async () => {
+    categories.mockResolvedValue([CATEGORY_DAIRY]);
+    itemsList.mockResolvedValue({ rows: [{ ...ITEM_FLOUR, categoryId: null }], total: 1 });
+    render(<StockItemsScreen />);
+
+    expect(await screen.findByText("common.uncategorised")).toBeInTheDocument();
+  });
+
+  it("shows Unknown, never a raw UUID, for a categoryId missing from the loaded catalogue", async () => {
+    categories.mockResolvedValue([CATEGORY_DAIRY]);
+    itemsList.mockResolvedValue({
+      rows: [{ ...ITEM_FLOUR, categoryId: "cat-stale-deleted-elsewhere" }],
+      total: 1,
+    });
+    render(<StockItemsScreen />);
+
+    expect(await screen.findByText("common.unknown")).toBeInTheDocument();
+    expect(screen.queryByText("cat-stale-deleted-elsewhere")).not.toBeInTheDocument();
+  });
+
+  it("resolves the category name in the read-only detail drawer too", async () => {
+    categories.mockResolvedValue([CATEGORY_DAIRY]);
+    itemsList.mockResolvedValue({
+      rows: [{ ...ITEM_FLOUR, categoryId: CATEGORY_DAIRY.id }],
+      total: 1,
+    });
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+
+    await user.click(await screen.findByText("Flour"));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Dairy")).toBeInTheDocument();
+  });
+
+  it("creating a category inline refreshes the catalogue and makes it immediately selectable", async () => {
+    categories.mockResolvedValueOnce([]);
+    createCategory.mockResolvedValue({ id: "cat-new-real-uuid", name: "Bakery", parentId: null });
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    await user.click(await screen.findByRole("button", { name: "inv.addCategory" }));
+    await user.type(screen.getByLabelText(/inv\.categoryName/), "Bakery");
+
+    categories.mockResolvedValue([{ id: "cat-new-real-uuid", name: "Bakery", parentId: null }]);
+    await user.click(screen.getByRole("button", { name: "inv.addCategory" }));
+
+    await waitFor(() =>
+      expect(createCategory).toHaveBeenCalledWith({ name: "Bakery", parentId: undefined }),
+    );
+    const dialog = screen.getByRole("dialog");
+    const categoryTrigger = await within(dialog).findByLabelText(/common\.category/);
+    await user.click(categoryTrigger);
+    expect(await screen.findByRole("option", { name: "Bakery" })).toBeInTheDocument();
+  });
+
+  it("inline category create requires a name and surfaces the backend's own rejection", async () => {
+    categories.mockResolvedValue([]);
+    createCategory.mockRejectedValue(new Error("Category parent not found."));
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    await user.click(await screen.findByRole("button", { name: "inv.addCategory" }));
+    expect(screen.getByRole("button", { name: "inv.addCategory" })).toBeDisabled();
+
+    await user.type(screen.getByLabelText(/inv\.categoryName/), "Orphan");
+    await user.click(screen.getByRole("button", { name: "inv.addCategory" }));
+
+    await screen.findByText("Category parent not found.");
+    expect(itemsCreate).not.toHaveBeenCalled();
   });
 });

@@ -593,13 +593,17 @@ function OpenCountDrawer({
   const [scopeType, setScopeType] = useState<CountScopeChoice>("full_location");
   const [itemIds, setItemIds] = useState<string[]>([]);
   const [itemPicker, setItemPicker] = useState<string | null>(null);
+  const [categoryId, setCategoryId] = useState<string | null>(null);
 
   const locations = useAsync(() => services.organisation.locations(), []);
-  // The real Stock Item catalogue — the only D-INV-05 scope source with
-  // actual readable names (no equivalent exists for categories yet, see the
-  // Category branch below).
+  // The real Stock Item catalogue — a D-INV-05 scope source with real
+  // readable names.
   const itemsQuery = useAsync(() => services.inventory.items.list({ limit: 1000 }), []);
   const stockItems = itemsQuery.data?.rows ?? [];
+  // FR-INV-001 — the real category catalogue a category-scoped count names
+  // its scopeId from.
+  const categoriesQuery = useAsync(() => services.inventory.categories(), []);
+  const categories = categoriesQuery.data ?? [];
 
   useEffect(() => {
     const rows = locations.data;
@@ -618,6 +622,7 @@ function OpenCountDrawer({
       setScopeType("full_location");
       setItemIds([]);
       setItemPicker(null);
+      setCategoryId(null);
     }
   }
 
@@ -625,6 +630,7 @@ function OpenCountDrawer({
     setScopeType(next);
     setItemIds([]);
     setItemPicker(null);
+    setCategoryId(null);
   }
 
   if (!open) return null;
@@ -637,11 +643,11 @@ function OpenCountDrawer({
     .map((id) => stockItems.find((item) => item.id === id))
     .filter((item): item is StockItem => Boolean(item));
 
-  // Category has no real catalogue to pick from yet (see the Callout below)
-  // — never let it submit, and it never carries a fake scopeId.
+  const categoryOptions: SearchOption[] = categories.map((c) => ({ value: c.id, label: c.name }));
+
   const canSubmit =
     Boolean(locationId) &&
-    scopeType !== "category" &&
+    (scopeType !== "category" || Boolean(categoryId)) &&
     (scopeType !== "item_list" || itemIds.length > 0);
 
   async function create() {
@@ -652,10 +658,11 @@ function OpenCountDrawer({
           locationId,
           mode: blind ? "blind" : "open",
           // Not CountSession domain fields — smuggled through the same way
-          // `standardCost` is on the Stock Item form. `scopeId` is omitted
-          // entirely for non-category scopes: the backend rejects it
-          // outright ("scopeId is only valid for a category scope").
+          // `standardCost` is on the Stock Item form. `scopeId`/`itemIds` are
+          // omitted entirely outside their own scope: the backend rejects a
+          // scopeId outright on any scope but "category".
           scopeType,
+          scopeId: scopeType === "category" ? (categoryId ?? undefined) : undefined,
           itemIds: scopeType === "item_list" ? itemIds : undefined,
         } as never),
       { onSuccess: onOpened },
@@ -719,11 +726,22 @@ function OpenCountDrawer({
         </Field>
 
         {scopeType === "category" ? (
-          // No StockItemCategory listing exists anywhere in the backend
-          // today — nothing real to pick from, so this never fakes a
-          // category or falls back to a raw id field. Disabled, not hidden,
-          // so the reason Create stays blocked is explicit.
-          <Callout tone="warn">{t("inv.countScopeCategoryUnavailable")}</Callout>
+          categoriesQuery.loading ? null : categoryOptions.length === 0 ? (
+            // An honest empty state, not a fake catalogue or a raw id field
+            // — Create stays blocked (canSubmit) so the reason is explicit.
+            <Callout tone="warn">{t("inv.countScopeCategoryEmpty")}</Callout>
+          ) : (
+            <Field label={t("inv.countScopeCategory")} required>
+              <SearchSelect
+                options={categoryOptions}
+                value={categoryId}
+                onChange={setCategoryId}
+                placeholder={t("inv.countScopeCategoryPlaceholder")}
+                aria-label={t("inv.countScopeCategory")}
+                disabled={action.pending}
+              />
+            </Field>
+          )
         ) : null}
 
         {scopeType === "item_list" ? (

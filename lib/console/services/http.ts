@@ -331,6 +331,7 @@ const menusRaw = cached(() => api.catalogue.listMenus());
 const menuItemsRaw = cached(() => api.catalogue.listItems());
 const reasonCodesRaw = cached(() => api.inventory.listReasonCodes());
 const uomsRaw = cached(() => api.inventory.listUoms());
+const categoriesRaw = cached(() => api.inventory.listCategories());
 const availabilityRaw = cached(() => api.catalogue.listAvailabilityRules(), 5_000);
 
 /** Every place stock can sit: warehouses, central kitchens, and branches. */
@@ -1550,6 +1551,7 @@ const stockItems: CollectionService<StockItem> = {
       // is the display-only code resolved through the unit registry; it is
       // never itself a valid id and must not be sent to the API.
       baseUnitId: input.baseUnitId,
+      categoryId: input.categoryId ?? undefined,
       costingMethod: input.costingMethod,
       isBatchTracked: input.batchTracked,
       expiryTracked: input.expiryTracked,
@@ -1703,10 +1705,12 @@ const counts: CollectionService<CountSession> = {
     if (!input.locationId) {
       throw new ServiceError("BAD_REQUEST", "Choose the location to count.", 400);
     }
-    // `scopeType`/`itemIds` are not CountSession domain fields — smuggled
-    // through the same way `standardCost` is on the Stock Item form (D-INV-05).
-    const { scopeType, itemIds } = input as unknown as {
+    // `scopeType`/`scopeId`/`itemIds` are not CountSession domain fields —
+    // smuggled through the same way `standardCost` is on the Stock Item
+    // form (D-INV-05).
+    const { scopeType, scopeId, itemIds } = input as unknown as {
       scopeType?: "full_location" | "category" | "item_list";
+      scopeId?: string;
       itemIds?: string[];
     };
     const resolvedScope = scopeType ?? "full_location";
@@ -1714,9 +1718,8 @@ const counts: CollectionService<CountSession> = {
       locationId: input.locationId,
       scopeType: resolvedScope,
       // The backend rejects scopeId outright for any scope but "category"
-      // ("scopeId is only valid for a category scope") — omitted entirely
-      // here since this screen never submits a category scope yet (no real
-      // catalogue exists to pick one from).
+      // ("scopeId is only valid for a category scope").
+      scopeId: resolvedScope === "category" ? scopeId : undefined,
       itemIds: resolvedScope === "item_list" ? itemIds : undefined,
       isBlindCount: input.mode === "blind",
     });
@@ -1974,6 +1977,26 @@ const inventory: InventoryService = {
       name: row.name,
       dimension: row.dimension,
     }));
+  },
+
+  // -- Categories --------------------------------------------------------------
+
+  async categories() {
+    const rows = await categoriesRaw();
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      parentId: row.parentId,
+    }));
+  },
+
+  async createCategory(input) {
+    const row = await api.inventory.createCategory({
+      name: input.name,
+      parentId: input.parentId,
+    });
+    categoriesRaw.invalidate();
+    return { id: row.id, name: row.name, parentId: row.parentId };
   },
 
   // -- Computed reports ------------------------------------------------------

@@ -7,6 +7,7 @@
  */
 
 import type { CostingMethod, StockItem, StorageRequirement, UnitCode } from "../types";
+import type { StockItemCategory } from "../services/types";
 import { ACTIVE_TENANT_ID } from "./org";
 import { seqId } from "./rng";
 
@@ -105,12 +106,27 @@ const SEEDS: Seed[] = [
   { sku: "PKG-006", en: "Foil wrap sheet", ar: "ورق ألومنيوم", catEn: "Packaging", catAr: "التغليف", base: "pc", purchase: "pack", conversion: 500, cost: 46, storage: "ambient" },
 ];
 
+// FR-INV-001 — one category per distinct name in SEEDS, in first-seen order.
+// The backend's own StockItemCategory has no per-locale name, so the mock
+// catalogue is English-only too; `category` (the localised display field)
+// keeps its own catAr for screens that only ever read that, unrelated to id.
+const CATEGORY_NAMES = [...new Set(SEEDS.map((s) => s.catEn))];
+const categoryIdByName = new Map(
+  CATEGORY_NAMES.map((name, i) => [name, seqId("cat", i + 1)]),
+);
+export const stockItemCategories: StockItemCategory[] = CATEGORY_NAMES.map((name) => ({
+  id: categoryIdByName.get(name)!,
+  name,
+  parentId: null,
+}));
+
 export const stockItems: StockItem[] = SEEDS.map((s, i) => ({
   id: seqId("itm", i + 1),
   tenantId: ACTIVE_TENANT_ID,
   sku: s.sku,
   name: { en: s.en, ar: s.ar },
   category: { en: s.catEn, ar: s.catAr },
+  categoryId: categoryIdByName.get(s.catEn) ?? null,
   baseUnit: s.base,
   purchaseUnit: s.purchase,
   purchaseConversion: s.conversion,

@@ -34,9 +34,13 @@ import {
   DescList,
   DescRow,
   Drawer,
+  Field,
+  Input,
+  Select,
   Toast,
 } from "@/components/console/ui";
 import { RecordDrawer } from "@/components/console/record-drawer";
+import { useAction } from "@/lib/console/actions";
 
 export default function StockItemsPage() {
   return (
@@ -80,6 +84,20 @@ export function StockItemsScreen() {
     return [...seen.entries()].map(([value, label]) => ({ value, label }));
   }, [collection.rows, tx]);
 
+  // FR-INV-001 — the category catalogue a stock item's categoryId is chosen
+  // from and, on read, resolved back to a name against — client-side, since
+  // the backend never joins a category's name onto a stock item row.
+  const categoriesQuery = useAsync(() => services.inventory.categories(), []);
+  const categoryList = useMemo(() => categoriesQuery.data ?? [], [categoriesQuery.data]);
+  const categoryOptions = useMemo(
+    () => categoryList.map((c) => ({ value: c.id, label: c.name })),
+    [categoryList],
+  );
+  const categoryNameById = useMemo(
+    () => new Map(categoryList.map((c) => [c.id, c.name])),
+    [categoryList],
+  );
+
   const totals = useMemo(() => {
     const rows = collection.rows;
     return {
@@ -105,7 +123,13 @@ export function StockItemsScreen() {
         key: "category",
         header: t("common.category"),
         secondary: true,
-        render: (row) => <span className="text-fg-muted text-xs">{tx(row.category)}</span>,
+        render: (row) => (
+          <span className="text-fg-muted text-xs">
+            {row.categoryId
+              ? (categoryNameById.get(row.categoryId) ?? t("common.unknown"))
+              : t("common.uncategorised")}
+          </span>
+        ),
       },
       {
         key: "baseUnit",
@@ -155,7 +179,7 @@ export function StockItemsScreen() {
         ),
       },
     ],
-    [t, tx, fmt],
+    [t, tx, fmt, categoryNameById],
   );
 
   return (
@@ -236,7 +260,11 @@ export function StockItemsScreen() {
         />
       </PageBody>
 
-      <ItemDrawer item={selected} onClose={() => setSelected(null)} />
+      <ItemDrawer
+        item={selected}
+        categoryNameById={categoryNameById}
+        onClose={() => setSelected(null)}
+      />
       <RecordDrawer
         open={creating}
         title={t("inv.newItem")}
@@ -263,6 +291,17 @@ export function StockItemsScreen() {
             ],
           },
           {
+            // FR-INV-001 — optional: a stock item is valid with no category.
+            // `initial` is forced to "" — a `select` field otherwise defaults
+            // to its first option, which would silently assign a category
+            // nobody chose.
+            name: "categoryId",
+            label: t("common.category"),
+            kind: "select",
+            initial: "",
+            options: categoryOptions,
+          },
+          {
             // D-INV-03 / ck_standard_cost_present — standard costing needs a
             // declared cost up front; only shown (and only required) when
             // that method is selected, so weighted_average/fifo are unaffected.
@@ -279,6 +318,7 @@ export function StockItemsScreen() {
             name: { en: values.name.trim(), ar: values.name.trim() },
             sku: values.sku.trim(),
             baseUnitId: values.baseUnitId,
+            categoryId: values.categoryId ? values.categoryId : null,
             costingMethod: values.costingMethod as never,
             // Only sent for standard costing — switching away from Standard
             // never carries a stale cost into the request. `standardCost` is
@@ -299,7 +339,12 @@ export function StockItemsScreen() {
           setMessage(t("inv.itemCreated"));
           collection.reload();
         }}
-      />
+      >
+        <InlineCategoryCreate
+          options={categoryOptions}
+          onCreated={() => categoriesQuery.reload()}
+        />
+      </RecordDrawer>
 
       <Toast message={message} />
     </>
@@ -308,9 +353,101 @@ export function StockItemsScreen() {
 
 // ---------------------------------------------------------------------------
 
-function ItemDrawer({ item, onClose }: { item: StockItem | null; onClose: () => void }) {
+/**
+ * FR-INV-001 — the minimum write path a stock item's category needs: a name
+ * and an optional parent, nothing else. Not a category management page —
+ * there is no rename/re-parent/delete here, only enough to make a category
+ * exist so the "New stock item" drawer's category select is not permanently
+ * empty on a fresh tenant.
+ */
+function InlineCategoryCreate({
+  options,
+  onCreated,
+}: {
+  options: { value: string; label: string }[];
+  onCreated: () => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [parentId, setParentId] = useState("");
+
+  if (!open) {
+    return (
+      <Button type="button" variant="ghost" onClick={() => setOpen(true)}>
+        {t("inv.addCategory")}
+      </Button>
+    );
+  }
+
+  async function create() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    await action.run(
+      () => services.inventory.createCategory({ name: trimmed, parentId: parentId || undefined }),
+      {
+        onSuccess: () => {
+          setName("");
+          setParentId("");
+          setOpen(false);
+          onCreated();
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="border-line space-y-2 rounded-lg border p-3">
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      <Field label={t("inv.categoryName")} required>
+        <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
+      </Field>
+      {options.length > 0 ? (
+        <Field label={t("inv.parentCategory")}>
+          <Select value={parentId} onChange={(event) => setParentId(event.target.value)}>
+            <option value="">—</option>
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          loading={action.pending}
+          disabled={!name.trim()}
+          onClick={create}
+        >
+          {t("inv.addCategory")}
+        </Button>
+        <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+          {t("common.cancel")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ItemDrawer({
+  item,
+  categoryNameById,
+  onClose,
+}: {
+  item: StockItem | null;
+  categoryNameById: Map<string, string>;
+  onClose: () => void;
+}) {
   const { t, tx, fmt } = useI18n();
   if (!item) return null;
+
+  const categoryName = item.categoryId
+    ? (categoryNameById.get(item.categoryId) ?? t("common.unknown"))
+    : t("common.uncategorised");
 
   const storage = labelOf(STORAGE, item.storage);
   const costing = labelOf(COSTING_METHOD, item.costingMethod);
@@ -339,7 +476,7 @@ function ItemDrawer({ item, onClose }: { item: StockItem | null; onClose: () => 
     >
       <div className="space-y-5">
         <DescList>
-          <DescRow label={t("common.category")}>{tx(item.category)}</DescRow>
+          <DescRow label={t("common.category")}>{categoryName}</DescRow>
           <DescRow label={t("inv.baseUnit")} mono>
             {unitLabel(item.baseUnit, fmt.locale)}
           </DescRow>

@@ -29,6 +29,7 @@ const itemsList = vi.fn();
 const countsList = vi.fn();
 const countsCreate = vi.fn();
 const countsGet = vi.fn();
+const categories = vi.fn();
 
 vi.mock("@/lib/console/services", () => ({
   ServiceError: class ServiceError extends Error {},
@@ -45,6 +46,7 @@ vi.mock("@/lib/console/services", () => ({
         create: (...args: unknown[]) => countsCreate(...args),
         get: (...args: unknown[]) => countsGet(...args),
       },
+      categories: (...args: unknown[]) => categories(...args),
     },
   },
 }));
@@ -69,6 +71,8 @@ import { CountsScreen } from "./page";
 const LOCATION_A = { id: "loc-a", name: { en: "Downtown" } };
 const ITEM_FLOUR = { id: "item-flour", name: { en: "Flour" }, sku: "FLR-001" };
 const ITEM_SUGAR = { id: "item-sugar", name: { en: "Sugar" }, sku: "SUG-001" };
+const CATEGORY_DAIRY = { id: "cat-dairy", name: "Dairy", parentId: null };
+const CATEGORY_PRODUCE = { id: "cat-produce", name: "Produce", parentId: null };
 
 const COUNT_SESSION_FIXTURE = {
   id: "cs-1",
@@ -106,6 +110,7 @@ beforeEach(() => {
   locations.mockResolvedValue([LOCATION_A]);
   itemsList.mockResolvedValue({ rows: [ITEM_FLOUR, ITEM_SUGAR], total: 2 });
   countsList.mockResolvedValue({ rows: [], total: 0 });
+  categories.mockResolvedValue([CATEGORY_DAIRY, CATEGORY_PRODUCE]);
 });
 
 afterEach(() => {
@@ -142,20 +147,121 @@ describe("Stock counts — scoped counting (FR-INV-040)", () => {
     );
   });
 
-  it("Category has no real catalogue to pick from — always blocks submission, never fakes one", async () => {
+  it("Category requires a category to be chosen before Create is enabled", async () => {
     const user = userEvent.setup();
     render(<CountsScreen />);
     await openDrawer(user);
 
     await chooseScope(user, "inv.countScopeCategory");
+    await screen.findByLabelText("inv.countScopeCategory");
 
-    await screen.findByText("inv.countScopeCategoryUnavailable");
     expect(screen.getByRole("button", { name: "common.create" })).toBeDisabled();
     // Never a raw category-id text field.
     expect(screen.queryByLabelText(/scopeId/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "common.create" }));
     expect(countsCreate).not.toHaveBeenCalled();
+  });
+
+  it("Category sends the real category id as scopeId, shown by readable name, never a UUID input", async () => {
+    countsCreate.mockResolvedValue({ ...COUNT_SESSION_FIXTURE, id: "cs-3" });
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+
+    await chooseScope(user, "inv.countScopeCategory");
+    const picker = await screen.findByLabelText("inv.countScopeCategory");
+    await user.click(picker);
+    await user.click(await screen.findByRole("option", { name: /Dairy/ }));
+
+    expect(screen.getByText("Dairy")).toBeInTheDocument();
+    expect(screen.queryByText(CATEGORY_DAIRY.id)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+
+    await waitFor(() =>
+      expect(countsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scopeType: "category",
+          scopeId: CATEGORY_DAIRY.id,
+          itemIds: undefined,
+        }),
+      ),
+    );
+  });
+
+  it("switching scope away from Category clears the previously-picked category — no stale scopeId leaks into the request", async () => {
+    countsCreate.mockResolvedValue(COUNT_SESSION_FIXTURE);
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+
+    await chooseScope(user, "inv.countScopeCategory");
+    const picker = await screen.findByLabelText("inv.countScopeCategory");
+    await user.click(picker);
+    await user.click(await screen.findByRole("option", { name: /Dairy/ }));
+    expect(screen.getByText("Dairy")).toBeInTheDocument();
+
+    await chooseScope(user, "inv.countScopeFullLocation");
+
+    expect(screen.queryByText("Dairy")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("inv.countScopeCategory")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+    await waitFor(() =>
+      expect(countsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ scopeType: "full_location", scopeId: undefined }),
+      ),
+    );
+  });
+
+  it("shows an honest empty state — never a fake category — when the tenant has no categories yet", async () => {
+    categories.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+
+    await chooseScope(user, "inv.countScopeCategory");
+
+    await screen.findByText("inv.countScopeCategoryEmpty");
+    expect(screen.queryByLabelText("inv.countScopeCategory")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "common.create" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+    expect(countsCreate).not.toHaveBeenCalled();
+  });
+
+  it("category options come from the real category catalogue, not the stock item list", async () => {
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+
+    await chooseScope(user, "inv.countScopeCategory");
+    const picker = await screen.findByLabelText("inv.countScopeCategory");
+    await user.click(picker);
+
+    expect(screen.getByRole("option", { name: /Dairy/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Produce/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Flour/ })).not.toBeInTheDocument();
+  });
+
+  it("does not flash the empty-category state before the catalogue has loaded", async () => {
+    let resolveCategories: (rows: (typeof CATEGORY_DAIRY)[]) => void = () => {};
+    categories.mockReturnValue(
+      new Promise<(typeof CATEGORY_DAIRY)[]>((resolve) => {
+        resolveCategories = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+
+    await chooseScope(user, "inv.countScopeCategory");
+    expect(screen.queryByText("inv.countScopeCategoryEmpty")).not.toBeInTheDocument();
+
+    resolveCategories([CATEGORY_DAIRY]);
+    await screen.findByLabelText("inv.countScopeCategory");
+    expect(screen.queryByText("inv.countScopeCategoryEmpty")).not.toBeInTheDocument();
   });
 
   it("Item list requires at least one item before Create is enabled", async () => {

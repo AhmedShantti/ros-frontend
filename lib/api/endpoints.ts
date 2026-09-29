@@ -424,6 +424,14 @@ export const health = {
 // ---------------------------------------------------------------------------
 
 export const inventory = {
+  /** `GET /inventory/categories` — List the stock item category catalogue (FR-INV-001). — All stock item categories in the tenant. */
+  listCategories: () =>
+    http.get<S.InventoryController_listCategoriesResponse>("/inventory/categories"),
+
+  /** `POST /inventory/categories` — The created stock item category. */
+  createCategory: (body: S.CreateStockItemCategoryDto) =>
+    http.post<S.InventoryController_createCategoryResponse>("/inventory/categories", { body }),
+
   /** `POST /inventory/count-lines/{lineId}` — Record a counted quantity for one count line. — The updated count line. */
   recordCount: (lineId: string, body: S.RecordCountDto) =>
     http.post<S.InventoryController_recordCountResponse>("/inventory/count-lines/{lineId}", { params: { lineId }, body }),

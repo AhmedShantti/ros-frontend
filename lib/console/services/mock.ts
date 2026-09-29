@@ -55,6 +55,7 @@ import type {
   ScopedQuery,
   SecurityService,
   StationRoutingRule,
+  StockItemCategory,
   TreasuryService,
   SubstituteGroup,
   ServiceRegistry,
@@ -67,7 +68,7 @@ import { crmService } from "./crm";
 import { branchById, branches, brands, centralKitchens, stations, stockLocations, tables, tenants, terminals, warehouses } from "../mock/org";
 import { combos, menuCategories, menuItems, modifierGroups, recipes } from "../mock/catalogue";
 import { sellableTaxClassesForBranch } from "../mock/branch-tax-classes";
-import { stockItems } from "../mock/stock-items";
+import { stockItemCategories, stockItems } from "../mock/stock-items";
 import { batches, countSessions, stockAdjustments, stockLevels, stockMovements, transfers, wasteRecords } from "../mock/inventory";
 import { goodsReceipts, purchaseOrders, requisitions, supplierInvoices, suppliers } from "../mock/purchasing";
 import { kitchenTickets, openOrders, orders } from "../mock/sales";
@@ -1400,6 +1401,16 @@ function mockUnitCodeOf(baseUnitId: Id | undefined): UnitCode {
   return (demoUnitsOfMeasure.find((row) => row.id === baseUnitId)?.code as UnitCode | undefined) ?? "g";
 }
 
+/** FR-INV-001 — mutable so a demo-mode `createCategory` call persists for the session. */
+const demoStockItemCategories: StockItemCategory[] = [...stockItemCategories];
+let demoCategorySeq = demoStockItemCategories.length;
+
+/** The category catalogue has no per-locale name — both locales read the same string. */
+function categoryDisplayOf(categoryId: Id | null | undefined): Localised | undefined {
+  const name = demoStockItemCategories.find((row) => row.id === categoryId)?.name;
+  return name ? { en: name, ar: name } : undefined;
+}
+
 /** Reason categories that are consumption rather than loss — FR-INV-059. */
 const CONTROLLED_CATEGORIES = new Set(["policy"]);
 
@@ -1442,7 +1453,8 @@ const inventory: InventoryService = {
       tenantId: tenants[0]!.id,
       sku: input.sku ?? `NEW-${id.slice(-4)}`,
       name: (input.name as Localised) ?? { en: "New item", ar: "صنف جديد" },
-      category: (input.category as Localised) ?? { en: "Uncategorised", ar: "غير مصنّف" },
+      category: categoryDisplayOf(input.categoryId) ?? { en: "Uncategorised", ar: "غير مصنّف" },
+      categoryId: input.categoryId ?? null,
       baseUnit: mockUnitCodeOf(input.baseUnitId),
       baseUnitId: input.baseUnitId,
       purchaseUnit: input.purchaseUnit ?? "kg",
@@ -1728,6 +1740,28 @@ const inventory: InventoryService = {
 
   async unitsOfMeasure() {
     return transport(() => [...demoUnitsOfMeasure]);
+  },
+
+  // -- Categories --------------------------------------------------------------
+
+  async categories() {
+    return transport(() => [...demoStockItemCategories].sort((a, b) => a.name.localeCompare(b.name)));
+  },
+
+  async createCategory(input) {
+    return transport(() => {
+      if (input.parentId && !demoStockItemCategories.some((row) => row.id === input.parentId)) {
+        throw new ServiceError("NOT_FOUND", "Category parent not found.", 404);
+      }
+      demoCategorySeq += 1;
+      const created: StockItemCategory = {
+        id: `cat_${demoCategorySeq}`,
+        name: input.name,
+        parentId: input.parentId ?? null,
+      };
+      demoStockItemCategories.push(created);
+      return created;
+    });
   },
 
   // -- Computed reports ------------------------------------------------------

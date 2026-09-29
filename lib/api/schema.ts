@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 196 paths, 133 request DTOs.
+ * `api/openapi.json`. 197 paths, 134 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -442,6 +442,11 @@ export interface CreateStationRoutingRuleDto {
   modifierId?: string;
   priority?: number;
   stationId: string;
+}
+
+export interface CreateStockItemCategoryDto {
+  name: string;
+  parentId?: string;
 }
 
 export interface CreateStockItemDto {
@@ -2767,6 +2772,22 @@ export type HealthController_checkResponse = {
   service: string;
   status: "ok";
 };
+
+/** `GET /inventory/categories` — List the stock item category catalogue (FR-INV-001). — All stock item categories in the tenant. */
+export type InventoryController_listCategoriesResponse = ({
+  id: string;
+  name: string;
+  parentId: string | null;
+})[];
+
+/** `POST /inventory/categories` — The created stock item category. */
+export type InventoryController_createCategoryResponse = {
+  id: string;
+  name: string;
+  parentId: string | null;
+};
+
+export type InventoryController_createCategoryBody = CreateStockItemCategoryDto;
 
 /** `POST /inventory/count-lines/{lineId}` — Record a counted quantity for one count line. — The updated count line. */
 export type InventoryController_recordCountResponse = {
@@ -7770,6 +7791,8 @@ export const ROUTES = {
   AuditQueryController_search: { method: "GET", path: "/governance/audit/entries" },
   AuditQueryController_exportEntries: { method: "GET", path: "/governance/audit/entries/export" },
   HealthController_check: { method: "GET", path: "/health" },
+  InventoryController_listCategories: { method: "GET", path: "/inventory/categories" },
+  InventoryController_createCategory: { method: "POST", path: "/inventory/categories" },
   InventoryController_recordCount: { method: "POST", path: "/inventory/count-lines/{lineId}" },
   InventoryController_openCount: { method: "POST", path: "/inventory/counts" },
   InventoryController_countLines: { method: "GET", path: "/inventory/counts/{sessionId}/lines" },
