@@ -436,9 +436,17 @@ export const inventory = {
   recordCount: (lineId: string, body: S.RecordCountDto) =>
     http.post<S.InventoryController_recordCountResponse>("/inventory/count-lines/{lineId}", { params: { lineId }, body }),
 
+  /** `GET /inventory/counts` — List count sessions, newest first (FR-INV-050). — Up to 200 count sessions matching the given filters. */
+  listCounts: (options: { status?: string; mode?: string; locationId?: string } = {}) =>
+    http.get<S.InventoryController_listCountsResponse>("/inventory/counts", { query: { status: options.status, mode: options.mode, locationId: options.locationId } }),
+
   /** `POST /inventory/counts` — Open a count session and freeze expected quantities for its scope. — The opened count session. */
   openCount: (body: S.OpenCountDto) =>
     http.post<S.InventoryController_openCountResponse>("/inventory/counts", { body }),
+
+  /** `GET /inventory/counts/{sessionId}` — Get one count session (FR-INV-050). — The count session. */
+  getCount: (sessionId: string) =>
+    http.get<S.InventoryController_getCountResponse>("/inventory/counts/{sessionId}", { params: { sessionId } }),
 
   /** `GET /inventory/counts/{sessionId}/lines` — This session's count lines. expectedQuantity/countedQuantity/variance are null while a blind count is still in_progress and not yet recorded. */
   countLines: (sessionId: string) =>

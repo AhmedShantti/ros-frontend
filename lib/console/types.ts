@@ -735,9 +735,17 @@ export interface CountSession {
   countedBy: Id;
   countedByName: Localised;
   postedBy: Id | null;
+  /** FR-INV-047: true while posting is blocked on an approval Governance cannot yet give. */
+  requiresApproval: boolean;
   lineCount: number;
-  flaggedCount: number;
-  netVarianceValue: Money;
+  /**
+   * Both null on a row read from the index (`counts.list()`), which never
+   * fetches lines — computing either truthfully needs every line, which
+   * would turn a 200-row list into 200 line fetches. Real once this
+   * session's own lines are loaded (`counts.get()`), same as today.
+   */
+  flaggedCount: number | null;
+  netVarianceValue: Money | null;
   lines: CountLine[];
 }
 

@@ -89,6 +89,7 @@ const COUNT_SESSION_FIXTURE = {
   countedBy: "u1",
   countedByName: { en: "Tester" },
   postedBy: null,
+  requiresApproval: false,
   lineCount: 0,
   flaggedCount: 0,
   netVarianceValue: { amount: 0, currency: "EGP" },
@@ -374,5 +375,169 @@ describe("Stock counts — scoped counting (FR-INV-040)", () => {
         expect.objectContaining({ scopeType: "full_location", itemIds: undefined }),
       ),
     );
+  });
+});
+
+/*
+ * FR-INV-050 — the index the backend had no route for. `CountsScreen`
+ * (`useCollection` + `CollectionTable`/`CollectionToolbar`) was already
+ * built to consume a real `Page<CountSession>`; only `services.inventory
+ * .counts.list()` itself was ever hardcoded to `emptyPage()`. These tests
+ * are at the service boundary — the same one every other test in this file
+ * already mocks at — so they prove the PAGE's own consumption of a real
+ * index, not `http.ts`'s translation of it (covered by
+ * `http.inventory-locations.test.ts`-style unit tests and the backend's
+ * own e2e suite).
+ */
+describe("Stock counts — count session history (FR-INV-050)", () => {
+  const LIST_ROW_OPEN = {
+    ...COUNT_SESSION_FIXTURE,
+    id: "cs-open",
+    reference: "CNT-OPEN",
+    status: "counting" as const,
+    openedAt: "2026-01-01T00:00:00Z",
+    // Honestly unavailable from the index — never a fabricated zero.
+    flaggedCount: null,
+    netVarianceValue: null,
+  };
+  const LIST_ROW_POSTED = {
+    ...COUNT_SESSION_FIXTURE,
+    id: "cs-posted",
+    reference: "CNT-POSTED",
+    status: "posted" as const,
+    openedAt: "2026-01-02T00:00:00Z",
+    postedAt: "2026-01-02T01:00:00Z",
+    postedBy: "u2",
+    flaggedCount: null,
+    netVarianceValue: null,
+  };
+
+  it("loads and displays real sessions from the index", async () => {
+    countsList.mockResolvedValue({ rows: [LIST_ROW_OPEN, LIST_ROW_POSTED], total: 2 });
+    render(<CountsScreen />);
+
+    expect(await screen.findByText("CNT-OPEN")).toBeInTheDocument();
+    expect(screen.getByText("CNT-POSTED")).toBeInTheDocument();
+  });
+
+  it("a posted session remains visible in the list, not hidden once posted", async () => {
+    countsList.mockResolvedValue({ rows: [LIST_ROW_POSTED], total: 1 });
+    render(<CountsScreen />);
+
+    expect(await screen.findByText("CNT-POSTED")).toBeInTheDocument();
+  });
+
+  it("resolves a session's locationId to its readable name, never a raw id", async () => {
+    countsList.mockResolvedValue({ rows: [LIST_ROW_OPEN], total: 1 });
+    render(<CountsScreen />);
+
+    expect(await screen.findByText("Downtown")).toBeInTheDocument();
+    expect(screen.queryByText(LOCATION_A.id)).not.toBeInTheDocument();
+  });
+
+  it("renders each session's real status", async () => {
+    countsList.mockResolvedValue({ rows: [LIST_ROW_POSTED], total: 1 });
+    render(<CountsScreen />);
+
+    expect(await screen.findByText("Posted")).toBeInTheDocument();
+  });
+
+  it("renders each session's real mode", async () => {
+    countsList.mockResolvedValue({ rows: [{ ...LIST_ROW_OPEN, mode: "open" as const }], total: 1 });
+    render(<CountsScreen />);
+
+    expect(await screen.findByText("Open")).toBeInTheDocument();
+  });
+
+  it("filters by location through the real query", async () => {
+    countsList.mockResolvedValue({ rows: [LIST_ROW_OPEN], total: 1 });
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await screen.findByText("CNT-OPEN");
+
+    const trigger = screen.getByLabelText("common.location");
+    await user.click(trigger);
+    await user.click(screen.getByRole("option", { name: /Downtown/ }));
+
+    await waitFor(() =>
+      expect(countsList).toHaveBeenLastCalledWith(
+        expect.objectContaining({ filters: expect.objectContaining({ locationId: LOCATION_A.id }) }),
+      ),
+    );
+  });
+
+  it("filters by status through the real query", async () => {
+    countsList.mockResolvedValue({ rows: [LIST_ROW_POSTED], total: 1 });
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await screen.findByText("CNT-POSTED");
+
+    const trigger = screen.getByLabelText("common.status");
+    await user.click(trigger);
+    await user.click(screen.getByRole("option", { name: "Posted" }));
+
+    await waitFor(() =>
+      expect(countsList).toHaveBeenLastCalledWith(
+        expect.objectContaining({ filters: expect.objectContaining({ status: "posted" }) }),
+      ),
+    );
+  });
+
+  it("filters by mode through the real query", async () => {
+    countsList.mockResolvedValue({ rows: [LIST_ROW_OPEN], total: 1 });
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await screen.findByText("CNT-OPEN");
+
+    const trigger = screen.getByLabelText("inv.mode");
+    await user.click(trigger);
+    await user.click(screen.getByRole("option", { name: "Blind" }));
+
+    await waitFor(() =>
+      expect(countsList).toHaveBeenLastCalledWith(
+        expect.objectContaining({ filters: expect.objectContaining({ mode: "blind" }) }),
+      ),
+    );
+  });
+
+  it("requests the index newest-first by default", async () => {
+    countsList.mockResolvedValue({ rows: [], total: 0 });
+    render(<CountsScreen />);
+
+    await waitFor(() =>
+      expect(countsList).toHaveBeenCalledWith(expect.objectContaining({ sort: "-openedAt" })),
+    );
+  });
+
+  it("clicking a row opens the existing detail (session get)", async () => {
+    countsList.mockResolvedValue({ rows: [LIST_ROW_OPEN], total: 1 });
+    countsGet.mockResolvedValue(COUNT_SESSION_FIXTURE);
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+
+    await user.click(await screen.findByText("CNT-OPEN"));
+
+    await waitFor(() => expect(countsGet).toHaveBeenCalledWith(LIST_ROW_OPEN.id));
+    await screen.findByRole("dialog");
+  });
+
+  it("never shows the old 'backend has no index' warning", async () => {
+    countsList.mockResolvedValue({ rows: [LIST_ROW_OPEN], total: 1 });
+    render(<CountsScreen />);
+    await screen.findByText("CNT-OPEN");
+
+    expect(screen.queryByText(/no index of count sessions/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the empty state only when the real index is actually empty", async () => {
+    countsList.mockResolvedValue({ rows: [], total: 0 });
+    const { unmount } = render(<CountsScreen />);
+    expect(await screen.findByText("state.emptyTitle")).toBeInTheDocument();
+    unmount();
+
+    countsList.mockResolvedValue({ rows: [LIST_ROW_OPEN], total: 1 });
+    render(<CountsScreen />);
+    await screen.findByText("CNT-OPEN");
+    expect(screen.queryByText("state.emptyTitle")).not.toBeInTheDocument();
   });
 });

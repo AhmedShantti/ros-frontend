@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 198 paths, 134 request DTOs.
+ * `api/openapi.json`. 199 paths, 134 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -2800,16 +2800,55 @@ export type InventoryController_recordCountResponse = {
 
 export type InventoryController_recordCountBody = RecordCountDto;
 
+/** `GET /inventory/counts` — List count sessions, newest first (FR-INV-050). — Up to 200 count sessions matching the given filters. */
+export type InventoryController_listCountsResponse = ({
+  id: string;
+  isBlindCount: boolean;
+  lineCount: number;
+  locationId: string;
+  postedAt: string | null;
+  postedBy: string | null;
+  requiresApproval: boolean;
+  scopeId: string | null;
+  scopeType: "full_location" | "category" | "item_list";
+  startedAt: string;
+  startedBy: string;
+  status: "in_progress" | "posted" | "cancelled";
+})[];
+
 /** `POST /inventory/counts` — Open a count session and freeze expected quantities for its scope. — The opened count session. */
 export type InventoryController_openCountResponse = {
   id: string;
   isBlindCount: boolean;
   lineCount: number;
+  locationId: string;
+  postedAt: string | null;
+  postedBy: string | null;
+  requiresApproval: boolean;
+  scopeId: string | null;
   scopeType: "full_location" | "category" | "item_list";
+  startedAt: string;
+  startedBy: string;
   status: "in_progress" | "posted" | "cancelled";
 };
 
 export type InventoryController_openCountBody = OpenCountDto;
+
+/** `GET /inventory/counts/{sessionId}` — Get one count session (FR-INV-050). — The count session. */
+export type InventoryController_getCountResponse = {
+  id: string;
+  isBlindCount: boolean;
+  lineCount: number;
+  locationId: string;
+  postedAt: string | null;
+  postedBy: string | null;
+  requiresApproval: boolean;
+  scopeId: string | null;
+  scopeType: "full_location" | "category" | "item_list";
+  startedAt: string;
+  startedBy: string;
+  status: "in_progress" | "posted" | "cancelled";
+};
 
 /** `GET /inventory/counts/{sessionId}/lines` — This session's count lines. expectedQuantity/countedQuantity/variance are null while a blind count is still in_progress and not yet recorded. */
 export type InventoryController_countLinesResponse = ({
@@ -7802,7 +7841,9 @@ export const ROUTES = {
   InventoryController_listCategories: { method: "GET", path: "/inventory/categories" },
   InventoryController_createCategory: { method: "POST", path: "/inventory/categories" },
   InventoryController_recordCount: { method: "POST", path: "/inventory/count-lines/{lineId}" },
+  InventoryController_listCounts: { method: "GET", path: "/inventory/counts" },
   InventoryController_openCount: { method: "POST", path: "/inventory/counts" },
+  InventoryController_getCount: { method: "GET", path: "/inventory/counts/{sessionId}" },
   InventoryController_countLines: { method: "GET", path: "/inventory/counts/{sessionId}/lines" },
   InventoryController_postCount: { method: "POST", path: "/inventory/counts/{sessionId}/post" },
   InventoryController_expiring: { method: "GET", path: "/inventory/expiring" },

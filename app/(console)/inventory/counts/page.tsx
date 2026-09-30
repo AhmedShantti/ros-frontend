@@ -18,7 +18,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, X } from "lucide-react";
 import type { CountLine, CountSession, StockItem } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { DATA_MODE } from "@/lib/api/config";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
@@ -90,15 +89,31 @@ export function CountsScreen() {
 
   const totals = useMemo(() => {
     const rows = collection.rows;
+    // `flaggedCount`/`netVarianceValue` are only ever real on a row whose own
+    // lines have actually been fetched (never true for an index row — see
+    // `map.toCountSession`) — aggregating only over rows where they exist
+    // means these totals are either a genuine sum or, in the real backend
+    // today, honestly absent, never a fabricated zero.
+    const withVariance = rows.filter(
+      (row) => row.flaggedCount !== null && row.netVarianceValue !== null,
+    );
     return {
-      open: rows.filter((row) => row.status === "counting" || row.status === "draft").length,
-      awaiting: rows.filter((row) => row.status === "submitted").length,
-      flagged: rows.reduce((sum, row) => sum + row.flaggedCount, 0),
-      netVariance: rows.reduce((sum, row) => sum + row.netVarianceValue.amount, 0),
+      open: rows.filter((row) => row.status === "counting").length,
+      awaitingApproval: rows.filter(
+        (row) => row.status === "counting" && row.requiresApproval,
+      ).length,
+      flagged:
+        withVariance.length > 0
+          ? withVariance.reduce((sum, row) => sum + (row.flaggedCount ?? 0), 0)
+          : null,
+      netVariance:
+        withVariance.length > 0
+          ? withVariance.reduce((sum, row) => sum + (row.netVarianceValue?.amount ?? 0), 0)
+          : null,
     };
   }, [collection.rows]);
 
-  const currency = collection.rows[0]?.netVarianceValue.currency ?? "EGP";
+  const currency = collection.rows[0]?.netVarianceValue?.currency ?? "EGP";
 
   const columns = useMemo<Column<CountSession>[]>(
     () => [
@@ -145,7 +160,11 @@ export function CountsScreen() {
         sortable: true,
         numeric: true,
         render: (row) =>
-          row.flaggedCount === 0 ? (
+          row.flaggedCount === null ? (
+            <span className="text-fg-subtle" title={t("inv.countsVarianceUnavailable")}>
+              —
+            </span>
+          ) : row.flaggedCount === 0 ? (
             <span className="text-fg-subtle">—</span>
           ) : (
             <span className="text-warn font-semibold">{formatNumber(row.flaggedCount, fmt)}</span>
@@ -160,6 +179,10 @@ export function CountsScreen() {
           expectedIsHidden(row) ? (
             <span className="text-fg-subtle" title={t("inv.blindNote")}>
               ••••
+            </span>
+          ) : row.netVarianceValue === null ? (
+            <span className="text-fg-subtle" title={t("inv.countsVarianceUnavailable")}>
+              —
             </span>
           ) : (
             <DeltaCell value={row.netVarianceValue.amount}>
@@ -199,22 +222,31 @@ export function CountsScreen() {
       <PageBody>
         <Callout tone="muted">{t("inv.blindNote")}</Callout>
 
-        {DATA_MODE === "http" ? (
-          <Callout tone="warn">{t("inv.countsNoIndex")}</Callout>
-        ) : null}
-
         <TileGrid columns={4}>
           <MetricTile label={t("inv.countsOpen")} value={formatNumber(totals.open, fmt)} />
           <MetricTile
             label={t("inv.countsAwaiting")}
-            value={formatNumber(totals.awaiting, fmt)}
+            value={formatNumber(totals.awaitingApproval, fmt)}
+            hint={t("inv.countsAwaitingHint")}
             spec="FR-INV-047"
           />
-          <MetricTile label={t("inv.flagged")} value={formatNumber(totals.flagged, fmt)} />
+          <MetricTile
+            label={t("inv.flagged")}
+            value={totals.flagged === null ? "—" : formatNumber(totals.flagged, fmt)}
+            hint={totals.flagged === null ? t("inv.countsVarianceUnavailable") : undefined}
+          />
           <MetricTile
             label={t("inv.netVariance")}
-            value={formatMoney({ amount: totals.netVariance, currency }, fmt, true)}
-            hint={t("inv.netVarianceHint")}
+            value={
+              totals.netVariance === null
+                ? "—"
+                : formatMoney({ amount: totals.netVariance, currency }, fmt, true)
+            }
+            hint={
+              totals.netVariance === null
+                ? t("inv.countsVarianceUnavailable")
+                : t("inv.netVarianceHint")
+            }
           />
         </TileGrid>
 
@@ -274,9 +306,8 @@ export function CountsScreen() {
         onOpened={(session) => {
           setOpening(false);
           setMessage(t("inv.countOpened"));
-          // There is no index to find this session again by, so it is
-          // opened straight into the detail drawer rather than left to a
-          // list that cannot show it (see `inv.countsNoIndex` above).
+          // Straight into the detail drawer, same as before — reloading the
+          // now-real index alone would leave the user looking at a list.
           setSelected(session);
           collection.reload();
         }}
@@ -453,9 +484,9 @@ function CountDrawer({
             {current.postedAt ? formatDateTime(current.postedAt, fmt) : "—"}
           </DescRow>
           <DescRow label={t("inv.flagged")} mono>
-            {formatNumber(current.flaggedCount, fmt)} / {formatNumber(current.lineCount, fmt)}
+            {formatNumber(current.flaggedCount ?? 0, fmt)} / {formatNumber(current.lineCount, fmt)}
           </DescRow>
-          {!hidden ? (
+          {!hidden && current.netVarianceValue ? (
             <DescRow label={t("inv.netVariance")} mono>
               <DeltaCell value={current.netVarianceValue.amount}>
                 {formatMoney(current.netVarianceValue, fmt)}

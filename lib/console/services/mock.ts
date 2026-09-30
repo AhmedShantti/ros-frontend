@@ -1520,8 +1520,8 @@ const inventory: InventoryService = {
     filters: { status: (c) => c.status, mode: (c) => c.mode, locationId: (c) => c.locationId },
     sorters: {
       openedAt: (c) => c.openedAt,
-      netVarianceValue: (c) => Math.abs(c.netVarianceValue.amount),
-      flaggedCount: (c) => c.flaggedCount,
+      netVarianceValue: (c) => Math.abs(c.netVarianceValue?.amount ?? 0),
+      flaggedCount: (c) => c.flaggedCount ?? 0,
     },
     factory: (input, id) => ({
       id,
@@ -1538,6 +1538,7 @@ const inventory: InventoryService = {
       countedBy: employees[0]!.id,
       countedByName: employees[0]!.name,
       postedBy: null,
+      requiresApproval: false,
       lineCount: 0,
       flaggedCount: 0,
       netVarianceValue: { amount: 0, currency: "EGP" },

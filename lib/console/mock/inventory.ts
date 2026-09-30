@@ -345,6 +345,7 @@ export const countSessions: CountSession[] = (() => {
       countedBy: seqId("emp", int(rng, 1, 40)),
       countedByName: staff,
       postedBy: status === "posted" ? seqId("emp", int(rng, 1, 12)) : null,
+      requiresApproval: false,
       lineCount,
       flaggedCount: lines.filter((l) => l.flagged).length,
       netVarianceValue: EGP(net),
