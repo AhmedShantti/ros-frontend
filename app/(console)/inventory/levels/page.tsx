@@ -21,7 +21,7 @@ import type { StockLevel } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
-import { useI18n, usePermission, useSession } from "@/lib/console/providers";
+import { useI18n, useSession } from "@/lib/console/providers";
 import { formatMoney, formatNumber, formatQuantity, unitLabel } from "@/lib/console/format";
 import { STOCK_STATUS } from "@/lib/console/labels";
 import { CellStack, CollectionTable, DataTable, type Column } from "@/components/console/data-table";
@@ -55,7 +55,6 @@ export default function StockLevelsPage() {
 export function StockLevelsScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
-  const canConfigure = usePermission("inventory.item.manage");
 
   const [configuring, setConfiguring] = useState<StockLevel | null>(null);
   const [message, setMessage] = useTransientMessage();
@@ -174,7 +173,7 @@ export function StockLevelsScreen() {
           columns={columns}
           rowKey={(row) => `${row.itemId}-${row.locationId}`}
           caption={t("inv.levelsTitle")}
-          onRowClick={canConfigure ? setConfiguring : undefined}
+          onRowClick={setConfiguring}
           activeRowKey={
             configuring ? `${configuring.itemId}-${configuring.locationId}` : null
           }

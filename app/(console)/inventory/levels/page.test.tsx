@@ -10,6 +10,20 @@ import userEvent from "@testing-library/user-event";
  * inline "New storage area" affordance — never a Storage Area management
  * page, never a raw UUID.
  *
+ * Production regression: the row's own `onRowClick` used to be
+ * `canConfigure ? setConfiguring : undefined` (`canConfigure` = the
+ * `inventory.item.manage` permission), so a row had NO click handler, no
+ * `tabIndex`, and no hover/cursor affordance at all for any role without
+ * that specific permission — clicking it did literally nothing, which is
+ * exactly what StorageAreaSection existing in the shipped code but having
+ * "no usable UI path to reach it" meant in practice. `app/(console)
+ * /inventory/items/page.tsx` establishes the real convention elsewhere in
+ * Inventory: `onRowClick={setSelected}` unconditionally — opening a detail
+ * drawer is never gated on a permission; only the mutations inside it are,
+ * and the backend is what actually enforces that. This file's tests never
+ * mock `usePermission` at all (the component no longer calls it), which is
+ * itself the proof: nothing here depends on a permission to be reachable.
+ *
  * `Select` (components/console/ui.tsx) is a custom listbox, not a native
  * `<select>` — same interaction pattern as `app/(console)/inventory/counts
  * /page.test.tsx` and `app/(console)/operations/stations/page.test.tsx`.
@@ -57,7 +71,6 @@ vi.mock("@/lib/console/providers", () => ({
   useSession: () => ({
     scope: { tenantId: "t1", brandId: null, branchId: null },
   }),
-  usePermission: () => true,
 }));
 
 import { StockLevelsScreen } from "./page";
@@ -102,6 +115,60 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+});
+
+describe("Stock levels — row is a reachable detail entry point (production regression)", () => {
+  it("a Stock Level row is interactive — focusable and click-opens its detail", async () => {
+    const user = userEvent.setup();
+    render(<StockLevelsScreen />);
+
+    const row = (await screen.findByText("Flour")).closest("tr")!;
+    expect(row).toHaveAttribute("tabindex", "0");
+
+    await user.click(row);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("clicking the row reveals the Storage Area section — the exact production bug this fixes", async () => {
+    const user = userEvent.setup();
+    render(<StockLevelsScreen />);
+
+    await user.click(await screen.findByText("Flour"));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText("inv.storageArea")).toBeInTheDocument();
+  });
+
+  it("the row also opens on keyboard activation (Enter), not just a mouse click", async () => {
+    const user = userEvent.setup();
+    render(<StockLevelsScreen />);
+
+    const row = (await screen.findByText("Flour")).closest("tr")!;
+    row.focus();
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("does not require any specific permission — no permission is granted anywhere in this suite", async () => {
+    // `usePermission` is never mocked in this file at all (see the file
+    // header) — if the component still called it for gating, rendering
+    // would throw. Reaching the dialog here IS the proof the row's
+    // reachability no longer depends on `inventory.item.manage`.
+    const user = userEvent.setup();
+    render(<StockLevelsScreen />);
+
+    await user.click(await screen.findByText("Flour"));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("existing Stock Levels table content still renders correctly alongside the fix", async () => {
+    render(<StockLevelsScreen />);
+
+    expect(await screen.findByText("Flour")).toBeInTheDocument();
+    expect(screen.getByText("FLR-001")).toBeInTheDocument();
+    expect(screen.getByText("Downtown")).toBeInTheDocument();
+  });
 });
 
 describe("Stock levels — storage area assignment (FR-INV-040)", () => {
