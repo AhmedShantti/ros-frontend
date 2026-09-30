@@ -3,17 +3,17 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 
 /*
- * FR-INV-040 — the backend already supports three count scopes
- * (full_location, category, item_list), but "Open a count" only ever
- * exposed full_location. `storage_area` does not exist anywhere in the
- * backend and is never offered.
+ * FR-INV-040 — the backend supports four count scopes (full_location,
+ * category, storage_area, item_list). A Storage Area is a physical
+ * subdivision inside an Inventory Location (Main Store -> Walk-in Chiller,
+ * Dry Store, Freezer) — never a dining section, temperature classification,
+ * or bin/shelf/aisle hierarchy.
  *
- * `category` has real write-side support (`scopeType: "category"` +
- * `scopeId`), but there is no `StockItemCategory` LISTING endpoint
- * anywhere in the backend — no real, readable category to pick ever
- * exists — so it is shown as a scope choice but always blocks submission
- * with an explicit reason, rather than faking a category or falling back
- * to a raw id field.
+ * `category` and `storage_area` both have real write-side support
+ * (`scopeType` + a generic `scopeId`) and a real listing endpoint each, so
+ * both are shown as scope choices with a real, readable catalogue to pick
+ * from — never a raw id field, never a fabricated entry when the catalogue
+ * is empty.
  *
  * `Select`/`SearchSelect` (components/console/ui.tsx, fields.tsx) are
  * custom listboxes, not native controls — same interaction pattern as
@@ -30,6 +30,7 @@ const countsList = vi.fn();
 const countsCreate = vi.fn();
 const countsGet = vi.fn();
 const categories = vi.fn();
+const storageAreas = vi.fn();
 
 vi.mock("@/lib/console/services", () => ({
   ServiceError: class ServiceError extends Error {},
@@ -47,6 +48,7 @@ vi.mock("@/lib/console/services", () => ({
         get: (...args: unknown[]) => countsGet(...args),
       },
       categories: (...args: unknown[]) => categories(...args),
+      storageAreas: (...args: unknown[]) => storageAreas(...args),
     },
   },
 }));
@@ -73,6 +75,8 @@ const ITEM_FLOUR = { id: "item-flour", name: { en: "Flour" }, sku: "FLR-001" };
 const ITEM_SUGAR = { id: "item-sugar", name: { en: "Sugar" }, sku: "SUG-001" };
 const CATEGORY_DAIRY = { id: "cat-dairy", name: "Dairy", parentId: null };
 const CATEGORY_PRODUCE = { id: "cat-produce", name: "Produce", parentId: null };
+const AREA_CHILLER = { id: "area-chiller", locationId: LOCATION_A.id, name: "Walk-in Chiller" };
+const AREA_DRY = { id: "area-dry", locationId: LOCATION_A.id, name: "Dry Store" };
 
 const COUNT_SESSION_FIXTURE = {
   id: "cs-1",
@@ -81,6 +85,7 @@ const COUNT_SESSION_FIXTURE = {
   locationName: LOCATION_A.name,
   reference: "CNT-1",
   scope: { en: "Full location" },
+  scopeId: null,
   mode: "blind",
   status: "counting",
   openedAt: "2026-01-01T00:00:00Z",
@@ -112,6 +117,7 @@ beforeEach(() => {
   itemsList.mockResolvedValue({ rows: [ITEM_FLOUR, ITEM_SUGAR], total: 2 });
   countsList.mockResolvedValue({ rows: [], total: 0 });
   categories.mockResolvedValue([CATEGORY_DAIRY, CATEGORY_PRODUCE]);
+  storageAreas.mockResolvedValue([AREA_CHILLER, AREA_DRY]);
 });
 
 afterEach(() => {
@@ -161,7 +167,7 @@ describe("Stock counts — location picker (production regression: \"Location no
 });
 
 describe("Stock counts — scoped counting (FR-INV-040)", () => {
-  it("defaults to Full location and never offers storage_area", async () => {
+  it("defaults to Full location and offers all four scopes", async () => {
     const user = userEvent.setup();
     render(<CountsScreen />);
     await openDrawer(user);
@@ -170,8 +176,8 @@ describe("Stock counts — scoped counting (FR-INV-040)", () => {
     expect(scopeTrigger).toHaveTextContent("inv.countScopeFullLocation");
 
     await user.click(scopeTrigger);
-    expect(screen.queryByRole("option", { name: /storage.?area/i })).not.toBeInTheDocument();
     expect(screen.getByRole("option", { name: "inv.countScopeCategory" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "inv.countScopeStorageArea" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "inv.countScopeItemList" })).toBeInTheDocument();
   });
 
@@ -305,6 +311,127 @@ describe("Stock counts — scoped counting (FR-INV-040)", () => {
     resolveCategories([CATEGORY_DAIRY]);
     await screen.findByLabelText("inv.countScopeCategory");
     expect(screen.queryByText("inv.countScopeCategoryEmpty")).not.toBeInTheDocument();
+  });
+
+  it("Storage area requires an area to be chosen before Create is enabled", async () => {
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+
+    await chooseScope(user, "inv.countScopeStorageArea");
+    await screen.findByLabelText("inv.countScopeStorageArea");
+
+    expect(screen.getByRole("button", { name: "common.create" })).toBeDisabled();
+    // Never a raw storage-area-id text field.
+    expect(screen.queryByLabelText(/scopeId/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+    expect(countsCreate).not.toHaveBeenCalled();
+  });
+
+  it("Storage area sends the real area id as scopeId, shown by readable name, never a UUID input", async () => {
+    countsCreate.mockResolvedValue({ ...COUNT_SESSION_FIXTURE, id: "cs-4" });
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+
+    await chooseScope(user, "inv.countScopeStorageArea");
+    const picker = await screen.findByLabelText("inv.countScopeStorageArea");
+    await user.click(picker);
+    await user.click(await screen.findByRole("option", { name: /Walk-in Chiller/ }));
+
+    expect(screen.getByText("Walk-in Chiller")).toBeInTheDocument();
+    expect(screen.queryByText(AREA_CHILLER.id)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+
+    await waitFor(() =>
+      expect(countsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scopeType: "storage_area",
+          scopeId: AREA_CHILLER.id,
+          itemIds: undefined,
+        }),
+      ),
+    );
+  });
+
+  it("storage area options come from the real catalogue for the selected location, not the stock item list", async () => {
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+
+    await waitFor(() => expect(storageAreas).toHaveBeenCalledWith(LOCATION_A.id));
+
+    await chooseScope(user, "inv.countScopeStorageArea");
+    const picker = await screen.findByLabelText("inv.countScopeStorageArea");
+    await user.click(picker);
+
+    expect(screen.getByRole("option", { name: /Walk-in Chiller/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Dry Store/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Flour/ })).not.toBeInTheDocument();
+  });
+
+  it("shows an honest empty state — never a fake area — when the location has no storage areas yet", async () => {
+    storageAreas.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+
+    await chooseScope(user, "inv.countScopeStorageArea");
+
+    await screen.findByText("inv.countScopeStorageAreaEmpty");
+    expect(screen.queryByLabelText("inv.countScopeStorageArea")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "common.create" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+    expect(countsCreate).not.toHaveBeenCalled();
+  });
+
+  it("switching scope away from Storage area clears the previously-picked area — no stale scopeId leaks into the request", async () => {
+    countsCreate.mockResolvedValue(COUNT_SESSION_FIXTURE);
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+
+    await chooseScope(user, "inv.countScopeStorageArea");
+    const picker = await screen.findByLabelText("inv.countScopeStorageArea");
+    await user.click(picker);
+    await user.click(await screen.findByRole("option", { name: /Walk-in Chiller/ }));
+    expect(screen.getByText("Walk-in Chiller")).toBeInTheDocument();
+
+    await chooseScope(user, "inv.countScopeFullLocation");
+
+    expect(screen.queryByText("Walk-in Chiller")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("inv.countScopeStorageArea")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+    await waitFor(() =>
+      expect(countsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ scopeType: "full_location", scopeId: undefined }),
+      ),
+    );
+  });
+
+  it("switching the Location clears a previously-picked storage area — it belongs to exactly one Location", async () => {
+    const LOCATION_B = { id: "loc-b", name: { en: "Uptown" } };
+    locations.mockResolvedValue([LOCATION_A, LOCATION_B]);
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+    const dialog = await screen.findByRole("dialog");
+
+    await chooseScope(user, "inv.countScopeStorageArea");
+    const picker = await screen.findByLabelText("inv.countScopeStorageArea");
+    await user.click(picker);
+    await user.click(await screen.findByRole("option", { name: /Walk-in Chiller/ }));
+    expect(within(dialog).getByText("Walk-in Chiller")).toBeInTheDocument();
+
+    const locationTrigger = within(dialog).getByLabelText(/common\.location\b/);
+    await user.click(locationTrigger);
+    await user.click(screen.getByRole("option", { name: /Uptown/ }));
+
+    expect(within(dialog).queryByText("Walk-in Chiller")).not.toBeInTheDocument();
   });
 
   it("Item list requires at least one item before Create is enabled", async () => {
@@ -539,5 +666,58 @@ describe("Stock counts — count session history (FR-INV-050)", () => {
     render(<CountsScreen />);
     await screen.findByText("CNT-OPEN");
     expect(screen.queryByText("state.emptyTitle")).not.toBeInTheDocument();
+  });
+
+  it("resolves a storage_area session's scopeId to its readable area name, never a raw UUID", async () => {
+    const row = {
+      ...LIST_ROW_OPEN,
+      scope: { en: "Storage area" },
+      scopeId: AREA_CHILLER.id,
+    };
+    countsList.mockResolvedValue({ rows: [row], total: 1 });
+    render(<CountsScreen />);
+
+    await screen.findByText("CNT-OPEN");
+    expect(screen.getByText("Storage area — Walk-in Chiller")).toBeInTheDocument();
+    expect(screen.queryByText(AREA_CHILLER.id)).not.toBeInTheDocument();
+  });
+
+  it("resolves a category session's scopeId to its readable category name, never a raw UUID", async () => {
+    const row = {
+      ...LIST_ROW_OPEN,
+      scope: { en: "Category" },
+      scopeId: CATEGORY_DAIRY.id,
+    };
+    countsList.mockResolvedValue({ rows: [row], total: 1 });
+    render(<CountsScreen />);
+
+    await screen.findByText("CNT-OPEN");
+    expect(screen.getByText("Category — Dairy")).toBeInTheDocument();
+    expect(screen.queryByText(CATEGORY_DAIRY.id)).not.toBeInTheDocument();
+  });
+
+  it("shows just the scope label, with no dangling separator, when a session has no scopeId (full_location/item_list)", async () => {
+    countsList.mockResolvedValue({ rows: [LIST_ROW_OPEN], total: 1 });
+    render(<CountsScreen />);
+
+    await screen.findByText("CNT-OPEN");
+    expect(screen.getByText("Full location")).toBeInTheDocument();
+  });
+
+  it("shows the same resolved scope detail in the session detail drawer, not just the list", async () => {
+    countsList.mockResolvedValue({ rows: [LIST_ROW_OPEN], total: 1 });
+    countsGet.mockResolvedValue({
+      ...COUNT_SESSION_FIXTURE,
+      id: LIST_ROW_OPEN.id,
+      scope: { en: "Storage area" },
+      scopeId: AREA_CHILLER.id,
+    });
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+
+    await user.click(await screen.findByText("CNT-OPEN"));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Storage area — Walk-in Chiller")).toBeInTheDocument();
   });
 });

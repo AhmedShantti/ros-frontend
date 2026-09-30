@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Plus, X } from "lucide-react";
-import type { CountLine, CountSession, StockItem } from "@/lib/console/types";
+import type { CountLine, CountSession, Id, Localised, StockItem } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
@@ -55,12 +55,48 @@ import {
   Toggle,
 } from "@/components/console/ui";
 
-/** The three D-INV-05 count scopes the backend accepts — storage_area does not exist. */
-type CountScopeChoice = "full_location" | "category" | "item_list";
+/** The four D-INV-05 count scopes the backend accepts. */
+type CountScopeChoice = "full_location" | "category" | "storage_area" | "item_list";
 
 /** FR-INV-042 — the expected figure stays hidden until the count is in. */
 function expectedIsHidden(session: CountSession): boolean {
   return session.mode === "blind" && (session.status === "draft" || session.status === "counting");
+}
+
+/**
+ * FR-INV-040 — `scopeId` only ever names a category or a storage area.
+ * Resolving it against both real catalogues (never a raw UUID) is the same
+ * client-side lookup the Stock Levels area picker already relies on. The two
+ * catalogues' ids never overlap, so trying category then storage area is
+ * unambiguous.
+ */
+function useScopeCatalogues() {
+  const categoriesQuery = useAsync(() => services.inventory.categories(), []);
+  const storageAreasQuery = useAsync(() => services.inventory.storageAreas(), []);
+  const categoryNameById = useMemo(
+    () => new Map((categoriesQuery.data ?? []).map((c) => [c.id, c.name] as const)),
+    [categoriesQuery.data],
+  );
+  const storageAreaNameById = useMemo(
+    () => new Map((storageAreasQuery.data ?? []).map((a) => [a.id, a.name] as const)),
+    [storageAreasQuery.data],
+  );
+  return { categoryNameById, storageAreaNameById };
+}
+
+/** The scope type label, plus the specific category/area name once resolvable. */
+function scopeDetail(
+  session: CountSession,
+  tx: (value: Localised | null | undefined) => string,
+  catalogues: { categoryNameById: Map<Id, string>; storageAreaNameById: Map<Id, string> },
+): string {
+  const label = tx(session.scope);
+  if (!session.scopeId) return label;
+  const name =
+    catalogues.categoryNameById.get(session.scopeId) ??
+    catalogues.storageAreaNameById.get(session.scopeId) ??
+    null;
+  return name ? `${label} — ${name}` : label;
 }
 
 export default function StockCountsPage() {
@@ -81,6 +117,7 @@ export function CountsScreen() {
   // Locations come from the service so the filter offers real ids.
   const locationList = useAsync(() => services.organisation.locations(), []);
   const locations = locationList.data ?? [];
+  const scopeCatalogues = useScopeCatalogues();
 
   const collection = useCollection<CountSession>(
     (query) => services.inventory.counts.list(query),
@@ -123,7 +160,7 @@ export function CountsScreen() {
         render: (row) => (
           <CellStack
             primary={<span className="font-mono">{row.reference}</span>}
-            secondary={tx(row.scope)}
+            secondary={scopeDetail(row, tx, scopeCatalogues)}
           />
         ),
       },
@@ -203,7 +240,7 @@ export function CountsScreen() {
         },
       },
     ],
-    [t, tx, fmt],
+    [t, tx, fmt, scopeCatalogues],
   );
 
   return (
@@ -334,6 +371,7 @@ function CountDrawer({
   const canCount = usePermission("inventory.count.perform");
   const action = useAction();
   const [editing, setEditing] = useState<CountLine | null>(null);
+  const scopeCatalogues = useScopeCatalogues();
 
   /**
    * Lines are fetched, not read off the row: `GET /inventory/counts` has no
@@ -452,7 +490,7 @@ function CountDrawer({
       open
       onClose={onClose}
       title={current.reference}
-      subtitle={tx(current.scope)}
+      subtitle={scopeDetail(current, tx, scopeCatalogues)}
       footer={
         canPost && (current.status === "submitted" || current.status === "counting") ? (
           <Button variant="primary" loading={action.pending} onClick={post}>
@@ -625,6 +663,7 @@ function OpenCountDrawer({
   const [itemIds, setItemIds] = useState<string[]>([]);
   const [itemPicker, setItemPicker] = useState<string | null>(null);
   const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [storageAreaId, setStorageAreaId] = useState<string | null>(null);
 
   const locations = useAsync(() => services.organisation.locations(), []);
   // The real Stock Item catalogue — a D-INV-05 scope source with real
@@ -635,6 +674,13 @@ function OpenCountDrawer({
   // its scopeId from.
   const categoriesQuery = useAsync(() => services.inventory.categories(), []);
   const categories = categoriesQuery.data ?? [];
+  // FR-INV-040 — a storage area belongs to exactly one Location, so this is
+  // scoped to the currently-selected locationId, never the whole tenant.
+  const storageAreasQuery = useAsync(
+    () => (locationId ? services.inventory.storageAreas(locationId) : Promise.resolve([])),
+    [locationId],
+  );
+  const storageAreas = storageAreasQuery.data ?? [];
 
   useEffect(() => {
     const rows = locations.data;
@@ -654,7 +700,18 @@ function OpenCountDrawer({
       setItemIds([]);
       setItemPicker(null);
       setCategoryId(null);
+      setStorageAreaId(null);
     }
+  }
+
+  // A storage area belongs to exactly one Location — switching the Location
+  // must clear any previously-picked area the same way switching the scope
+  // itself already does, or a stale area from a different Location could
+  // leak into the request.
+  const [areaSeededForLocation, setAreaSeededForLocation] = useState(locationId);
+  if (areaSeededForLocation !== locationId) {
+    setAreaSeededForLocation(locationId);
+    setStorageAreaId(null);
   }
 
   function changeScope(next: CountScopeChoice) {
@@ -662,6 +719,7 @@ function OpenCountDrawer({
     setItemIds([]);
     setItemPicker(null);
     setCategoryId(null);
+    setStorageAreaId(null);
   }
 
   if (!open) return null;
@@ -675,10 +733,15 @@ function OpenCountDrawer({
     .filter((item): item is StockItem => Boolean(item));
 
   const categoryOptions: SearchOption[] = categories.map((c) => ({ value: c.id, label: c.name }));
+  const storageAreaOptions: SearchOption[] = storageAreas.map((a) => ({
+    value: a.id,
+    label: a.name,
+  }));
 
   const canSubmit =
     Boolean(locationId) &&
     (scopeType !== "category" || Boolean(categoryId)) &&
+    (scopeType !== "storage_area" || Boolean(storageAreaId)) &&
     (scopeType !== "item_list" || itemIds.length > 0);
 
   async function create() {
@@ -691,9 +754,16 @@ function OpenCountDrawer({
           // Not CountSession domain fields — smuggled through the same way
           // `standardCost` is on the Stock Item form. `scopeId`/`itemIds` are
           // omitted entirely outside their own scope: the backend rejects a
-          // scopeId outright on any scope but "category".
+          // scopeId outright on any scope but "category"/"storage_area". One
+          // generic wire field for both, exactly like the backend's own
+          // OpenCountInput.scopeId.
           scopeType,
-          scopeId: scopeType === "category" ? (categoryId ?? undefined) : undefined,
+          scopeId:
+            scopeType === "category"
+              ? (categoryId ?? undefined)
+              : scopeType === "storage_area"
+                ? (storageAreaId ?? undefined)
+                : undefined,
           itemIds: scopeType === "item_list" ? itemIds : undefined,
         } as never),
       { onSuccess: onOpened },
@@ -756,6 +826,7 @@ function OpenCountDrawer({
           >
             <option value="full_location">{t("inv.countScopeFullLocation")}</option>
             <option value="category">{t("inv.countScopeCategory")}</option>
+            <option value="storage_area">{t("inv.countScopeStorageArea")}</option>
             <option value="item_list">{t("inv.countScopeItemList")}</option>
           </Select>
         </Field>
@@ -773,6 +844,25 @@ function OpenCountDrawer({
                 onChange={setCategoryId}
                 placeholder={t("inv.countScopeCategoryPlaceholder")}
                 aria-label={t("inv.countScopeCategory")}
+                disabled={action.pending}
+              />
+            </Field>
+          )
+        ) : null}
+
+        {scopeType === "storage_area" ? (
+          storageAreasQuery.loading ? null : storageAreaOptions.length === 0 ? (
+            // An honest empty state, not a fake area or a raw id field —
+            // Create stays blocked (canSubmit) so the reason is explicit.
+            <Callout tone="warn">{t("inv.countScopeStorageAreaEmpty")}</Callout>
+          ) : (
+            <Field label={t("inv.countScopeStorageArea")} required>
+              <SearchSelect
+                options={storageAreaOptions}
+                value={storageAreaId}
+                onChange={setStorageAreaId}
+                placeholder={t("inv.countScopeStorageAreaPlaceholder")}
+                aria-label={t("inv.countScopeStorageArea")}
                 disabled={action.pending}
               />
             </Field>

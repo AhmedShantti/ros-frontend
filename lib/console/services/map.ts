@@ -963,6 +963,7 @@ export function toStockLevel(row: WireLevel, context: LevelContext = {}): StockL
     daysOfCover: null, // gap: needs a usage series the API does not expose.
     lastCountedAt: row.lastReconciledAt,
     status: levelStatus(onHand, reorderPoint),
+    storageAreaId: row.storageAreaId,
   };
 }
 
@@ -1080,6 +1081,20 @@ const COUNT_STATUS_OF: Record<WireCountSession["status"], CountSession["status"]
 };
 
 /**
+ * A readable label for the scope TYPE itself ("Storage area"), never the
+ * specific category/area a session is scoped to — that name is resolved
+ * separately by the caller from `scopeId` against whichever real catalogue
+ * it names (`services.inventory.categories()`/`storageAreas()`), the same
+ * client-side resolution already used for Stock Item categories.
+ */
+const COUNT_SCOPE_LABEL: Record<WireCountSession["scopeType"], string> = {
+  full_location: "Full location",
+  category: "Category",
+  storage_area: "Storage area",
+  item_list: "Item list",
+};
+
+/**
  * FR-INV-050 — shared by `counts.list()` (`GET /inventory/counts`),
  * `counts.get()` (`GET /inventory/counts/:id`) and `counts.create()`
  * (`POST /inventory/counts`): all three now answer with the session's own
@@ -1100,7 +1115,8 @@ export function toCountSession(
     locationId: row.locationId,
     locationName: context.location?.name ?? EMPTY,
     reference: row.id.slice(0, 8).toUpperCase(),
-    scope: localised(row.scopeType),
+    scope: localised(COUNT_SCOPE_LABEL[row.scopeType]),
+    scopeId: row.scopeId,
     mode: row.isBlindCount ? "blind" : "open",
     status: COUNT_STATUS_OF[row.status],
     openedAt: row.startedAt,

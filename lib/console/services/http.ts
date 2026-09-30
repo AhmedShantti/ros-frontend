@@ -2001,6 +2001,37 @@ const inventory: InventoryService = {
     invalidateInventory();
   },
 
+  // -- Storage areas -----------------------------------------------------------
+
+  async storageAreas(locationId) {
+    const rows = await api.inventory.listStorageAreas({ locationId });
+    return rows.map((row) => ({
+      id: row.id,
+      locationId: row.locationId,
+      name: row.name,
+    }));
+  },
+
+  async createStorageArea(input) {
+    const row = await api.inventory.createStorageArea({
+      locationId: input.locationId,
+      name: input.name,
+    });
+    return { id: row.id, locationId: row.locationId, name: row.name };
+  },
+
+  async setStorageAreaAssignment(itemId, input) {
+    // `storageAreaId: null` clears the assignment — the generated DTO type
+    // only allows `string | undefined` (class-validator's `@IsOptional()`
+    // treats an explicit `null` identically to an omitted field, same as
+    // `standardCost`'s `as never` smuggling elsewhere in this file).
+    await api.inventory.setStorageAreaAssignment(itemId, {
+      locationId: input.locationId,
+      storageAreaId: input.storageAreaId,
+    } as never);
+    invalidateInventory();
+  },
+
   // -- Reason codes ----------------------------------------------------------
 
   async reasonCodes() {

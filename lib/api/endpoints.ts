@@ -484,6 +484,10 @@ export const inventory = {
   setReorderConfig: (itemId: string, body: S.SetReorderConfigDto) =>
     http.post<S.InventoryController_setReorderConfigResponse>("/inventory/items/{itemId}/reorder-config", { params: { itemId }, body }),
 
+  /** `POST /inventory/items/{itemId}/storage-area` — FR-INV-040 — deterministic item+location storage-area membership, independent of on-hand quantity (a never-moved, zero-stock item may still be assigned). `storageAreaId: null` clears the assignment. — The current assignment (storageAreaId is null once cleared). */
+  setStorageAreaAssignment: (itemId: string, body: S.SetStorageAreaAssignmentDto) =>
+    http.post<S.InventoryController_setStorageAreaAssignmentResponse>("/inventory/items/{itemId}/storage-area", { params: { itemId }, body }),
+
   /** `GET /inventory/levels` — Current stock levels (FR-INV-010/015). */
   levels: (options: { locationId?: string } = {}) =>
     http.get<S.InventoryController_levelsResponse>("/inventory/levels", { query: { locationId: options.locationId } }),
@@ -511,6 +515,14 @@ export const inventory = {
   /** `GET /inventory/reconciliation` — FR-INV-011/051 computation. Scheduling deferred (D-INV-08). — On-demand ledger-vs-projection reconciliation (FR-INV-011/051). Scheduling and alert delivery are deferred (D-INV-08). */
   reconcile: () =>
     http.get<S.InventoryController_reconcileResponse>("/inventory/reconciliation"),
+
+  /** `GET /inventory/storage-areas` — List the storage area catalogue, optionally by location (FR-INV-040). — Storage areas in the tenant, optionally filtered by locationId. */
+  listStorageAreas: (options: { locationId?: string } = {}) =>
+    http.get<S.InventoryController_listStorageAreasResponse>("/inventory/storage-areas", { query: { locationId: options.locationId } }),
+
+  /** `POST /inventory/storage-areas` — The created storage area. */
+  createStorageArea: (body: S.CreateStorageAreaDto) =>
+    http.post<S.InventoryController_createStorageAreaResponse>("/inventory/storage-areas", { body }),
 
   /** `POST /inventory/transfers` — Dispatch a transfer (writes the transfer_out leg). — The dispatched transfer. */
   dispatch: (body: S.DispatchTransferDto) =>

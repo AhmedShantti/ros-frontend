@@ -189,13 +189,13 @@ describe("inventory.counts.list() — count session history (FR-INV-050)", () =>
     }
   });
 
-  it("represents category, item_list and full_location scopes", async () => {
+  it("represents category, item_list and full_location scopes with a readable label", async () => {
     const page = await httpServices.inventory.counts.list();
     const scopeOf = (id: string) => page.rows.find((row) => row.id === id)!.scope;
 
-    expect(scopeOf(POSTED.id)).toEqual({ en: "category", ar: "category" });
-    expect(scopeOf(IN_PROGRESS.id)).toEqual({ en: "item_list", ar: "item_list" });
-    expect(scopeOf(OLDEST.id)).toEqual({ en: "full_location", ar: "full_location" });
+    expect(scopeOf(POSTED.id)).toEqual({ en: "Category", ar: "Category" });
+    expect(scopeOf(IN_PROGRESS.id)).toEqual({ en: "Item list", ar: "Item list" });
+    expect(scopeOf(OLDEST.id)).toEqual({ en: "Full location", ar: "Full location" });
   });
 
   it("an empty index yields an empty page", async () => {

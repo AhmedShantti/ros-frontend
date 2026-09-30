@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 199 paths, 134 request DTOs.
+ * `api/openapi.json`. 201 paths, 136 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -464,6 +464,11 @@ export interface CreateStockItemDto {
   storageRequirements?: Record<string, unknown>;
 }
 
+export interface CreateStorageAreaDto {
+  locationId: string;
+  name: string;
+}
+
 export interface CreateSubstituteGroupDto {
   name: string;
   stockItemIds?: string[];
@@ -672,7 +677,7 @@ export interface OpenCountDto {
   /** B-2: caller-supplied approval gate; Inventory never evaluates a threshold. */
   requiresApproval?: boolean;
   scopeId?: string;
-  scopeType: "full_location" | "category" | "item_list";
+  scopeType: "full_location" | "category" | "item_list" | "storage_area";
 }
 
 export interface PinLoginDto {
@@ -871,6 +876,11 @@ export interface SetReorderConfigDto {
   locationId: string;
   reorderPoint: string;
   reorderQuantity: string;
+}
+
+export interface SetStorageAreaAssignmentDto {
+  locationId: string;
+  storageAreaId?: string;
 }
 
 export interface SetSupplierStatusDto {
@@ -2809,8 +2819,9 @@ export type InventoryController_listCountsResponse = ({
   postedAt: string | null;
   postedBy: string | null;
   requiresApproval: boolean;
+  /** The category id (scopeType=category) or storage area id (scopeType=storage_area); null otherwise. */
   scopeId: string | null;
-  scopeType: "full_location" | "category" | "item_list";
+  scopeType: "full_location" | "category" | "storage_area" | "item_list";
   startedAt: string;
   startedBy: string;
   status: "in_progress" | "posted" | "cancelled";
@@ -2825,8 +2836,9 @@ export type InventoryController_openCountResponse = {
   postedAt: string | null;
   postedBy: string | null;
   requiresApproval: boolean;
+  /** The category id (scopeType=category) or storage area id (scopeType=storage_area); null otherwise. */
   scopeId: string | null;
-  scopeType: "full_location" | "category" | "item_list";
+  scopeType: "full_location" | "category" | "storage_area" | "item_list";
   startedAt: string;
   startedBy: string;
   status: "in_progress" | "posted" | "cancelled";
@@ -2843,8 +2855,9 @@ export type InventoryController_getCountResponse = {
   postedAt: string | null;
   postedBy: string | null;
   requiresApproval: boolean;
+  /** The category id (scopeType=category) or storage area id (scopeType=storage_area); null otherwise. */
   scopeId: string | null;
-  scopeType: "full_location" | "category" | "item_list";
+  scopeType: "full_location" | "category" | "storage_area" | "item_list";
   startedAt: string;
   startedBy: string;
   status: "in_progress" | "posted" | "cancelled";
@@ -2994,6 +3007,15 @@ export type InventoryController_setReorderConfigResponse = {
 
 export type InventoryController_setReorderConfigBody = SetReorderConfigDto;
 
+/** `POST /inventory/items/{itemId}/storage-area` — FR-INV-040 — deterministic item+location storage-area membership, independent of on-hand quantity (a never-moved, zero-stock item may still be assigned). `storageAreaId: null` clears the assignment. — The current assignment (storageAreaId is null once cleared). */
+export type InventoryController_setStorageAreaAssignmentResponse = {
+  locationId: string;
+  stockItemId: string;
+  storageAreaId: string | null;
+};
+
+export type InventoryController_setStorageAreaAssignmentBody = SetStorageAreaAssignmentDto;
+
 /** `GET /inventory/levels` — Current stock levels (FR-INV-010/015). */
 export type InventoryController_levelsResponse = ({
   lastReconciledAt: string | null;
@@ -3003,6 +3025,8 @@ export type InventoryController_levelsResponse = ({
   /** Decimal quantity as a string (preserves exact precision). */
   quantityReserved: string;
   stockItemId: string;
+  /** FR-INV-040 — the current storage area for this item+location pair, if assigned. */
+  storageAreaId: string | null;
 })[];
 
 /** `GET /inventory/low-stock` — FR-INV-066 computation against per-location reorder points. — Levels below their per-location reorder point (FR-INV-066/065). */
@@ -3077,6 +3101,22 @@ export type InventoryController_reconcileResponse = {
   /** True when divergences is empty. */
   reconciled: boolean;
 };
+
+/** `GET /inventory/storage-areas` — List the storage area catalogue, optionally by location (FR-INV-040). — Storage areas in the tenant, optionally filtered by locationId. */
+export type InventoryController_listStorageAreasResponse = ({
+  id: string;
+  locationId: string;
+  name: string;
+})[];
+
+/** `POST /inventory/storage-areas` — The created storage area. */
+export type InventoryController_createStorageAreaResponse = {
+  id: string;
+  locationId: string;
+  name: string;
+};
+
+export type InventoryController_createStorageAreaBody = CreateStorageAreaDto;
 
 /** `POST /inventory/transfers` — Dispatch a transfer (writes the transfer_out leg). — The dispatched transfer. */
 export type InventoryController_dispatchResponse = {
@@ -7853,6 +7893,7 @@ export const ROUTES = {
   InventoryController_changeBaseUnit: { method: "POST", path: "/inventory/items/{itemId}/base-unit" },
   InventoryController_listMovements: { method: "GET", path: "/inventory/items/{itemId}/movements" },
   InventoryController_setReorderConfig: { method: "POST", path: "/inventory/items/{itemId}/reorder-config" },
+  InventoryController_setStorageAreaAssignment: { method: "POST", path: "/inventory/items/{itemId}/storage-area" },
   InventoryController_levels: { method: "GET", path: "/inventory/levels" },
   InventoryController_lowStock: { method: "GET", path: "/inventory/low-stock" },
   InventoryController_postMovement: { method: "POST", path: "/inventory/movements" },
@@ -7860,6 +7901,8 @@ export const ROUTES = {
   InventoryController_listReasonCodes: { method: "GET", path: "/inventory/reason-codes" },
   InventoryController_createReasonCode: { method: "POST", path: "/inventory/reason-codes" },
   InventoryController_reconcile: { method: "GET", path: "/inventory/reconciliation" },
+  InventoryController_listStorageAreas: { method: "GET", path: "/inventory/storage-areas" },
+  InventoryController_createStorageArea: { method: "POST", path: "/inventory/storage-areas" },
   InventoryController_dispatch: { method: "POST", path: "/inventory/transfers" },
   InventoryController_receive: { method: "POST", path: "/inventory/transfers/receive" },
   InventoryController_listUoms: { method: "GET", path: "/inventory/uoms" },

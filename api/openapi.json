@@ -1550,6 +1550,23 @@
         ],
         "type": "object"
       },
+      "CreateStorageAreaDto": {
+        "properties": {
+          "locationId": {
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "locationId",
+          "name"
+        ],
+        "type": "object"
+      },
       "CreateSubstituteGroupDto": {
         "properties": {
           "name": {
@@ -2290,7 +2307,8 @@
             "enum": [
               "full_location",
               "category",
-              "item_list"
+              "item_list",
+              "storage_area"
             ],
             "type": "string"
           }
@@ -2965,6 +2983,20 @@
           "locationId",
           "reorderPoint",
           "reorderQuantity"
+        ],
+        "type": "object"
+      },
+      "SetStorageAreaAssignmentDto": {
+        "properties": {
+          "locationId": {
+            "type": "string"
+          },
+          "storageAreaId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "locationId"
         ],
         "type": "object"
       },
@@ -15412,6 +15444,7 @@
                         "type": "boolean"
                       },
                       "scopeId": {
+                        "description": "The category id (scopeType=category) or storage area id (scopeType=storage_area); null otherwise.",
                         "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                         "format": "uuid",
                         "type": [
@@ -15423,6 +15456,7 @@
                         "enum": [
                           "full_location",
                           "category",
+                          "storage_area",
                           "item_list"
                         ],
                         "type": "string"
@@ -15550,6 +15584,7 @@
                       "type": "boolean"
                     },
                     "scopeId": {
+                      "description": "The category id (scopeType=category) or storage area id (scopeType=storage_area); null otherwise.",
                       "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                       "format": "uuid",
                       "type": [
@@ -15561,6 +15596,7 @@
                       "enum": [
                         "full_location",
                         "category",
+                        "storage_area",
                         "item_list"
                       ],
                       "type": "string"
@@ -15699,6 +15735,7 @@
                       "type": "boolean"
                     },
                     "scopeId": {
+                      "description": "The category id (scopeType=category) or storage area id (scopeType=storage_area); null otherwise.",
                       "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                       "format": "uuid",
                       "type": [
@@ -15710,6 +15747,7 @@
                       "enum": [
                         "full_location",
                         "category",
+                        "storage_area",
                         "item_list"
                       ],
                       "type": "string"
@@ -16930,6 +16968,104 @@
         ]
       }
     },
+    "/inventory/items/{itemId}/storage-area": {
+      "post": {
+        "operationId": "InventoryController_setStorageAreaAssignment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetStorageAreaAssignmentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "locationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "stockItemId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "storageAreaId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The current assignment (storageAreaId is null once cleared)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stock item, location or storage area not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "FR-INV-040 — deterministic item+location storage-area membership,\nindependent of on-hand quantity (a never-moved, zero-stock item may\nstill be assigned). `storageAreaId: null` clears the assignment.",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
     "/inventory/levels": {
       "get": {
         "operationId": "InventoryController_levels",
@@ -16979,6 +17115,15 @@
                         "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                         "format": "uuid",
                         "type": "string"
+                      },
+                      "storageAreaId": {
+                        "description": "FR-INV-040 — the current storage area for this item+location pair, if assigned.",
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
                       }
                     },
                     "type": "object"
@@ -17533,6 +17678,169 @@
           }
         ],
         "summary": "FR-INV-011/051 computation. Scheduling deferred (D-INV-08).",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/storage-areas": {
+      "get": {
+        "operationId": "InventoryController_listStorageAreas",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "locationId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "locationId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Storage areas in the tenant, optionally filtered by locationId."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The named location is not visible in this tenant — unknown, or another tenant's. Byte-identical for both."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the storage area catalogue, optionally by location (FR-INV-040).",
+        "tags": [
+          "inventory"
+        ]
+      },
+      "post": {
+        "operationId": "InventoryController_createStorageArea",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStorageAreaDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "locationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The created storage area."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Location not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "tags": [
           "inventory"
         ]
