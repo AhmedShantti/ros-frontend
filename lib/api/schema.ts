@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 202 paths, 138 request DTOs.
+ * `api/openapi.json`. 207 paths, 140 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -484,6 +484,11 @@ export interface CreateStockItemDto {
   storageRequirements?: Record<string, unknown>;
 }
 
+export interface CreateStorageAreaDto {
+  locationId: string;
+  name: string;
+}
+
 export interface CreateSubstituteGroupDto {
   name: string;
   stockItemIds?: string[];
@@ -692,7 +697,7 @@ export interface OpenCountDto {
   /** B-2: caller-supplied approval gate; Inventory never evaluates a threshold. */
   requiresApproval?: boolean;
   scopeId?: string;
-  scopeType: "full_location" | "category" | "item_list";
+  scopeType: "full_location" | "category" | "item_list" | "storage_area";
 }
 
 export interface PinLoginDto {
@@ -919,6 +924,11 @@ export interface SetReorderConfigDto {
   locationId: string;
   reorderPoint: string;
   reorderQuantity: string;
+}
+
+export interface SetStorageAreaAssignmentDto {
+  locationId: string;
+  storageAreaId?: string;
 }
 
 export interface SetSupplierStatusDto {
@@ -2867,16 +2877,58 @@ export type InventoryController_recordCountResponse = {
 
 export type InventoryController_recordCountBody = RecordCountDto;
 
+/** `GET /inventory/counts` — List count sessions, newest first (FR-INV-050). — Up to 200 count sessions matching the given filters. */
+export type InventoryController_listCountsResponse = ({
+  id: string;
+  isBlindCount: boolean;
+  lineCount: number;
+  locationId: string;
+  postedAt: string | null;
+  postedBy: string | null;
+  requiresApproval: boolean;
+  /** The category id (scopeType=category) or storage area id (scopeType=storage_area); null otherwise. */
+  scopeId: string | null;
+  scopeType: "full_location" | "category" | "storage_area" | "item_list";
+  startedAt: string;
+  startedBy: string;
+  status: "in_progress" | "posted" | "cancelled";
+})[];
+
 /** `POST /inventory/counts` — Open a count session and freeze expected quantities for its scope. — The opened count session. */
 export type InventoryController_openCountResponse = {
   id: string;
   isBlindCount: boolean;
   lineCount: number;
-  scopeType: "full_location" | "category" | "item_list";
+  locationId: string;
+  postedAt: string | null;
+  postedBy: string | null;
+  requiresApproval: boolean;
+  /** The category id (scopeType=category) or storage area id (scopeType=storage_area); null otherwise. */
+  scopeId: string | null;
+  scopeType: "full_location" | "category" | "storage_area" | "item_list";
+  startedAt: string;
+  startedBy: string;
   status: "in_progress" | "posted" | "cancelled";
 };
 
 export type InventoryController_openCountBody = OpenCountDto;
+
+/** `GET /inventory/counts/{sessionId}` — Get one count session (FR-INV-050). — The count session. */
+export type InventoryController_getCountResponse = {
+  id: string;
+  isBlindCount: boolean;
+  lineCount: number;
+  locationId: string;
+  postedAt: string | null;
+  postedBy: string | null;
+  requiresApproval: boolean;
+  /** The category id (scopeType=category) or storage area id (scopeType=storage_area); null otherwise. */
+  scopeId: string | null;
+  scopeType: "full_location" | "category" | "storage_area" | "item_list";
+  startedAt: string;
+  startedBy: string;
+  status: "in_progress" | "posted" | "cancelled";
+};
 
 /** `GET /inventory/counts/{sessionId}/lines` — This session's count lines. expectedQuantity/countedQuantity/variance are null while a blind count is still in_progress and not yet recorded. */
 export type InventoryController_countLinesResponse = ({
@@ -3022,6 +3074,15 @@ export type InventoryController_setReorderConfigResponse = {
 
 export type InventoryController_setReorderConfigBody = SetReorderConfigDto;
 
+/** `POST /inventory/items/{itemId}/storage-area` — FR-INV-040 — deterministic item+location storage-area membership, independent of on-hand quantity (a never-moved, zero-stock item may still be assigned). `storageAreaId: null` clears the assignment. — The current assignment (storageAreaId is null once cleared). */
+export type InventoryController_setStorageAreaAssignmentResponse = {
+  locationId: string;
+  stockItemId: string;
+  storageAreaId: string | null;
+};
+
+export type InventoryController_setStorageAreaAssignmentBody = SetStorageAreaAssignmentDto;
+
 /** `GET /inventory/levels` — Current stock levels (FR-INV-010/015). */
 export type InventoryController_levelsResponse = ({
   lastReconciledAt: string | null;
@@ -3031,6 +3092,8 @@ export type InventoryController_levelsResponse = ({
   /** Decimal quantity as a string (preserves exact precision). */
   quantityReserved: string;
   stockItemId: string;
+  /** FR-INV-040 — the current storage area for this item+location pair, if assigned. */
+  storageAreaId: string | null;
 })[];
 
 /** `GET /inventory/low-stock` — FR-INV-066 computation against per-location reorder points. — Levels below their per-location reorder point (FR-INV-066/065). */
@@ -3105,6 +3168,22 @@ export type InventoryController_reconcileResponse = {
   /** True when divergences is empty. */
   reconciled: boolean;
 };
+
+/** `GET /inventory/storage-areas` — List the storage area catalogue, optionally by location (FR-INV-040). — Storage areas in the tenant, optionally filtered by locationId. */
+export type InventoryController_listStorageAreasResponse = ({
+  id: string;
+  locationId: string;
+  name: string;
+})[];
+
+/** `POST /inventory/storage-areas` — The created storage area. */
+export type InventoryController_createStorageAreaResponse = {
+  id: string;
+  locationId: string;
+  name: string;
+};
+
+export type InventoryController_createStorageAreaBody = CreateStorageAreaDto;
 
 /** `POST /inventory/transfers` — Dispatch a transfer (writes the transfer_out leg). — The dispatched transfer. */
 export type InventoryController_dispatchResponse = {
@@ -6175,6 +6254,14 @@ export type OrganisationController_updateCentralKitchenResponse = {
 
 export type OrganisationController_updateCentralKitchenBody = UpdateCentralKitchenDto;
 
+/** `GET /org/locations` — The unified location registry Inventory keys `locationId` on — a Branch, a Warehouse or a Central Kitchen may each own one, and `id` here is the only id Inventory endpoints (counts, movements, waste, ...) accept. A caller resolves a readable name itself by joining `refId`/`locationType` against `GET /org/branches`/`GET /org/warehouses`/`GET /org/central-kitchens`. — Every Inventory-valid location in the tenant. */
+export type OrganisationController_listLocationsResponse = ({
+  createdAt: string;
+  id: string;
+  locationType: "branch" | "warehouse" | "central_kitchen";
+  refId: string;
+})[];
+
 /** `GET /org/stations/{stationId}` — The station. */
 export type OrganisationController_getStationResponse = {
   branchId: string;
@@ -8156,6 +8243,38 @@ export type ScheduleController_createShiftResponse = {
 
 export type ScheduleController_createShiftBody = CreateScheduledShiftDto;
 
+/** `GET /reports/branches/{branchId}/sales-daily` — Branch sales totals per business day over a date range (dashboard-only; authorized against the branch it names). — Per-business-day sales totals for the range. */
+export type ReportingController_getSalesDailyRangeResponse = {
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  branchCurrentBusinessDay: string;
+  branchId: string;
+  /** ISO 4217 currency code. */
+  currency: string;
+  currencySource: "TRANSACTION" | "BRANCH_FALLBACK";
+  dataAsOf: string;
+  /** Ascending; days with no sales and no refunds are absent. */
+  days: ({
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discounts: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grossSales: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    netSales: string;
+    orderCount: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    refunds: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+  })[];
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  from: string;
+  /** The range actually answered; `to` is clamped to the branch’s current business day. */
+  to: string;
+  toClamped: boolean;
+};
+
 // ---------------------------------------------------------------------------
 // Route table
 // ---------------------------------------------------------------------------
@@ -8250,7 +8369,9 @@ export const ROUTES = {
   InventoryController_listCategories: { method: "GET", path: "/inventory/categories" },
   InventoryController_createCategory: { method: "POST", path: "/inventory/categories" },
   InventoryController_recordCount: { method: "POST", path: "/inventory/count-lines/{lineId}" },
+  InventoryController_listCounts: { method: "GET", path: "/inventory/counts" },
   InventoryController_openCount: { method: "POST", path: "/inventory/counts" },
+  InventoryController_getCount: { method: "GET", path: "/inventory/counts/{sessionId}" },
   InventoryController_countLines: { method: "GET", path: "/inventory/counts/{sessionId}/lines" },
   InventoryController_postCount: { method: "POST", path: "/inventory/counts/{sessionId}/post" },
   InventoryController_expiring: { method: "GET", path: "/inventory/expiring" },
@@ -8260,6 +8381,7 @@ export const ROUTES = {
   InventoryController_changeBaseUnit: { method: "POST", path: "/inventory/items/{itemId}/base-unit" },
   InventoryController_listMovements: { method: "GET", path: "/inventory/items/{itemId}/movements" },
   InventoryController_setReorderConfig: { method: "POST", path: "/inventory/items/{itemId}/reorder-config" },
+  InventoryController_setStorageAreaAssignment: { method: "POST", path: "/inventory/items/{itemId}/storage-area" },
   InventoryController_levels: { method: "GET", path: "/inventory/levels" },
   InventoryController_lowStock: { method: "GET", path: "/inventory/low-stock" },
   InventoryController_postMovement: { method: "POST", path: "/inventory/movements" },
@@ -8267,6 +8389,8 @@ export const ROUTES = {
   InventoryController_listReasonCodes: { method: "GET", path: "/inventory/reason-codes" },
   InventoryController_createReasonCode: { method: "POST", path: "/inventory/reason-codes" },
   InventoryController_reconcile: { method: "GET", path: "/inventory/reconciliation" },
+  InventoryController_listStorageAreas: { method: "GET", path: "/inventory/storage-areas" },
+  InventoryController_createStorageArea: { method: "POST", path: "/inventory/storage-areas" },
   InventoryController_dispatch: { method: "POST", path: "/inventory/transfers" },
   InventoryController_receive: { method: "POST", path: "/inventory/transfers/receive" },
   InventoryController_listUoms: { method: "GET", path: "/inventory/uoms" },
@@ -8336,6 +8460,7 @@ export const ROUTES = {
   OrganisationController_createCentralKitchen: { method: "POST", path: "/org/central-kitchens" },
   OrganisationController_getCentralKitchen: { method: "GET", path: "/org/central-kitchens/{centralKitchenId}" },
   OrganisationController_updateCentralKitchen: { method: "PATCH", path: "/org/central-kitchens/{centralKitchenId}" },
+  OrganisationController_listLocations: { method: "GET", path: "/org/locations" },
   OrganisationController_getStation: { method: "GET", path: "/org/stations/{stationId}" },
   OrganisationController_updateStation: { method: "PATCH", path: "/org/stations/{stationId}" },
   OrganisationController_updateTable: { method: "PATCH", path: "/org/tables/{tableId}" },
@@ -8426,6 +8551,7 @@ export const ROUTES = {
   ScheduleController_create: { method: "POST", path: "/workforce/schedules" },
   ScheduleController_get: { method: "GET", path: "/workforce/schedules/{scheduleId}" },
   ScheduleController_createShift: { method: "POST", path: "/workforce/schedules/{scheduleId}/shifts" },
+  ReportingController_getSalesDailyRange: { method: "GET", path: "/reports/branches/{branchId}/sales-daily" },
 } as const;
 
 /** Every operation the document describes. */

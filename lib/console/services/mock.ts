@@ -56,6 +56,7 @@ import type {
   SecurityService,
   StationRoutingRule,
   StockItemCategory,
+  StorageArea,
   TreasuryService,
   SubstituteGroup,
   ServiceRegistry,
@@ -69,7 +70,7 @@ import { branchById, branches, brands, centralKitchens, stations, stockLocations
 import { combos, menuCategories, menuItems, modifierGroups, recipes } from "../mock/catalogue";
 import { sellableTaxClassesForBranch } from "../mock/branch-tax-classes";
 import { stockItemCategories, stockItems } from "../mock/stock-items";
-import { batches, countSessions, stockAdjustments, stockLevels, stockMovements, transfers, wasteRecords } from "../mock/inventory";
+import { batches, countSessions, stockAdjustments, stockLevels, stockMovements, storageAreas, transfers, wasteRecords } from "../mock/inventory";
 import { goodsReceipts, purchaseOrders, requisitions, supplierInvoices, suppliers } from "../mock/purchasing";
 import { kitchenTickets, openOrders, orders } from "../mock/sales";
 import { attendanceRecords, employees, employeePerformance, overtimeRecords, scheduledShifts } from "../mock/workforce";
@@ -1406,6 +1407,10 @@ function mockUnitCodeOf(baseUnitId: Id | undefined): UnitCode {
 const demoStockItemCategories: StockItemCategory[] = [...stockItemCategories];
 let demoCategorySeq = demoStockItemCategories.length;
 
+/** FR-INV-040 — mutable so a demo-mode `createStorageArea` call persists for the session. */
+const demoStorageAreas: StorageArea[] = [...storageAreas];
+let demoStorageAreaSeq = demoStorageAreas.length;
+
 /** The category catalogue has no per-locale name — both locales read the same string. */
 function categoryDisplayOf(categoryId: Id | null | undefined): Localised | undefined {
   const name = demoStockItemCategories.find((row) => row.id === categoryId)?.name;
@@ -1435,6 +1440,15 @@ const demoReorderConfig = new Map<string, { reorderPoint: string; reorderQuantit
 
 const nameOfLocation = (locationId: Id): Localised =>
   stockLocations.find((row) => row.id === locationId)?.name ?? { en: locationId, ar: locationId };
+
+/** The four D-INV-05 count scopes — mirrors the backend's own generic label. */
+type CountScopeType = "full_location" | "category" | "storage_area" | "item_list";
+const COUNT_SCOPE_TYPE_LABEL: Record<CountScopeType, Localised> = {
+  full_location: { en: "Full location", ar: "الموقع بالكامل" },
+  category: { en: "Category", ar: "الفئة" },
+  storage_area: { en: "Storage area", ar: "منطقة تخزين" },
+  item_list: { en: "Item list", ar: "قائمة عناصر" },
+};
 
 const inventory: InventoryService = {
   items: makeCollection({
@@ -1521,29 +1535,41 @@ const inventory: InventoryService = {
     filters: { status: (c) => c.status, mode: (c) => c.mode, locationId: (c) => c.locationId },
     sorters: {
       openedAt: (c) => c.openedAt,
-      netVarianceValue: (c) => Math.abs(c.netVarianceValue.amount),
-      flaggedCount: (c) => c.flaggedCount,
+      netVarianceValue: (c) => Math.abs(c.netVarianceValue?.amount ?? 0),
+      flaggedCount: (c) => c.flaggedCount ?? 0,
     },
-    factory: (input, id) => ({
-      id,
-      tenantId: tenants[0]!.id,
-      locationId: input.locationId ?? branches[0]!.id,
-      locationName: (input.locationName as Localised) ?? branches[0]!.name,
-      reference: `CNT-${Math.floor(Math.random() * 9000) + 1000}`,
-      scope: (input.scope as Localised) ?? { en: "Ad-hoc list", ar: "قائمة مخصصة" },
-      mode: input.mode ?? "blind",
-      status: "draft",
-      openedAt: new Date().toISOString(),
-      submittedAt: null,
-      postedAt: null,
-      countedBy: employees[0]!.id,
-      countedByName: employees[0]!.name,
-      postedBy: null,
-      lineCount: 0,
-      flaggedCount: 0,
-      netVarianceValue: { amount: 0, currency: "EGP" },
-      lines: [],
-    }),
+    factory: (input, id) => {
+      // `OpenCountDrawer` smuggles the real `scopeType`/`itemIds` through
+      // this same `Partial<CountSession>` slot (`as never`, mirroring the
+      // backend's own generic `OpenCountInput.scopeId`) since neither is a
+      // `CountSession` field — read the real value at runtime rather than
+      // falling back to a generic label, or a storage-area/category count
+      // opened in mock mode would show as "Ad-hoc list" forever.
+      const scopeType = (input as unknown as { scopeType?: CountScopeType }).scopeType;
+      const scope: Localised = (input.scope as Localised) ?? COUNT_SCOPE_TYPE_LABEL[scopeType ?? "item_list"];
+      return {
+        id,
+        tenantId: tenants[0]!.id,
+        locationId: input.locationId ?? branches[0]!.id,
+        locationName: (input.locationName as Localised) ?? branches[0]!.name,
+        reference: `CNT-${Math.floor(Math.random() * 9000) + 1000}`,
+        scope,
+        scopeId: input.scopeId ?? null,
+        mode: input.mode ?? "blind",
+        status: "draft",
+        openedAt: new Date().toISOString(),
+        submittedAt: null,
+        postedAt: null,
+        countedBy: employees[0]!.id,
+        countedByName: employees[0]!.name,
+        postedBy: null,
+        requiresApproval: false,
+        lineCount: 0,
+        flaggedCount: 0,
+        netVarianceValue: { amount: 0, currency: "EGP" },
+        lines: [],
+      };
+    },
   }),
   transfers: makeCollection({
     rows: transfers,
@@ -1762,6 +1788,39 @@ const inventory: InventoryService = {
       };
       demoStockItemCategories.push(created);
       return created;
+    });
+  },
+
+  // -- Storage areas -------------------------------------------------------
+
+  async storageAreas(locationId) {
+    return transport(() =>
+      (locationId
+        ? demoStorageAreas.filter((row) => row.locationId === locationId)
+        : [...demoStorageAreas]
+      ).sort((a, b) => a.name.localeCompare(b.name)),
+    );
+  },
+
+  async createStorageArea(input) {
+    return transport(() => {
+      demoStorageAreaSeq += 1;
+      const created: StorageArea = {
+        id: `sar_${demoStorageAreaSeq}`,
+        locationId: input.locationId,
+        name: input.name,
+      };
+      demoStorageAreas.push(created);
+      return created;
+    });
+  },
+
+  async setStorageAreaAssignment(itemId, input) {
+    return transport(() => {
+      const level = stockLevels.find(
+        (row) => row.itemId === itemId && row.locationId === input.locationId,
+      );
+      if (level) level.storageAreaId = input.storageAreaId ?? null;
     });
   },
 

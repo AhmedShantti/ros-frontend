@@ -660,6 +660,18 @@ export interface StockItemCategory {
   parentId: Id | null;
 }
 
+/**
+ * FR-INV-040 — one row of a tenant's storage-area catalogue for a single
+ * Inventory Location (`GET /inventory/storage-areas`). A physical
+ * subdivision ("Walk-in Chiller") — never `StockItem.storage` (a
+ * temperature classification) and never a POS dining-table section.
+ */
+export interface StorageArea {
+  id: Id;
+  locationId: Id;
+  name: string;
+}
+
 export interface InventoryService {
   items: CollectionService<StockItem>;
   levels: ReadonlyCollectionService<StockLevel>;
@@ -710,6 +722,17 @@ export interface InventoryService {
   categories(): Promise<StockItemCategory[]>;
   /** FR-INV-001 — create a category, optionally nested under a parent. */
   createCategory(input: { name: string; parentId?: Id }): Promise<StockItemCategory>;
+
+  // -- Storage areas -------------------------------------------------------
+  /** FR-INV-040 — the catalogue a storage_area-scoped Count's scopeId is chosen from. */
+  storageAreas(locationId?: Id): Promise<StorageArea[]>;
+  /** FR-INV-040 — create a storage area belonging to exactly one Location. */
+  createStorageArea(input: { locationId: Id; name: string }): Promise<StorageArea>;
+  /** FR-INV-040 — deterministic item+location membership; null clears it. */
+  setStorageAreaAssignment(
+    itemId: Id,
+    input: { locationId: Id; storageAreaId: Id | null },
+  ): Promise<void>;
 
   // -- Computed reports ------------------------------------------------------
   lowStock(query?: ScopedQuery): Promise<LowStockRow[]>;

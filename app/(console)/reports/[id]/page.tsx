@@ -36,6 +36,10 @@ import { PageBody, PageHeader, Section, Toolbar } from "@/components/console/pag
 import { AsyncPanel } from "@/components/console/states";
 import { ExportButton } from "@/components/console/export-button";
 import { CategoryBarChart } from "@/components/console/charts";
+import { PeriodComparison } from "@/components/console/report-compare";
+import { loadSalesRollup, reportToday } from "@/lib/console/reports/rollup";
+import { delta } from "@/lib/console/reports/periods";
+import { resolveComparison, type CompareMode } from "@/lib/console/reports/periods";
 import {
   Badge,
   Button,
@@ -43,9 +47,9 @@ import {
   Drawer,
   Field,
   Meter,
+  SegmentedControl,
   Select,
   Toast,
-  Toggle,
   cx,
 } from "@/components/console/ui";
 
@@ -68,38 +72,91 @@ function Runner({ id }: { id: string }) {
   const [range, setRange] = useState<DateRange>(() => resolvePreset("last30"));
   const [branchId, setBranchId] = useState<string>(scope.branchId ?? "");
   const [groupBy, setGroupBy] = useState<string>(() => GROUPINGS[id]?.[0]?.key ?? "");
-  const [compare, setCompare] = useState(false);
+  const [mode, setMode] = useState<CompareMode>("off");
   const [drilling, setDrilling] = useState<{ label: string; rows: DrillRow[] } | null>(null);
   const [nonce, setNonce] = useState(0);
 
   const catalogue = useAsync<ReportDefinition[]>(() => services.platform.reports(), []);
   const definition = (catalogue.data ?? []).find((entry) => entry.id === id) ?? null;
 
+  // A comparison fixes the period: "this week" and "this year" are not
+  // free-form ranges, so the date picker steps aside while one is chosen.
+  const periods = useMemo(() => resolveComparison(mode, reportToday()), [mode]);
+  const active = periods ? periods.current : range;
+  const activeScope = { ...scope, branchId: branchId || scope.branchId };
+  const isSales = definition?.category === "sales";
+
   const result = useAsync<ReportResult>(
     () =>
       runReport(id, {
-        from: range.from,
-        to: range.to,
-        scope: { ...scope, branchId: branchId || scope.branchId },
+        from: active.from,
+        to: active.to,
+        scope: activeScope,
         groupBy,
-        compare,
+        compare: mode !== "off",
         locale,
       }),
-    [id, range.from, range.to, branchId, groupBy, compare, locale, nonce],
+    [id, active.from, active.to, branchId, groupBy, mode, locale, nonce],
+  );
+
+  // Sales reports compare through the daily rollup (FR-RPT-002): a year of
+  // orders is not something a browser should page through.
+  const rollup = useAsync(
+    () =>
+      periods && isSales
+        ? loadSalesRollup(
+            activeScope,
+            branches.map((branch) => ({ id: branch.id, name: branch.name })),
+          )
+        : Promise.resolve(null),
+    [mode, isSales, branchId, branches, nonce],
+  );
+
+  // Every other report is run a second time over the previous period, and the
+  // table gains a previous and a change column for its headline figure.
+  const previous = useAsync<ReportResult | null>(
+    () =>
+      periods && definition && !isSales
+        ? runReport(id, {
+            from: periods.previous.from,
+            to: periods.previous.to,
+            scope: activeScope,
+            groupBy,
+            compare: true,
+            locale,
+          })
+        : Promise.resolve(null),
+    [id, mode, definition, isSales, branchId, groupBy, locale, nonce],
   );
 
   const allowed = definition ? canAny([definition.requiredPermission]) : true;
   const groupings = GROUPINGS[id] ?? [];
 
   const filterSummary = useMemo(() => {
-    const parts = [`${range.from} → ${range.to}`];
+    const parts = [`${active.from} → ${active.to}`];
     if (branchId) {
       const branch = branches.find((entry) => entry.id === branchId);
       if (branch) parts.push(tx(branch.name));
     }
     if (groupBy) parts.push(groupBy);
     return parts.join(" · ");
-  }, [range, branchId, branches, groupBy, tx]);
+  }, [active.from, active.to, branchId, branches, groupBy, tx]);
+
+  // Non-sales reports: the headline column, the previous run, and the notice
+  // for when the previous period has nothing in it.
+  const cmp = useMemo(() => {
+    const data = result.data;
+    const prev = previous.data;
+    if (!periods || isSales || !data || !prev || !data.chart) return null;
+    const column = data.columns.find((entry) => entry.key === data.chart!.valueKey);
+    if (!column) return null;
+    return {
+      column,
+      rows: new Map(prev.rows.map((row) => [row.id, row])),
+      total: Number(prev.totals?.[column.key] ?? 0),
+      empty: prev.rows.length === 0,
+    };
+  }, [periods, isSales, result.data, previous.data]);
 
   async function drill(rowId: string) {
     const data = result.data;
@@ -184,9 +241,25 @@ function Runner({ id }: { id: string }) {
         {/* -- Parameters -------------------------------------------------- */}
         <Section title={t("rep.parameters")} spec="§19.3">
           <div className="space-y-4">
-            <DateRangeField value={range} onChange={setRange} label={t("common.period")} />
+            <div className="space-y-2">
+              <SegmentedControl<CompareMode>
+                label={t("rep.cmp.mode")}
+                value={mode}
+                onChange={setMode}
+                options={[
+                  { value: "off", label: t("rep.cmp.off") },
+                  { value: "week", label: t("rep.cmp.week") },
+                  { value: "year", label: t("rep.cmp.year") },
+                ]}
+              />
+              {periods ? (
+                <p className="text-fg-subtle text-xs">{t("rep.cmp.fixedPeriod")}</p>
+              ) : (
+                <DateRangeField value={range} onChange={setRange} label={t("common.period")} />
+              )}
+            </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <Field label={t("common.branch")}>
                 <Select value={branchId} onChange={(event) => setBranchId(event.target.value)}>
                   <option value="">{t("common.all")}</option>
@@ -209,18 +282,20 @@ function Runner({ id }: { id: string }) {
                   </Select>
                 </Field>
               ) : null}
-
-              <div className="flex items-end">
-                <Toggle
-                  checked={compare}
-                  onChange={setCompare}
-                  label={t("rep.compare")}
-                  hint={t("rep.compareHint")}
-                />
-              </div>
             </div>
           </div>
         </Section>
+
+        {/* -- Comparison (sales reports) ---------------------------------- */}
+        {periods && isSales ? (
+          <AsyncPanel state={rollup}>
+            {(data) => (data ? <PeriodComparison periods={periods} rollup={data} /> : null)}
+          </AsyncPanel>
+        ) : null}
+
+        {periods && isSales ? (
+          <Callout tone="muted">{t("rep.cmp.ordersNote")}</Callout>
+        ) : null}
 
         {/* -- Result ------------------------------------------------------ */}
         <AsyncPanel state={result}>
@@ -258,6 +333,12 @@ function Runner({ id }: { id: string }) {
                   </Section>
                 ) : null}
 
+                {cmp?.empty ? (
+                  <Callout tone="warn" title={t("rep.cmp.noPreviousTitle")}>
+                    {t("rep.cmp.noPreviousBody")}
+                  </Callout>
+                ) : null}
+
                 <Section title={t("rep.results")} padded={false}>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -284,6 +365,16 @@ function Runner({ id }: { id: string }) {
                               {t(column.header as never)}
                             </th>
                           ))}
+                          {cmp ? (
+                            <>
+                              <th scope="col" className="text-fg-muted px-3 py-2 text-end text-xs font-medium">
+                                {t("rep.cmp.previous")}
+                              </th>
+                              <th scope="col" className="text-fg-muted px-3 py-2 text-end text-xs font-medium">
+                                {t("rep.cmp.change")}
+                              </th>
+                            </>
+                          ) : null}
                           {data.drill ? <th scope="col" className="w-8" /> : null}
                         </tr>
                       </thead>
@@ -347,6 +438,18 @@ function Runner({ id }: { id: string }) {
                                 );
                               })}
 
+                              {cmp ? (
+                                <PreviousCells
+                                  column={cmp.column}
+                                  current={Number(row.values[cmp.column.key] ?? 0)}
+                                  previous={
+                                    cmp.rows.has(row.id)
+                                      ? Number(cmp.rows.get(row.id)!.values[cmp.column.key] ?? 0)
+                                      : null
+                                  }
+                                />
+                              ) : null}
+
                               {data.drill ? (
                                 <td className="px-2 py-2">
                                   <ChevronRight
@@ -387,6 +490,13 @@ function Runner({ id }: { id: string }) {
                                 </td>
                               );
                             })}
+                            {cmp ? (
+                              <PreviousCells
+                                column={cmp.column}
+                                current={Number(data.totals?.[cmp.column.key] ?? 0)}
+                                previous={cmp.total}
+                              />
+                            ) : null}
                             {data.drill ? <td /> : null}
                           </tr>
                         </tfoot>
@@ -463,4 +573,44 @@ function Runner({ id }: { id: string }) {
 /** The currency a numeric column is denominated in, if any. */
 function currencyOf(result: ReportResult, key: string): string | undefined {
   return result.columns.find((column) => column.key === key)?.currency;
+}
+
+/** The previous-period value and its change, for one row or the total. */
+function PreviousCells({
+  column,
+  current,
+  previous,
+}: {
+  column: { currency?: string };
+  current: number;
+  previous: number | null;
+}) {
+  const { fmt } = useI18n();
+  const show = (value: number) =>
+    column.currency
+      ? formatMoney(money(value, column.currency as never), fmt)
+      : formatNumber(value, fmt, 1);
+
+  if (previous === null) {
+    return (
+      <>
+        <td className="text-fg-subtle px-3 py-2 text-end font-mono">—</td>
+        <td className="text-fg-subtle px-3 py-2 text-end font-mono">—</td>
+      </>
+    );
+  }
+
+  const change = delta(current, previous);
+  const tone = change.direction === "flat" ? "text-fg-muted" : change.direction === "up" ? "text-good" : "text-bad";
+
+  return (
+    <>
+      <td className="text-fg-muted px-3 py-2 text-end font-mono tabular-nums">{show(previous)}</td>
+      <td className={cx("px-3 py-2 text-end font-mono tabular-nums", tone)}>
+        {change.percent === null
+          ? "—"
+          : `${change.change > 0 ? "+" : change.change < 0 ? "−" : ""}${formatNumber(Math.abs(change.percent), fmt, 1)}%`}
+      </td>
+    </>
+  );
 }

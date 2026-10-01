@@ -1620,6 +1620,23 @@
         ],
         "type": "object"
       },
+      "CreateStorageAreaDto": {
+        "properties": {
+          "locationId": {
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "locationId",
+          "name"
+        ],
+        "type": "object"
+      },
       "CreateSubstituteGroupDto": {
         "properties": {
           "name": {
@@ -2360,7 +2377,8 @@
             "enum": [
               "full_location",
               "category",
-              "item_list"
+              "item_list",
+              "storage_area"
             ],
             "type": "string"
           }
@@ -3100,6 +3118,20 @@
           "locationId",
           "reorderPoint",
           "reorderQuantity"
+        ],
+        "type": "object"
+      },
+      "SetStorageAreaAssignmentDto": {
+        "properties": {
+          "locationId": {
+            "type": "string"
+          },
+          "storageAreaId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "locationId"
         ],
         "type": "object"
       },
@@ -15552,6 +15584,162 @@
       }
     },
     "/inventory/counts": {
+      "get": {
+        "operationId": "InventoryController_listCounts",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "locationId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "isBlindCount": {
+                        "type": "boolean"
+                      },
+                      "lineCount": {
+                        "type": "integer"
+                      },
+                      "locationId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "postedAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "postedBy": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "requiresApproval": {
+                        "type": "boolean"
+                      },
+                      "scopeId": {
+                        "description": "The category id (scopeType=category) or storage area id (scopeType=storage_area); null otherwise.",
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "scopeType": {
+                        "enum": [
+                          "full_location",
+                          "category",
+                          "storage_area",
+                          "item_list"
+                        ],
+                        "type": "string"
+                      },
+                      "startedAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "startedBy": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "in_progress",
+                          "posted",
+                          "cancelled"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Up to 200 count sessions matching the given filters."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The named location is not visible in this tenant — unknown, or another tenant's. Byte-identical for both."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List count sessions, newest first (FR-INV-050).",
+        "tags": [
+          "inventory"
+        ]
+      },
       "post": {
         "operationId": "InventoryController_openCount",
         "parameters": [],
@@ -15582,12 +15770,56 @@
                     "lineCount": {
                       "type": "integer"
                     },
+                    "locationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "postedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "postedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "requiresApproval": {
+                      "type": "boolean"
+                    },
+                    "scopeId": {
+                      "description": "The category id (scopeType=category) or storage area id (scopeType=storage_area); null otherwise.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "scopeType": {
                       "enum": [
                         "full_location",
                         "category",
+                        "storage_area",
                         "item_list"
                       ],
+                      "type": "string"
+                    },
+                    "startedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "startedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
                       "type": "string"
                     },
                     "status": {
@@ -15652,6 +15884,147 @@
           }
         ],
         "summary": "Open a count session and freeze expected quantities for its scope.",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/counts/{sessionId}": {
+      "get": {
+        "operationId": "InventoryController_getCount",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "isBlindCount": {
+                      "type": "boolean"
+                    },
+                    "lineCount": {
+                      "type": "integer"
+                    },
+                    "locationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "postedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "postedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "requiresApproval": {
+                      "type": "boolean"
+                    },
+                    "scopeId": {
+                      "description": "The category id (scopeType=category) or storage area id (scopeType=storage_area); null otherwise.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "scopeType": {
+                      "enum": [
+                        "full_location",
+                        "category",
+                        "storage_area",
+                        "item_list"
+                      ],
+                      "type": "string"
+                    },
+                    "startedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "startedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "in_progress",
+                        "posted",
+                        "cancelled"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The count session."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Count session not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get one count session (FR-INV-050).",
         "tags": [
           "inventory"
         ]
@@ -16806,6 +17179,104 @@
         ]
       }
     },
+    "/inventory/items/{itemId}/storage-area": {
+      "post": {
+        "operationId": "InventoryController_setStorageAreaAssignment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetStorageAreaAssignmentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "locationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "stockItemId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "storageAreaId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The current assignment (storageAreaId is null once cleared)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stock item, location or storage area not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "FR-INV-040 — deterministic item+location storage-area membership,\nindependent of on-hand quantity (a never-moved, zero-stock item may\nstill be assigned). `storageAreaId: null` clears the assignment.",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
     "/inventory/levels": {
       "get": {
         "operationId": "InventoryController_levels",
@@ -16855,6 +17326,15 @@
                         "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                         "format": "uuid",
                         "type": "string"
+                      },
+                      "storageAreaId": {
+                        "description": "FR-INV-040 — the current storage area for this item+location pair, if assigned.",
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
                       }
                     },
                     "type": "object"
@@ -17409,6 +17889,169 @@
           }
         ],
         "summary": "FR-INV-011/051 computation. Scheduling deferred (D-INV-08).",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/storage-areas": {
+      "get": {
+        "operationId": "InventoryController_listStorageAreas",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "locationId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "locationId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Storage areas in the tenant, optionally filtered by locationId."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The named location is not visible in this tenant — unknown, or another tenant's. Byte-identical for both."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the storage area catalogue, optionally by location (FR-INV-040).",
+        "tags": [
+          "inventory"
+        ]
+      },
+      "post": {
+        "operationId": "InventoryController_createStorageArea",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStorageAreaDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "locationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The created storage area."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Location not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "tags": [
           "inventory"
         ]
@@ -35966,6 +36609,81 @@
         ]
       }
     },
+    "/org/locations": {
+      "get": {
+        "operationId": "OrganisationController_listLocations",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "createdAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "locationType": {
+                        "enum": [
+                          "branch",
+                          "warehouse",
+                          "central_kitchen"
+                        ],
+                        "type": "string"
+                      },
+                      "refId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every Inventory-valid location in the tenant."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The unified location registry Inventory keys `locationId` on — a Branch,\na Warehouse or a Central Kitchen may each own one, and `id` here is the\nonly id Inventory endpoints (counts, movements, waste, ...) accept. A\ncaller resolves a readable name itself by joining `refId`/`locationType`\nagainst `GET /org/branches`/`GET /org/warehouses`/`GET /org/central-kitchens`.",
+        "tags": [
+          "organisation"
+        ]
+      }
+    },
     "/org/stations/{stationId}": {
       "get": {
         "operationId": "OrganisationController_getStation",
@@ -48286,6 +49004,230 @@
         "summary": "FR-HRM-010/012 — create one validated scheduled shift.",
         "tags": [
           "workforce-schedules"
+        ]
+      }
+    },
+    "/reports/branches/{branchId}/sales-daily": {
+      "get": {
+        "description": "The data behind period comparison (this week vs last week, this year vs last year). One row per business day that had settled sales or a refund, with grossSales, discounts, refunds, taxTotal and netSales (= grossSales − discounts − refunds − taxTotal), using exactly the daily-trading report’s population and formulas. Query-time aggregation over the transactional primary — NOT a rollup (FR-RPT-002 remains NOT IMPLEMENTED). Requires BOTH report.view.sales and report.view.financial, held by one assignment covering this branch. The range is at most 800 days; a `to` after the branch’s current business day is clamped (see `toClamped`), a `from` after it is 400. Money is a decimal (minor-unit) string, never a JSON number.",
+        "operationId": "ReportingController_getSalesDailyRange",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "branchCurrentBusinessDay": {
+                      "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                      "example": "2026-08-23",
+                      "format": "date",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "type": "string"
+                    },
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "currency": {
+                      "description": "ISO 4217 currency code.",
+                      "example": "EGP",
+                      "type": "string"
+                    },
+                    "currencySource": {
+                      "enum": [
+                        "TRANSACTION",
+                        "BRANCH_FALLBACK"
+                      ],
+                      "type": "string"
+                    },
+                    "dataAsOf": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "days": {
+                      "description": "Ascending; days with no sales and no refunds are absent.",
+                      "items": {
+                        "properties": {
+                          "businessDay": {
+                            "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                            "example": "2026-08-23",
+                            "format": "date",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                            "type": "string"
+                          },
+                          "discounts": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "grossSales": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "netSales": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "orderCount": {
+                            "type": "integer"
+                          },
+                          "refunds": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "taxTotal": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "businessDay",
+                          "orderCount",
+                          "grossSales",
+                          "discounts",
+                          "refunds",
+                          "taxTotal",
+                          "netSales"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "from": {
+                      "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
+                      "example": "2026-08-23",
+                      "format": "date",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "type": "string"
+                    },
+                    "to": {
+                      "description": "The range actually answered; `to` is clamped to the branch’s current business day.",
+                      "example": "2026-08-23",
+                      "format": "date",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "type": "string"
+                    },
+                    "toClamped": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "branchId",
+                    "from",
+                    "to",
+                    "currency",
+                    "currencySource",
+                    "dataAsOf",
+                    "branchCurrentBusinessDay",
+                    "toClamped",
+                    "days"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Per-business-day sales totals for the range."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or malformed from/to, from after to, a range over 800 days, from after the branch’s current business day, or any other query parameter."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A PIN/POS session; no active tenant context; report.view.sales and report.view.financial are not both held by one assignment covering this branch; the branch is not active; or the tenant still holds unreviewed migration-inherited role assignments."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "branchId is unknown or belongs to another tenant — byte-identical response for both."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "More than one transaction currency was observed in the range."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Branch sales totals per business day over a date range (dashboard-only; authorized against the branch it names).",
+        "tags": [
+          "reporting"
         ]
       }
     }

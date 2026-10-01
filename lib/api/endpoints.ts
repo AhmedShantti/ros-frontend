@@ -436,9 +436,17 @@ export const inventory = {
   recordCount: (lineId: string, body: S.RecordCountDto) =>
     http.post<S.InventoryController_recordCountResponse>("/inventory/count-lines/{lineId}", { params: { lineId }, body }),
 
+  /** `GET /inventory/counts` — List count sessions, newest first (FR-INV-050). — Up to 200 count sessions matching the given filters. */
+  listCounts: (options: { status?: string; mode?: string; locationId?: string } = {}) =>
+    http.get<S.InventoryController_listCountsResponse>("/inventory/counts", { query: { status: options.status, mode: options.mode, locationId: options.locationId } }),
+
   /** `POST /inventory/counts` — Open a count session and freeze expected quantities for its scope. — The opened count session. */
   openCount: (body: S.OpenCountDto) =>
     http.post<S.InventoryController_openCountResponse>("/inventory/counts", { body }),
+
+  /** `GET /inventory/counts/{sessionId}` — Get one count session (FR-INV-050). — The count session. */
+  getCount: (sessionId: string) =>
+    http.get<S.InventoryController_getCountResponse>("/inventory/counts/{sessionId}", { params: { sessionId } }),
 
   /** `GET /inventory/counts/{sessionId}/lines` — This session's count lines. expectedQuantity/countedQuantity/variance are null while a blind count is still in_progress and not yet recorded. */
   countLines: (sessionId: string) =>
@@ -476,6 +484,10 @@ export const inventory = {
   setReorderConfig: (itemId: string, body: S.SetReorderConfigDto) =>
     http.post<S.InventoryController_setReorderConfigResponse>("/inventory/items/{itemId}/reorder-config", { params: { itemId }, body }),
 
+  /** `POST /inventory/items/{itemId}/storage-area` — FR-INV-040 — deterministic item+location storage-area membership, independent of on-hand quantity (a never-moved, zero-stock item may still be assigned). `storageAreaId: null` clears the assignment. — The current assignment (storageAreaId is null once cleared). */
+  setStorageAreaAssignment: (itemId: string, body: S.SetStorageAreaAssignmentDto) =>
+    http.post<S.InventoryController_setStorageAreaAssignmentResponse>("/inventory/items/{itemId}/storage-area", { params: { itemId }, body }),
+
   /** `GET /inventory/levels` — Current stock levels (FR-INV-010/015). */
   levels: (options: { locationId?: string } = {}) =>
     http.get<S.InventoryController_levelsResponse>("/inventory/levels", { query: { locationId: options.locationId } }),
@@ -503,6 +515,14 @@ export const inventory = {
   /** `GET /inventory/reconciliation` — FR-INV-011/051 computation. Scheduling deferred (D-INV-08). — On-demand ledger-vs-projection reconciliation (FR-INV-011/051). Scheduling and alert delivery are deferred (D-INV-08). */
   reconcile: () =>
     http.get<S.InventoryController_reconcileResponse>("/inventory/reconciliation"),
+
+  /** `GET /inventory/storage-areas` — List the storage area catalogue, optionally by location (FR-INV-040). — Storage areas in the tenant, optionally filtered by locationId. */
+  listStorageAreas: (options: { locationId?: string } = {}) =>
+    http.get<S.InventoryController_listStorageAreasResponse>("/inventory/storage-areas", { query: { locationId: options.locationId } }),
+
+  /** `POST /inventory/storage-areas` — The created storage area. */
+  createStorageArea: (body: S.CreateStorageAreaDto) =>
+    http.post<S.InventoryController_createStorageAreaResponse>("/inventory/storage-areas", { body }),
 
   /** `POST /inventory/transfers` — Dispatch a transfer (writes the transfer_out leg). — The dispatched transfer. */
   dispatch: (body: S.DispatchTransferDto) =>
@@ -896,6 +916,10 @@ export const organisation = {
   updateCentralKitchen: (centralKitchenId: string, body: S.UpdateCentralKitchenDto) =>
     http.patch<S.OrganisationController_updateCentralKitchenResponse>("/org/central-kitchens/{centralKitchenId}", { params: { centralKitchenId }, body }),
 
+  /** `GET /org/locations` — The unified location registry Inventory keys `locationId` on — a Branch, a Warehouse or a Central Kitchen may each own one, and `id` here is the only id Inventory endpoints (counts, movements, waste, ...) accept. A caller resolves a readable name itself by joining `refId`/`locationType` against `GET /org/branches`/`GET /org/warehouses`/`GET /org/central-kitchens`. — Every Inventory-valid location in the tenant. */
+  listLocations: () =>
+    http.get<S.OrganisationController_listLocationsResponse>("/org/locations"),
+
   /** `GET /org/stations/{stationId}` — The station. */
   getStation: (stationId: string) =>
     http.get<S.OrganisationController_getStationResponse>("/org/stations/{stationId}", { params: { stationId } }),
@@ -1096,6 +1120,10 @@ export const reporting = {
   /** `GET /reports/branches/{branchId}/overview` — Branch operational overview — sales, cash, inventory, workforce, kds (dashboard-only; authorized against the branch it names). — The operational overview: sales, cash (WHOLE_SESSION scope, unchanged from daily-trading), inventory (branch-scoped low-stock count + calendar-day waste), workforce (branch-scoped calendar-day attendance summary), kds (business-day ticket counts + real prep duration where measurable), and a scope block disclosing exactly what this Demo/Operational slice does and does not cover. */
   getOperationalOverview: (branchId: string, options: { businessDay?: string } = {}) =>
     http.get<S.ReportingController_getOperationalOverviewResponse>("/reports/branches/{branchId}/overview", { params: { branchId }, query: { businessDay: options.businessDay } }),
+
+  /** `GET /reports/branches/{branchId}/sales-daily` — Branch sales totals per business day over a date range (dashboard-only; authorized against the branch it names). — Per-business-day sales totals for the range. */
+  getSalesDailyRange: (branchId: string, options: { from?: string; to?: string } = {}) =>
+    http.get<S.ReportingController_getSalesDailyRangeResponse>("/reports/branches/{branchId}/sales-daily", { params: { branchId }, query: { from: options.from, to: options.to } }),
 
 };
 

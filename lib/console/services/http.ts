@@ -328,6 +328,14 @@ const accessibleBranchesRaw = cached(() =>
   api.organisation.getAccessibleScope().then((r) => r.branches),
 );
 const warehousesRaw = cached(() => api.organisation.listWarehouses());
+const centralKitchensRaw = cached(() => api.organisation.listCentralKitchens());
+/**
+ * FR-INV production regression — the org.locations registry row's OWN id is
+ * the only id Inventory's `locationId` (counts, transfers, adjustments,
+ * waste, batches, ...) accepts. It is NEVER the same id as the Branch,
+ * Warehouse or CentralKitchen it points at — see `locations` below.
+ */
+const inventoryLocationsRaw = cached(() => api.organisation.listLocations());
 const stockItemsRaw = cached(() => api.inventory.listItems());
 const menusRaw = cached(() => api.catalogue.listMenus());
 const menuItemsRaw = cached(() => api.catalogue.listItems());
@@ -336,14 +344,42 @@ const uomsRaw = cached(() => api.inventory.listUoms());
 const categoriesRaw = cached(() => api.inventory.listCategories());
 const availabilityRaw = cached(() => api.catalogue.listAvailabilityRules(), 5_000);
 
-/** Every place stock can sit: warehouses, central kitchens, and branches. */
+/**
+ * Every place stock can sit: warehouses, central kitchens, and branches —
+ * `id` is always the org.locations registry row's own id (`GET
+ * /org/locations`), never the underlying Branch/Warehouse/CentralKitchen id.
+ * A registry row whose referenced entity cannot be resolved (visible to this
+ * caller) is dropped rather than shown with a fabricated name.
+ */
 const locations = cached(async (): Promise<StockLocation[]> => {
   const tenantId = getTenantId() ?? "";
-  const [branches, warehouses] = await Promise.all([branchesRaw(), warehousesRaw()]);
-  return [
-    ...warehouses.map(map.warehouseLocation),
-    ...branches.map((row) => map.branchLocation(map.toBranch(row, tenantId))),
-  ];
+  const [registry, branches, warehouses, centralKitchens] = await Promise.all([
+    inventoryLocationsRaw(),
+    branchesRaw(),
+    warehousesRaw(),
+    centralKitchensRaw(),
+  ]);
+  const branchById = indexBy(branches, (row) => row.id);
+  const warehouseById = indexBy(warehouses, (row) => row.id);
+  const centralKitchenById = indexBy(
+    centralKitchens.map((row) => map.toCentralKitchen(row, tenantId)),
+    (row) => row.id,
+  );
+
+  return registry
+    .map((loc): StockLocation | null => {
+      if (loc.locationType === "branch") {
+        const branch = branchById.get(loc.refId);
+        return branch ? map.branchLocation(map.toBranch(branch, tenantId), loc.id) : null;
+      }
+      if (loc.locationType === "warehouse") {
+        const warehouse = warehouseById.get(loc.refId);
+        return warehouse ? map.warehouseLocation(warehouse, loc.id) : null;
+      }
+      const centralKitchen = centralKitchenById.get(loc.refId);
+      return centralKitchen ? map.centralKitchenLocation(centralKitchen, loc.id) : null;
+    })
+    .filter((row): row is StockLocation => row !== null);
 });
 
 const locationIndex = async () => indexBy(await locations(), (row) => row.id);
@@ -1685,20 +1721,45 @@ const movements: ReadonlyCollectionService<StockMovement> = {
 };
 
 const counts: CollectionService<CountSession> = {
-  /** No index endpoint; a session is reachable by id once it has been opened. */
-  async list() {
-    return emptyPage<CountSession>();
+  /** FR-INV-050 — every session this tenant has ever opened, newest first. */
+  async list(query = {}) {
+    const tenantId = getTenantId() ?? "";
+    const [rows, locationRows] = await Promise.all([
+      api.inventory.listCounts(),
+      locations(),
+    ]);
+    const locationById = indexBy(locationRows, (l) => l.id);
+    const mapped = rows.map((row) =>
+      map.toCountSession(row, { tenantId, location: locationById.get(row.locationId) }),
+    );
+    return project(mapped, query, {
+      search: (row) => [row.reference, row.locationName],
+      filters: {
+        status: (row) => row.status,
+        mode: (row) => row.mode,
+        locationId: (row) => row.locationId,
+      },
+      sorters: {
+        openedAt: (row) => row.openedAt,
+        flaggedCount: (row) => row.flaggedCount ?? 0,
+        netVarianceValue: (row) => row.netVarianceValue?.amount ?? 0,
+      },
+    });
   },
 
   async get(id) {
     const tenantId = getTenantId() ?? "";
-    const [lines, itemsById] = await Promise.all([
+    const [row, lines, itemsById, locationRows] = await Promise.all([
+      api.inventory.getCount(id),
       api.inventory.countLines(id),
       stockItemIndex(),
+      locations(),
     ]);
+    const locationById = indexBy(locationRows, (l) => l.id);
 
-    return map.toCountSession({ id } as S.InventoryController_openCountResponse, {
+    return map.toCountSession(row, {
       tenantId,
+      location: locationById.get(row.locationId),
       lines: lines.map((line) => map.toCountLine(line, { item: itemsById.get(line.stockItemId) })),
     });
   },
@@ -1939,6 +2000,37 @@ const inventory: InventoryService = {
       reorderPoint: input.reorderPoint,
       reorderQuantity: input.reorderQuantity,
     });
+    invalidateInventory();
+  },
+
+  // -- Storage areas -----------------------------------------------------------
+
+  async storageAreas(locationId) {
+    const rows = await api.inventory.listStorageAreas({ locationId });
+    return rows.map((row) => ({
+      id: row.id,
+      locationId: row.locationId,
+      name: row.name,
+    }));
+  },
+
+  async createStorageArea(input) {
+    const row = await api.inventory.createStorageArea({
+      locationId: input.locationId,
+      name: input.name,
+    });
+    return { id: row.id, locationId: row.locationId, name: row.name };
+  },
+
+  async setStorageAreaAssignment(itemId, input) {
+    // `storageAreaId: null` clears the assignment — the generated DTO type
+    // only allows `string | undefined` (class-validator's `@IsOptional()`
+    // treats an explicit `null` identically to an omitted field, same as
+    // `standardCost`'s `as never` smuggling elsewhere in this file).
+    await api.inventory.setStorageAreaAssignment(itemId, {
+      locationId: input.locationId,
+      storageAreaId: input.storageAreaId,
+    } as never);
     invalidateInventory();
   },
 

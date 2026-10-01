@@ -16,9 +16,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Plus, X } from "lucide-react";
-import type { CountLine, CountSession, StockItem } from "@/lib/console/types";
+import type { CountLine, CountSession, Id, Localised, StockItem } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { DATA_MODE } from "@/lib/api/config";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
@@ -56,12 +55,48 @@ import {
   Toggle,
 } from "@/components/console/ui";
 
-/** The three D-INV-05 count scopes the backend accepts — storage_area does not exist. */
-type CountScopeChoice = "full_location" | "category" | "item_list";
+/** The four D-INV-05 count scopes the backend accepts. */
+type CountScopeChoice = "full_location" | "category" | "storage_area" | "item_list";
 
 /** FR-INV-042 — the expected figure stays hidden until the count is in. */
 function expectedIsHidden(session: CountSession): boolean {
   return session.mode === "blind" && (session.status === "draft" || session.status === "counting");
+}
+
+/**
+ * FR-INV-040 — `scopeId` only ever names a category or a storage area.
+ * Resolving it against both real catalogues (never a raw UUID) is the same
+ * client-side lookup the Stock Levels area picker already relies on. The two
+ * catalogues' ids never overlap, so trying category then storage area is
+ * unambiguous.
+ */
+function useScopeCatalogues() {
+  const categoriesQuery = useAsync(() => services.inventory.categories(), []);
+  const storageAreasQuery = useAsync(() => services.inventory.storageAreas(), []);
+  const categoryNameById = useMemo(
+    () => new Map((categoriesQuery.data ?? []).map((c) => [c.id, c.name] as const)),
+    [categoriesQuery.data],
+  );
+  const storageAreaNameById = useMemo(
+    () => new Map((storageAreasQuery.data ?? []).map((a) => [a.id, a.name] as const)),
+    [storageAreasQuery.data],
+  );
+  return { categoryNameById, storageAreaNameById };
+}
+
+/** The scope type label, plus the specific category/area name once resolvable. */
+function scopeDetail(
+  session: CountSession,
+  tx: (value: Localised | null | undefined) => string,
+  catalogues: { categoryNameById: Map<Id, string>; storageAreaNameById: Map<Id, string> },
+): string {
+  const label = tx(session.scope);
+  if (!session.scopeId) return label;
+  const name =
+    catalogues.categoryNameById.get(session.scopeId) ??
+    catalogues.storageAreaNameById.get(session.scopeId) ??
+    null;
+  return name ? `${label} — ${name}` : label;
 }
 
 export default function StockCountsPage() {
@@ -82,6 +117,7 @@ export function CountsScreen() {
   // Locations come from the service so the filter offers real ids.
   const locationList = useAsync(() => services.organisation.locations(), []);
   const locations = locationList.data ?? [];
+  const scopeCatalogues = useScopeCatalogues();
 
   const collection = useCollection<CountSession>(
     (query) => services.inventory.counts.list(query),
@@ -90,15 +126,31 @@ export function CountsScreen() {
 
   const totals = useMemo(() => {
     const rows = collection.rows;
+    // `flaggedCount`/`netVarianceValue` are only ever real on a row whose own
+    // lines have actually been fetched (never true for an index row — see
+    // `map.toCountSession`) — aggregating only over rows where they exist
+    // means these totals are either a genuine sum or, in the real backend
+    // today, honestly absent, never a fabricated zero.
+    const withVariance = rows.filter(
+      (row) => row.flaggedCount !== null && row.netVarianceValue !== null,
+    );
     return {
-      open: rows.filter((row) => row.status === "counting" || row.status === "draft").length,
-      awaiting: rows.filter((row) => row.status === "submitted").length,
-      flagged: rows.reduce((sum, row) => sum + row.flaggedCount, 0),
-      netVariance: rows.reduce((sum, row) => sum + row.netVarianceValue.amount, 0),
+      open: rows.filter((row) => row.status === "counting").length,
+      awaitingApproval: rows.filter(
+        (row) => row.status === "counting" && row.requiresApproval,
+      ).length,
+      flagged:
+        withVariance.length > 0
+          ? withVariance.reduce((sum, row) => sum + (row.flaggedCount ?? 0), 0)
+          : null,
+      netVariance:
+        withVariance.length > 0
+          ? withVariance.reduce((sum, row) => sum + (row.netVarianceValue?.amount ?? 0), 0)
+          : null,
     };
   }, [collection.rows]);
 
-  const currency = collection.rows[0]?.netVarianceValue.currency ?? "EGP";
+  const currency = collection.rows[0]?.netVarianceValue?.currency ?? "EGP";
 
   const columns = useMemo<Column<CountSession>[]>(
     () => [
@@ -108,7 +160,7 @@ export function CountsScreen() {
         render: (row) => (
           <CellStack
             primary={<span className="font-mono">{row.reference}</span>}
-            secondary={tx(row.scope)}
+            secondary={scopeDetail(row, tx, scopeCatalogues)}
           />
         ),
       },
@@ -145,7 +197,11 @@ export function CountsScreen() {
         sortable: true,
         numeric: true,
         render: (row) =>
-          row.flaggedCount === 0 ? (
+          row.flaggedCount === null ? (
+            <span className="text-fg-subtle" title={t("inv.countsVarianceUnavailable")}>
+              —
+            </span>
+          ) : row.flaggedCount === 0 ? (
             <span className="text-fg-subtle">—</span>
           ) : (
             <span className="text-warn font-semibold">{formatNumber(row.flaggedCount, fmt)}</span>
@@ -160,6 +216,10 @@ export function CountsScreen() {
           expectedIsHidden(row) ? (
             <span className="text-fg-subtle" title={t("inv.blindNote")}>
               ••••
+            </span>
+          ) : row.netVarianceValue === null ? (
+            <span className="text-fg-subtle" title={t("inv.countsVarianceUnavailable")}>
+              —
             </span>
           ) : (
             <DeltaCell value={row.netVarianceValue.amount}>
@@ -180,7 +240,7 @@ export function CountsScreen() {
         },
       },
     ],
-    [t, tx, fmt],
+    [t, tx, fmt, scopeCatalogues],
   );
 
   return (
@@ -199,22 +259,31 @@ export function CountsScreen() {
       <PageBody>
         <Callout tone="muted">{t("inv.blindNote")}</Callout>
 
-        {DATA_MODE === "http" ? (
-          <Callout tone="warn">{t("inv.countsNoIndex")}</Callout>
-        ) : null}
-
         <TileGrid columns={4}>
           <MetricTile label={t("inv.countsOpen")} value={formatNumber(totals.open, fmt)} />
           <MetricTile
             label={t("inv.countsAwaiting")}
-            value={formatNumber(totals.awaiting, fmt)}
+            value={formatNumber(totals.awaitingApproval, fmt)}
+            hint={t("inv.countsAwaitingHint")}
             spec="FR-INV-047"
           />
-          <MetricTile label={t("inv.flagged")} value={formatNumber(totals.flagged, fmt)} />
+          <MetricTile
+            label={t("inv.flagged")}
+            value={totals.flagged === null ? "—" : formatNumber(totals.flagged, fmt)}
+            hint={totals.flagged === null ? t("inv.countsVarianceUnavailable") : undefined}
+          />
           <MetricTile
             label={t("inv.netVariance")}
-            value={formatMoney({ amount: totals.netVariance, currency }, fmt, true)}
-            hint={t("inv.netVarianceHint")}
+            value={
+              totals.netVariance === null
+                ? "—"
+                : formatMoney({ amount: totals.netVariance, currency }, fmt, true)
+            }
+            hint={
+              totals.netVariance === null
+                ? t("inv.countsVarianceUnavailable")
+                : t("inv.netVarianceHint")
+            }
           />
         </TileGrid>
 
@@ -274,9 +343,8 @@ export function CountsScreen() {
         onOpened={(session) => {
           setOpening(false);
           setMessage(t("inv.countOpened"));
-          // There is no index to find this session again by, so it is
-          // opened straight into the detail drawer rather than left to a
-          // list that cannot show it (see `inv.countsNoIndex` above).
+          // Straight into the detail drawer, same as before — reloading the
+          // now-real index alone would leave the user looking at a list.
           setSelected(session);
           collection.reload();
         }}
@@ -303,6 +371,7 @@ function CountDrawer({
   const canCount = usePermission("inventory.count.perform");
   const action = useAction();
   const [editing, setEditing] = useState<CountLine | null>(null);
+  const scopeCatalogues = useScopeCatalogues();
 
   /**
    * Lines are fetched, not read off the row: `GET /inventory/counts` has no
@@ -421,7 +490,7 @@ function CountDrawer({
       open
       onClose={onClose}
       title={current.reference}
-      subtitle={tx(current.scope)}
+      subtitle={scopeDetail(current, tx, scopeCatalogues)}
       footer={
         canPost && (current.status === "submitted" || current.status === "counting") ? (
           <Button variant="primary" loading={action.pending} onClick={post}>
@@ -453,9 +522,9 @@ function CountDrawer({
             {current.postedAt ? formatDateTime(current.postedAt, fmt) : "—"}
           </DescRow>
           <DescRow label={t("inv.flagged")} mono>
-            {formatNumber(current.flaggedCount, fmt)} / {formatNumber(current.lineCount, fmt)}
+            {formatNumber(current.flaggedCount ?? 0, fmt)} / {formatNumber(current.lineCount, fmt)}
           </DescRow>
-          {!hidden ? (
+          {!hidden && current.netVarianceValue ? (
             <DescRow label={t("inv.netVariance")} mono>
               <DeltaCell value={current.netVarianceValue.amount}>
                 {formatMoney(current.netVarianceValue, fmt)}
@@ -594,6 +663,7 @@ function OpenCountDrawer({
   const [itemIds, setItemIds] = useState<string[]>([]);
   const [itemPicker, setItemPicker] = useState<string | null>(null);
   const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [storageAreaId, setStorageAreaId] = useState<string | null>(null);
 
   const locations = useAsync(() => services.organisation.locations(), []);
   // The real Stock Item catalogue — a D-INV-05 scope source with real
@@ -604,6 +674,13 @@ function OpenCountDrawer({
   // its scopeId from.
   const categoriesQuery = useAsync(() => services.inventory.categories(), []);
   const categories = categoriesQuery.data ?? [];
+  // FR-INV-040 — a storage area belongs to exactly one Location, so this is
+  // scoped to the currently-selected locationId, never the whole tenant.
+  const storageAreasQuery = useAsync(
+    () => (locationId ? services.inventory.storageAreas(locationId) : Promise.resolve([])),
+    [locationId],
+  );
+  const storageAreas = storageAreasQuery.data ?? [];
 
   useEffect(() => {
     const rows = locations.data;
@@ -623,7 +700,18 @@ function OpenCountDrawer({
       setItemIds([]);
       setItemPicker(null);
       setCategoryId(null);
+      setStorageAreaId(null);
     }
+  }
+
+  // A storage area belongs to exactly one Location — switching the Location
+  // must clear any previously-picked area the same way switching the scope
+  // itself already does, or a stale area from a different Location could
+  // leak into the request.
+  const [areaSeededForLocation, setAreaSeededForLocation] = useState(locationId);
+  if (areaSeededForLocation !== locationId) {
+    setAreaSeededForLocation(locationId);
+    setStorageAreaId(null);
   }
 
   function changeScope(next: CountScopeChoice) {
@@ -631,6 +719,7 @@ function OpenCountDrawer({
     setItemIds([]);
     setItemPicker(null);
     setCategoryId(null);
+    setStorageAreaId(null);
   }
 
   if (!open) return null;
@@ -644,10 +733,15 @@ function OpenCountDrawer({
     .filter((item): item is StockItem => Boolean(item));
 
   const categoryOptions: SearchOption[] = categories.map((c) => ({ value: c.id, label: c.name }));
+  const storageAreaOptions: SearchOption[] = storageAreas.map((a) => ({
+    value: a.id,
+    label: a.name,
+  }));
 
   const canSubmit =
     Boolean(locationId) &&
     (scopeType !== "category" || Boolean(categoryId)) &&
+    (scopeType !== "storage_area" || Boolean(storageAreaId)) &&
     (scopeType !== "item_list" || itemIds.length > 0);
 
   async function create() {
@@ -660,9 +754,16 @@ function OpenCountDrawer({
           // Not CountSession domain fields — smuggled through the same way
           // `standardCost` is on the Stock Item form. `scopeId`/`itemIds` are
           // omitted entirely outside their own scope: the backend rejects a
-          // scopeId outright on any scope but "category".
+          // scopeId outright on any scope but "category"/"storage_area". One
+          // generic wire field for both, exactly like the backend's own
+          // OpenCountInput.scopeId.
           scopeType,
-          scopeId: scopeType === "category" ? (categoryId ?? undefined) : undefined,
+          scopeId:
+            scopeType === "category"
+              ? (categoryId ?? undefined)
+              : scopeType === "storage_area"
+                ? (storageAreaId ?? undefined)
+                : undefined,
           itemIds: scopeType === "item_list" ? itemIds : undefined,
         } as never),
       { onSuccess: onOpened },
@@ -695,7 +796,11 @@ function OpenCountDrawer({
 
         <Callout tone="muted">{t("inv.newCountNote")}</Callout>
 
-        <AsyncPanel state={locations} isEmpty={(rows) => rows.length === 0}>
+        <AsyncPanel
+          state={locations}
+          isEmpty={(rows) => rows.length === 0}
+          empty={<Callout tone="warn">{t("inv.noLocationsConfigured")}</Callout>}
+        >
           {(rows) => (
             <Field label={t("common.location")} required>
               <Select
@@ -721,6 +826,7 @@ function OpenCountDrawer({
           >
             <option value="full_location">{t("inv.countScopeFullLocation")}</option>
             <option value="category">{t("inv.countScopeCategory")}</option>
+            <option value="storage_area">{t("inv.countScopeStorageArea")}</option>
             <option value="item_list">{t("inv.countScopeItemList")}</option>
           </Select>
         </Field>
@@ -738,6 +844,25 @@ function OpenCountDrawer({
                 onChange={setCategoryId}
                 placeholder={t("inv.countScopeCategoryPlaceholder")}
                 aria-label={t("inv.countScopeCategory")}
+                disabled={action.pending}
+              />
+            </Field>
+          )
+        ) : null}
+
+        {scopeType === "storage_area" ? (
+          storageAreasQuery.loading ? null : storageAreaOptions.length === 0 ? (
+            // An honest empty state, not a fake area or a raw id field —
+            // Create stays blocked (canSubmit) so the reason is explicit.
+            <Callout tone="warn">{t("inv.countScopeStorageAreaEmpty")}</Callout>
+          ) : (
+            <Field label={t("inv.countScopeStorageArea")} required>
+              <SearchSelect
+                options={storageAreaOptions}
+                value={storageAreaId}
+                onChange={setStorageAreaId}
+                placeholder={t("inv.countScopeStorageAreaPlaceholder")}
+                aria-label={t("inv.countScopeStorageArea")}
                 disabled={action.pending}
               />
             </Field>
