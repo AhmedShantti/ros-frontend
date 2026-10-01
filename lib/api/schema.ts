@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 201 paths, 136 request DTOs.
+ * `api/openapi.json`. 202 paths, 136 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -7787,6 +7787,38 @@ export type ScheduleController_createShiftResponse = {
 
 export type ScheduleController_createShiftBody = CreateScheduledShiftDto;
 
+/** `GET /reports/branches/{branchId}/sales-daily` — Branch sales totals per business day over a date range (dashboard-only; authorized against the branch it names). — Per-business-day sales totals for the range. */
+export type ReportingController_getSalesDailyRangeResponse = {
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  branchCurrentBusinessDay: string;
+  branchId: string;
+  /** ISO 4217 currency code. */
+  currency: string;
+  currencySource: "TRANSACTION" | "BRANCH_FALLBACK";
+  dataAsOf: string;
+  /** Ascending; days with no sales and no refunds are absent. */
+  days: ({
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discounts: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grossSales: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    netSales: string;
+    orderCount: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    refunds: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+  })[];
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  from: string;
+  /** The range actually answered; `to` is clamped to the branch’s current business day. */
+  to: string;
+  toClamped: boolean;
+};
+
 // ---------------------------------------------------------------------------
 // Route table
 // ---------------------------------------------------------------------------
@@ -8056,6 +8088,7 @@ export const ROUTES = {
   ScheduleController_create: { method: "POST", path: "/workforce/schedules" },
   ScheduleController_get: { method: "GET", path: "/workforce/schedules/{scheduleId}" },
   ScheduleController_createShift: { method: "POST", path: "/workforce/schedules/{scheduleId}/shifts" },
+  ReportingController_getSalesDailyRange: { method: "GET", path: "/reports/branches/{branchId}/sales-daily" },
 } as const;
 
 /** Every operation the document describes. */

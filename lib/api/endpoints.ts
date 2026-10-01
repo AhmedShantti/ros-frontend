@@ -1093,6 +1093,10 @@ export const reporting = {
   getOperationalOverview: (branchId: string, options: { businessDay?: string } = {}) =>
     http.get<S.ReportingController_getOperationalOverviewResponse>("/reports/branches/{branchId}/overview", { params: { branchId }, query: { businessDay: options.businessDay } }),
 
+  /** `GET /reports/branches/{branchId}/sales-daily` — Branch sales totals per business day over a date range (dashboard-only; authorized against the branch it names). — Per-business-day sales totals for the range. */
+  getSalesDailyRange: (branchId: string, options: { from?: string; to?: string } = {}) =>
+    http.get<S.ReportingController_getSalesDailyRangeResponse>("/reports/branches/{branchId}/sales-daily", { params: { branchId }, query: { from: options.from, to: options.to } }),
+
 };
 
 // ---------------------------------------------------------------------------
