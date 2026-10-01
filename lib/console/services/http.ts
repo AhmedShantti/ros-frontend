@@ -1719,20 +1719,45 @@ const movements: ReadonlyCollectionService<StockMovement> = {
 };
 
 const counts: CollectionService<CountSession> = {
-  /** No index endpoint; a session is reachable by id once it has been opened. */
-  async list() {
-    return emptyPage<CountSession>();
+  /** FR-INV-050 — every session this tenant has ever opened, newest first. */
+  async list(query = {}) {
+    const tenantId = getTenantId() ?? "";
+    const [rows, locationRows] = await Promise.all([
+      api.inventory.listCounts(),
+      locations(),
+    ]);
+    const locationById = indexBy(locationRows, (l) => l.id);
+    const mapped = rows.map((row) =>
+      map.toCountSession(row, { tenantId, location: locationById.get(row.locationId) }),
+    );
+    return project(mapped, query, {
+      search: (row) => [row.reference, row.locationName],
+      filters: {
+        status: (row) => row.status,
+        mode: (row) => row.mode,
+        locationId: (row) => row.locationId,
+      },
+      sorters: {
+        openedAt: (row) => row.openedAt,
+        flaggedCount: (row) => row.flaggedCount ?? 0,
+        netVarianceValue: (row) => row.netVarianceValue?.amount ?? 0,
+      },
+    });
   },
 
   async get(id) {
     const tenantId = getTenantId() ?? "";
-    const [lines, itemsById] = await Promise.all([
+    const [row, lines, itemsById, locationRows] = await Promise.all([
+      api.inventory.getCount(id),
       api.inventory.countLines(id),
       stockItemIndex(),
+      locations(),
     ]);
+    const locationById = indexBy(locationRows, (l) => l.id);
 
-    return map.toCountSession({ id } as S.InventoryController_openCountResponse, {
+    return map.toCountSession(row, {
       tenantId,
+      location: locationById.get(row.locationId),
       lines: lines.map((line) => map.toCountLine(line, { item: itemsById.get(line.stockItemId) })),
     });
   },
@@ -1973,6 +1998,37 @@ const inventory: InventoryService = {
       reorderPoint: input.reorderPoint,
       reorderQuantity: input.reorderQuantity,
     });
+    invalidateInventory();
+  },
+
+  // -- Storage areas -----------------------------------------------------------
+
+  async storageAreas(locationId) {
+    const rows = await api.inventory.listStorageAreas({ locationId });
+    return rows.map((row) => ({
+      id: row.id,
+      locationId: row.locationId,
+      name: row.name,
+    }));
+  },
+
+  async createStorageArea(input) {
+    const row = await api.inventory.createStorageArea({
+      locationId: input.locationId,
+      name: input.name,
+    });
+    return { id: row.id, locationId: row.locationId, name: row.name };
+  },
+
+  async setStorageAreaAssignment(itemId, input) {
+    // `storageAreaId: null` clears the assignment — the generated DTO type
+    // only allows `string | undefined` (class-validator's `@IsOptional()`
+    // treats an explicit `null` identically to an omitted field, same as
+    // `standardCost`'s `as never` smuggling elsewhere in this file).
+    await api.inventory.setStorageAreaAssignment(itemId, {
+      locationId: input.locationId,
+      storageAreaId: input.storageAreaId,
+    } as never);
     invalidateInventory();
   },
 

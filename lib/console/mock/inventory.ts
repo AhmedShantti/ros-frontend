@@ -17,6 +17,7 @@ import type {
   WasteRecord,
   WasteReason,
 } from "../types";
+import type { StorageArea } from "../services/types";
 import { ACTIVE_TENANT_ID, branches, locationById, stockLocations } from "./org";
 import { stockItems } from "./stock-items";
 import { chance, createRng, float, gaussian, int, pick, seqId } from "./rng";
@@ -28,6 +29,26 @@ const EGP = (amount: number): Money => ({ amount: Math.round(amount), currency: 
 
 /** Locations that actually hold stock in the demo. */
 export const inventoryLocations = stockLocations;
+
+// ---------------------------------------------------------------------------
+// Storage areas — FR-INV-040. A physical subdivision of one Location.
+// ---------------------------------------------------------------------------
+
+const STORAGE_AREA_NAMES = ["Walk-in Chiller", "Dry Store", "Freezer"];
+
+export const storageAreas: StorageArea[] = inventoryLocations.flatMap((loc, locIdx) =>
+  STORAGE_AREA_NAMES.map((name, i) => ({
+    id: seqId("sar", locIdx * STORAGE_AREA_NAMES.length + i + 1),
+    locationId: loc.id,
+    name,
+  })),
+);
+const storageAreasByLocation = new Map<string, StorageArea[]>();
+for (const area of storageAreas) {
+  const list = storageAreasByLocation.get(area.locationId) ?? [];
+  list.push(area);
+  storageAreasByLocation.set(area.locationId, list);
+}
 
 // ---------------------------------------------------------------------------
 // Waste reason taxonomy — SRS FR-INV-057
@@ -112,6 +133,10 @@ export const stockLevels: StockLevel[] = (() => {
                 ? "overstocked"
                 : "ok";
 
+      const areasHere = storageAreasByLocation.get(loc.id) ?? [];
+      const storageAreaId =
+        areasHere.length > 0 && chance(rng, 0.7) ? pick(rng, areasHere).id : null;
+
       out.push({
         itemId: stockItem.id,
         itemName: stockItem.name,
@@ -129,6 +154,7 @@ export const stockLevels: StockLevel[] = (() => {
         daysOfCover: onHand > 0 ? Math.round((onHand / dailyUse) * 10) / 10 : 0,
         lastCountedAt: chance(rng, 0.8) ? hoursAgo(int(rng, 12, 700)) : null,
         status,
+        storageAreaId,
       });
     }
   }
@@ -337,6 +363,10 @@ export const countSessions: CountSession[] = (() => {
       locationName: loc.name,
       reference: `CNT-${String(2600 + i)}`,
       scope: pick(rng, COUNT_SCOPES),
+      // These fixtures are decorative demo labels, not tied to a real
+      // category/storage-area row — an honest `null` beats fabricating an
+      // id that would fail to resolve to anything real.
+      scopeId: null,
       mode,
       status,
       openedAt,
@@ -345,6 +375,7 @@ export const countSessions: CountSession[] = (() => {
       countedBy: seqId("emp", int(rng, 1, 40)),
       countedByName: staff,
       postedBy: status === "posted" ? seqId("emp", int(rng, 1, 12)) : null,
+      requiresApproval: false,
       lineCount,
       flaggedCount: lines.filter((l) => l.flagged).length,
       netVarianceValue: EGP(net),

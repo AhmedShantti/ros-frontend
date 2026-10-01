@@ -963,6 +963,7 @@ export function toStockLevel(row: WireLevel, context: LevelContext = {}): StockL
     daysOfCover: null, // gap: needs a usage series the API does not expose.
     lastCountedAt: row.lastReconciledAt,
     status: levelStatus(onHand, reorderPoint),
+    storageAreaId: row.storageAreaId,
   };
 }
 
@@ -1070,44 +1071,73 @@ export function toCountLine(row: WireCountLine, context: LevelContext = {}): Cou
   };
 }
 
+type WireCountSession = S.InventoryController_listCountsResponse[number];
+
+/** The backend has no `submitted` state distinct from posting — always null. */
+const COUNT_STATUS_OF: Record<WireCountSession["status"], CountSession["status"]> = {
+  in_progress: "counting",
+  posted: "posted",
+  cancelled: "cancelled",
+};
+
 /**
- * `POST /inventory/counts` answers with the session it opened. The list of
- * sessions is not exposed, so a count only appears here once this client has
- * opened or read it.
+ * A readable label for the scope TYPE itself ("Storage area"), never the
+ * specific category/area a session is scoped to — that name is resolved
+ * separately by the caller from `scopeId` against whichever real catalogue
+ * it names (`services.inventory.categories()`/`storageAreas()`), the same
+ * client-side resolution already used for Stock Item categories.
+ */
+const COUNT_SCOPE_LABEL: Record<WireCountSession["scopeType"], string> = {
+  full_location: "Full location",
+  category: "Category",
+  storage_area: "Storage area",
+  item_list: "Item list",
+};
+
+/**
+ * FR-INV-050 — shared by `counts.list()` (`GET /inventory/counts`),
+ * `counts.get()` (`GET /inventory/counts/:id`) and `counts.create()`
+ * (`POST /inventory/counts`): all three now answer with the session's own
+ * real, persisted fields.
+ *
+ * `flaggedCount`/`netVarianceValue` need every line to compute truthfully —
+ * `context.lines` is only ever passed once a session's own lines have
+ * actually been fetched (`counts.get()`), never on an index row, so they
+ * stay `null` (honestly unavailable) rather than a fabricated zero.
  */
 export function toCountSession(
-  row: S.InventoryController_openCountResponse,
+  row: WireCountSession,
   context: { tenantId: Id; location?: StockLocation; lines?: CountLine[] },
 ): CountSession {
-  const lines = context.lines ?? [];
-  const record = row as unknown as Record<string, unknown>;
-  const id = String(record.id ?? "");
-
   return {
-    id,
+    id: row.id,
     tenantId: context.tenantId,
-    locationId: String(record.locationId ?? ""),
+    locationId: row.locationId,
     locationName: context.location?.name ?? EMPTY,
-    reference: id.slice(0, 8).toUpperCase(),
-    scope: localised(record.scopeType ?? "full_location"),
-    mode: record.isBlindCount ? "blind" : "open",
-    status: (record.status as CountSession["status"]) ?? "counting",
-    openedAt: String(record.openedAt ?? new Date().toISOString()),
+    reference: row.id.slice(0, 8).toUpperCase(),
+    scope: localised(COUNT_SCOPE_LABEL[row.scopeType]),
+    scopeId: row.scopeId,
+    mode: row.isBlindCount ? "blind" : "open",
+    status: COUNT_STATUS_OF[row.status],
+    openedAt: row.startedAt,
     submittedAt: null,
-    postedAt: (record.postedAt as string) ?? null,
-    countedBy: String(record.openedBy ?? ""),
+    postedAt: row.postedAt,
+    countedBy: row.startedBy,
     countedByName: EMPTY,
-    postedBy: (record.postedBy as string) ?? null,
-    lineCount: lines.length,
-    flaggedCount: lines.filter((line) => line.flagged).length,
-    netVarianceValue: lines.reduce(
-      (total, line) => ({
-        amount: total.amount + line.varianceValue.amount,
-        currency: line.varianceValue.currency,
-      }),
-      money(0),
-    ),
-    lines,
+    postedBy: row.postedBy,
+    requiresApproval: row.requiresApproval,
+    lineCount: context.lines?.length ?? row.lineCount,
+    flaggedCount: context.lines?.filter((line) => line.flagged).length ?? null,
+    netVarianceValue: context.lines
+      ? context.lines.reduce(
+          (total, line) => ({
+            amount: total.amount + line.varianceValue.amount,
+            currency: line.varianceValue.currency,
+          }),
+          money(0),
+        )
+      : null,
+    lines: context.lines ?? [],
   };
 }
 

@@ -21,7 +21,7 @@ import type { StockLevel } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
-import { useI18n, usePermission, useSession } from "@/lib/console/providers";
+import { useI18n, useSession } from "@/lib/console/providers";
 import { formatMoney, formatNumber, formatQuantity, unitLabel } from "@/lib/console/format";
 import { STOCK_STATUS } from "@/lib/console/labels";
 import { CellStack, CollectionTable, DataTable, type Column } from "@/components/console/data-table";
@@ -52,10 +52,9 @@ export default function StockLevelsPage() {
   );
 }
 
-function StockLevelsScreen() {
+export function StockLevelsScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
-  const canConfigure = usePermission("inventory.item.manage");
 
   const [configuring, setConfiguring] = useState<StockLevel | null>(null);
   const [message, setMessage] = useTransientMessage();
@@ -174,7 +173,7 @@ function StockLevelsScreen() {
           columns={columns}
           rowKey={(row) => `${row.itemId}-${row.locationId}`}
           caption={t("inv.levelsTitle")}
-          onRowClick={canConfigure ? setConfiguring : undefined}
+          onRowClick={setConfiguring}
           activeRowKey={
             configuring ? `${configuring.itemId}-${configuring.locationId}` : null
           }
@@ -310,6 +309,12 @@ function StockLevelsScreen() {
           lowStock.reload();
           collection.reload();
         }}
+        onAreaAssigned={() => {
+          // Never closes the drawer — a dropdown pick should not feel like
+          // submitting a form, unlike the reorder-config Save above.
+          setMessage(t("inv.storageAreaSaved"));
+          collection.reload();
+        }}
       />
 
       <Toast message={message} />
@@ -396,10 +401,12 @@ function ReorderConfigDrawer({
   level,
   onClose,
   onSaved,
+  onAreaAssigned,
 }: {
   level: StockLevel | null;
   onClose: () => void;
   onSaved: () => void;
+  onAreaAssigned: () => void;
 }) {
   const { t, tx, locale } = useI18n();
   const action = useAction();
@@ -493,7 +500,132 @@ function ReorderConfigDrawer({
             onChange={(event) => setQuantity(event.target.value)}
           />
         </Field>
+
+        <StorageAreaSection level={level} onAssigned={onAreaAssigned} />
       </div>
     </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * FR-INV-040 — the smallest Storage Area assignment control: shows the
+ * current area by readable name, lets a Manager pick a different one (or
+ * clear it) from THIS row's own Location, and an inline "New storage area"
+ * affordance with no Location field of its own — Location is already this
+ * row's own context, never asked for twice. Not a Storage Area Management
+ * page: no rename/delete/hierarchy here, matching the same minimal-lifecycle
+ * precedent as Stock Item categories.
+ *
+ * Self-saves on selection: a dedicated `useAction`, separate from the
+ * reorder-config Save button above, so choosing an area never depends on —
+ * or blocks — saving the reorder point/quantity fields, and never closes
+ * the drawer the way the reorder-config Save does.
+ */
+function StorageAreaSection({
+  level,
+  onAssigned,
+}: {
+  level: StockLevel;
+  onAssigned: () => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction();
+  const areasQuery = useAsync(
+    () => services.inventory.storageAreas(level.locationId),
+    [level.locationId],
+  );
+  const areas = areasQuery.data ?? [];
+
+  const [currentAreaId, setCurrentAreaId] = useState<string | null>(level.storageAreaId);
+  const key = `${level.itemId}-${level.locationId}`;
+  const [seededFor, setSeededFor] = useState(key);
+  if (seededFor !== key) {
+    setSeededFor(key);
+    setCurrentAreaId(level.storageAreaId);
+  }
+
+  const [creatingArea, setCreatingArea] = useState(false);
+  const [newAreaName, setNewAreaName] = useState("");
+
+  async function assign(storageAreaId: string) {
+    await action.run(
+      () =>
+        services.inventory.setStorageAreaAssignment(level.itemId, {
+          locationId: level.locationId,
+          storageAreaId: storageAreaId || null,
+        }),
+      {
+        onSuccess: () => {
+          setCurrentAreaId(storageAreaId || null);
+          onAssigned();
+        },
+      },
+    );
+  }
+
+  async function createArea() {
+    const trimmed = newAreaName.trim();
+    if (!trimmed) return;
+    const created = await action.run(() =>
+      services.inventory.createStorageArea({ locationId: level.locationId, name: trimmed }),
+    );
+    if (!created) return;
+    setNewAreaName("");
+    setCreatingArea(false);
+    areasQuery.reload();
+    await assign(created.id);
+  }
+
+  return (
+    <div className="space-y-2">
+      <Field label={t("inv.storageArea")} hint={t("inv.storageAreaHint")}>
+        <Select
+          aria-label={t("inv.storageArea")}
+          value={currentAreaId ?? ""}
+          onChange={(event) => assign(event.target.value)}
+          disabled={action.pending || areasQuery.loading}
+        >
+          <option value="">{t("common.none")}</option>
+          {areas.map((area) => (
+            <option key={area.id} value={area.id}>
+              {area.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+
+      {!creatingArea ? (
+        <Button type="button" variant="ghost" onClick={() => setCreatingArea(true)}>
+          {t("inv.addStorageArea")}
+        </Button>
+      ) : (
+        <div className="border-line space-y-2 rounded-lg border p-3">
+          <Field label={t("inv.storageAreaName")} required>
+            <Input
+              value={newAreaName}
+              onChange={(event) => setNewAreaName(event.target.value)}
+              maxLength={120}
+            />
+          </Field>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              loading={action.pending}
+              disabled={!newAreaName.trim()}
+              onClick={createArea}
+            >
+              {t("inv.addStorageArea")}
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setCreatingArea(false)}>
+              {t("common.cancel")}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
