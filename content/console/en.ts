@@ -2284,6 +2284,7 @@ export const consoleEn = {
   "inv.countScopeCategoryEmpty": "No categories exist yet — create one from Stock Items, or choose Full location or Item list instead.",
   "inv.countScopeCategoryPlaceholder": "Search categories by name",
   "inv.countScopeStorageAreaEmpty": "No storage areas exist yet for this location — create one from Stock Levels, or choose another scope instead.",
+  "inv.countScopeStorageAreaFor": "Showing storage areas for",
   "inv.countScopeStorageAreaPlaceholder": "Search storage areas by name",
   "inv.countItems": "Items to count",
   "inv.countItemsPlaceholder": "Search stock items by name or SKU",

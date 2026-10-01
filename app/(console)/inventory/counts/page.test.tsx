@@ -380,12 +380,130 @@ describe("Stock counts — scoped counting (FR-INV-040)", () => {
 
     await chooseScope(user, "inv.countScopeStorageArea");
 
-    await screen.findByText("inv.countScopeStorageAreaEmpty");
+    await screen.findByText(/inv\.countScopeStorageAreaEmpty/);
     expect(screen.queryByLabelText("inv.countScopeStorageArea")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "common.create" })).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "common.create" }));
     expect(countsCreate).not.toHaveBeenCalled();
+  });
+
+  it("names the selected Location in the empty state — production diagnosis for 'the area I just created doesn't show up'", async () => {
+    storageAreas.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+    const dialog = await screen.findByRole("dialog");
+    // Wait for the location default to actually land before switching scope
+    // — otherwise the location is still "" and the hint has nothing to show.
+    await within(dialog).findByText("Downtown");
+
+    await chooseScope(user, "inv.countScopeStorageArea");
+    expect(await screen.findByText(/inv\.countScopeStorageAreaEmpty.*Downtown/)).toBeInTheDocument();
+  });
+
+  it("names the selected Location as a hint on the loaded picker too", async () => {
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await openDrawer(user);
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByText("Downtown");
+
+    await chooseScope(user, "inv.countScopeStorageArea");
+    await screen.findByLabelText("inv.countScopeStorageArea");
+    expect(screen.getByText(/inv\.countScopeStorageAreaFor Downtown/)).toBeInTheDocument();
+  });
+
+  describe("production workflow — not an isolated mock that pre-seeds the final options", () => {
+    const LOCATION_MAIN = { id: "loc-main-registry-id", name: { en: "Main" } };
+    const LOCATION_WAREHOUSE = { id: "loc-wh-registry-id", name: { en: "Warehouse" } };
+    const AREA_UNDER_MAIN = { id: "area-under-main", locationId: LOCATION_MAIN.id, name: "Walk-in Chiller" };
+
+    beforeEach(() => {
+      // The real backend only ever returns areas for the EXACT locationId
+      // asked for (proven by the backend's own e2e suite) — a mock that
+      // ignores its argument would hide a real identity mismatch, so this
+      // one enforces it the same way the live service does.
+      storageAreas.mockImplementation((locationId: string) =>
+        Promise.resolve(locationId === LOCATION_MAIN.id ? [AREA_UNDER_MAIN] : []),
+      );
+    });
+
+    it("Location first, then Storage area scope: the area created under Main appears once Main is selected", async () => {
+      locations.mockResolvedValue([LOCATION_WAREHOUSE, LOCATION_MAIN]);
+      const user = userEvent.setup();
+      render(<CountsScreen />);
+      await openDrawer(user);
+      const dialog = await screen.findByRole("dialog");
+
+      // Auto-default picks the first registry row (Warehouse), not Main.
+      await waitFor(() => expect(storageAreas).toHaveBeenCalledWith(LOCATION_WAREHOUSE.id));
+
+      const locationTrigger = within(dialog).getByLabelText(/common\.location\b/);
+      await user.click(locationTrigger);
+      await user.click(screen.getByRole("option", { name: /Main/ }));
+
+      await chooseScope(user, "inv.countScopeStorageArea");
+      await waitFor(() => expect(storageAreas).toHaveBeenCalledWith(LOCATION_MAIN.id));
+
+      const picker = await screen.findByLabelText("inv.countScopeStorageArea");
+      await user.click(picker);
+      await user.click(await screen.findByRole("option", { name: /Walk-in Chiller/ }));
+
+      await user.click(screen.getByRole("button", { name: "common.create" }));
+      await waitFor(() =>
+        expect(countsCreate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            locationId: LOCATION_MAIN.id,
+            scopeType: "storage_area",
+            scopeId: AREA_UNDER_MAIN.id,
+            itemIds: undefined,
+          }),
+        ),
+      );
+    });
+
+    it("Storage area scope first, then Location: the catalogue still resolves to the picked Location", async () => {
+      locations.mockResolvedValue([LOCATION_WAREHOUSE, LOCATION_MAIN]);
+      const user = userEvent.setup();
+      render(<CountsScreen />);
+      await openDrawer(user);
+      const dialog = await screen.findByRole("dialog");
+
+      await chooseScope(user, "inv.countScopeStorageArea");
+
+      const locationTrigger = within(dialog).getByLabelText(/common\.location\b/);
+      await user.click(locationTrigger);
+      await user.click(screen.getByRole("option", { name: /Main/ }));
+
+      await waitFor(() => expect(storageAreas).toHaveBeenCalledWith(LOCATION_MAIN.id));
+      const picker = await screen.findByLabelText("inv.countScopeStorageArea");
+      await user.click(picker);
+      expect(await screen.findByRole("option", { name: /Walk-in Chiller/ })).toBeInTheDocument();
+    });
+
+    it("picking Main, then an area, then switching to Warehouse clears the area and reloads an empty catalogue for Warehouse", async () => {
+      locations.mockResolvedValue([LOCATION_MAIN, LOCATION_WAREHOUSE]);
+      const user = userEvent.setup();
+      render(<CountsScreen />);
+      await openDrawer(user);
+      const dialog = await screen.findByRole("dialog");
+
+      await chooseScope(user, "inv.countScopeStorageArea");
+      await waitFor(() => expect(storageAreas).toHaveBeenCalledWith(LOCATION_MAIN.id));
+      const picker = await screen.findByLabelText("inv.countScopeStorageArea");
+      await user.click(picker);
+      await user.click(await screen.findByRole("option", { name: /Walk-in Chiller/ }));
+      expect(within(dialog).getByText("Walk-in Chiller")).toBeInTheDocument();
+
+      const locationTrigger = within(dialog).getByLabelText(/common\.location\b/);
+      await user.click(locationTrigger);
+      await user.click(screen.getByRole("option", { name: /Warehouse/ }));
+
+      await waitFor(() => expect(storageAreas).toHaveBeenCalledWith(LOCATION_WAREHOUSE.id));
+      expect(within(dialog).queryByText("Walk-in Chiller")).not.toBeInTheDocument();
+      await screen.findByText(/inv\.countScopeStorageAreaEmpty/);
+    });
   });
 
   it("switching scope away from Storage area clears the previously-picked area — no stale scopeId leaks into the request", async () => {

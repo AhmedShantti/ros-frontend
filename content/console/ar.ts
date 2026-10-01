@@ -2270,6 +2270,7 @@ export const consoleAr: ConsoleCopy = {
   "inv.countScopeCategoryEmpty": "لا توجد فئات بعد — أنشئ واحدة من شاشة الأصناف، أو اختر الموقع بالكامل أو قائمة أصناف بدلاً من ذلك.",
   "inv.countScopeCategoryPlaceholder": "ابحث عن الفئات بالاسم",
   "inv.countScopeStorageAreaEmpty": "لا توجد مناطق تخزين لهذا الموقع بعد — أنشئ واحدة من شاشة مستويات المخزون، أو اختر نطاقًا آخر.",
+  "inv.countScopeStorageAreaFor": "عرض مناطق التخزين لـ",
   "inv.countScopeStorageAreaPlaceholder": "ابحث عن مناطق التخزين بالاسم",
   "inv.countItems": "الأصناف المطلوب جردها",
   "inv.countItemsPlaceholder": "ابحث عن الأصناف بالاسم أو رمز التخزين",

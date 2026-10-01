@@ -737,6 +737,11 @@ function OpenCountDrawer({
     value: a.id,
     label: a.name,
   }));
+  // A storage area belongs to exactly one Location, and the picker above
+  // can silently default to one the caller never meant — naming it here
+  // turns a confusing "my area doesn't show up" into an obvious "wrong
+  // location is selected", never a UUID.
+  const selectedLocationName = locations.data?.find((loc) => loc.id === locationId)?.name ?? null;
 
   const canSubmit =
     Boolean(locationId) &&
@@ -854,9 +859,25 @@ function OpenCountDrawer({
           storageAreasQuery.loading ? null : storageAreaOptions.length === 0 ? (
             // An honest empty state, not a fake area or a raw id field —
             // Create stays blocked (canSubmit) so the reason is explicit.
-            <Callout tone="warn">{t("inv.countScopeStorageAreaEmpty")}</Callout>
+            // Naming the Location here is the whole fix: a storage area
+            // belongs to exactly one Location, so an empty catalogue is far
+            // more often "wrong Location selected" than "none exist yet".
+            <Callout tone="warn">
+              {t("inv.countScopeStorageAreaEmpty")}
+              {selectedLocationName
+                ? ` ${t("inv.countScopeStorageAreaFor")} ${tx(selectedLocationName)}.`
+                : ""}
+            </Callout>
           ) : (
-            <Field label={t("inv.countScopeStorageArea")} required>
+            <Field
+              label={t("inv.countScopeStorageArea")}
+              hint={
+                selectedLocationName
+                  ? `${t("inv.countScopeStorageAreaFor")} ${tx(selectedLocationName)}`
+                  : undefined
+              }
+              required
+            >
               <SearchSelect
                 options={storageAreaOptions}
                 value={storageAreaId}
