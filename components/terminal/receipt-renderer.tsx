@@ -142,12 +142,27 @@ function Logo({ src, className }: { src: string; className?: string }) {
  * tokens, which turn light in the dark theme — light grey on white is
  * unreadable — so a receipt drawn as paper overrides them.
  */
+/**
+ * The console's colour utilities (`text-fg`, `border-line`…) are declared with
+ * `@theme inline`, so they read the underlying `--c-*` variables directly and
+ * ignore a `--color-*` override. The paper has to set both.
+ */
+const PAPER_ALIASES = (fg: string, muted: string, subtle: string, line: string, bad: string) =>
+  ({
+    "--c-fg": fg,
+    "--c-fg-muted": muted,
+    "--c-fg-subtle": subtle,
+    "--c-line": line,
+    "--c-bad": bad,
+  }) as const;
+
 const THERMAL_PAPER_COLOURS = {
   "--color-fg": "#111111",
   "--color-fg-muted": "#444444",
   "--color-fg-subtle": "#6b6b6b",
   "--color-line": "#c9c9c9",
   "--color-bad": "#b42318",
+  ...PAPER_ALIASES("#111111", "#444444", "#6b6b6b", "#c9c9c9", "#b42318"),
 } as const;
 
 const CLASSIC_PAPER_COLOURS = {
@@ -156,6 +171,7 @@ const CLASSIC_PAPER_COLOURS = {
   "--color-fg-subtle": "#77776f",
   "--color-line": "#d2d0c8",
   "--color-bad": "#b42318",
+  ...PAPER_ALIASES("#1d1d1b", "#55554f", "#77776f", "#d2d0c8", "#b42318"),
 } as const;
 
 const CLASSIC_PAPER = "#fbfaf7";
