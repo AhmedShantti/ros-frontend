@@ -433,17 +433,28 @@ export function toCentralKitchen(row: WireCentralKitchen, tenantId: Id): Central
   };
 }
 
-export function branchLocation(branch: Branch): StockLocation {
-  return { id: branch.id, kind: "branch", name: branch.name, code: branch.code };
+/**
+ * `locationId` is the org.locations registry row's OWN id — never
+ * `branch.id`. Inventory's authorization-target resolver looks a
+ * `locationId` up against that registry by its own id, so a Branch's own
+ * id is a different, unrelated UUID that never resolves (D-INV production
+ * regression: "Location not found.").
+ */
+export function branchLocation(branch: Branch, locationId: Id): StockLocation {
+  return { id: locationId, kind: "branch", name: branch.name, code: branch.code };
 }
 
-export function warehouseLocation(row: WireWarehouse): StockLocation {
+export function warehouseLocation(row: WireWarehouse, locationId: Id): StockLocation {
   return {
-    id: row.id,
+    id: locationId,
     kind: row.warehouseType === "central" ? "central_kitchen" : "warehouse",
     name: localised(row.name),
     code: row.warehouseType.toUpperCase().slice(0, 3),
   };
+}
+
+export function centralKitchenLocation(ck: CentralKitchen, locationId: Id): StockLocation {
+  return { id: locationId, kind: "central_kitchen", name: ck.name, code: ck.code };
 }
 
 // ---------------------------------------------------------------------------
@@ -893,6 +904,7 @@ export function toStockItem(row: WireStockItem, tenantId: Id, category: Localise
     sku: row.sku,
     name: localised(row.names),
     category,
+    categoryId: row.categoryId,
     baseUnit: unitOf(row.baseUnitId),
     baseUnitId: row.baseUnitId,
     purchaseUnit: unitOf(row.baseUnitId), // gap: no purchase-unit conversion yet.
@@ -905,7 +917,10 @@ export function toStockItem(row: WireStockItem, tenantId: Id, category: Localise
     shelfLifeDays: row.shelfLifeDays,
     defaultSupplierId: null, // gap: purchasing is not implemented.
     allergens: [],
-    unitCost: money(row.standardCost),
+    // `standardCost` is already a minor-unit integer string on the wire —
+    // `minorMoney`, not `money` (which reads a *decimal* string and would
+    // scale an already-minor-unit "1234" up by another 100x).
+    unitCost: minorMoney(row.standardCost),
     active: row.isActive,
   };
 }

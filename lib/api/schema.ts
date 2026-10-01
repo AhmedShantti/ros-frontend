@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 197 paths, 133 request DTOs.
+ * `api/openapi.json`. 198 paths, 134 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -442,6 +442,11 @@ export interface CreateStationRoutingRuleDto {
   modifierId?: string;
   priority?: number;
   stationId: string;
+}
+
+export interface CreateStockItemCategoryDto {
+  name: string;
+  parentId?: string;
 }
 
 export interface CreateStockItemDto {
@@ -2768,6 +2773,22 @@ export type HealthController_checkResponse = {
   status: "ok";
 };
 
+/** `GET /inventory/categories` — List the stock item category catalogue (FR-INV-001). — All stock item categories in the tenant. */
+export type InventoryController_listCategoriesResponse = ({
+  id: string;
+  name: string;
+  parentId: string | null;
+})[];
+
+/** `POST /inventory/categories` — The created stock item category. */
+export type InventoryController_createCategoryResponse = {
+  id: string;
+  name: string;
+  parentId: string | null;
+};
+
+export type InventoryController_createCategoryBody = CreateStockItemCategoryDto;
+
 /** `POST /inventory/count-lines/{lineId}` — Record a counted quantity for one count line. — The updated count line. */
 export type InventoryController_recordCountResponse = {
   /** Decimal quantity as a string (preserves exact precision). */
@@ -3042,25 +3063,13 @@ export type InventoryController_receiveResponse = {
 
 export type InventoryController_receiveBody = ReceiveTransferDto;
 
-/** `GET /inventory/uoms` — Units of measure and the conversions between them. — Every unit a stock item, recipe line or yield may reference, plus generic conversions and those specific to this tenant's stock items. */
-export type InventoryController_listUnitsResponse = {
-  conversions: ({
-    /** Multiply a quantity in fromUnit by this to get toUnit. */
-    factor: string;
-    fromUnitId: string;
-    /** Null for a generic conversion; else item-specific. */
-    stockItemId: string | null;
-    toUnitId: string;
-  })[];
-  units: ({
-    baseUnitOfDimension: boolean;
-    code: string;
-    /** e.g. mass, volume, count. */
-    dimension: string;
-    id: string;
-    name: string;
-  })[];
-};
+/** `GET /inventory/uoms` — List the unit-of-measure catalogue (FR-INV-001). — Every unit of measure known to the platform. */
+export type InventoryController_listUomsResponse = ({
+  code: string;
+  dimension: string;
+  id: string;
+  name: string;
+})[];
 
 /** `GET /inventory/waste` — The most recent 200 waste records, newest first. */
 export type InventoryController_listWasteResponse = ({
@@ -6036,6 +6045,14 @@ export type OrganisationController_updateCentralKitchenResponse = {
 
 export type OrganisationController_updateCentralKitchenBody = UpdateCentralKitchenDto;
 
+/** `GET /org/locations` — The unified location registry Inventory keys `locationId` on — a Branch, a Warehouse or a Central Kitchen may each own one, and `id` here is the only id Inventory endpoints (counts, movements, waste, ...) accept. A caller resolves a readable name itself by joining `refId`/`locationType` against `GET /org/branches`/`GET /org/warehouses`/`GET /org/central-kitchens`. — Every Inventory-valid location in the tenant. */
+export type OrganisationController_listLocationsResponse = ({
+  createdAt: string;
+  id: string;
+  locationType: "branch" | "warehouse" | "central_kitchen";
+  refId: string;
+})[];
+
 /** `GET /org/stations/{stationId}` — The station. */
 export type OrganisationController_getStationResponse = {
   branchId: string;
@@ -6647,22 +6664,17 @@ export type ProductionController_recipesRequiringCompletionResponse = {
   /** The branch this report was resolved for; null for the tenant-wide view. */
   branchId: string | null;
   entries: ({
-    /** Empty for absent_recipe; structural gap codes for incomplete_recipe; `<gap reason>:<component id>` (e.g. `no_valuation:<stock item id>`) for unpriced_ingredient and unconvertible_unit. */
+    /** Empty for absent_recipe. */
     detail: string[];
     menuItemId: string;
-    /** absent_recipe / incomplete_recipe: BR-MNU-012, sold at zero or partial cost. unpriced_ingredient: a finished recipe with an ingredient that has no cost yet, sold at the partial cost of what can be priced. unconvertible_unit: a recipe unit cannot be converted to the ingredient stock unit; the sale is refused until it is fixed. */
-    reason: "absent_recipe" | "incomplete_recipe" | "unpriced_ingredient" | "unconvertible_unit";
-    /** The published version concerned; null for absent_recipe. */
+    reason: "absent_recipe" | "incomplete_recipe";
+    /** The incomplete published version; null for absent_recipe. */
     recipeVersionId: string | null;
     variantId: string;
   })[];
   incompleteCount: number;
   /** Active variants examined — the denominator of the completeness metric. */
   sellableVariantCount: number;
-  /** Entries with reason unconvertible_unit. */
-  unconvertibleCount: number;
-  /** Entries with reason unpriced_ingredient. */
-  unpricedCount: number;
 };
 
 /** `GET /recipes/{recipeId}/versions` — Version history, newest first, each with its lines. */
@@ -7087,38 +7099,6 @@ export type ReportingController_getOperationalOverviewResponse = {
     windowFrom: string;
     windowTo: string;
   };
-};
-
-/** `GET /reports/branches/{branchId}/sales-daily` — Branch sales totals per business day over a date range (dashboard-only; authorized against the branch it names). — Per-business-day sales totals for the range. */
-export type ReportingController_getSalesDailyRangeResponse = {
-  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
-  branchCurrentBusinessDay: string;
-  branchId: string;
-  /** ISO 4217 currency code. */
-  currency: string;
-  currencySource: "TRANSACTION" | "BRANCH_FALLBACK";
-  dataAsOf: string;
-  /** Ascending; days with no sales and no refunds are absent. */
-  days: ({
-    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
-    businessDay: string;
-    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
-    discounts: string;
-    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
-    grossSales: string;
-    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
-    netSales: string;
-    orderCount: number;
-    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
-    refunds: string;
-    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
-    taxTotal: string;
-  })[];
-  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
-  from: string;
-  /** The range actually answered; `to` is clamped to the branch’s current business day. */
-  to: string;
-  toClamped: boolean;
 };
 
 /** `POST /service-charge-policy/branch/{branchId}` — The newly created branch-level service-charge policy version. */
@@ -7819,6 +7799,8 @@ export const ROUTES = {
   AuditQueryController_search: { method: "GET", path: "/governance/audit/entries" },
   AuditQueryController_exportEntries: { method: "GET", path: "/governance/audit/entries/export" },
   HealthController_check: { method: "GET", path: "/health" },
+  InventoryController_listCategories: { method: "GET", path: "/inventory/categories" },
+  InventoryController_createCategory: { method: "POST", path: "/inventory/categories" },
   InventoryController_recordCount: { method: "POST", path: "/inventory/count-lines/{lineId}" },
   InventoryController_openCount: { method: "POST", path: "/inventory/counts" },
   InventoryController_countLines: { method: "GET", path: "/inventory/counts/{sessionId}/lines" },
@@ -7839,7 +7821,7 @@ export const ROUTES = {
   InventoryController_reconcile: { method: "GET", path: "/inventory/reconciliation" },
   InventoryController_dispatch: { method: "POST", path: "/inventory/transfers" },
   InventoryController_receive: { method: "POST", path: "/inventory/transfers/receive" },
-  InventoryController_listUnits: { method: "GET", path: "/inventory/uoms" },
+  InventoryController_listUoms: { method: "GET", path: "/inventory/uoms" },
   InventoryController_listWaste: { method: "GET", path: "/inventory/waste" },
   InventoryController_recordWaste: { method: "POST", path: "/inventory/waste" },
   KdsStationsController_listStations: { method: "GET", path: "/kds/stations" },
@@ -7905,6 +7887,7 @@ export const ROUTES = {
   OrganisationController_createCentralKitchen: { method: "POST", path: "/org/central-kitchens" },
   OrganisationController_getCentralKitchen: { method: "GET", path: "/org/central-kitchens/{centralKitchenId}" },
   OrganisationController_updateCentralKitchen: { method: "PATCH", path: "/org/central-kitchens/{centralKitchenId}" },
+  OrganisationController_listLocations: { method: "GET", path: "/org/locations" },
   OrganisationController_getStation: { method: "GET", path: "/org/stations/{stationId}" },
   OrganisationController_updateStation: { method: "PATCH", path: "/org/stations/{stationId}" },
   OrganisationController_updateTable: { method: "PATCH", path: "/org/tables/{tableId}" },
@@ -7957,7 +7940,6 @@ export const ROUTES = {
   ReportingController_getDailyTradingReport: { method: "GET", path: "/reports/branches/{branchId}/daily-trading/{businessDay}" },
   ReportingController_getComboRevenueAllocation: { method: "GET", path: "/reports/branches/{branchId}/orders/{orderLineId}/combo-allocation/{businessDay}" },
   ReportingController_getOperationalOverview: { method: "GET", path: "/reports/branches/{branchId}/overview" },
-  ReportingController_getSalesDailyRange: { method: "GET", path: "/reports/branches/{branchId}/sales-daily" },
   ServiceChargePolicyController_createBranchPolicy: { method: "POST", path: "/service-charge-policy/branch/{branchId}" },
   ServiceChargePolicyController_createBrandPolicy: { method: "POST", path: "/service-charge-policy/brand/{brandId}" },
   ServiceChargePolicyController_resolve: { method: "GET", path: "/service-charge-policy/resolve" },

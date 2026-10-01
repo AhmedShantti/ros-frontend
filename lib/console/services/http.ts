@@ -163,6 +163,7 @@ export const API_COVERAGE = {
     "inventory.receiveTransfer",
     "inventory.setReorderConfig",
     "inventory.reasonCodes",
+    "inventory.unitsOfMeasure",
     "inventory.lowStock",
     "inventory.negativeStock",
     "inventory.reconciliation",
@@ -325,20 +326,58 @@ const accessibleBranchesRaw = cached(() =>
   api.organisation.getAccessibleScope().then((r) => r.branches),
 );
 const warehousesRaw = cached(() => api.organisation.listWarehouses());
+const centralKitchensRaw = cached(() => api.organisation.listCentralKitchens());
+/**
+ * FR-INV production regression — the org.locations registry row's OWN id is
+ * the only id Inventory's `locationId` (counts, transfers, adjustments,
+ * waste, batches, ...) accepts. It is NEVER the same id as the Branch,
+ * Warehouse or CentralKitchen it points at — see `locations` below.
+ */
+const inventoryLocationsRaw = cached(() => api.organisation.listLocations());
 const stockItemsRaw = cached(() => api.inventory.listItems());
 const menusRaw = cached(() => api.catalogue.listMenus());
 const menuItemsRaw = cached(() => api.catalogue.listItems());
 const reasonCodesRaw = cached(() => api.inventory.listReasonCodes());
+const uomsRaw = cached(() => api.inventory.listUoms());
+const categoriesRaw = cached(() => api.inventory.listCategories());
 const availabilityRaw = cached(() => api.catalogue.listAvailabilityRules(), 5_000);
 
-/** Every place stock can sit: warehouses, central kitchens, and branches. */
+/**
+ * Every place stock can sit: warehouses, central kitchens, and branches —
+ * `id` is always the org.locations registry row's own id (`GET
+ * /org/locations`), never the underlying Branch/Warehouse/CentralKitchen id.
+ * A registry row whose referenced entity cannot be resolved (visible to this
+ * caller) is dropped rather than shown with a fabricated name.
+ */
 const locations = cached(async (): Promise<StockLocation[]> => {
   const tenantId = getTenantId() ?? "";
-  const [branches, warehouses] = await Promise.all([branchesRaw(), warehousesRaw()]);
-  return [
-    ...warehouses.map(map.warehouseLocation),
-    ...branches.map((row) => map.branchLocation(map.toBranch(row, tenantId))),
-  ];
+  const [registry, branches, warehouses, centralKitchens] = await Promise.all([
+    inventoryLocationsRaw(),
+    branchesRaw(),
+    warehousesRaw(),
+    centralKitchensRaw(),
+  ]);
+  const branchById = indexBy(branches, (row) => row.id);
+  const warehouseById = indexBy(warehouses, (row) => row.id);
+  const centralKitchenById = indexBy(
+    centralKitchens.map((row) => map.toCentralKitchen(row, tenantId)),
+    (row) => row.id,
+  );
+
+  return registry
+    .map((loc): StockLocation | null => {
+      if (loc.locationType === "branch") {
+        const branch = branchById.get(loc.refId);
+        return branch ? map.branchLocation(map.toBranch(branch, tenantId), loc.id) : null;
+      }
+      if (loc.locationType === "warehouse") {
+        const warehouse = warehouseById.get(loc.refId);
+        return warehouse ? map.warehouseLocation(warehouse, loc.id) : null;
+      }
+      const centralKitchen = centralKitchenById.get(loc.refId);
+      return centralKitchen ? map.centralKitchenLocation(centralKitchen, loc.id) : null;
+    })
+    .filter((row): row is StockLocation => row !== null);
 });
 
 const locationIndex = async () => indexBy(await locations(), (row) => row.id);
@@ -910,14 +949,21 @@ const production: import("./types").ProductionService = {
 
   async requiringCompletion(branchId) {
     const report = await api.production.recipesRequiringCompletion({ branchId });
+    // The current backend's RecipeCompletenessReason is absent_recipe /
+    // incomplete_recipe only — it does not send unpricedCount/
+    // unconvertibleCount at all yet, so the generated wire type has no such
+    // fields. Our own richer domain type always carries them (UI depends on
+    // it); read them defensively and default to 0 until the backend adds
+    // those two reasons, rather than widening the generated response type
+    // to a shape the server doesn't actually produce.
+    const extra = report as unknown as { unpricedCount?: number; unconvertibleCount?: number };
     return {
       branchId: report.branchId,
       sellableVariantCount: report.sellableVariantCount,
       absentCount: report.absentCount,
       incompleteCount: report.incompleteCount,
-      // Older backends do not send these two counts; absent means none.
-      unpricedCount: report.unpricedCount ?? 0,
-      unconvertibleCount: report.unconvertibleCount ?? 0,
+      unpricedCount: extra.unpricedCount ?? 0,
+      unconvertibleCount: extra.unconvertibleCount ?? 0,
       entries: report.entries.map((entry) => ({
         menuItemId: entry.menuItemId,
         variantId: entry.variantId,
@@ -1530,29 +1576,40 @@ const stockItems: CollectionService<StockItem> = {
   },
 
   async create(input) {
-    if (!input.baseUnit) {
+    if (!input.baseUnitId) {
       throw new ServiceError("BAD_REQUEST", "Choose a base unit for the item.", 400);
     }
     const row = await api.inventory.createItem({
       sku: input.sku ?? "",
       names: map.toNameMap(input.name),
-      // The API keys units by id; the console works in unit codes. Register
-      // the tenant's units with `registerUnits()` for this to round-trip.
-      baseUnitId: input.baseUnit,
+      // `baseUnitId` — the unit's own real UUID, exactly the field
+      // `StockItem.baseUnitId` documents this for. `baseUnit` (a `UnitCode`)
+      // is the display-only code resolved through the unit registry; it is
+      // never itself a valid id and must not be sent to the API.
+      baseUnitId: input.baseUnitId,
+      categoryId: input.categoryId ?? undefined,
       costingMethod: input.costingMethod,
       isBatchTracked: input.batchTracked,
       expiryTracked: input.expiryTracked,
       shelfLifeDays: input.shelfLifeDays ?? undefined,
-      standardCost: input.unitCost ? map.toDecimal(input.unitCost) : undefined,
+      // `standardCost` is not a StockItem domain field — the page smuggles
+      // it through as `standardCost as never` (same idiom as `costingMethod`
+      // above). It arrives already the exact minor-unit integer string the
+      // wire wants (D-INV-03): passed straight through, never parsed as a
+      // JS Number, so a value up to the backend's 18-digit limit — well
+      // past Number.MAX_SAFE_INTEGER — can never lose precision here.
+      standardCost: (input as { standardCost?: string }).standardCost,
     });
     invalidateInventory();
     return map.toStockItem(row, getTenantId() ?? "");
   },
 
   async update(id, patch) {
-    // The API exposes targeted mutations, not a general PATCH.
-    if (patch.baseUnit) {
-      await api.inventory.changeBaseUnit(id, { baseUnitId: patch.baseUnit });
+    // The API exposes targeted mutations, not a general PATCH. `baseUnitId`
+    // (the real UUID) — same reasoning as `create` above; no UI currently
+    // triggers this specific patch, but it must stay correct regardless.
+    if (patch.baseUnitId) {
+      await api.inventory.changeBaseUnit(id, { baseUnitId: patch.baseUnitId });
     }
     invalidateInventory();
     const row = await api.inventory.getItem(id);
@@ -1684,9 +1741,22 @@ const counts: CollectionService<CountSession> = {
     if (!input.locationId) {
       throw new ServiceError("BAD_REQUEST", "Choose the location to count.", 400);
     }
+    // `scopeType`/`scopeId`/`itemIds` are not CountSession domain fields —
+    // smuggled through the same way `standardCost` is on the Stock Item
+    // form (D-INV-05).
+    const { scopeType, scopeId, itemIds } = input as unknown as {
+      scopeType?: "full_location" | "category" | "item_list";
+      scopeId?: string;
+      itemIds?: string[];
+    };
+    const resolvedScope = scopeType ?? "full_location";
     const row = await api.inventory.openCount({
       locationId: input.locationId,
-      scopeType: "full_location",
+      scopeType: resolvedScope,
+      // The backend rejects scopeId outright for any scope but "category"
+      // ("scopeId is only valid for a category scope").
+      scopeId: resolvedScope === "category" ? scopeId : undefined,
+      itemIds: resolvedScope === "item_list" ? itemIds : undefined,
       isBlindCount: input.mode === "blind",
     });
     return map.toCountSession(row, { tenantId: getTenantId() ?? "" });
@@ -1931,6 +2001,38 @@ const inventory: InventoryService = {
       category: row.category,
       label: map.localised(row.label, { en: row.code, ar: row.code }),
     };
+  },
+
+  // -- Units of measure --------------------------------------------------------
+
+  async unitsOfMeasure() {
+    const rows = await uomsRaw();
+    return rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      dimension: row.dimension,
+    }));
+  },
+
+  // -- Categories --------------------------------------------------------------
+
+  async categories() {
+    const rows = await categoriesRaw();
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      parentId: row.parentId,
+    }));
+  },
+
+  async createCategory(input) {
+    const row = await api.inventory.createCategory({
+      name: input.name,
+      parentId: input.parentId,
+    });
+    categoriesRaw.invalidate();
+    return { id: row.id, name: row.name, parentId: row.parentId };
   },
 
   // -- Computed reports ------------------------------------------------------

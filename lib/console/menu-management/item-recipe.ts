@@ -17,7 +17,13 @@
  * saved as 250 g), so a sale never depends on a conversion being configured.
  *
  * Units come from `GET /inventory/uoms` on the backend; in demo mode they are
- * the unit codes themselves.
+ * the unit codes themselves. That endpoint is FR-INV-001's unit CATALOGUE
+ * only — id/code/name/dimension, no conversion factors (`UomConversion` has
+ * no read route yet) — so live mode builds its catalogue with an empty
+ * conversion list. `unitsFor` below already degrades correctly for that: with
+ * no conversions, the only unit it offers for an ingredient is that item's
+ * own base unit, which is always exactly right and never needs one. Demo
+ * mode keeps its own hand-written conversions, unrelated to this endpoint.
  *
  * Recipes are versioned (FR-MNU-045): a save never edits the version orders
  * were sold under. It writes a new version and, when the user may publish,
@@ -131,9 +137,9 @@ export function catalogueFrom(rows: {
 
 export async function loadUnitCatalogue(): Promise<UnitCatalogue> {
   if (DATA_MODE === "mock") return demoCatalogue();
-  let rows: Awaited<ReturnType<typeof api.inventory.listUnits>>;
+  let units: Awaited<ReturnType<typeof api.inventory.listUoms>>;
   try {
-    rows = await api.inventory.listUnits();
+    units = await api.inventory.listUoms();
   } catch (error) {
     const status = (error as { status?: number } | null)?.status;
     if (status === 404) throw new UnitsUnavailableError();
@@ -141,9 +147,12 @@ export async function loadUnitCatalogue(): Promise<UnitCatalogue> {
   }
   // Other screens label quantities through the same registry.
   registerUnits(
-    Object.fromEntries(rows.units.filter((u) => isUnitCode(u.code)).map((u) => [u.id, u.code as UnitCode])),
+    Object.fromEntries(units.filter((u) => isUnitCode(u.code)).map((u) => [u.id, u.code as UnitCode])),
   );
-  return catalogueFrom(rows);
+  // No conversions from this endpoint (see the module doc comment) — an
+  // ingredient's only offered unit is therefore its own base unit, which
+  // `unitsFor` already falls back to correctly with an empty list.
+  return catalogueFrom({ units, conversions: [] });
 }
 
 /** The id of a stock item's base unit: the backend's id, or the demo's code. */

@@ -424,6 +424,14 @@ export const health = {
 // ---------------------------------------------------------------------------
 
 export const inventory = {
+  /** `GET /inventory/categories` — List the stock item category catalogue (FR-INV-001). — All stock item categories in the tenant. */
+  listCategories: () =>
+    http.get<S.InventoryController_listCategoriesResponse>("/inventory/categories"),
+
+  /** `POST /inventory/categories` — The created stock item category. */
+  createCategory: (body: S.CreateStockItemCategoryDto) =>
+    http.post<S.InventoryController_createCategoryResponse>("/inventory/categories", { body }),
+
   /** `POST /inventory/count-lines/{lineId}` — Record a counted quantity for one count line. — The updated count line. */
   recordCount: (lineId: string, body: S.RecordCountDto) =>
     http.post<S.InventoryController_recordCountResponse>("/inventory/count-lines/{lineId}", { params: { lineId }, body }),
@@ -504,9 +512,9 @@ export const inventory = {
   receive: (body: S.ReceiveTransferDto) =>
     http.post<S.InventoryController_receiveResponse>("/inventory/transfers/receive", { body }),
 
-  /** `GET /inventory/uoms` — Units of measure and the conversions between them. — Every unit a stock item, recipe line or yield may reference, plus generic conversions and those specific to this tenant's stock items. */
-  listUnits: () =>
-    http.get<S.InventoryController_listUnitsResponse>("/inventory/uoms"),
+  /** `GET /inventory/uoms` — List the unit-of-measure catalogue (FR-INV-001). — Every unit of measure known to the platform. */
+  listUoms: () =>
+    http.get<S.InventoryController_listUomsResponse>("/inventory/uoms"),
 
   /** `GET /inventory/waste` — The most recent 200 waste records, newest first. */
   listWaste: () =>
@@ -860,6 +868,10 @@ export const organisation = {
   updateCentralKitchen: (centralKitchenId: string, body: S.UpdateCentralKitchenDto) =>
     http.patch<S.OrganisationController_updateCentralKitchenResponse>("/org/central-kitchens/{centralKitchenId}", { params: { centralKitchenId }, body }),
 
+  /** `GET /org/locations` — The unified location registry Inventory keys `locationId` on — a Branch, a Warehouse or a Central Kitchen may each own one, and `id` here is the only id Inventory endpoints (counts, movements, waste, ...) accept. A caller resolves a readable name itself by joining `refId`/`locationType` against `GET /org/branches`/`GET /org/warehouses`/`GET /org/central-kitchens`. — Every Inventory-valid location in the tenant. */
+  listLocations: () =>
+    http.get<S.OrganisationController_listLocationsResponse>("/org/locations"),
+
   /** `GET /org/stations/{stationId}` — The station. */
   getStation: (stationId: string) =>
     http.get<S.OrganisationController_getStationResponse>("/org/stations/{stationId}", { params: { stationId } }),
@@ -1060,10 +1072,6 @@ export const reporting = {
   /** `GET /reports/branches/{branchId}/overview` — Branch operational overview — sales, cash, inventory, workforce, kds (dashboard-only; authorized against the branch it names). — The operational overview: sales, cash (WHOLE_SESSION scope, unchanged from daily-trading), inventory (branch-scoped low-stock count + calendar-day waste), workforce (branch-scoped calendar-day attendance summary), kds (business-day ticket counts + real prep duration where measurable), and a scope block disclosing exactly what this Demo/Operational slice does and does not cover. */
   getOperationalOverview: (branchId: string, options: { businessDay?: string } = {}) =>
     http.get<S.ReportingController_getOperationalOverviewResponse>("/reports/branches/{branchId}/overview", { params: { branchId }, query: { businessDay: options.businessDay } }),
-
-  /** `GET /reports/branches/{branchId}/sales-daily` — Branch sales totals per business day over a date range (dashboard-only; authorized against the branch it names). — Per-business-day sales totals for the range. */
-  getSalesDailyRange: (branchId: string, options: { from?: string; to?: string } = {}) =>
-    http.get<S.ReportingController_getSalesDailyRangeResponse>("/reports/branches/{branchId}/sales-daily", { params: { branchId }, query: { from: options.from, to: options.to } }),
 
 };
 

@@ -17,7 +17,7 @@ import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import type { StockItem } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import { formatMoney, formatNumber, unitLabel } from "@/lib/console/format";
 import { COSTING_METHOD, STORAGE, labelOf } from "@/lib/console/labels";
@@ -26,7 +26,7 @@ import { DATA_MODE } from "@/lib/api/config";
 import { CellStack, CollectionTable, type Column } from "@/components/console/data-table";
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
-import { Gate } from "@/components/console/states";
+import { ErrorPanel, Gate } from "@/components/console/states";
 import {
   Badge,
   Button,
@@ -34,9 +34,13 @@ import {
   DescList,
   DescRow,
   Drawer,
+  Field,
+  Input,
+  Select,
   Toast,
 } from "@/components/console/ui";
 import { RecordDrawer } from "@/components/console/record-drawer";
+import { useAction } from "@/lib/console/actions";
 
 export default function StockItemsPage() {
   return (
@@ -46,7 +50,7 @@ export default function StockItemsPage() {
   );
 }
 
-function StockItemsScreen() {
+export function StockItemsScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [selected, setSelected] = useState<StockItem | null>(null);
@@ -58,6 +62,17 @@ function StockItemsScreen() {
     { scope, initialSort: "sku", pageSize: 25 },
   );
 
+  // FR-INV-001 — the unit catalogue the "New stock item" drawer picks a base
+  // unit from. Creation stays disabled until this has loaded successfully
+  // with at least one row: there is no UUID text field to fall back to.
+  const uomsQuery = useAsync(() => services.inventory.unitsOfMeasure(), []);
+  const uoms = useMemo(() => uomsQuery.data ?? [], [uomsQuery.data]);
+  const uomOptions = useMemo(
+    () => uoms.map((uom) => ({ value: uom.id, label: uom.name })),
+    [uoms],
+  );
+  const canCreateItem = !uomsQuery.loading && !uomsQuery.error && uoms.length > 0;
+
   // Categories come from the loaded rows rather than a fixed list, so a new
   // category appears in the filter the moment an item uses it. Reading the
   // fixtures here offered categories no live item belongs to.
@@ -68,6 +83,20 @@ function StockItemsScreen() {
     }
     return [...seen.entries()].map(([value, label]) => ({ value, label }));
   }, [collection.rows, tx]);
+
+  // FR-INV-001 — the category catalogue a stock item's categoryId is chosen
+  // from and, on read, resolved back to a name against — client-side, since
+  // the backend never joins a category's name onto a stock item row.
+  const categoriesQuery = useAsync(() => services.inventory.categories(), []);
+  const categoryList = useMemo(() => categoriesQuery.data ?? [], [categoriesQuery.data]);
+  const categoryOptions = useMemo(
+    () => categoryList.map((c) => ({ value: c.id, label: c.name })),
+    [categoryList],
+  );
+  const categoryNameById = useMemo(
+    () => new Map(categoryList.map((c) => [c.id, c.name])),
+    [categoryList],
+  );
 
   const totals = useMemo(() => {
     const rows = collection.rows;
@@ -94,7 +123,13 @@ function StockItemsScreen() {
         key: "category",
         header: t("common.category"),
         secondary: true,
-        render: (row) => <span className="text-fg-muted text-xs">{tx(row.category)}</span>,
+        render: (row) => (
+          <span className="text-fg-muted text-xs">
+            {row.categoryId
+              ? (categoryNameById.get(row.categoryId) ?? t("common.unknown"))
+              : t("common.uncategorised")}
+          </span>
+        ),
       },
       {
         key: "baseUnit",
@@ -144,7 +179,7 @@ function StockItemsScreen() {
         ),
       },
     ],
-    [t, tx, fmt],
+    [t, tx, fmt, categoryNameById],
   );
 
   return (
@@ -154,13 +189,25 @@ function StockItemsScreen() {
         subtitle={t("inv.itemsSubtitle")}
         spec="FR-INV-001"
         actions={
-          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
+          <Button
+            variant="primary"
+            icon={<Plus size={14} />}
+            loading={uomsQuery.loading}
+            disabled={!canCreateItem}
+            onClick={() => setCreating(true)}
+          >
             {t("common.new")}
           </Button>
         }
       />
 
       <PageBody>
+        {uomsQuery.error ? (
+          <ErrorPanel error={uomsQuery.error} onRetry={uomsQuery.reload} compact />
+        ) : !uomsQuery.loading && uoms.length === 0 ? (
+          <Callout tone="warn">{t("inv.noUnitsConfigured")}</Callout>
+        ) : null}
+
         <TileGrid columns={3}>
           <MetricTile label={t("inv.itemsTitle")} value={formatNumber(collection.total, fmt)} />
           <MetricTile
@@ -213,7 +260,11 @@ function StockItemsScreen() {
         />
       </PageBody>
 
-      <ItemDrawer item={selected} onClose={() => setSelected(null)} />
+      <ItemDrawer
+        item={selected}
+        categoryNameById={categoryNameById}
+        onClose={() => setSelected(null)}
+      />
       <RecordDrawer
         open={creating}
         title={t("inv.newItem")}
@@ -223,10 +274,10 @@ function StockItemsScreen() {
           { name: "sku", label: t("inv.sku"), required: true, maxLength: 40, ltr: true },
           {
             name: "baseUnitId",
-            label: t("inv.baseUnitId"),
-            hint: t("inv.baseUnitIdHint"),
+            label: t("inv.baseUnit"),
+            kind: "select",
             required: true,
-            ltr: true,
+            options: uomOptions,
           },
           {
             name: "costingMethod",
@@ -239,16 +290,48 @@ function StockItemsScreen() {
               { value: "standard", label: t("inv.costingStandard") },
             ],
           },
+          {
+            // FR-INV-001 — optional: a stock item is valid with no category.
+            // `initial` is forced to "" — a `select` field otherwise defaults
+            // to its first option, which would silently assign a category
+            // nobody chose.
+            name: "categoryId",
+            label: t("common.category"),
+            kind: "select",
+            initial: "",
+            options: categoryOptions,
+          },
+          {
+            // D-INV-03 / ck_standard_cost_present — standard costing needs a
+            // declared cost up front; only shown (and only required) when
+            // that method is selected, so weighted_average/fifo are unaffected.
+            name: "standardCost",
+            label: t("inv.standardCost"),
+            kind: "money",
+            required: true,
+            visibleWhen: (all) => all.costingMethod === "standard",
+          },
         ]}
         onClose={() => setCreating(false)}
         onSubmit={(values) =>
           services.inventory.items.create({
             name: { en: values.name.trim(), ar: values.name.trim() },
             sku: values.sku.trim(),
-            // The API keys units by id and publishes no unit catalogue, so
-            // the id is typed rather than picked. See BACKEND_INTEGRATION.md.
-            baseUnit: values.baseUnitId.trim() as never,
+            baseUnitId: values.baseUnitId,
+            categoryId: values.categoryId ? values.categoryId : null,
             costingMethod: values.costingMethod as never,
+            // Only sent for standard costing — switching away from Standard
+            // never carries a stale cost into the request. `standardCost` is
+            // the money field's own minor-unit integer string, passed
+            // through exactly as RecordDrawer produced it — never re-parsed
+            // through a JS Number, so it can never lose precision (the wire
+            // contract accepts up to 18 digits, well past
+            // Number.MAX_SAFE_INTEGER). `as never` smuggles it past
+            // Partial<StockItem>, same as `costingMethod` above; it is not a
+            // StockItem field, only a create-time-only write.
+            ...(values.costingMethod === "standard"
+              ? { standardCost: values.standardCost as never }
+              : {}),
           })
         }
         onDone={() => {
@@ -256,7 +339,12 @@ function StockItemsScreen() {
           setMessage(t("inv.itemCreated"));
           collection.reload();
         }}
-      />
+      >
+        <InlineCategoryCreate
+          options={categoryOptions}
+          onCreated={() => categoriesQuery.reload()}
+        />
+      </RecordDrawer>
 
       <Toast message={message} />
     </>
@@ -265,9 +353,101 @@ function StockItemsScreen() {
 
 // ---------------------------------------------------------------------------
 
-function ItemDrawer({ item, onClose }: { item: StockItem | null; onClose: () => void }) {
+/**
+ * FR-INV-001 — the minimum write path a stock item's category needs: a name
+ * and an optional parent, nothing else. Not a category management page —
+ * there is no rename/re-parent/delete here, only enough to make a category
+ * exist so the "New stock item" drawer's category select is not permanently
+ * empty on a fresh tenant.
+ */
+function InlineCategoryCreate({
+  options,
+  onCreated,
+}: {
+  options: { value: string; label: string }[];
+  onCreated: () => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [parentId, setParentId] = useState("");
+
+  if (!open) {
+    return (
+      <Button type="button" variant="ghost" onClick={() => setOpen(true)}>
+        {t("inv.addCategory")}
+      </Button>
+    );
+  }
+
+  async function create() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    await action.run(
+      () => services.inventory.createCategory({ name: trimmed, parentId: parentId || undefined }),
+      {
+        onSuccess: () => {
+          setName("");
+          setParentId("");
+          setOpen(false);
+          onCreated();
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="border-line space-y-2 rounded-lg border p-3">
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      <Field label={t("inv.categoryName")} required>
+        <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} />
+      </Field>
+      {options.length > 0 ? (
+        <Field label={t("inv.parentCategory")}>
+          <Select value={parentId} onChange={(event) => setParentId(event.target.value)}>
+            <option value="">—</option>
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          loading={action.pending}
+          disabled={!name.trim()}
+          onClick={create}
+        >
+          {t("inv.addCategory")}
+        </Button>
+        <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+          {t("common.cancel")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ItemDrawer({
+  item,
+  categoryNameById,
+  onClose,
+}: {
+  item: StockItem | null;
+  categoryNameById: Map<string, string>;
+  onClose: () => void;
+}) {
   const { t, tx, fmt } = useI18n();
   if (!item) return null;
+
+  const categoryName = item.categoryId
+    ? (categoryNameById.get(item.categoryId) ?? t("common.unknown"))
+    : t("common.uncategorised");
 
   const storage = labelOf(STORAGE, item.storage);
   const costing = labelOf(COSTING_METHOD, item.costingMethod);
@@ -296,7 +476,7 @@ function ItemDrawer({ item, onClose }: { item: StockItem | null; onClose: () => 
     >
       <div className="space-y-5">
         <DescList>
-          <DescRow label={t("common.category")}>{tx(item.category)}</DescRow>
+          <DescRow label={t("common.category")}>{categoryName}</DescRow>
           <DescRow label={t("inv.baseUnit")} mono>
             {unitLabel(item.baseUnit, fmt.locale)}
           </DescRow>

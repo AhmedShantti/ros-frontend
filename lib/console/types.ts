@@ -548,6 +548,13 @@ export interface RecipeLine {
   componentId: Id;
   componentName: Localised;
   quantity: Quantity;
+  /**
+   * The unit's own id, when the line came from the backend — `quantity.unit`
+   * is only a display code, and a write needs the id back.
+   */
+  unitId?: Id;
+  /** The substitute group the line allows, if any — kept on a re-save. */
+  substituteGroupId?: Id | null;
   /** FR-MNU-044 — trim loss for this component, e.g. 18% peeling potatoes. */
   wastagePercentage: number;
   isOptional: boolean;
@@ -593,6 +600,7 @@ export interface StockItem {
   sku: string;
   name: Localised;
   category: Localised;
+  categoryId: Id | null;
   baseUnit: UnitCode;
   /**
    * The unit's own id, when it came from the backend.

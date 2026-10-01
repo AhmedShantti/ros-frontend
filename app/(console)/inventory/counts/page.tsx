@@ -15,8 +15,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus } from "lucide-react";
-import type { CountLine, CountSession } from "@/lib/console/types";
+import { Plus, X } from "lucide-react";
+import type { CountLine, CountSession, StockItem } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { DATA_MODE } from "@/lib/api/config";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
@@ -41,6 +41,7 @@ import {
 import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/console/page";
 import { MetricTile } from "@/components/console/charts";
 import { AsyncPanel, Gate } from "@/components/console/states";
+import { SearchSelect, type SearchOption } from "@/components/console/fields";
 import {
   Badge,
   Button,
@@ -55,6 +56,9 @@ import {
   Toggle,
 } from "@/components/console/ui";
 
+/** The three D-INV-05 count scopes the backend accepts — storage_area does not exist. */
+type CountScopeChoice = "full_location" | "category" | "item_list";
+
 /** FR-INV-042 — the expected figure stays hidden until the count is in. */
 function expectedIsHidden(session: CountSession): boolean {
   return session.mode === "blind" && (session.status === "draft" || session.status === "counting");
@@ -68,7 +72,7 @@ export default function StockCountsPage() {
   );
 }
 
-function CountsScreen() {
+export function CountsScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
   const [selected, setSelected] = useState<CountSession | null>(null);
@@ -586,20 +590,81 @@ function OpenCountDrawer({
   const action = useAction();
   const [locationId, setLocationId] = useState("");
   const [blind, setBlind] = useState(true);
+  const [scopeType, setScopeType] = useState<CountScopeChoice>("full_location");
+  const [itemIds, setItemIds] = useState<string[]>([]);
+  const [itemPicker, setItemPicker] = useState<string | null>(null);
+  const [categoryId, setCategoryId] = useState<string | null>(null);
 
   const locations = useAsync(() => services.organisation.locations(), []);
+  // The real Stock Item catalogue — a D-INV-05 scope source with real
+  // readable names.
+  const itemsQuery = useAsync(() => services.inventory.items.list({ limit: 1000 }), []);
+  const stockItems = itemsQuery.data?.rows ?? [];
+  // FR-INV-001 — the real category catalogue a category-scoped count names
+  // its scopeId from.
+  const categoriesQuery = useAsync(() => services.inventory.categories(), []);
+  const categories = categoriesQuery.data ?? [];
 
   useEffect(() => {
     const rows = locations.data;
     if (rows && rows.length > 0 && !locationId) setLocationId(rows[0]!.id);
   }, [locations.data, locationId]);
 
+  // Reopening never carries the previous session's scope-specific state into
+  // a new one — no stale hidden value can leak into the next request. Reset
+  // during render on the open/close transition itself (React's own
+  // alternative to an effect for this), the same technique RecordDrawer uses
+  // to reseed on reopen.
+  const [openedFor, setOpenedFor] = useState(open);
+  if (open !== openedFor) {
+    setOpenedFor(open);
+    if (open) {
+      setScopeType("full_location");
+      setItemIds([]);
+      setItemPicker(null);
+      setCategoryId(null);
+    }
+  }
+
+  function changeScope(next: CountScopeChoice) {
+    setScopeType(next);
+    setItemIds([]);
+    setItemPicker(null);
+    setCategoryId(null);
+  }
+
   if (!open) return null;
 
+  const itemOptions: SearchOption[] = stockItems
+    .filter((item) => !itemIds.includes(item.id))
+    .map((item) => ({ value: item.id, label: tx(item.name), hint: item.sku }));
+
+  const selectedItems = itemIds
+    .map((id) => stockItems.find((item) => item.id === id))
+    .filter((item): item is StockItem => Boolean(item));
+
+  const categoryOptions: SearchOption[] = categories.map((c) => ({ value: c.id, label: c.name }));
+
+  const canSubmit =
+    Boolean(locationId) &&
+    (scopeType !== "category" || Boolean(categoryId)) &&
+    (scopeType !== "item_list" || itemIds.length > 0);
+
   async function create() {
-    if (!locationId) return;
+    if (!canSubmit) return;
     await action.run(
-      () => services.inventory.counts.create({ locationId, mode: blind ? "blind" : "open" }),
+      () =>
+        services.inventory.counts.create({
+          locationId,
+          mode: blind ? "blind" : "open",
+          // Not CountSession domain fields — smuggled through the same way
+          // `standardCost` is on the Stock Item form. `scopeId`/`itemIds` are
+          // omitted entirely outside their own scope: the backend rejects a
+          // scopeId outright on any scope but "category".
+          scopeType,
+          scopeId: scopeType === "category" ? (categoryId ?? undefined) : undefined,
+          itemIds: scopeType === "item_list" ? itemIds : undefined,
+        } as never),
       { onSuccess: onOpened },
     );
   }
@@ -614,7 +679,7 @@ function OpenCountDrawer({
           <Button
             variant="primary"
             loading={action.pending}
-            disabled={!locationId}
+            disabled={!canSubmit}
             onClick={create}
           >
             {t("common.create")}
@@ -630,7 +695,11 @@ function OpenCountDrawer({
 
         <Callout tone="muted">{t("inv.newCountNote")}</Callout>
 
-        <AsyncPanel state={locations} isEmpty={(rows) => rows.length === 0}>
+        <AsyncPanel
+          state={locations}
+          isEmpty={(rows) => rows.length === 0}
+          empty={<Callout tone="warn">{t("inv.noLocationsConfigured")}</Callout>}
+        >
           {(rows) => (
             <Field label={t("common.location")} required>
               <Select
@@ -647,6 +716,76 @@ function OpenCountDrawer({
             </Field>
           )}
         </AsyncPanel>
+
+        <Field label={t("inv.countScope")} required>
+          <Select
+            value={scopeType}
+            onChange={(event) => changeScope(event.target.value as CountScopeChoice)}
+            disabled={action.pending}
+          >
+            <option value="full_location">{t("inv.countScopeFullLocation")}</option>
+            <option value="category">{t("inv.countScopeCategory")}</option>
+            <option value="item_list">{t("inv.countScopeItemList")}</option>
+          </Select>
+        </Field>
+
+        {scopeType === "category" ? (
+          categoriesQuery.loading ? null : categoryOptions.length === 0 ? (
+            // An honest empty state, not a fake catalogue or a raw id field
+            // — Create stays blocked (canSubmit) so the reason is explicit.
+            <Callout tone="warn">{t("inv.countScopeCategoryEmpty")}</Callout>
+          ) : (
+            <Field label={t("inv.countScopeCategory")} required>
+              <SearchSelect
+                options={categoryOptions}
+                value={categoryId}
+                onChange={setCategoryId}
+                placeholder={t("inv.countScopeCategoryPlaceholder")}
+                aria-label={t("inv.countScopeCategory")}
+                disabled={action.pending}
+              />
+            </Field>
+          )
+        ) : null}
+
+        {scopeType === "item_list" ? (
+          <div className="space-y-2">
+            <Field label={t("inv.countItems")} required>
+              <SearchSelect
+                options={itemOptions}
+                value={itemPicker}
+                onChange={(id) => {
+                  if (id) setItemIds((ids) => [...ids, id]);
+                  setItemPicker(null);
+                }}
+                placeholder={t("inv.countItemsPlaceholder")}
+                aria-label={t("inv.countItems")}
+                disabled={action.pending || itemsQuery.loading}
+              />
+            </Field>
+            {selectedItems.length > 0 ? (
+              <ul className="flex flex-wrap gap-1.5">
+                {selectedItems.map((item) => (
+                  <li key={item.id}>
+                    <Badge tone="neutral">
+                      {tx(item.name)}
+                      <button
+                        type="button"
+                        aria-label={`${t("common.remove")} — ${tx(item.name)}`}
+                        onClick={() => setItemIds((ids) => ids.filter((id) => id !== item.id))}
+                        className="ms-0.5"
+                      >
+                        <X size={12} />
+                      </button>
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-fg-subtle text-xs">{t("inv.countItemsEmpty")}</p>
+            )}
+          </div>
+        ) : null}
 
         <Toggle
           checked={blind}

@@ -1474,6 +1474,22 @@
         ],
         "type": "object"
       },
+      "CreateStockItemCategoryDto": {
+        "properties": {
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
       "CreateStockItemDto": {
         "properties": {
           "baseUnitId": {
@@ -15061,6 +15077,156 @@
         ]
       }
     },
+    "/inventory/categories": {
+      "get": {
+        "operationId": "InventoryController_listCategories",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "parentId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "All stock item categories in the tenant."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the stock item category catalogue (FR-INV-001).",
+        "tags": [
+          "inventory"
+        ]
+      },
+      "post": {
+        "operationId": "InventoryController_createCategory",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStockItemCategoryDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "parentId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The created stock item category."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Category parent not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
     "/inventory/count-lines/{lineId}": {
       "post": {
         "operationId": "InventoryController_recordCount",
@@ -17234,79 +17400,37 @@
     },
     "/inventory/uoms": {
       "get": {
-        "operationId": "InventoryController_listUnits",
+        "operationId": "InventoryController_listUoms",
         "parameters": [],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "conversions": {
-                      "items": {
-                        "properties": {
-                          "factor": {
-                            "description": "Multiply a quantity in fromUnit by this to get toUnit.",
-                            "example": "2.5",
-                            "pattern": "^-?\\d+(\\.\\d+)?$",
-                            "type": "string"
-                          },
-                          "fromUnitId": {
-                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                            "format": "uuid",
-                            "type": "string"
-                          },
-                          "stockItemId": {
-                            "description": "Null for a generic conversion; else item-specific.",
-                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                            "format": "uuid",
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "toUnitId": {
-                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                            "format": "uuid",
-                            "type": "string"
-                          }
-                        },
-                        "type": "object"
+                  "items": {
+                    "properties": {
+                      "code": {
+                        "type": "string"
                       },
-                      "type": "array"
+                      "dimension": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
                     },
-                    "units": {
-                      "items": {
-                        "properties": {
-                          "baseUnitOfDimension": {
-                            "type": "boolean"
-                          },
-                          "code": {
-                            "type": "string"
-                          },
-                          "dimension": {
-                            "description": "e.g. mass, volume, count.",
-                            "type": "string"
-                          },
-                          "id": {
-                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                            "format": "uuid",
-                            "type": "string"
-                          },
-                          "name": {
-                            "type": "string"
-                          }
-                        },
-                        "type": "object"
-                      },
-                      "type": "array"
-                    }
+                    "type": "object"
                   },
-                  "type": "object"
+                  "type": "array"
                 }
               }
             },
-            "description": "Every unit a stock item, recipe line or yield may reference, plus generic conversions and those specific to this tenant's stock items."
+            "description": "Every unit of measure known to the platform."
           },
           "401": {
             "content": {
@@ -17334,7 +17458,7 @@
             "bearer": []
           }
         ],
-        "summary": "Units of measure and the conversions between them.",
+        "summary": "List the unit-of-measure catalogue (FR-INV-001).",
         "tags": [
           "inventory"
         ]
@@ -35353,6 +35477,81 @@
         ]
       }
     },
+    "/org/locations": {
+      "get": {
+        "operationId": "OrganisationController_listLocations",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "createdAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "locationType": {
+                        "enum": [
+                          "branch",
+                          "warehouse",
+                          "central_kitchen"
+                        ],
+                        "type": "string"
+                      },
+                      "refId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every Inventory-valid location in the tenant."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The unified location registry Inventory keys `locationId` on — a Branch,\na Warehouse or a Central Kitchen may each own one, and `id` here is the\nonly id Inventory endpoints (counts, movements, waste, ...) accept. A\ncaller resolves a readable name itself by joining `refId`/`locationType`\nagainst `GET /org/branches`/`GET /org/warehouses`/`GET /org/central-kitchens`.",
+        "tags": [
+          "organisation"
+        ]
+      }
+    },
     "/org/stations/{stationId}": {
       "get": {
         "operationId": "OrganisationController_getStation",
@@ -39870,7 +40069,7 @@
                       "items": {
                         "properties": {
                           "detail": {
-                            "description": "Empty for absent_recipe; structural gap codes for incomplete_recipe; `<gap reason>:<component id>` (e.g. `no_valuation:<stock item id>`) for unpriced_ingredient and unconvertible_unit.",
+                            "description": "Empty for absent_recipe.",
                             "items": {
                               "type": "string"
                             },
@@ -39882,17 +40081,14 @@
                             "type": "string"
                           },
                           "reason": {
-                            "description": "absent_recipe / incomplete_recipe: BR-MNU-012, sold at zero or partial cost. unpriced_ingredient: a finished recipe with an ingredient that has no cost yet, sold at the partial cost of what can be priced. unconvertible_unit: a recipe unit cannot be converted to the ingredient stock unit; the sale is refused until it is fixed.",
                             "enum": [
                               "absent_recipe",
-                              "incomplete_recipe",
-                              "unpriced_ingredient",
-                              "unconvertible_unit"
+                              "incomplete_recipe"
                             ],
                             "type": "string"
                           },
                           "recipeVersionId": {
-                            "description": "The published version concerned; null for absent_recipe.",
+                            "description": "The incomplete published version; null for absent_recipe.",
                             "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                             "format": "uuid",
                             "type": [
@@ -39915,14 +40111,6 @@
                     },
                     "sellableVariantCount": {
                       "description": "Active variants examined — the denominator of the completeness metric.",
-                      "type": "integer"
-                    },
-                    "unconvertibleCount": {
-                      "description": "Entries with reason unconvertible_unit.",
-                      "type": "integer"
-                    },
-                    "unpricedCount": {
-                      "description": "Entries with reason unpriced_ingredient.",
                       "type": "integer"
                     }
                   },
@@ -42143,230 +42331,6 @@
           }
         ],
         "summary": "Branch operational overview — sales, cash, inventory, workforce, kds (dashboard-only; authorized against the branch it names).",
-        "tags": [
-          "reporting"
-        ]
-      }
-    },
-    "/reports/branches/{branchId}/sales-daily": {
-      "get": {
-        "description": "The data behind period comparison (this week vs last week, this year vs last year). One row per business day that had settled sales or a refund, with grossSales, discounts, refunds, taxTotal and netSales (= grossSales − discounts − refunds − taxTotal), using exactly the daily-trading report’s population and formulas. Query-time aggregation over the transactional primary — NOT a rollup (FR-RPT-002 remains NOT IMPLEMENTED). Requires BOTH report.view.sales and report.view.financial, held by one assignment covering this branch. The range is at most 800 days; a `to` after the branch’s current business day is clamped (see `toClamped`), a `from` after it is 400. Money is a decimal (minor-unit) string, never a JSON number.",
-        "operationId": "ReportingController_getSalesDailyRange",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "branchId",
-            "required": true,
-            "schema": {
-              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "from",
-            "required": true,
-            "schema": {
-              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "to",
-            "required": true,
-            "schema": {
-              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "branchCurrentBusinessDay": {
-                      "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
-                      "example": "2026-08-23",
-                      "format": "date",
-                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                      "type": "string"
-                    },
-                    "branchId": {
-                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                      "format": "uuid",
-                      "type": "string"
-                    },
-                    "currency": {
-                      "description": "ISO 4217 currency code.",
-                      "example": "EGP",
-                      "type": "string"
-                    },
-                    "currencySource": {
-                      "enum": [
-                        "TRANSACTION",
-                        "BRANCH_FALLBACK"
-                      ],
-                      "type": "string"
-                    },
-                    "dataAsOf": {
-                      "example": "2026-08-23T14:30:00.000Z",
-                      "format": "date-time",
-                      "type": "string"
-                    },
-                    "days": {
-                      "description": "Ascending; days with no sales and no refunds are absent.",
-                      "items": {
-                        "properties": {
-                          "businessDay": {
-                            "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
-                            "example": "2026-08-23",
-                            "format": "date",
-                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                            "type": "string"
-                          },
-                          "discounts": {
-                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                            "example": "1250",
-                            "pattern": "^-?\\d+$",
-                            "type": "string"
-                          },
-                          "grossSales": {
-                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                            "example": "1250",
-                            "pattern": "^-?\\d+$",
-                            "type": "string"
-                          },
-                          "netSales": {
-                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                            "example": "1250",
-                            "pattern": "^-?\\d+$",
-                            "type": "string"
-                          },
-                          "orderCount": {
-                            "type": "integer"
-                          },
-                          "refunds": {
-                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                            "example": "1250",
-                            "pattern": "^-?\\d+$",
-                            "type": "string"
-                          },
-                          "taxTotal": {
-                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                            "example": "1250",
-                            "pattern": "^-?\\d+$",
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "businessDay",
-                          "orderCount",
-                          "grossSales",
-                          "discounts",
-                          "refunds",
-                          "taxTotal",
-                          "netSales"
-                        ],
-                        "type": "object"
-                      },
-                      "type": "array"
-                    },
-                    "from": {
-                      "description": "Business-day partition key (YYYY-MM-DD), not a timestamp.",
-                      "example": "2026-08-23",
-                      "format": "date",
-                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                      "type": "string"
-                    },
-                    "to": {
-                      "description": "The range actually answered; `to` is clamped to the branch’s current business day.",
-                      "example": "2026-08-23",
-                      "format": "date",
-                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                      "type": "string"
-                    },
-                    "toClamped": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "branchId",
-                    "from",
-                    "to",
-                    "currency",
-                    "currencySource",
-                    "dataAsOf",
-                    "branchCurrentBusinessDay",
-                    "toClamped",
-                    "days"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Per-business-day sales totals for the range."
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Missing or malformed from/to, from after to, a range over 800 days, from after the branch’s current business day, or any other query parameter."
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Missing or invalid bearer token."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "A PIN/POS session; no active tenant context; report.view.sales and report.view.financial are not both held by one assignment covering this branch; the branch is not active; or the tenant still holds unreviewed migration-inherited role assignments."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "branchId is unknown or belongs to another tenant — byte-identical response for both."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "More than one transaction currency was observed in the range."
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Branch sales totals per business day over a date range (dashboard-only; authorized against the branch it names).",
         "tags": [
           "reporting"
         ]
