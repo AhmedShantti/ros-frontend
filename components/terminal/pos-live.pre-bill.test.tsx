@@ -33,6 +33,7 @@ const {
   openOrder,
   capturePayment,
   salesReceipt,
+  receiptTemplate,
   salesPreBill,
   ordersGet,
 } = vi.hoisted(() => {
@@ -53,6 +54,7 @@ const {
     openOrder: vi.fn(),
     capturePayment: vi.fn(),
     salesReceipt: vi.fn(),
+    receiptTemplate: vi.fn(),
     salesPreBill: vi.fn(),
     ordersGet: vi.fn(),
   };
@@ -60,6 +62,7 @@ const {
 
 vi.mock("@/lib/console/services", () => ({
   services: {
+    receiptTemplates: { forPosBranch: (...args: unknown[]) => receiptTemplate(...args) },
     treasury: {
       getCurrentSession: (...args: unknown[]) => getCurrentSession(...args),
       listSessionDrawers: (...args: unknown[]) => listSessionDrawers(...args),
@@ -319,6 +322,10 @@ async function enterPosWithOrder(order: Order) {
 beforeEach(() => {
   window.localStorage.clear();
   vi.clearAllMocks();
+  receiptTemplate.mockResolvedValue({
+    template: { languageMode: "en", bothOrder: "ar_first", logoUrl: null, headerLines: [], footerLines: [] },
+    source: "built_in_default", templateId: null, version: null, isDefault: true,
+  });
   tables.mockResolvedValue({ rows: [], total: 0 });
   listSessionDrawers.mockResolvedValue(ONE_DRAWER);
   seedDevice();
@@ -445,6 +452,8 @@ describe("LivePos — Print bill (POS-DINEIN-PREBILL-PRINT-P0)", () => {
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(salesReceipt).toHaveBeenCalledWith(order.businessDay, order.id));
 
+    await within(dialog).findByTestId("receipt");
+    expect(dialog.textContent).toContain("Table:");
     expect(dialog.textContent).toContain("T07");
   });
 
@@ -457,7 +466,9 @@ describe("LivePos — Print bill (POS-DINEIN-PREBILL-PRINT-P0)", () => {
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(salesReceipt).toHaveBeenCalledWith(order.businessDay, order.id));
 
-    expect(dialog.textContent).not.toContain("pos.tableLabel");
+    // The renderer prints the real label ("Table:"), not the i18n key.
+    await within(dialog).findByTestId("receipt");
+    expect(dialog.textContent).not.toContain("Table:");
   });
 
   it("11. takeaway's own order flow (fire/pay) is unaffected by the Print bill restriction — no Print bill button, but pay still reachable", async () => {

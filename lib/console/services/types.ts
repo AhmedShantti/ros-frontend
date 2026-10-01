@@ -1716,6 +1716,37 @@ export interface TreasuryService {
   listOpenSessions(branchId: Id): Promise<OpenCashSession[]>;
 }
 
+/**
+ * Receipt templates — FR-POS-101 / FR-POS-102.
+ *
+ * The backend is the only source of truth: the http implementation reads and
+ * writes `/receipt-templates`, and the till reads its own branch's resolved
+ * template. The in-memory mock behind `DATA_MODE === "mock"` implements the
+ * same rules (scope uniqueness, versioned updates) and is never reached in
+ * http mode. Nothing here touches `localStorage`.
+ */
+export interface ReceiptTemplateService {
+  /** Every stored template of the tenant, broadest scope first. */
+  list(): Promise<import("../receipt").ReceiptTemplate[]>;
+  /**
+   * Create the template for one scope. A scope that already has one is a
+   * 409 `CONFLICT`; an invalid field or an unloaded country pack is a 400
+   * whose message is the backend's own.
+   */
+  create(input: import("../receipt").NewReceiptTemplate): Promise<import("../receipt").ReceiptTemplate>;
+  /**
+   * Change a template's content. `patch.version` must be the version last
+   * read; a stale one is a 409 `CONFLICT`. The scope cannot change.
+   */
+  update(id: Id, patch: import("../receipt").ReceiptTemplateUpdate): Promise<import("../receipt").ReceiptTemplate>;
+  /** The country packs a template can be scoped to, and the tenant's own. */
+  scopeOptions(): Promise<import("../receipt").ReceiptScopeOptions>;
+  /** Dashboard preview: which template a branch prints with, and why. */
+  resolveForBranch(branchId: Id): Promise<import("../receipt").ResolvedReceiptTemplate>;
+  /** POS: the template of the signed-in session's own branch. */
+  forPosBranch(): Promise<import("../receipt").ResolvedReceiptTemplate>;
+}
+
 /** Everything the console can talk to. */
 export interface ServiceRegistry {
   dashboard: DashboardService;
@@ -1742,4 +1773,5 @@ export interface ServiceRegistry {
   governance: GovernanceService;
   security: SecurityService;
   platform: PlatformService;
+  receiptTemplates: ReceiptTemplateService;
 }

@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 197 paths, 134 request DTOs.
+ * `api/openapi.json`. 202 paths, 138 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -363,6 +363,26 @@ export interface CreateReasonCodeDto {
   category: string;
   code: string;
   label: Record<string, unknown>;
+}
+
+export interface CreateReceiptTemplateDto {
+  /** What prints on the back of a double-sided receipt: `none` (default) or `logo_pattern` (the logo repeated across the page — needs a logo). */
+  backSide?: "none" | "logo_pattern";
+  /** `ar_first` | `en_first`. Only meaningful for `bilingual`. Not nullable. */
+  bothOrder?: "ar_first" | "en_first";
+  /** The brand this template is for; `null`/omitted = every brand. Must be a brand of the caller's own tenant (else 404). */
+  brandId?: string | null;
+  /** The country pack this template is for (`^[A-Z]{2,8}$`, e.g. `EG`); `null`/omitted = every country pack. Must be a pack loaded on this deployment (else 400). */
+  countryPackCode?: string | null;
+  /** At most 4 lines; `[]` means "no footer"; omitted keeps/gets the default. */
+  footerLines?: ReceiptTemplateLineDto[];
+  /** At most 4 lines; `[]` means "no header lines". */
+  headerLines?: ReceiptTemplateLineDto[];
+  /** `ar` | `en` | `bilingual`. Not nullable: omit to leave unchanged / default. */
+  languageMode?: "ar" | "en" | "bilingual";
+  /** An absolute `https:` URL, or `null` (or `""`) for no logo. The https-only rule is enforced by the service; the length cap is repeated here so an absurd payload is refused before it is parsed. */
+  logoUrl?: string | null;
+  options?: ReceiptTemplateOptionsDto;
 }
 
 export interface CreateRecipeDto {
@@ -727,6 +747,34 @@ export interface ReassignBrandDto {
   brandId: string;
 }
 
+export interface ReceiptTemplateLineDto {
+  ar?: string;
+  en?: string;
+}
+
+export interface ReceiptTemplateOptionsDto {
+  /** `classic` (serif restaurant check, the default) or `thermal` (till-roll monospace). */
+  paperStyle?: "classic" | "thermal";
+  /** Print the branch address. Default true. */
+  showBranchAddress?: boolean;
+  /** Print the branch name. Default true. */
+  showBranchName?: boolean;
+  /** Print the brand (restaurant) name in the heading. Default true. */
+  showBrandName?: boolean;
+  /** Print who served the order. Default true. */
+  showCashier?: boolean;
+  /** Print the guest count of a dine-in order. Default true. */
+  showGuests?: boolean;
+  /** Print the order type (dine-in, takeaway…). Default true. */
+  showOrderType?: boolean;
+  /** Print the table of a dine-in order. Default true. */
+  showTable?: boolean;
+  /** Print "Tip / Total / Signature" write-in lines. Default false. */
+  signatureLine?: boolean;
+  /** Suggested tip percentages printed under the total, e.g. `[18, 20, 22]`. At most 4 whole percentages from 1 to 100; `[]` prints none. */
+  suggestedTips?: number[];
+}
+
 export interface ReceiveTransferDto {
   discrepancyReasonCodeId?: string;
   receivedQuantity: string;
@@ -940,6 +988,7 @@ export interface UpdateBranchDto {
 export interface UpdateBranchKdsConfigDto {
   cancelledLineVisibilitySeconds?: number | null;
   fallbackStationId?: string | null;
+  kitchenTicketLanguage?: "ar" | "en" | "ur" | "bn" | "tl" | "hi" | "fr" | "tr";
   recallWindowSeconds?: number;
 }
 
@@ -1014,6 +1063,24 @@ export interface UpdatePurchaseOrderDto {
   expectedDeliveryDate?: string;
   expectedVersion: number;
   lines?: PurchaseOrderLineDto[];
+}
+
+export interface UpdateReceiptTemplateDto {
+  /** What prints on the back of a double-sided receipt: `none` (default) or `logo_pattern` (the logo repeated across the page — needs a logo). */
+  backSide?: "none" | "logo_pattern";
+  /** `ar_first` | `en_first`. Only meaningful for `bilingual`. Not nullable. */
+  bothOrder?: "ar_first" | "en_first";
+  /** At most 4 lines; `[]` means "no footer"; omitted keeps/gets the default. */
+  footerLines?: ReceiptTemplateLineDto[];
+  /** At most 4 lines; `[]` means "no header lines". */
+  headerLines?: ReceiptTemplateLineDto[];
+  /** `ar` | `en` | `bilingual`. Not nullable: omit to leave unchanged / default. */
+  languageMode?: "ar" | "en" | "bilingual";
+  /** An absolute `https:` URL, or `null` (or `""`) for no logo. The https-only rule is enforced by the service; the length cap is repeated here so an absurd payload is refused before it is parsed. */
+  logoUrl?: string | null;
+  options?: ReceiptTemplateOptionsDto;
+  /** REQUIRED optimistic-concurrency token: the `version` of the template as last read. A stale value is a 409 carrying `currentVersion`. */
+  version: number;
 }
 
 export interface UpdateStationDto {
@@ -3872,6 +3939,65 @@ export type OrdersController_listReasonCodesResponse = ({
   label: Record<string, unknown>;
 })[];
 
+/** `GET /orders/receipt-template` — The effective receipt template for the caller's own POS branch. — The template, plus where it came from (`source`, `templateId`, `version`). `isDefault` is true when none is configured. */
+export type OrdersController_receiptTemplateResponse = {
+  /** True exactly when no stored template applies (`source` is `built_in_default`). */
+  isDefault: boolean;
+  /** Where the effective template came from: the resolution tier of the stored template that won, or `built_in_default` when nothing is configured for the branch. */
+  source: "brand_country_pack" | "brand" | "country_pack" | "tenant_default" | "built_in_default";
+  template: {
+    /** What prints on the back of a double-sided receipt. `none` prints nothing; `logo_pattern` repeats the logo across the whole back page and requires `logoUrl`. */
+    backSide: "none" | "logo_pattern";
+    /** Which language prints first. Only meaningful for `bilingual`. */
+    bothOrder: "ar_first" | "en_first";
+    /** At most 4 lines. */
+    footerLines: ({
+      /** At most 120 characters. */
+      ar: string;
+      /** At most 120 characters. */
+      en: string;
+    })[];
+    /** At most 4 lines. */
+    headerLines: ({
+      /** At most 120 characters. */
+      ar: string;
+      /** At most 120 characters. */
+      en: string;
+    })[];
+    /** Which language(s) the printed labels use. `bilingual` prints both, ordered by `bothOrder`. */
+    languageMode: "ar" | "en" | "bilingual";
+    /** Absolute https URL of the logo, or null for none. */
+    logoUrl: string | null;
+    /** What the receipt shows and how it looks. None of these can remove fiscal content (tax registration, tax lines, QR). */
+    options: {
+      /** `classic`: serif restaurant check (default). `thermal`: monospaced till-roll look. */
+      paperStyle: "classic" | "thermal";
+      /** Print the branch address. */
+      showBranchAddress: boolean;
+      /** Print the branch name. */
+      showBranchName: boolean;
+      /** Print the brand (restaurant) name in the heading. */
+      showBrandName: boolean;
+      /** Print who served the order. */
+      showCashier: boolean;
+      /** Print the guest count of a dine-in order. */
+      showGuests: boolean;
+      /** Print the order type (dine-in, takeaway…). */
+      showOrderType: boolean;
+      /** Print the table of a dine-in order. */
+      showTable: boolean;
+      /** Print "Tip / Total / Signature" write-in lines. */
+      signatureLine: boolean;
+      /** Suggested tip percentages printed under the total (at most 4, whole numbers 1-100); empty prints none. */
+      suggestedTips: number[];
+    };
+  };
+  /** The stored template that won; null for the built-in default. */
+  templateId: string | null;
+  /** Version of the winning template; null for the built-in default. */
+  version: number | null;
+};
+
 /** `GET /orders/search` — Search orders by their (non-globally-unique) human Order Number. — Every matching order visible to the caller (bounded to 50), for the caller to disambiguate by business day and branch. */
 export type OrdersController_searchResponse = ({
   branchId: string;
@@ -5757,11 +5883,13 @@ export type OrganisationController_setBranchKdsConfigResponse = {
 
 export type OrganisationController_setBranchKdsConfigBody = SetBranchKdsConfigDto;
 
-/** `PATCH /org/branches/{branchId}/kitchen-config` — Partially update the branch KDS fallback station, recall window, and cancelled-line visibility window. Fields omitted from the body are left unchanged. — The updated KDS configuration (all three canonical fields). */
+/** `PATCH /org/branches/{branchId}/kitchen-config` — Partially update the branch KDS fallback station, recall window, cancelled-line visibility window, and kitchen-ticket language. Fields omitted from the body are left unchanged. — The updated KDS configuration (all four canonical fields, including `kitchenTicketLanguage`, which is 'ar' until configured). */
 export type OrganisationController_updateKitchenConfigResponse = {
   /** FR-KDS-029. Null means not yet configured; no default. */
   cancelledLineVisibilitySeconds: number | null;
   fallbackStationId: string | null;
+  /** FR-POS-105. The language kitchen/bar tickets print in for this branch. Defaults to 'ar' until explicitly configured. Independent of the customer receipt's language. */
+  kitchenTicketLanguage: "ar" | "en" | "ur" | "bn" | "tl" | "hi" | "fr" | "tr";
   /** FR-KDS-025. Defaults to 1800 until explicitly configured. */
   recallWindowSeconds: number;
 };
@@ -5780,6 +5908,8 @@ export type OrganisationController_getKitchenSetupResponse = {
     modifierRouting: boolean;
     multiStation: boolean;
   };
+  /** FR-POS-105. The language kitchen/bar tickets print in for this branch — `branch_kds_config.kitchen_ticket_language`, 'ar' until configured. Writable via `PATCH .../kitchen-config`. A top-level sibling of `settings` (whose two-field shape is unchanged). Independent of the customer receipt's language. */
+  kitchenTicketLanguage: "ar" | "en" | "ur" | "bn" | "tl" | "hi" | "fr" | "tr";
   routing: {
     fallbackStationId: string | null;
     /** Every station-routing rule for the branch, identical to `GET .../station-routing-rules` — filter client-side on menuItemId/categoryId/modifierId to bucket by selector kind. */
@@ -6623,6 +6753,332 @@ export type ProcurementController_setSupplierStatusResponse = {
 };
 
 export type ProcurementController_setSupplierStatusBody = SetSupplierStatusDto;
+
+/** `GET /receipt-templates` — List the tenant's receipt templates, broadest scope first. — Every stored template of the caller tenant (optionally filtered by brandId / countryPackCode). */
+export type ReceiptTemplatesController_listResponse = {
+  /** Broadest scope first (tenant_default, country_pack, brand, brand_country_pack). */
+  items: ({
+    /** What prints on the back of a double-sided receipt. `none` prints nothing; `logo_pattern` repeats the logo across the whole back page and requires `logoUrl`. */
+    backSide: "none" | "logo_pattern";
+    /** Which language prints first. Only meaningful for `bilingual`. */
+    bothOrder: "ar_first" | "en_first";
+    /** null = every brand. */
+    brandId: string | null;
+    /** null = every country pack. */
+    countryPackCode: string | null;
+    createdAt: string;
+    /** At most 4 lines. */
+    footerLines: ({
+      /** At most 120 characters. */
+      ar: string;
+      /** At most 120 characters. */
+      en: string;
+    })[];
+    /** At most 4 lines. */
+    headerLines: ({
+      /** At most 120 characters. */
+      ar: string;
+      /** At most 120 characters. */
+      en: string;
+    })[];
+    id: string;
+    /** Which language(s) the printed labels use. `bilingual` prints both, ordered by `bothOrder`. */
+    languageMode: "ar" | "en" | "bilingual";
+    /** Absolute https URL of the logo, or null for none. */
+    logoUrl: string | null;
+    /** What the receipt shows and how it looks. None of these can remove fiscal content (tax registration, tax lines, QR). */
+    options: {
+      /** `classic`: serif restaurant check (default). `thermal`: monospaced till-roll look. */
+      paperStyle: "classic" | "thermal";
+      /** Print the branch address. */
+      showBranchAddress: boolean;
+      /** Print the branch name. */
+      showBranchName: boolean;
+      /** Print the brand (restaurant) name in the heading. */
+      showBrandName: boolean;
+      /** Print who served the order. */
+      showCashier: boolean;
+      /** Print the guest count of a dine-in order. */
+      showGuests: boolean;
+      /** Print the order type (dine-in, takeaway…). */
+      showOrderType: boolean;
+      /** Print the table of a dine-in order. */
+      showTable: boolean;
+      /** Print "Tip / Total / Signature" write-in lines. */
+      signatureLine: boolean;
+      /** Suggested tip percentages printed under the total (at most 4, whole numbers 1-100); empty prints none. */
+      suggestedTips: number[];
+    };
+    /** Which axes of (brand, country pack) the stored template is narrowed by. Also its resolution tier, most specific first: brand_country_pack, brand, country_pack, tenant_default. */
+    scope: "brand_country_pack" | "brand" | "country_pack" | "tenant_default";
+    tenantId: string;
+    updatedAt: string;
+    /** Optimistic-concurrency token, starting at 1. Send it back unchanged on PATCH; a stale value is a 409. */
+    version: number;
+  })[];
+};
+
+/** `POST /receipt-templates` — Create the receipt template for one scope (tenant default, country pack, brand, or brand + country pack). — The newly created template (version 1). */
+export type ReceiptTemplatesController_createResponse = {
+  /** What prints on the back of a double-sided receipt. `none` prints nothing; `logo_pattern` repeats the logo across the whole back page and requires `logoUrl`. */
+  backSide: "none" | "logo_pattern";
+  /** Which language prints first. Only meaningful for `bilingual`. */
+  bothOrder: "ar_first" | "en_first";
+  /** null = every brand. */
+  brandId: string | null;
+  /** null = every country pack. */
+  countryPackCode: string | null;
+  createdAt: string;
+  /** At most 4 lines. */
+  footerLines: ({
+    /** At most 120 characters. */
+    ar: string;
+    /** At most 120 characters. */
+    en: string;
+  })[];
+  /** At most 4 lines. */
+  headerLines: ({
+    /** At most 120 characters. */
+    ar: string;
+    /** At most 120 characters. */
+    en: string;
+  })[];
+  id: string;
+  /** Which language(s) the printed labels use. `bilingual` prints both, ordered by `bothOrder`. */
+  languageMode: "ar" | "en" | "bilingual";
+  /** Absolute https URL of the logo, or null for none. */
+  logoUrl: string | null;
+  /** What the receipt shows and how it looks. None of these can remove fiscal content (tax registration, tax lines, QR). */
+  options: {
+    /** `classic`: serif restaurant check (default). `thermal`: monospaced till-roll look. */
+    paperStyle: "classic" | "thermal";
+    /** Print the branch address. */
+    showBranchAddress: boolean;
+    /** Print the branch name. */
+    showBranchName: boolean;
+    /** Print the brand (restaurant) name in the heading. */
+    showBrandName: boolean;
+    /** Print who served the order. */
+    showCashier: boolean;
+    /** Print the guest count of a dine-in order. */
+    showGuests: boolean;
+    /** Print the order type (dine-in, takeaway…). */
+    showOrderType: boolean;
+    /** Print the table of a dine-in order. */
+    showTable: boolean;
+    /** Print "Tip / Total / Signature" write-in lines. */
+    signatureLine: boolean;
+    /** Suggested tip percentages printed under the total (at most 4, whole numbers 1-100); empty prints none. */
+    suggestedTips: number[];
+  };
+  /** Which axes of (brand, country pack) the stored template is narrowed by. Also its resolution tier, most specific first: brand_country_pack, brand, country_pack, tenant_default. */
+  scope: "brand_country_pack" | "brand" | "country_pack" | "tenant_default";
+  tenantId: string;
+  updatedAt: string;
+  /** Optimistic-concurrency token, starting at 1. Send it back unchanged on PATCH; a stale value is a 409. */
+  version: number;
+};
+
+export type ReceiptTemplatesController_createBody = CreateReceiptTemplateDto;
+
+/** `GET /receipt-templates/resolve` — Preview the effective receipt template for a branch (brand+pack -> brand -> pack -> tenant default -> built-in), and where it came from. — The effective template, its `source` tier and stored `templateId`/`version` (null for the built-in default), and the inputs the resolution used. */
+export type ReceiptTemplatesController_resolveResponse = {
+  /** True exactly when no stored template applies (`source` is `built_in_default`). */
+  isDefault: boolean;
+  /** The inputs the resolution used. */
+  resolvedFor: {
+    branchId: string;
+    /** The brand of the branch (Branch.brandId). */
+    brandId: string;
+    /** The country pack code of the tenant (Tenant.countryPackCode). */
+    countryPackCode: string;
+  };
+  /** Where the effective template came from: the resolution tier of the stored template that won, or `built_in_default` when nothing is configured for the branch. */
+  source: "brand_country_pack" | "brand" | "country_pack" | "tenant_default" | "built_in_default";
+  template: {
+    /** What prints on the back of a double-sided receipt. `none` prints nothing; `logo_pattern` repeats the logo across the whole back page and requires `logoUrl`. */
+    backSide: "none" | "logo_pattern";
+    /** Which language prints first. Only meaningful for `bilingual`. */
+    bothOrder: "ar_first" | "en_first";
+    /** At most 4 lines. */
+    footerLines: ({
+      /** At most 120 characters. */
+      ar: string;
+      /** At most 120 characters. */
+      en: string;
+    })[];
+    /** At most 4 lines. */
+    headerLines: ({
+      /** At most 120 characters. */
+      ar: string;
+      /** At most 120 characters. */
+      en: string;
+    })[];
+    /** Which language(s) the printed labels use. `bilingual` prints both, ordered by `bothOrder`. */
+    languageMode: "ar" | "en" | "bilingual";
+    /** Absolute https URL of the logo, or null for none. */
+    logoUrl: string | null;
+    /** What the receipt shows and how it looks. None of these can remove fiscal content (tax registration, tax lines, QR). */
+    options: {
+      /** `classic`: serif restaurant check (default). `thermal`: monospaced till-roll look. */
+      paperStyle: "classic" | "thermal";
+      /** Print the branch address. */
+      showBranchAddress: boolean;
+      /** Print the branch name. */
+      showBranchName: boolean;
+      /** Print the brand (restaurant) name in the heading. */
+      showBrandName: boolean;
+      /** Print who served the order. */
+      showCashier: boolean;
+      /** Print the guest count of a dine-in order. */
+      showGuests: boolean;
+      /** Print the order type (dine-in, takeaway…). */
+      showOrderType: boolean;
+      /** Print the table of a dine-in order. */
+      showTable: boolean;
+      /** Print "Tip / Total / Signature" write-in lines. */
+      signatureLine: boolean;
+      /** Suggested tip percentages printed under the total (at most 4, whole numbers 1-100); empty prints none. */
+      suggestedTips: number[];
+    };
+  };
+  /** The stored template that won; null for the built-in default. */
+  templateId: string | null;
+  /** Version of the winning template; null for the built-in default. */
+  version: number | null;
+};
+
+/** `GET /receipt-templates/scope-options` — The country packs a receipt template can be scoped to (loaded on this deployment) and the tenant's own pack. — The loaded country pack codes (sorted) and the caller tenant’s own pack code. */
+export type ReceiptTemplatesController_scopeOptionsResponse = {
+  /** Every country pack code loaded on this deployment, sorted. A template may be scoped to any of them; any other code is a 400. */
+  loadedCountryPackCodes: string[];
+  /** The caller tenant's own country pack — the editor's default choice. */
+  tenantCountryPackCode: string;
+};
+
+/** `GET /receipt-templates/{id}` — Read one receipt template. — The stored template. */
+export type ReceiptTemplatesController_getResponse = {
+  /** What prints on the back of a double-sided receipt. `none` prints nothing; `logo_pattern` repeats the logo across the whole back page and requires `logoUrl`. */
+  backSide: "none" | "logo_pattern";
+  /** Which language prints first. Only meaningful for `bilingual`. */
+  bothOrder: "ar_first" | "en_first";
+  /** null = every brand. */
+  brandId: string | null;
+  /** null = every country pack. */
+  countryPackCode: string | null;
+  createdAt: string;
+  /** At most 4 lines. */
+  footerLines: ({
+    /** At most 120 characters. */
+    ar: string;
+    /** At most 120 characters. */
+    en: string;
+  })[];
+  /** At most 4 lines. */
+  headerLines: ({
+    /** At most 120 characters. */
+    ar: string;
+    /** At most 120 characters. */
+    en: string;
+  })[];
+  id: string;
+  /** Which language(s) the printed labels use. `bilingual` prints both, ordered by `bothOrder`. */
+  languageMode: "ar" | "en" | "bilingual";
+  /** Absolute https URL of the logo, or null for none. */
+  logoUrl: string | null;
+  /** What the receipt shows and how it looks. None of these can remove fiscal content (tax registration, tax lines, QR). */
+  options: {
+    /** `classic`: serif restaurant check (default). `thermal`: monospaced till-roll look. */
+    paperStyle: "classic" | "thermal";
+    /** Print the branch address. */
+    showBranchAddress: boolean;
+    /** Print the branch name. */
+    showBranchName: boolean;
+    /** Print the brand (restaurant) name in the heading. */
+    showBrandName: boolean;
+    /** Print who served the order. */
+    showCashier: boolean;
+    /** Print the guest count of a dine-in order. */
+    showGuests: boolean;
+    /** Print the order type (dine-in, takeaway…). */
+    showOrderType: boolean;
+    /** Print the table of a dine-in order. */
+    showTable: boolean;
+    /** Print "Tip / Total / Signature" write-in lines. */
+    signatureLine: boolean;
+    /** Suggested tip percentages printed under the total (at most 4, whole numbers 1-100); empty prints none. */
+    suggestedTips: number[];
+  };
+  /** Which axes of (brand, country pack) the stored template is narrowed by. Also its resolution tier, most specific first: brand_country_pack, brand, country_pack, tenant_default. */
+  scope: "brand_country_pack" | "brand" | "country_pack" | "tenant_default";
+  tenantId: string;
+  updatedAt: string;
+  /** Optimistic-concurrency token, starting at 1. Send it back unchanged on PATCH; a stale value is a 409. */
+  version: number;
+};
+
+/** `PATCH /receipt-templates/{id}` — Partially update a receipt template. Requires the `version` last read (optimistic concurrency). The scope cannot be changed. — The updated template with its incremented `version`. A PATCH that changes nothing returns the template unchanged (same version, no audit entry). */
+export type ReceiptTemplatesController_updateResponse = {
+  /** What prints on the back of a double-sided receipt. `none` prints nothing; `logo_pattern` repeats the logo across the whole back page and requires `logoUrl`. */
+  backSide: "none" | "logo_pattern";
+  /** Which language prints first. Only meaningful for `bilingual`. */
+  bothOrder: "ar_first" | "en_first";
+  /** null = every brand. */
+  brandId: string | null;
+  /** null = every country pack. */
+  countryPackCode: string | null;
+  createdAt: string;
+  /** At most 4 lines. */
+  footerLines: ({
+    /** At most 120 characters. */
+    ar: string;
+    /** At most 120 characters. */
+    en: string;
+  })[];
+  /** At most 4 lines. */
+  headerLines: ({
+    /** At most 120 characters. */
+    ar: string;
+    /** At most 120 characters. */
+    en: string;
+  })[];
+  id: string;
+  /** Which language(s) the printed labels use. `bilingual` prints both, ordered by `bothOrder`. */
+  languageMode: "ar" | "en" | "bilingual";
+  /** Absolute https URL of the logo, or null for none. */
+  logoUrl: string | null;
+  /** What the receipt shows and how it looks. None of these can remove fiscal content (tax registration, tax lines, QR). */
+  options: {
+    /** `classic`: serif restaurant check (default). `thermal`: monospaced till-roll look. */
+    paperStyle: "classic" | "thermal";
+    /** Print the branch address. */
+    showBranchAddress: boolean;
+    /** Print the branch name. */
+    showBranchName: boolean;
+    /** Print the brand (restaurant) name in the heading. */
+    showBrandName: boolean;
+    /** Print who served the order. */
+    showCashier: boolean;
+    /** Print the guest count of a dine-in order. */
+    showGuests: boolean;
+    /** Print the order type (dine-in, takeaway…). */
+    showOrderType: boolean;
+    /** Print the table of a dine-in order. */
+    showTable: boolean;
+    /** Print "Tip / Total / Signature" write-in lines. */
+    signatureLine: boolean;
+    /** Suggested tip percentages printed under the total (at most 4, whole numbers 1-100); empty prints none. */
+    suggestedTips: number[];
+  };
+  /** Which axes of (brand, country pack) the stored template is narrowed by. Also its resolution tier, most specific first: brand_country_pack, brand, country_pack, tenant_default. */
+  scope: "brand_country_pack" | "brand" | "country_pack" | "tenant_default";
+  tenantId: string;
+  updatedAt: string;
+  /** Optimistic-concurrency token, starting at 1. Send it back unchanged on PATCH; a stale value is a 409. */
+  version: number;
+};
+
+export type ReceiptTemplatesController_updateBody = UpdateReceiptTemplateDto;
 
 /** `GET /recipes` — List recipes, optionally filtered by type. — Recipes visible to this tenant. */
 export type ProductionController_listRecipesResponse = ({
@@ -7831,6 +8287,7 @@ export const ROUTES = {
   OrdersController_byReference: { method: "GET", path: "/orders/by-reference" },
   OrdersController_history: { method: "GET", path: "/orders/history" },
   OrdersController_listReasonCodes: { method: "GET", path: "/orders/reason-codes" },
+  OrdersController_receiptTemplate: { method: "GET", path: "/orders/receipt-template" },
   OrdersController_search: { method: "GET", path: "/orders/search" },
   OrdersController_listTables: { method: "GET", path: "/orders/tables" },
   OrdersController_tableStatus: { method: "GET", path: "/orders/tables/status" },
@@ -7921,6 +8378,12 @@ export const ROUTES = {
   ProcurementController_getSupplier: { method: "GET", path: "/procurement/suppliers/{id}" },
   ProcurementController_updateSupplier: { method: "PATCH", path: "/procurement/suppliers/{id}" },
   ProcurementController_setSupplierStatus: { method: "PATCH", path: "/procurement/suppliers/{id}/status" },
+  ReceiptTemplatesController_list: { method: "GET", path: "/receipt-templates" },
+  ReceiptTemplatesController_create: { method: "POST", path: "/receipt-templates" },
+  ReceiptTemplatesController_resolve: { method: "GET", path: "/receipt-templates/resolve" },
+  ReceiptTemplatesController_scopeOptions: { method: "GET", path: "/receipt-templates/scope-options" },
+  ReceiptTemplatesController_get: { method: "GET", path: "/receipt-templates/{id}" },
+  ReceiptTemplatesController_update: { method: "PATCH", path: "/receipt-templates/{id}" },
   ProductionController_listRecipes: { method: "GET", path: "/recipes" },
   ProductionController_createRecipe: { method: "POST", path: "/recipes" },
   ProductionController_recipesRequiringCompletion: { method: "GET", path: "/recipes/requiring-completion" },

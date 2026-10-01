@@ -14,17 +14,27 @@
 import { useMemo, useRef, useState } from "react";
 import { Banknote, CreditCard, Printer, Send, Smartphone, Ticket, Undo2 } from "lucide-react";
 import type { CountryPack, Order, TenderType } from "@/lib/console/types";
-import { branchById } from "@/lib/console/mock/org";
+import { branchById, brandById } from "@/lib/console/mock/org";
 import { menuItemById } from "@/lib/console/mock/catalogue";
 import { countryPacks } from "@/lib/console/mock/platform";
 import {
-  formatDateTime,
+  formatDate,
+  formatTime,
   formatMoney,
   minorFromInput,
   money,
-  tx as pick,
 } from "@/lib/console/format";
 import { TENDER_TYPE, ORDER_TYPE } from "@/lib/console/labels";
+import {
+  joinLocalised,
+  localisedLabel,
+  type ReceiptDocument,
+  type ReceiptTotalRow,
+} from "@/lib/console/receipt";
+import { ReceiptRenderer } from "@/components/terminal/receipt-renderer";
+import { useReceiptTemplate } from "@/components/terminal/use-receipt-template";
+import { AsyncPanel } from "@/components/console/states";
+import type { FormatOptions } from "@/lib/console/format";
 import {
   CardTerminalPanel,
   NO_SPLIT,
@@ -376,7 +386,7 @@ function roundUp(value: number, to: number): number {
 // ---------------------------------------------------------------------------
 
 export function ReceiptSheet({ order, onClose }: { order: Order; onClose: () => void }) {
-  const { t, tx, locale, fmt } = useI18n();
+  const { t, tx, fmt } = useI18n();
   const { state, dispatch } = useLive();
   const confirm = useConfirm();
   const queue = usePrintQueue();
@@ -395,6 +405,8 @@ export function ReceiptSheet({ order, onClose }: { order: Order; onClose: () => 
 
   const branch = branchById.get(order.branchId);
   const pack = countryPacks.find((p) => p.code === branch?.countryCode);
+  const template = useReceiptTemplate();
+  const receiptDocument = orderReceiptDocument(order, branch, pack, fmt);
 
   function printReceipt(kind: "receipt" | "duplicate" | "pre_bill") {
     queue.enqueue({
@@ -441,6 +453,7 @@ export function ReceiptSheet({ order, onClose }: { order: Order; onClose: () => 
           ) : (
             <Button
               icon={<Printer size={14} />}
+              disabled={!template.data}
               onClick={() => {
                 setReprinted(true);
                 printReceipt("receipt");
@@ -461,113 +474,43 @@ export function ReceiptSheet({ order, onClose }: { order: Order; onClose: () => 
         </>
       }
     >
-      <div className="bg-sunken border-line relative rounded-xl border p-4 font-mono text-xs">
-        {reprinted ? (
-          <p className="border-bad text-bad mb-3 rounded border border-dashed py-1 text-center text-sm font-bold tracking-widest">
-            {t("print.duplicateBanner")}
-          </p>
-        ) : null}
-
-        <div className="text-center">
-          <p className="text-fg text-sm font-bold">{tx(branch?.name)}</p>
-          <p className="text-fg-muted">{branch?.address}</p>
-          <p className="text-fg-muted mt-1">
-            {pack?.taxEngine === "vat_standard" ? "VAT" : "TAX"} REG 100-238-991
-          </p>
-        </div>
-
-        <div className="border-line my-3 border-t border-dashed pt-2">
-          <Row label={t("orders.number")} value={order.orderNumber} />
-          <Row label={t("common.date")} value={formatDateTime(order.openedAt, fmt)} />
-          <Row label={t("pos.orderType")} value={pick(ORDER_TYPE[order.orderType].label, locale)} />
-          {order.tableLabel ? <Row label={t("nav.tables")} value={order.tableLabel} /> : null}
-          <Row label={t("shift.cashier")} value={pick(order.openedByName, locale)} />
-        </div>
-
-        <div className="border-line my-3 border-t border-dashed pt-2">
-          {order.lines
-            .filter((l) => l.state !== "voided")
-            .map((line) => (
-              <div key={line.id} className="mb-1">
-                <div className="flex justify-between gap-3">
-                  <span className="text-fg min-w-0 truncate">
-                    {line.quantity} × {tx(line.itemNameSnapshot)}
-                  </span>
-                  <span className="text-fg shrink-0 tabular-nums">
-                    {formatMoney(line.lineTotal, fmt)}
-                  </span>
-                </div>
-                {line.modifiers.map((m) => (
-                  <div key={m.id} className="text-fg-subtle ps-3">
-                    {m.kind === "removal" ? "− " : "+ "}
-                    {tx(m.name)}
-                  </div>
-                ))}
-              </div>
-            ))}
-        </div>
-
-        <div className="border-line border-t border-dashed pt-2">
-          <Row label={t("pos.subtotal")} value={formatMoney(order.subtotal, fmt)} />
-          {order.discountTotal.amount > 0 ? (
-            <Row label={t("pos.discountTotal")} value={`−${formatMoney(order.discountTotal, fmt)}`} />
-          ) : null}
-          {order.serviceChargeTotal.amount > 0 ? (
-            <Row label={t("pos.serviceCharge")} value={formatMoney(order.serviceChargeTotal, fmt)} />
-          ) : null}
-          <TaxBreakdown order={order} pack={pack} />
-          {order.roundingAdjustment.amount !== 0 ? (
-            <Row label={t("pos.rounding")} value={formatMoney(order.roundingAdjustment, fmt)} />
-          ) : null}
-          <div className="text-fg mt-1 flex justify-between border-t pt-1 text-sm font-bold">
-            <span>{t("pos.total")}</span>
-            <span className="tabular-nums">
-              {formatMoney(
-                money(order.grandTotal.amount + order.roundingAdjustment.amount, order.currency),
-                fmt,
-              )}
-            </span>
-          </div>
-        </div>
-
-        <div className="border-line my-2 border-t border-dashed pt-2">
-          {order.payments.map((p) => (
-            <Row
-              key={p.id}
-              label={pick(TENDER_TYPE[p.tender].label, locale)}
-              value={formatMoney(p.amount, fmt)}
+      {/*
+        FR-POS-101/102 — the receipt prints from the branch's template, in the
+        template's language(s) and not the UI language. The template comes
+        from `GET /orders/receipt-template`; nothing is drawn until it has.
+        Fiscal content (the registration line, the fiscal provider line) is
+        unchanged and passed through untouched — FR-POS-100 owns it.
+      */}
+      <AsyncPanel state={template}>
+        {(resolved) =>
+          resolved ? (
+            <ReceiptRenderer
+              document={receiptDocument}
+              template={resolved.template}
+              backCaption={t("rcpt.backCaption")}
+              banner={
+                reprinted ? (
+                  <p className="border-bad text-bad mb-3 rounded border border-dashed py-1 text-center text-sm font-bold tracking-widest">
+                    {t("print.duplicateBanner")}
+                  </p>
+                ) : null
+              }
+              fiscal={
+                <p className="text-fg-muted mt-1">
+                  {pack?.taxEngine === "vat_standard" ? "VAT" : "TAX"} REG 100-238-991
+                </p>
+              }
+              closing={
+                pack?.fiscalProvider ? (
+                  <p className="text-fg-subtle mt-1 text-center">
+                    {`${pack.fiscalProvider.toUpperCase()} · ${pack.fiscalMode}`}
+                  </p>
+                ) : null
+              }
             />
-          ))}
-          <Row
-            label={t("pos.amountPaid")}
-            value={formatMoney(
-              money(
-                order.payments.reduce((sum, p) => sum + p.tenderedAmount.amount, 0),
-                order.currency,
-              ),
-              fmt,
-            )}
-          />
-          {order.payments.some((p) => p.changeAmount.amount > 0) ? (
-            <Row
-              label={t("pos.changeDue")}
-              value={formatMoney(
-                money(
-                  order.payments.reduce((sum, p) => sum + p.changeAmount.amount, 0),
-                  order.currency,
-                ),
-                fmt,
-              )}
-            />
-          ) : null}
-        </div>
-
-        <p className="text-fg-subtle mt-3 text-center leading-relaxed">
-          {locale === "ar" ? "شكرًا لزيارتكم" : "Thank you"}
-          <br />
-          {pack?.fiscalProvider ? `${pack.fiscalProvider.toUpperCase()} · ${pack.fiscalMode}` : null}
-        </p>
-      </div>
+          ) : null
+        }
+      </AsyncPanel>
 
       <p className="text-fg-subtle mt-3 text-xs leading-relaxed">
         {state.settings.blindCount ? "FR-POS-100 · FR-POS-102" : "FR-POS-100"}
@@ -596,13 +539,95 @@ export function ReceiptSheet({ order, onClose }: { order: Order; onClose: () => 
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <span className="text-fg-muted min-w-0 truncate">{label}</span>
-      <span className="text-fg shrink-0 tabular-nums">{value}</span>
-    </div>
+/**
+ * The sale as a language-neutral document for `ReceiptRenderer`. Every fixed
+ * label is a pair from BOTH console dictionaries, so it prints in the
+ * template's language(s) whatever language this screen is in; money and dates
+ * are formatted here, once, with the screen's own formatter.
+ */
+function orderReceiptDocument(
+  order: Order,
+  branch: ReturnType<typeof branchById.get>,
+  pack: CountryPack | undefined,
+  fmt: FormatOptions,
+): ReceiptDocument {
+  const label = localisedLabel;
+  const paid = money(
+    order.payments.reduce((sum, p) => sum + p.tenderedAmount.amount, 0),
+    order.currency,
   );
+  const change = money(
+    order.payments.reduce((sum, p) => sum + p.changeAmount.amount, 0),
+    order.currency,
+  );
+
+  return {
+    heading: {
+      brand: (branch && brandById.get(branch.brandId)?.name) ?? null,
+      name: branch?.name ?? null,
+      address: branch?.address || null,
+    },
+    // Two columns on the classic paper, read left to right: number and date,
+    // table and time, guests and order type, then the cashier. Each row says
+    // what it is, so the template can hide the ones it may.
+    meta: [
+      { key: "orderNumber" as const, label: label("orders.number"), value: order.orderNumber },
+      { key: "date" as const, label: label("common.date"), value: formatDate(order.openedAt, fmt) },
+      ...(order.tableLabel
+        ? [{ key: "table" as const, label: label("nav.tables"), value: order.tableLabel }]
+        : []),
+      { key: "time" as const, label: label("common.time"), value: formatTime(order.openedAt, fmt) },
+      ...(order.guestCount
+        ? [{ key: "guests" as const, label: label("pos.guests"), value: String(order.guestCount) }]
+        : []),
+      { key: "orderType" as const, label: label("pos.orderType"), value: ORDER_TYPE[order.orderType].label },
+      { key: "cashier" as const, label: label("shift.cashier"), value: order.openedByName },
+    ],
+    items: order.lines
+      .filter((line) => line.state !== "voided")
+      .map((line) => ({
+        quantity: line.quantity,
+        name: line.itemNameSnapshot,
+        total: formatMoney(line.lineTotal, fmt),
+        unitPrice: formatMoney(line.unitPrice, fmt),
+        modifiers: line.modifiers.map((modifier) => ({
+          sign: modifier.kind === "removal" ? ("−" as const) : ("+" as const),
+          name: modifier.name,
+        })),
+      })),
+    totals: [
+      { label: label("pos.subtotal"), value: formatMoney(order.subtotal, fmt) },
+      ...(order.discountTotal.amount > 0
+        ? [{ label: label("pos.discountTotal"), value: `−${formatMoney(order.discountTotal, fmt)}` }]
+        : []),
+      ...(order.serviceChargeTotal.amount > 0
+        ? [{ label: label("pos.serviceCharge"), value: formatMoney(order.serviceChargeTotal, fmt) }]
+        : []),
+      ...taxRows(order, pack, fmt),
+      ...(order.roundingAdjustment.amount !== 0
+        ? [{ label: label("pos.rounding"), value: formatMoney(order.roundingAdjustment, fmt) }]
+        : []),
+      {
+        label: label("pos.total"),
+        value: formatMoney(
+          money(order.grandTotal.amount + order.roundingAdjustment.amount, order.currency),
+          fmt,
+        ),
+        emphasis: true,
+      },
+    ],
+    payments: [
+      ...order.payments.map((p) => ({ label: TENDER_TYPE[p.tender].label, value: formatMoney(p.amount, fmt) })),
+      { label: label("pos.amountPaid"), value: formatMoney(paid, fmt) },
+      ...(order.payments.some((p) => p.changeAmount.amount > 0)
+        ? [{ label: label("pos.changeDue"), value: formatMoney(change, fmt) }]
+        : []),
+    ],
+    notice: null,
+    // Suggested tips are a share of the subtotal, before tax.
+    tipAmount: (percent) =>
+      formatMoney(money(Math.round((order.subtotal.amount * percent) / 100), order.currency), fmt),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -700,93 +725,71 @@ function RefundSheet({ order, onClose }: { order: Order; onClose: () => void }) 
  * An order that really is single-class still prints one row, so the common
  * case does not get longer for the sake of the general one.
  */
-function TaxBreakdown({
-  order,
-  pack,
-}: {
-  order: Order;
-  pack: CountryPack | undefined;
-}) {
-  const { t, tx, fmt } = useI18n();
+function taxRows(order: Order, pack: CountryPack | undefined, fmt: FormatOptions): ReceiptTotalRow[] {
   const inclusive = pack?.pricingMode === "tax_inclusive";
-  const suffix = inclusive ? ` (${t("pos.taxIncluded")})` : "";
+  const taxLabel = inclusive
+    ? joinLocalised(localisedLabel("pos.tax"), " (", localisedLabel("pos.taxIncluded"), ")")
+    : localisedLabel("pos.tax");
 
-  const groups = useMemo(() => {
-    // Keyed by the opaque `taxClassId`, not the closed `TaxClassCode` union —
-    // it is a backend-recorded string (see `MenuItem` in types.ts), and an
-    // item with none groups under "unclassified" rather than a fabricated
-    // "standard" bucket.
-    const byClass = new Map<string, { taxable: number; tax: number }>();
+  // Keyed by the opaque `taxClassId`, not the closed `TaxClassCode` union —
+  // it is a backend-recorded string (see `MenuItem` in types.ts), and an
+  // item with none groups under "unclassified" rather than a fabricated
+  // "standard" bucket.
+  const byClass = new Map<string, { taxable: number; tax: number }>();
+  for (const line of order.lines) {
+    if (line.state === "voided") continue;
+    // The class lives on the menu item, not on the line — the line carries
+    // the tax it was charged, and the item says which class charged it.
+    const code = menuItemById.get(line.menuItemId)?.taxClassId ?? "unclassified";
+    const entry = byClass.get(code) ?? { taxable: 0, tax: 0 };
+    entry.taxable += line.lineTotal.amount;
+    entry.tax += line.taxAmount.amount;
+    byClass.set(code, entry);
+  }
 
-    for (const line of order.lines) {
-      if (line.state === "voided") continue;
-      // The class lives on the menu item, not on the line — the line carries
-      // the tax it was charged, and the item says which class charged it.
-      const code = menuItemById.get(line.menuItemId)?.taxClassId ?? "unclassified";
-      const entry = byClass.get(code) ?? { taxable: 0, tax: 0 };
-      entry.taxable += line.lineTotal.amount;
-      entry.tax += line.taxAmount.amount;
-      byClass.set(code, entry);
-    }
-
-    // Ordered by the pack rather than by encounter, so two receipts from the
-    // same branch always list their classes the same way round.
-    const order_ = pack?.taxClasses.map((c) => c.code) ?? [...byClass.keys()];
-    return order_
-      .filter((code) => byClass.has(code))
-      .map((code) => {
-        const definition = pack?.taxClasses.find((c) => c.code === code);
-        const entry = byClass.get(code)!;
-        return {
-          code,
-          label: definition?.label ?? { en: code, ar: code },
-          rate: definition?.rate ?? null,
-          ...entry,
-        };
-      });
-  }, [order.lines, pack]);
+  // Ordered by the pack rather than by encounter, so two receipts from the
+  // same branch always list their classes the same way round.
+  const ordered = pack?.taxClasses.map((c) => c.code) ?? [...byClass.keys()];
+  const groups = ordered
+    .filter((code) => byClass.has(code))
+    .map((code) => {
+      const definition = pack?.taxClasses.find((c) => c.code === code);
+      return {
+        code,
+        label: definition?.label ?? { en: code, ar: code },
+        rate: definition?.rate ?? null,
+        ...byClass.get(code)!,
+      };
+    });
 
   // The service charge is taxed at the standard rate but is not a line, so
   // it is whatever the total does not account for.
   const lineTax = groups.reduce((sum, g) => sum + g.tax, 0);
   const otherTax = order.taxTotal.amount - lineTax;
 
-  if (groups.length <= 1 && otherTax === 0) {
-    return (
-      <Row
-        label={`${t("pos.tax")}${suffix}`}
-        value={formatMoney(order.taxTotal, fmt)}
-      />
-    );
-  }
+  const main: ReceiptTotalRow = { label: taxLabel, value: formatMoney(order.taxTotal, fmt) };
+  if (groups.length <= 1 && otherTax === 0) return [main];
 
-  return (
-    <>
-      <Row label={`${t("pos.tax")}${suffix}`} value={formatMoney(order.taxTotal, fmt)} />
-      {groups.map((group) => (
-        <div
-          key={group.code}
-          className="text-fg-subtle flex justify-between ps-3 text-[0.7rem]"
-        >
-          <span>
-            {tx(group.label)}
-            {group.rate === null ? "" : ` ${group.rate}%`}
-            {" · "}
-            {formatMoney(money(group.taxable, order.currency), fmt)}
-          </span>
-          <span className="tabular-nums">
-            {formatMoney(money(group.tax, order.currency), fmt)}
-          </span>
-        </div>
-      ))}
-      {otherTax !== 0 ? (
-        <div className="text-fg-subtle flex justify-between ps-3 text-[0.7rem]">
-          <span>{t("pos.serviceCharge")}</span>
-          <span className="tabular-nums">
-            {formatMoney(money(otherTax, order.currency), fmt)}
-          </span>
-        </div>
-      ) : null}
-    </>
-  );
+  return [
+    main,
+    ...groups.map((group) => ({
+      sub: true,
+      label: joinLocalised(
+        group.label,
+        group.rate === null ? "" : ` ${group.rate}%`,
+        " · ",
+        formatMoney(money(group.taxable, order.currency), fmt),
+      ),
+      value: formatMoney(money(group.tax, order.currency), fmt),
+    })),
+    ...(otherTax !== 0
+      ? [
+          {
+            sub: true,
+            label: localisedLabel("pos.serviceCharge"),
+            value: formatMoney(money(otherTax, order.currency), fmt),
+          },
+        ]
+      : []),
+  ];
 }

@@ -55,7 +55,7 @@ import {
 
 import type { MenuItem, Order } from "@/lib/console/types";
 import { services, ServiceError } from "@/lib/console/services";
-import type { Scope, SelectedTable } from "@/lib/console/services/types";
+import type { Receipt as ServiceReceipt, Scope, SelectedTable } from "@/lib/console/services/types";
 import { api } from "@/lib/api/endpoints";
 import {
   toPosMenu,
@@ -67,7 +67,19 @@ import { useAsync, type AsyncState } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
 import type { ConsoleKey } from "@/locales";
-import { formatDateTime, formatMoney, formatRelative, minorFromInput, money } from "@/lib/console/format";
+import {
+  formatDate,
+  formatDateTime,
+  formatTime,
+  formatMoney,
+  formatRelative,
+  minorFromInput,
+  money,
+  type FormatOptions,
+} from "@/lib/console/format";
+import { joinLocalised, localisedLabel, type ReceiptDocument } from "@/lib/console/receipt";
+import { ReceiptRenderer } from "@/components/terminal/receipt-renderer";
+import { useReceiptTemplate } from "@/components/terminal/use-receipt-template";
 import { ORDER_LINE_STATE, ORDER_STATE, ORDER_TYPE, TENDER_TYPE, labelOf } from "@/lib/console/labels";
 import {
   clearTerminalIdentity,
@@ -2868,6 +2880,83 @@ function RefundDrawer({
  * private again. POS's own use here (during an active POS session) is
  * unaffected.
  */
+/**
+ * The backend receipt as a language-neutral document for `ReceiptRenderer`.
+ * Labels are pairs from both dictionaries (FR-POS-102: the template chooses
+ * the language, not the UI); money and dates are formatted here.
+ */
+function receiptDocumentOf(
+  receipt: ServiceReceipt,
+  fmt: FormatOptions,
+  heading: ReceiptDocument["heading"] = { name: null, address: null },
+): ReceiptDocument {
+  const label = localisedLabel;
+  const change = receipt.payments.find((payment) => payment.changeGiven)?.changeGiven ?? null;
+  return {
+    heading,
+    meta: [
+      { key: "orderNumber", label: label("pos.orderNo"), value: receipt.orderNumber },
+      { key: "date", label: label("common.date"), value: formatDate(receipt.completedAt, fmt) },
+      // POS-DINEIN-PREBILL-PRINT-P0 — a human-readable table reference, never the opaque tableId.
+      ...(receipt.tableLabel
+        ? [{ key: "table" as const, label: label("pos.tableLabel"), value: receipt.tableLabel }]
+        : []),
+      { key: "time", label: label("common.time"), value: formatTime(receipt.completedAt, fmt) },
+      ...(receipt.guestCount
+        ? [{ key: "guests" as const, label: label("pos.guests"), value: String(receipt.guestCount) }]
+        : []),
+      { key: "orderType", label: label("pos.orderType"), value: labelOf(ORDER_TYPE, receipt.orderType).label },
+      // ORDERS-MODULE-COMPREHENSIVE-P0 — the permanent Order Reference
+      // (orders.id). Never replaces the Order Number above; this IS the
+      // support/history lookup value, so the full ULID is shown.
+      { key: "reference", label: label("pos.orderReference"), value: receipt.id },
+    ],
+    items: receipt.lines.map((line) => ({
+      quantity: line.quantity,
+      name: line.name,
+      total: formatMoney(line.lineTotal, fmt),
+      unitPrice: formatMoney(line.unitPrice, fmt),
+      modifiers: line.modifiers.map((modifier) => ({
+        sign: "+" as const,
+        name: modifier.name,
+        amount: formatMoney(modifier.priceDelta, fmt),
+      })),
+    })),
+    totals: [
+      { label: label("orders.net"), value: formatMoney(receipt.totals.subtotal, fmt) },
+      ...(receipt.totals.discountTotal.amount > 0
+        ? [
+            {
+              label: label("pos.discountTotal"),
+              value: `−${formatMoney(receipt.totals.discountTotal, fmt)}`,
+              negative: true,
+            },
+          ]
+        : []),
+      { label: label("orders.tax"), value: formatMoney(receipt.totals.taxTotal, fmt) },
+      { label: label("orders.grandTotal"), value: formatMoney(receipt.totals.grandTotal, fmt), emphasis: true },
+      { label: label("orders.paid"), value: formatMoney(receipt.totals.paidTotal, fmt) },
+    ],
+    payments: [
+      ...receipt.payments.map((payment) => ({
+        label:
+          payment.tender === "cash"
+            ? labelOf(TENDER_TYPE, "cash").label
+            : joinLocalised(label("orders.card"), payment.cardLast4 ? ` •••• ${payment.cardLast4}` : ""),
+        value: formatMoney(payment.tenderedAmount ?? payment.amount, fmt),
+      })),
+      ...(change ? [{ label: label("pos.receiptChange"), value: formatMoney(change, fmt) }] : []),
+    ],
+    notice: label("pos.receiptNonFiscalNotice"),
+    // Suggested tips are a share of the subtotal, before tax.
+    tipAmount: (percent) =>
+      formatMoney(
+        { amount: Math.round((receipt.totals.subtotal.amount * percent) / 100), currency: receipt.totals.subtotal.currency },
+        fmt,
+      ),
+  };
+}
+
 function ReceiptDrawer({
   order,
   open,
@@ -2877,12 +2966,22 @@ function ReceiptDrawer({
   open: boolean;
   onClose: () => void;
 }) {
-  const { t, tx, fmt } = useI18n();
+  const { t, fmt } = useI18n();
+  // The restaurant and the branch this till belongs to: the backend's receipt
+  // does not carry them, and the session already knows.
+  const { branch, brand, availableBrands } = useSession();
+  const heading: ReceiptDocument["heading"] = {
+    brand: (branch && availableBrands?.find((candidate) => candidate.id === branch.brandId)?.name) ?? brand?.name ?? null,
+    name: branch?.name ?? null,
+    address: branch?.address || null,
+  };
 
   const receiptState = useAsync(
     async () => (open ? services.sales.receipt(order.businessDay, order.id) : null),
     [open, order.businessDay, order.id],
   );
+  // FR-POS-101/102 — the branch's template, from `GET /orders/receipt-template`.
+  const template = useReceiptTemplate(open);
 
   if (!open) return null;
 
@@ -2895,7 +2994,7 @@ function ReceiptDrawer({
         <div className="flex gap-2">
           <Button
             variant="primary"
-            disabled={!receiptState.data}
+            disabled={!receiptState.data || !template.data}
             onClick={() => window.print()}
           >
             {t("pos.printReceipt")}
@@ -2908,107 +3007,17 @@ function ReceiptDrawer({
     >
       <AsyncPanel state={receiptState as AsyncState<Awaited<ReturnType<typeof services.sales.receipt>>>}>
         {(receipt) => (
-          <div className="space-y-4">
-            <div className="text-center">
-              <p className="text-fg text-sm font-bold">
-                {t("pos.orderNo")} {receipt.orderNumber}
-              </p>
-              {/*
-                ORDERS-MODULE-COMPREHENSIVE-P0 — the permanent Order
-                Reference (orders.id). Never replaces the Order Number
-                above; this IS the support/history lookup value, so the
-                full ULID is shown, not an abbreviation.
-              */}
-              <p className="text-fg-subtle font-mono text-[0.65rem]">
-                {t("pos.orderReference")} {receipt.id}
-              </p>
-              <p className="text-fg-subtle text-xs">
-                {tx(labelOf(ORDER_TYPE, receipt.orderType).label)} ·{" "}
-                {formatDateTime(receipt.completedAt, fmt)}
-              </p>
-              {/* POS-DINEIN-PREBILL-PRINT-P0 — a human-readable table reference, never the opaque tableId. */}
-              {receipt.tableLabel ? (
-                <p className="text-fg-subtle text-xs">
-                  {t("pos.tableLabel")} {receipt.tableLabel}
-                </p>
-              ) : null}
-            </div>
-
-            <ul className="divide-line divide-y">
-              {receipt.lines.map((line, index) => (
-                <li key={`${line.menuItemId}-${index}`} className="py-2">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-fg text-sm">
-                      {line.quantity} × {tx(line.name)}
-                    </span>
-                    <span className="text-fg font-mono text-sm">
-                      {formatMoney(line.lineTotal, fmt)}
-                    </span>
-                  </div>
-                  {line.modifiers.map((modifier) => (
-                    <div
-                      key={modifier.modifierId}
-                      className="text-fg-subtle ps-4 flex justify-between gap-2 text-xs"
-                    >
-                      <span>+ {tx(modifier.name)}</span>
-                      <span className="font-mono">{formatMoney(modifier.priceDelta, fmt)}</span>
-                    </div>
-                  ))}
-                </li>
-              ))}
-            </ul>
-
-            <DescList>
-              <DescRow label={t("orders.net")} mono>
-                {formatMoney(receipt.totals.subtotal, fmt)}
-              </DescRow>
-              {receipt.totals.discountTotal.amount > 0 ? (
-                <DescRow label={t("pos.discountTotal")} mono>
-                  <span className="text-bad">−{formatMoney(receipt.totals.discountTotal, fmt)}</span>
-                </DescRow>
-              ) : null}
-              <DescRow label={t("orders.tax")} mono>
-                {formatMoney(receipt.totals.taxTotal, fmt)}
-              </DescRow>
-              <DescRow label={t("orders.grandTotal")} mono>
-                {formatMoney(receipt.totals.grandTotal, fmt)}
-              </DescRow>
-              <DescRow label={t("orders.paid")} mono>
-                {formatMoney(receipt.totals.paidTotal, fmt)}
-              </DescRow>
-            </DescList>
-
-            <div className="space-y-1">
-              {receipt.payments.map((payment) => (
-                <div key={payment.id} className="flex justify-between gap-2 text-xs">
-                  <span className="text-fg-subtle">
-                    {payment.tender === "cash"
-                      ? tx(labelOf(TENDER_TYPE, "cash").label)
-                      : t("orders.card")}
-                    {payment.cardLast4 ? ` •••• ${payment.cardLast4}` : ""}
-                  </span>
-                  <span className="text-fg font-mono">
-                    {formatMoney(payment.tenderedAmount ?? payment.amount, fmt)}
-                  </span>
-                </div>
-              ))}
-              {receipt.payments.some((payment) => payment.changeGiven) ? (
-                <div className="flex justify-between gap-2 text-xs">
-                  <span className="text-fg-subtle">{t("pos.receiptChange")}</span>
-                  <span className="text-fg font-mono">
-                    {formatMoney(
-                      receipt.payments.find((payment) => payment.changeGiven)!.changeGiven!,
-                      fmt,
-                    )}
-                  </span>
-                </div>
-              ) : null}
-            </div>
-
-            <p className="text-fg-subtle text-center text-[0.65rem]">
-              {t("pos.receiptNonFiscalNotice")}
-            </p>
-          </div>
+          <AsyncPanel state={template}>
+            {(resolved) =>
+              resolved ? (
+                <ReceiptRenderer
+                  document={receiptDocumentOf(receipt, fmt, heading)}
+                  template={resolved.template}
+                  backCaption={t("rcpt.backCaption")}
+                />
+              ) : null
+            }
+          </AsyncPanel>
         )}
       </AsyncPanel>
     </Drawer>

@@ -626,11 +626,11 @@ export const production = {
 
 export const sales = {
   /** `GET /orders` — List orders, cursor-paginated. — A page of orders (no line snapshots) plus an opaque cursor for the next page. */
-  list: (options: { branchId?: string; cursorId?: string; cursorBusinessDay?: string; limit?: number } = {}) =>
+  listOrders: (options: { branchId?: string; cursorId?: string; cursorBusinessDay?: string; limit?: number } = {}) =>
     http.get<S.OrdersController_listResponse>("/orders", { query: { branchId: options.branchId, cursorId: options.cursorId, cursorBusinessDay: options.cursorBusinessDay, limit: options.limit } }),
 
   /** `POST /orders` — Open an order. — The newly opened order. */
-  create: (body: S.CreateOrderDto) =>
+  createOrders: (body: S.CreateOrderDto) =>
     http.post<S.OrdersController_createResponse>("/orders", { body, idempotent: true }),
 
   /** `GET /orders/by-reference` — One order by its permanent Order Reference (orders.id), without needing a business day. — The order, including its lines. */
@@ -644,6 +644,10 @@ export const sales = {
   /** `GET /orders/reason-codes` — Reason codes valid for a POS action (purpose-scoped, action-permission-authorised). — Reason codes usable for the given purpose. */
   listReasonCodes: (options: { purpose?: "void_prefire" | "discount" | "comp" | "void_postfire" | "refund" | "order_cancel" } = {}) =>
     http.get<S.OrdersController_listReasonCodesResponse>("/orders/reason-codes", { query: { purpose: options.purpose } }),
+
+  /** `GET /orders/receipt-template` — The effective receipt template for the caller's own POS branch. — The template, plus where it came from (`source`, `templateId`, `version`). `isDefault` is true when none is configured. */
+  receiptTemplate: () =>
+    http.get<S.OrdersController_receiptTemplateResponse>("/orders/receipt-template"),
 
   /** `GET /orders/search` — Search orders by their (non-globally-unique) human Order Number. — Every matching order visible to the caller (bounded to 50), for the caller to disambiguate by business day and branch. */
   search: (options: { orderNumber?: string; branchId?: string } = {}) =>
@@ -713,6 +717,30 @@ export const sales = {
   issueRefund: (businessDay: string, id: string, body: S.IssueRefundDto, options: { ifMatch?: string | number } = {}) =>
     http.post<S.OrdersController_issueRefundResponse>("/orders/{businessDay}/{id}/refunds", { params: { businessDay, id }, body, ifMatch: options.ifMatch, idempotent: true }),
 
+  /** `GET /receipt-templates` — List the tenant's receipt templates, broadest scope first. — Every stored template of the caller tenant (optionally filtered by brandId / countryPackCode). */
+  listReceiptTemplates: (options: { brandId?: string; countryPackCode?: string } = {}) =>
+    http.get<S.ReceiptTemplatesController_listResponse>("/receipt-templates", { query: { brandId: options.brandId, countryPackCode: options.countryPackCode } }),
+
+  /** `POST /receipt-templates` — Create the receipt template for one scope (tenant default, country pack, brand, or brand + country pack). — The newly created template (version 1). */
+  createReceiptTemplates: (body: S.CreateReceiptTemplateDto) =>
+    http.post<S.ReceiptTemplatesController_createResponse>("/receipt-templates", { body }),
+
+  /** `GET /receipt-templates/resolve` — Preview the effective receipt template for a branch (brand+pack -> brand -> pack -> tenant default -> built-in), and where it came from. — The effective template, its `source` tier and stored `templateId`/`version` (null for the built-in default), and the inputs the resolution used. */
+  resolveReceiptTemplates: (options: { branchId?: string } = {}) =>
+    http.get<S.ReceiptTemplatesController_resolveResponse>("/receipt-templates/resolve", { query: { branchId: options.branchId } }),
+
+  /** `GET /receipt-templates/scope-options` — The country packs a receipt template can be scoped to (loaded on this deployment) and the tenant's own pack. — The loaded country pack codes (sorted) and the caller tenant’s own pack code. */
+  scopeOptions: () =>
+    http.get<S.ReceiptTemplatesController_scopeOptionsResponse>("/receipt-templates/scope-options"),
+
+  /** `GET /receipt-templates/{id}` — Read one receipt template. — The stored template. */
+  getReceiptTemplates: (id: string) =>
+    http.get<S.ReceiptTemplatesController_getResponse>("/receipt-templates/{id}", { params: { id } }),
+
+  /** `PATCH /receipt-templates/{id}` — Partially update a receipt template. Requires the `version` last read (optimistic concurrency). The scope cannot be changed. — The updated template with its incremented `version`. A PATCH that changes nothing returns the template unchanged (same version, no audit entry). */
+  update: (id: string, body: S.UpdateReceiptTemplateDto) =>
+    http.patch<S.ReceiptTemplatesController_updateResponse>("/receipt-templates/{id}", { params: { id }, body }),
+
   /** `POST /service-charge-policy/branch/{branchId}` — The newly created branch-level service-charge policy version. */
   createBranchPolicy: (branchId: string, body: S.CreateServiceChargePolicyDto) =>
     http.post<S.ServiceChargePolicyController_createBranchPolicyResponse>("/service-charge-policy/branch/{branchId}", { params: { branchId }, body, idempotent: true }),
@@ -722,7 +750,7 @@ export const sales = {
     http.post<S.ServiceChargePolicyController_createBrandPolicyResponse>("/service-charge-policy/brand/{brandId}", { params: { brandId }, body, idempotent: true }),
 
   /** `GET /service-charge-policy/resolve` — The currently-effective version for a hierarchy context — `null` if nothing is configured anywhere in scope. `branchId` (when supplied) determines the authorization target; otherwise TENANT — the built-in `branchFromQueryOrTenant` primitive, no custom resolver needed. A `brandId`-only request (no `branchId`) is authorized at TENANT scope — safe (never more permissive than the dedicated multi-level resolver `PlatformSettingsController` uses would be), simpler, and avoids a new Sales-owned `ScopeTargetResolver` for a narrow admin read. — `policy` is null if nothing is configured anywhere in scope. */
-  resolve: (options: { brandId?: string; branchId?: string } = {}) =>
+  resolveServiceChargePolicy: (options: { brandId?: string; branchId?: string } = {}) =>
     http.get<S.ServiceChargePolicyController_resolveResponse>("/service-charge-policy/resolve", { query: { brandId: options.brandId, branchId: options.branchId } }),
 
   /** `POST /service-charge-policy/tenant` — The newly created tenant-level service-charge policy version. */
@@ -776,7 +804,7 @@ export const organisation = {
   setBranchKdsConfig: (branchId: string, body: S.SetBranchKdsConfigDto) =>
     http.patch<S.OrganisationController_setBranchKdsConfigResponse>("/org/branches/{branchId}/kds-config", { params: { branchId }, body }),
 
-  /** `PATCH /org/branches/{branchId}/kitchen-config` — Partially update the branch KDS fallback station, recall window, and cancelled-line visibility window. Fields omitted from the body are left unchanged. — The updated KDS configuration (all three canonical fields). */
+  /** `PATCH /org/branches/{branchId}/kitchen-config` — Partially update the branch KDS fallback station, recall window, cancelled-line visibility window, and kitchen-ticket language. Fields omitted from the body are left unchanged. — The updated KDS configuration (all four canonical fields, including `kitchenTicketLanguage`, which is 'ar' until configured). */
   updateKitchenConfig: (branchId: string, body: S.UpdateBranchKdsConfigDto) =>
     http.patch<S.OrganisationController_updateKitchenConfigResponse>("/org/branches/{branchId}/kitchen-config", { params: { branchId }, body }),
 

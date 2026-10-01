@@ -76,6 +76,7 @@ import { attendanceRecords, employees, employeePerformance, overtimeRecords, sch
 import { cashSessions, dayCloses, expenses, paymentSummary, taxSummary } from "../mock/finance";
 import { anomalyFlags, approvalRequests, auditEntries, roles, sodConflicts, users } from "../mock/governance";
 import { countryPacks, integrations, reportCatalogue } from "../mock/platform";
+import { mockReceiptTemplates } from "../mock/receipt-templates";
 import {
   branchProfitability,
   branchRanking,
@@ -2826,4 +2827,5 @@ export const mockServices: ServiceRegistry = {
   governance,
   security,
   platform,
+  receiptTemplates: mockReceiptTemplates,
 };

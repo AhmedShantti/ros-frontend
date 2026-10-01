@@ -28,7 +28,7 @@ vi.mock("@/lib/api/endpoints", () => ({
       getAccessibleScope: (...args: unknown[]) => getAccessibleScope(...args),
     },
     sales: {
-      list: (...args: unknown[]) => salesList(...args),
+      listOrders: (...args: unknown[]) => salesList(...args),
       cancelOrders: (...args: unknown[]) => salesCancel(...args),
     },
   },

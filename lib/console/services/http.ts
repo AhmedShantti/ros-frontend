@@ -92,6 +92,7 @@ import type {
 } from "./types";
 import { ServiceError } from "./types";
 import { crmService } from "./crm";
+import { httpReceiptTemplates } from "./receipt-templates";
 import { emptyPage, project } from "./paging";
 import {
   notImplemented,
@@ -174,6 +175,7 @@ export const API_COVERAGE = {
     "production.modifierRecipeEffects",
     "sales.orders",
     "sales.mutations",
+    "receiptTemplates",
     "treasury.openCashSession",
     "treasury.recordMovement",
     "treasury.closeContext",
@@ -2089,7 +2091,7 @@ const orders: ReadonlyCollectionService<Order> = {
 
     // A handful of round-trips at most; the page size the API accepts is 100.
     for (let hop = 0; hop < 10 && collected.length < wanted + 1; hop += 1) {
-      const response = await api.sales.list({
+      const response = await api.sales.listOrders({
         branchId: branchId ?? undefined,
         limit: Math.min(100, wanted + 1 - collected.length),
         cursorId: cursor?.id,
@@ -2155,7 +2157,7 @@ const orderMutations: import("./types").OrderMutationService = {
     const tenantId = getTenantId() ?? "";
     const branchesById = await accessibleBranchIndex().catch(() => new Map<Id, Branch>());
 
-    const row = await api.sales.create({
+    const row = await api.sales.createOrders({
       id: deviceId(),
       orderType: input.orderType,
       channel: input.channel ?? "pos",
@@ -4067,6 +4069,10 @@ export const httpServices: ServiceRegistry = {
   // Live for the audit trail; still absent for approvals, anomaly flags and
   // SoD analysis. See the `governance` const above.
   governance,
+
+  // Live — FR-POS-101/102. The backend is the only source of truth; nothing
+  // is stored in the browser.
+  receiptTemplates: httpReceiptTemplates,
 };
 
 announceCoverage();

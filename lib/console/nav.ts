@@ -171,6 +171,7 @@ export const NAV_SECTIONS: NavSection[] = [
        * are separately gated on `settings.branch.manage` inside the page —
        * an OR of the two here matches real route access, same as Tables.
        */
+      { href: "/operations/receipts", labelKey: "nav.receipts", icon: ReceiptText, permissions: ["settings.tenant.read", "settings.tenant.manage"] },
       { href: "/operations/kitchen-setup", labelKey: "nav.kitchenSetup", icon: Settings, permissions: ["settings.branch.read", "settings.branch.manage"] },
       { href: "/operations/drawers", labelKey: "nav.drawers", icon: Banknote, permissions: ["settings.branch.manage"] },
       { href: "/operations/cash-sessions", labelKey: "nav.openCashSessions", icon: AlertTriangle, permissions: ["cash.session.close_other"] },
