@@ -1772,17 +1772,19 @@ const counts: CollectionService<CountSession> = {
     // smuggled through the same way `standardCost` is on the Stock Item
     // form (D-INV-05).
     const { scopeType, scopeId, itemIds } = input as unknown as {
-      scopeType?: "full_location" | "category" | "item_list";
+      scopeType?: "full_location" | "category" | "storage_area" | "item_list";
       scopeId?: string;
       itemIds?: string[];
     };
     const resolvedScope = scopeType ?? "full_location";
+    // The backend rejects scopeId outright for any scope but "category"/
+    // "storage_area" ("scopeId is only valid for a category or storage_area
+    // scope") — both name their scopeId the same generic wire field.
+    const scopeNamesId = resolvedScope === "category" || resolvedScope === "storage_area";
     const row = await api.inventory.openCount({
       locationId: input.locationId,
       scopeType: resolvedScope,
-      // The backend rejects scopeId outright for any scope but "category"
-      // ("scopeId is only valid for a category scope").
-      scopeId: resolvedScope === "category" ? scopeId : undefined,
+      scopeId: scopeNamesId ? scopeId : undefined,
       itemIds: resolvedScope === "item_list" ? itemIds : undefined,
       isBlindCount: input.mode === "blind",
     });
