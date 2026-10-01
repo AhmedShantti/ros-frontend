@@ -1219,6 +1219,76 @@
         ],
         "type": "object"
       },
+      "CreateReceiptTemplateDto": {
+        "properties": {
+          "backSide": {
+            "description": "What prints on the back of a double-sided receipt: `none` (default) or\n`logo_pattern` (the logo repeated across the page — needs a logo).",
+            "enum": [
+              "none",
+              "logo_pattern"
+            ],
+            "type": "string"
+          },
+          "bothOrder": {
+            "description": "`ar_first` | `en_first`. Only meaningful for `bilingual`. Not nullable.",
+            "enum": [
+              "ar_first",
+              "en_first"
+            ],
+            "type": "string"
+          },
+          "brandId": {
+            "description": "The brand this template is for; `null`/omitted = every brand. Must be a\nbrand of the caller's own tenant (else 404).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "countryPackCode": {
+            "description": "The country pack this template is for (`^[A-Z]{2,8}$`, e.g. `EG`);\n`null`/omitted = every country pack. Must be a pack loaded on this\ndeployment (else 400).",
+            "pattern": "^[A-Z]{2,8}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "footerLines": {
+            "description": "At most 4 lines; `[]` means \"no footer\"; omitted keeps/gets the default.",
+            "items": {
+              "$ref": "#/components/schemas/ReceiptTemplateLineDto"
+            },
+            "type": "array"
+          },
+          "headerLines": {
+            "description": "At most 4 lines; `[]` means \"no header lines\".",
+            "items": {
+              "$ref": "#/components/schemas/ReceiptTemplateLineDto"
+            },
+            "type": "array"
+          },
+          "languageMode": {
+            "description": "`ar` | `en` | `bilingual`. Not nullable: omit to leave unchanged / default.",
+            "enum": [
+              "ar",
+              "en",
+              "bilingual"
+            ],
+            "type": "string"
+          },
+          "logoUrl": {
+            "description": "An absolute `https:` URL, or `null` (or `\"\"`) for no logo. The https-only\nrule is enforced by the service; the length cap is repeated here so an\nabsurd payload is refused before it is parsed.",
+            "maxLength": 1000,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "options": {
+            "$ref": "#/components/schemas/ReceiptTemplateOptionsDto"
+          }
+        },
+        "type": "object"
+      },
       "CreateRecipeDto": {
         "properties": {
           "branchId": {
@@ -2484,6 +2554,71 @@
         ],
         "type": "object"
       },
+      "ReceiptTemplateLineDto": {
+        "properties": {
+          "ar": {
+            "maxLength": 480,
+            "type": "string"
+          },
+          "en": {
+            "maxLength": 480,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ReceiptTemplateOptionsDto": {
+        "properties": {
+          "paperStyle": {
+            "description": "`classic` (serif restaurant check, the default) or `thermal` (till-roll monospace).",
+            "enum": [
+              "classic",
+              "thermal"
+            ],
+            "type": "string"
+          },
+          "showBranchAddress": {
+            "description": "Print the branch address. Default true.",
+            "type": "boolean"
+          },
+          "showBranchName": {
+            "description": "Print the branch name. Default true.",
+            "type": "boolean"
+          },
+          "showBrandName": {
+            "description": "Print the brand (restaurant) name in the heading. Default true.",
+            "type": "boolean"
+          },
+          "showCashier": {
+            "description": "Print who served the order. Default true.",
+            "type": "boolean"
+          },
+          "showGuests": {
+            "description": "Print the guest count of a dine-in order. Default true.",
+            "type": "boolean"
+          },
+          "showOrderType": {
+            "description": "Print the order type (dine-in, takeaway…). Default true.",
+            "type": "boolean"
+          },
+          "showTable": {
+            "description": "Print the table of a dine-in order. Default true.",
+            "type": "boolean"
+          },
+          "signatureLine": {
+            "description": "Print \"Tip / Total / Signature\" write-in lines. Default false.",
+            "type": "boolean"
+          },
+          "suggestedTips": {
+            "description": "Suggested tip percentages printed under the total, e.g. `[18, 20, 22]`.\nAt most 4 whole percentages from 1 to 100; `[]` prints none.",
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "ReceiveTransferDto": {
         "properties": {
           "discrepancyReasonCodeId": {
@@ -3221,6 +3356,19 @@
               "null"
             ]
           },
+          "kitchenTicketLanguage": {
+            "enum": [
+              "ar",
+              "en",
+              "ur",
+              "bn",
+              "tl",
+              "hi",
+              "fr",
+              "tr"
+            ],
+            "type": "string"
+          },
           "recallWindowSeconds": {
             "minimum": 1,
             "type": "number"
@@ -3488,6 +3636,69 @@
         },
         "required": [
           "expectedVersion"
+        ],
+        "type": "object"
+      },
+      "UpdateReceiptTemplateDto": {
+        "properties": {
+          "backSide": {
+            "description": "What prints on the back of a double-sided receipt: `none` (default) or\n`logo_pattern` (the logo repeated across the page — needs a logo).",
+            "enum": [
+              "none",
+              "logo_pattern"
+            ],
+            "type": "string"
+          },
+          "bothOrder": {
+            "description": "`ar_first` | `en_first`. Only meaningful for `bilingual`. Not nullable.",
+            "enum": [
+              "ar_first",
+              "en_first"
+            ],
+            "type": "string"
+          },
+          "footerLines": {
+            "description": "At most 4 lines; `[]` means \"no footer\"; omitted keeps/gets the default.",
+            "items": {
+              "$ref": "#/components/schemas/ReceiptTemplateLineDto"
+            },
+            "type": "array"
+          },
+          "headerLines": {
+            "description": "At most 4 lines; `[]` means \"no header lines\".",
+            "items": {
+              "$ref": "#/components/schemas/ReceiptTemplateLineDto"
+            },
+            "type": "array"
+          },
+          "languageMode": {
+            "description": "`ar` | `en` | `bilingual`. Not nullable: omit to leave unchanged / default.",
+            "enum": [
+              "ar",
+              "en",
+              "bilingual"
+            ],
+            "type": "string"
+          },
+          "logoUrl": {
+            "description": "An absolute `https:` URL, or `null` (or `\"\"`) for no logo. The https-only\nrule is enforced by the service; the length cap is repeated here so an\nabsurd payload is refused before it is parsed.",
+            "maxLength": 1000,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "options": {
+            "$ref": "#/components/schemas/ReceiptTemplateOptionsDto"
+          },
+          "version": {
+            "description": "REQUIRED optimistic-concurrency token: the `version` of the template as\nlast read. A stale value is a 409 carrying `currentVersion`.",
+            "minimum": 1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "version"
         ],
         "type": "object"
       },
@@ -23006,6 +23217,256 @@
         ]
       }
     },
+    "/orders/receipt-template": {
+      "get": {
+        "operationId": "OrdersController_receiptTemplate",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "isDefault": {
+                      "description": "True exactly when no stored template applies (`source` is `built_in_default`).",
+                      "type": "boolean"
+                    },
+                    "source": {
+                      "description": "Where the effective template came from: the resolution tier of the stored template that won, or `built_in_default` when nothing is configured for the branch.",
+                      "enum": [
+                        "brand_country_pack",
+                        "brand",
+                        "country_pack",
+                        "tenant_default",
+                        "built_in_default"
+                      ],
+                      "type": "string"
+                    },
+                    "template": {
+                      "properties": {
+                        "backSide": {
+                          "description": "What prints on the back of a double-sided receipt. `none` prints nothing; `logo_pattern` repeats the logo across the whole back page and requires `logoUrl`.",
+                          "enum": [
+                            "none",
+                            "logo_pattern"
+                          ],
+                          "type": "string"
+                        },
+                        "bothOrder": {
+                          "description": "Which language prints first. Only meaningful for `bilingual`.",
+                          "enum": [
+                            "ar_first",
+                            "en_first"
+                          ],
+                          "type": "string"
+                        },
+                        "footerLines": {
+                          "description": "At most 4 lines.",
+                          "items": {
+                            "properties": {
+                              "ar": {
+                                "description": "At most 120 characters.",
+                                "type": "string"
+                              },
+                              "en": {
+                                "description": "At most 120 characters.",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "en",
+                              "ar"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "headerLines": {
+                          "description": "At most 4 lines.",
+                          "items": {
+                            "properties": {
+                              "ar": {
+                                "description": "At most 120 characters.",
+                                "type": "string"
+                              },
+                              "en": {
+                                "description": "At most 120 characters.",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "en",
+                              "ar"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "languageMode": {
+                          "description": "Which language(s) the printed labels use. `bilingual` prints both, ordered by `bothOrder`.",
+                          "enum": [
+                            "ar",
+                            "en",
+                            "bilingual"
+                          ],
+                          "type": "string"
+                        },
+                        "logoUrl": {
+                          "description": "Absolute https URL of the logo, or null for none.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "options": {
+                          "description": "What the receipt shows and how it looks. None of these can remove fiscal content (tax registration, tax lines, QR).",
+                          "properties": {
+                            "paperStyle": {
+                              "description": "`classic`: serif restaurant check (default). `thermal`: monospaced till-roll look.",
+                              "enum": [
+                                "classic",
+                                "thermal"
+                              ],
+                              "type": "string"
+                            },
+                            "showBranchAddress": {
+                              "description": "Print the branch address.",
+                              "type": "boolean"
+                            },
+                            "showBranchName": {
+                              "description": "Print the branch name.",
+                              "type": "boolean"
+                            },
+                            "showBrandName": {
+                              "description": "Print the brand (restaurant) name in the heading.",
+                              "type": "boolean"
+                            },
+                            "showCashier": {
+                              "description": "Print who served the order.",
+                              "type": "boolean"
+                            },
+                            "showGuests": {
+                              "description": "Print the guest count of a dine-in order.",
+                              "type": "boolean"
+                            },
+                            "showOrderType": {
+                              "description": "Print the order type (dine-in, takeaway…).",
+                              "type": "boolean"
+                            },
+                            "showTable": {
+                              "description": "Print the table of a dine-in order.",
+                              "type": "boolean"
+                            },
+                            "signatureLine": {
+                              "description": "Print \"Tip / Total / Signature\" write-in lines.",
+                              "type": "boolean"
+                            },
+                            "suggestedTips": {
+                              "description": "Suggested tip percentages printed under the total (at most 4, whole numbers 1-100); empty prints none.",
+                              "items": {
+                                "type": "integer"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "paperStyle",
+                            "showBrandName",
+                            "showBranchName",
+                            "showBranchAddress",
+                            "showOrderType",
+                            "showTable",
+                            "showGuests",
+                            "showCashier",
+                            "suggestedTips",
+                            "signatureLine"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "languageMode",
+                        "bothOrder",
+                        "logoUrl",
+                        "backSide",
+                        "options",
+                        "headerLines",
+                        "footerLines"
+                      ],
+                      "type": "object"
+                    },
+                    "templateId": {
+                      "description": "The stored template that won; null for the built-in default.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "version": {
+                      "description": "Version of the winning template; null for the built-in default.",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "template",
+                    "source",
+                    "templateId",
+                    "version",
+                    "isDefault"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The template, plus where it came from (`source`, `templateId`, `version`). `isDefault` is true when none is configured."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not a POS session, or the session has no live-verified operating branch."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown or cross-tenant resource."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The effective receipt template for the caller's own POS branch.",
+        "tags": [
+          "sales"
+        ]
+      }
+    },
     "/orders/search": {
       "get": {
         "operationId": "OrdersController_search",
@@ -33677,6 +34138,20 @@
                         "null"
                       ]
                     },
+                    "kitchenTicketLanguage": {
+                      "description": "FR-POS-105. The language kitchen/bar tickets print in for this branch. Defaults to 'ar' until explicitly configured. Independent of the customer receipt's language.",
+                      "enum": [
+                        "ar",
+                        "en",
+                        "ur",
+                        "bn",
+                        "tl",
+                        "hi",
+                        "fr",
+                        "tr"
+                      ],
+                      "type": "string"
+                    },
                     "recallWindowSeconds": {
                       "description": "FR-KDS-025. Defaults to 1800 until explicitly configured.",
                       "type": "integer"
@@ -33686,7 +34161,7 @@
                 }
               }
             },
-            "description": "The updated KDS configuration (all three canonical fields)."
+            "description": "The updated KDS configuration (all four canonical fields, including `kitchenTicketLanguage`, which is 'ar' until configured)."
           },
           "400": {
             "content": {
@@ -33696,7 +34171,7 @@
                 }
               }
             },
-            "description": "recallWindowSeconds or cancelledLineVisibilitySeconds is not a positive integer."
+            "description": "recallWindowSeconds or cancelledLineVisibilitySeconds is not a positive integer, or kitchenTicketLanguage is not one of the supported codes."
           },
           "401": {
             "content": {
@@ -33734,7 +34209,7 @@
             "bearer": []
           }
         ],
-        "summary": "Partially update the branch KDS fallback station, recall window, and cancelled-line visibility window. Fields omitted from the body are left unchanged.",
+        "summary": "Partially update the branch KDS fallback station, recall window, cancelled-line visibility window, and kitchen-ticket language. Fields omitted from the body are left unchanged.",
         "tags": [
           "organisation"
         ]
@@ -33789,6 +34264,20 @@
                         }
                       },
                       "type": "object"
+                    },
+                    "kitchenTicketLanguage": {
+                      "description": "FR-POS-105. The language kitchen/bar tickets print in for this branch — `branch_kds_config.kitchen_ticket_language`, 'ar' until configured. Writable via `PATCH .../kitchen-config`. A top-level sibling of `settings` (whose two-field shape is unchanged). Independent of the customer receipt's language.",
+                      "enum": [
+                        "ar",
+                        "en",
+                        "ur",
+                        "bn",
+                        "tl",
+                        "hi",
+                        "fr",
+                        "tr"
+                      ],
+                      "type": "string"
                     },
                     "routing": {
                       "properties": {
@@ -40421,6 +40910,1551 @@
         ],
         "tags": [
           "procurement"
+        ]
+      }
+    },
+    "/receipt-templates": {
+      "get": {
+        "operationId": "ReceiptTemplatesController_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "brandId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "countryPackCode",
+            "required": false,
+            "schema": {
+              "pattern": "^[A-Z]{2,8}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "description": "Broadest scope first (tenant_default, country_pack, brand, brand_country_pack).",
+                      "items": {
+                        "properties": {
+                          "backSide": {
+                            "description": "What prints on the back of a double-sided receipt. `none` prints nothing; `logo_pattern` repeats the logo across the whole back page and requires `logoUrl`.",
+                            "enum": [
+                              "none",
+                              "logo_pattern"
+                            ],
+                            "type": "string"
+                          },
+                          "bothOrder": {
+                            "description": "Which language prints first. Only meaningful for `bilingual`.",
+                            "enum": [
+                              "ar_first",
+                              "en_first"
+                            ],
+                            "type": "string"
+                          },
+                          "brandId": {
+                            "description": "null = every brand.",
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "countryPackCode": {
+                            "description": "null = every country pack.",
+                            "example": "EG",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "createdAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "footerLines": {
+                            "description": "At most 4 lines.",
+                            "items": {
+                              "properties": {
+                                "ar": {
+                                  "description": "At most 120 characters.",
+                                  "type": "string"
+                                },
+                                "en": {
+                                  "description": "At most 120 characters.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "en",
+                                "ar"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "headerLines": {
+                            "description": "At most 4 lines.",
+                            "items": {
+                              "properties": {
+                                "ar": {
+                                  "description": "At most 120 characters.",
+                                  "type": "string"
+                                },
+                                "en": {
+                                  "description": "At most 120 characters.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "en",
+                                "ar"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "languageMode": {
+                            "description": "Which language(s) the printed labels use. `bilingual` prints both, ordered by `bothOrder`.",
+                            "enum": [
+                              "ar",
+                              "en",
+                              "bilingual"
+                            ],
+                            "type": "string"
+                          },
+                          "logoUrl": {
+                            "description": "Absolute https URL of the logo, or null for none.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "options": {
+                            "description": "What the receipt shows and how it looks. None of these can remove fiscal content (tax registration, tax lines, QR).",
+                            "properties": {
+                              "paperStyle": {
+                                "description": "`classic`: serif restaurant check (default). `thermal`: monospaced till-roll look.",
+                                "enum": [
+                                  "classic",
+                                  "thermal"
+                                ],
+                                "type": "string"
+                              },
+                              "showBranchAddress": {
+                                "description": "Print the branch address.",
+                                "type": "boolean"
+                              },
+                              "showBranchName": {
+                                "description": "Print the branch name.",
+                                "type": "boolean"
+                              },
+                              "showBrandName": {
+                                "description": "Print the brand (restaurant) name in the heading.",
+                                "type": "boolean"
+                              },
+                              "showCashier": {
+                                "description": "Print who served the order.",
+                                "type": "boolean"
+                              },
+                              "showGuests": {
+                                "description": "Print the guest count of a dine-in order.",
+                                "type": "boolean"
+                              },
+                              "showOrderType": {
+                                "description": "Print the order type (dine-in, takeaway…).",
+                                "type": "boolean"
+                              },
+                              "showTable": {
+                                "description": "Print the table of a dine-in order.",
+                                "type": "boolean"
+                              },
+                              "signatureLine": {
+                                "description": "Print \"Tip / Total / Signature\" write-in lines.",
+                                "type": "boolean"
+                              },
+                              "suggestedTips": {
+                                "description": "Suggested tip percentages printed under the total (at most 4, whole numbers 1-100); empty prints none.",
+                                "items": {
+                                  "type": "integer"
+                                },
+                                "type": "array"
+                              }
+                            },
+                            "required": [
+                              "paperStyle",
+                              "showBrandName",
+                              "showBranchName",
+                              "showBranchAddress",
+                              "showOrderType",
+                              "showTable",
+                              "showGuests",
+                              "showCashier",
+                              "suggestedTips",
+                              "signatureLine"
+                            ],
+                            "type": "object"
+                          },
+                          "scope": {
+                            "description": "Which axes of (brand, country pack) the stored template is narrowed by. Also its resolution tier, most specific first: brand_country_pack, brand, country_pack, tenant_default.",
+                            "enum": [
+                              "brand_country_pack",
+                              "brand",
+                              "country_pack",
+                              "tenant_default"
+                            ],
+                            "type": "string"
+                          },
+                          "tenantId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "updatedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "version": {
+                            "description": "Optimistic-concurrency token, starting at 1. Send it back unchanged on PATCH; a stale value is a 409.",
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "tenantId",
+                          "brandId",
+                          "countryPackCode",
+                          "scope",
+                          "languageMode",
+                          "bothOrder",
+                          "logoUrl",
+                          "backSide",
+                          "options",
+                          "headerLines",
+                          "footerLines",
+                          "version",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Every stored template of the caller tenant (optionally filtered by brandId / countryPackCode)."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "brandId is not a UUID, or countryPackCode is malformed."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the tenant's receipt templates, broadest scope first.",
+        "tags": [
+          "sales"
+        ]
+      },
+      "post": {
+        "operationId": "ReceiptTemplatesController_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReceiptTemplateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "backSide": {
+                      "description": "What prints on the back of a double-sided receipt. `none` prints nothing; `logo_pattern` repeats the logo across the whole back page and requires `logoUrl`.",
+                      "enum": [
+                        "none",
+                        "logo_pattern"
+                      ],
+                      "type": "string"
+                    },
+                    "bothOrder": {
+                      "description": "Which language prints first. Only meaningful for `bilingual`.",
+                      "enum": [
+                        "ar_first",
+                        "en_first"
+                      ],
+                      "type": "string"
+                    },
+                    "brandId": {
+                      "description": "null = every brand.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "countryPackCode": {
+                      "description": "null = every country pack.",
+                      "example": "EG",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "footerLines": {
+                      "description": "At most 4 lines.",
+                      "items": {
+                        "properties": {
+                          "ar": {
+                            "description": "At most 120 characters.",
+                            "type": "string"
+                          },
+                          "en": {
+                            "description": "At most 120 characters.",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "en",
+                          "ar"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "headerLines": {
+                      "description": "At most 4 lines.",
+                      "items": {
+                        "properties": {
+                          "ar": {
+                            "description": "At most 120 characters.",
+                            "type": "string"
+                          },
+                          "en": {
+                            "description": "At most 120 characters.",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "en",
+                          "ar"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "languageMode": {
+                      "description": "Which language(s) the printed labels use. `bilingual` prints both, ordered by `bothOrder`.",
+                      "enum": [
+                        "ar",
+                        "en",
+                        "bilingual"
+                      ],
+                      "type": "string"
+                    },
+                    "logoUrl": {
+                      "description": "Absolute https URL of the logo, or null for none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "options": {
+                      "description": "What the receipt shows and how it looks. None of these can remove fiscal content (tax registration, tax lines, QR).",
+                      "properties": {
+                        "paperStyle": {
+                          "description": "`classic`: serif restaurant check (default). `thermal`: monospaced till-roll look.",
+                          "enum": [
+                            "classic",
+                            "thermal"
+                          ],
+                          "type": "string"
+                        },
+                        "showBranchAddress": {
+                          "description": "Print the branch address.",
+                          "type": "boolean"
+                        },
+                        "showBranchName": {
+                          "description": "Print the branch name.",
+                          "type": "boolean"
+                        },
+                        "showBrandName": {
+                          "description": "Print the brand (restaurant) name in the heading.",
+                          "type": "boolean"
+                        },
+                        "showCashier": {
+                          "description": "Print who served the order.",
+                          "type": "boolean"
+                        },
+                        "showGuests": {
+                          "description": "Print the guest count of a dine-in order.",
+                          "type": "boolean"
+                        },
+                        "showOrderType": {
+                          "description": "Print the order type (dine-in, takeaway…).",
+                          "type": "boolean"
+                        },
+                        "showTable": {
+                          "description": "Print the table of a dine-in order.",
+                          "type": "boolean"
+                        },
+                        "signatureLine": {
+                          "description": "Print \"Tip / Total / Signature\" write-in lines.",
+                          "type": "boolean"
+                        },
+                        "suggestedTips": {
+                          "description": "Suggested tip percentages printed under the total (at most 4, whole numbers 1-100); empty prints none.",
+                          "items": {
+                            "type": "integer"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "paperStyle",
+                        "showBrandName",
+                        "showBranchName",
+                        "showBranchAddress",
+                        "showOrderType",
+                        "showTable",
+                        "showGuests",
+                        "showCashier",
+                        "suggestedTips",
+                        "signatureLine"
+                      ],
+                      "type": "object"
+                    },
+                    "scope": {
+                      "description": "Which axes of (brand, country pack) the stored template is narrowed by. Also its resolution tier, most specific first: brand_country_pack, brand, country_pack, tenant_default.",
+                      "enum": [
+                        "brand_country_pack",
+                        "brand",
+                        "country_pack",
+                        "tenant_default"
+                      ],
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "version": {
+                      "description": "Optimistic-concurrency token, starting at 1. Send it back unchanged on PATCH; a stale value is a 409.",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "tenantId",
+                    "brandId",
+                    "countryPackCode",
+                    "scope",
+                    "languageMode",
+                    "bothOrder",
+                    "logoUrl",
+                    "backSide",
+                    "options",
+                    "headerLines",
+                    "footerLines",
+                    "version",
+                    "createdAt",
+                    "updatedAt"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The newly created template (version 1)."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid content (non-https logoUrl, over-long or blank line, more than 4 lines, unknown languageMode/bothOrder/backSide, a logo_pattern back side without a logo) or a countryPackCode that is not loaded on this deployment."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "brandId is unknown or belongs to another tenant."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A template already exists for this (brand, country pack) scope — edit it instead."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create the receipt template for one scope (tenant default, country pack, brand, or brand + country pack).",
+        "tags": [
+          "sales"
+        ]
+      }
+    },
+    "/receipt-templates/resolve": {
+      "get": {
+        "operationId": "ReceiptTemplatesController_resolve",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "isDefault": {
+                      "description": "True exactly when no stored template applies (`source` is `built_in_default`).",
+                      "type": "boolean"
+                    },
+                    "resolvedFor": {
+                      "description": "The inputs the resolution used.",
+                      "properties": {
+                        "branchId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "brandId": {
+                          "description": "The brand of the branch (Branch.brandId).",
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "countryPackCode": {
+                          "description": "The country pack code of the tenant (Tenant.countryPackCode).",
+                          "example": "EG",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "branchId",
+                        "brandId",
+                        "countryPackCode"
+                      ],
+                      "type": "object"
+                    },
+                    "source": {
+                      "description": "Where the effective template came from: the resolution tier of the stored template that won, or `built_in_default` when nothing is configured for the branch.",
+                      "enum": [
+                        "brand_country_pack",
+                        "brand",
+                        "country_pack",
+                        "tenant_default",
+                        "built_in_default"
+                      ],
+                      "type": "string"
+                    },
+                    "template": {
+                      "properties": {
+                        "backSide": {
+                          "description": "What prints on the back of a double-sided receipt. `none` prints nothing; `logo_pattern` repeats the logo across the whole back page and requires `logoUrl`.",
+                          "enum": [
+                            "none",
+                            "logo_pattern"
+                          ],
+                          "type": "string"
+                        },
+                        "bothOrder": {
+                          "description": "Which language prints first. Only meaningful for `bilingual`.",
+                          "enum": [
+                            "ar_first",
+                            "en_first"
+                          ],
+                          "type": "string"
+                        },
+                        "footerLines": {
+                          "description": "At most 4 lines.",
+                          "items": {
+                            "properties": {
+                              "ar": {
+                                "description": "At most 120 characters.",
+                                "type": "string"
+                              },
+                              "en": {
+                                "description": "At most 120 characters.",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "en",
+                              "ar"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "headerLines": {
+                          "description": "At most 4 lines.",
+                          "items": {
+                            "properties": {
+                              "ar": {
+                                "description": "At most 120 characters.",
+                                "type": "string"
+                              },
+                              "en": {
+                                "description": "At most 120 characters.",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "en",
+                              "ar"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "languageMode": {
+                          "description": "Which language(s) the printed labels use. `bilingual` prints both, ordered by `bothOrder`.",
+                          "enum": [
+                            "ar",
+                            "en",
+                            "bilingual"
+                          ],
+                          "type": "string"
+                        },
+                        "logoUrl": {
+                          "description": "Absolute https URL of the logo, or null for none.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "options": {
+                          "description": "What the receipt shows and how it looks. None of these can remove fiscal content (tax registration, tax lines, QR).",
+                          "properties": {
+                            "paperStyle": {
+                              "description": "`classic`: serif restaurant check (default). `thermal`: monospaced till-roll look.",
+                              "enum": [
+                                "classic",
+                                "thermal"
+                              ],
+                              "type": "string"
+                            },
+                            "showBranchAddress": {
+                              "description": "Print the branch address.",
+                              "type": "boolean"
+                            },
+                            "showBranchName": {
+                              "description": "Print the branch name.",
+                              "type": "boolean"
+                            },
+                            "showBrandName": {
+                              "description": "Print the brand (restaurant) name in the heading.",
+                              "type": "boolean"
+                            },
+                            "showCashier": {
+                              "description": "Print who served the order.",
+                              "type": "boolean"
+                            },
+                            "showGuests": {
+                              "description": "Print the guest count of a dine-in order.",
+                              "type": "boolean"
+                            },
+                            "showOrderType": {
+                              "description": "Print the order type (dine-in, takeaway…).",
+                              "type": "boolean"
+                            },
+                            "showTable": {
+                              "description": "Print the table of a dine-in order.",
+                              "type": "boolean"
+                            },
+                            "signatureLine": {
+                              "description": "Print \"Tip / Total / Signature\" write-in lines.",
+                              "type": "boolean"
+                            },
+                            "suggestedTips": {
+                              "description": "Suggested tip percentages printed under the total (at most 4, whole numbers 1-100); empty prints none.",
+                              "items": {
+                                "type": "integer"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "paperStyle",
+                            "showBrandName",
+                            "showBranchName",
+                            "showBranchAddress",
+                            "showOrderType",
+                            "showTable",
+                            "showGuests",
+                            "showCashier",
+                            "suggestedTips",
+                            "signatureLine"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "languageMode",
+                        "bothOrder",
+                        "logoUrl",
+                        "backSide",
+                        "options",
+                        "headerLines",
+                        "footerLines"
+                      ],
+                      "type": "object"
+                    },
+                    "templateId": {
+                      "description": "The stored template that won; null for the built-in default.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "version": {
+                      "description": "Version of the winning template; null for the built-in default.",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "template",
+                    "source",
+                    "templateId",
+                    "version",
+                    "isDefault",
+                    "resolvedFor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The effective template, its `source` tier and stored `templateId`/`version` (null for the built-in default), and the inputs the resolution used."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "branchId is not a UUID."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown branch, or a branch of another tenant."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Preview the effective receipt template for a branch (brand+pack -> brand -> pack -> tenant default -> built-in), and where it came from.",
+        "tags": [
+          "sales"
+        ]
+      }
+    },
+    "/receipt-templates/scope-options": {
+      "get": {
+        "operationId": "ReceiptTemplatesController_scopeOptions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "loadedCountryPackCodes": {
+                      "description": "Every country pack code loaded on this deployment, sorted. A template may be scoped to any of them; any other code is a 400.",
+                      "items": {
+                        "example": "EG",
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "tenantCountryPackCode": {
+                      "description": "The caller tenant's own country pack — the editor's default choice.",
+                      "example": "EG",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "tenantCountryPackCode",
+                    "loadedCountryPackCodes"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The loaded country pack codes (sorted) and the caller tenant’s own pack code."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The country packs a receipt template can be scoped to (loaded on this deployment) and the tenant's own pack.",
+        "tags": [
+          "sales"
+        ]
+      }
+    },
+    "/receipt-templates/{id}": {
+      "get": {
+        "operationId": "ReceiptTemplatesController_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "backSide": {
+                      "description": "What prints on the back of a double-sided receipt. `none` prints nothing; `logo_pattern` repeats the logo across the whole back page and requires `logoUrl`.",
+                      "enum": [
+                        "none",
+                        "logo_pattern"
+                      ],
+                      "type": "string"
+                    },
+                    "bothOrder": {
+                      "description": "Which language prints first. Only meaningful for `bilingual`.",
+                      "enum": [
+                        "ar_first",
+                        "en_first"
+                      ],
+                      "type": "string"
+                    },
+                    "brandId": {
+                      "description": "null = every brand.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "countryPackCode": {
+                      "description": "null = every country pack.",
+                      "example": "EG",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "footerLines": {
+                      "description": "At most 4 lines.",
+                      "items": {
+                        "properties": {
+                          "ar": {
+                            "description": "At most 120 characters.",
+                            "type": "string"
+                          },
+                          "en": {
+                            "description": "At most 120 characters.",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "en",
+                          "ar"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "headerLines": {
+                      "description": "At most 4 lines.",
+                      "items": {
+                        "properties": {
+                          "ar": {
+                            "description": "At most 120 characters.",
+                            "type": "string"
+                          },
+                          "en": {
+                            "description": "At most 120 characters.",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "en",
+                          "ar"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "languageMode": {
+                      "description": "Which language(s) the printed labels use. `bilingual` prints both, ordered by `bothOrder`.",
+                      "enum": [
+                        "ar",
+                        "en",
+                        "bilingual"
+                      ],
+                      "type": "string"
+                    },
+                    "logoUrl": {
+                      "description": "Absolute https URL of the logo, or null for none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "options": {
+                      "description": "What the receipt shows and how it looks. None of these can remove fiscal content (tax registration, tax lines, QR).",
+                      "properties": {
+                        "paperStyle": {
+                          "description": "`classic`: serif restaurant check (default). `thermal`: monospaced till-roll look.",
+                          "enum": [
+                            "classic",
+                            "thermal"
+                          ],
+                          "type": "string"
+                        },
+                        "showBranchAddress": {
+                          "description": "Print the branch address.",
+                          "type": "boolean"
+                        },
+                        "showBranchName": {
+                          "description": "Print the branch name.",
+                          "type": "boolean"
+                        },
+                        "showBrandName": {
+                          "description": "Print the brand (restaurant) name in the heading.",
+                          "type": "boolean"
+                        },
+                        "showCashier": {
+                          "description": "Print who served the order.",
+                          "type": "boolean"
+                        },
+                        "showGuests": {
+                          "description": "Print the guest count of a dine-in order.",
+                          "type": "boolean"
+                        },
+                        "showOrderType": {
+                          "description": "Print the order type (dine-in, takeaway…).",
+                          "type": "boolean"
+                        },
+                        "showTable": {
+                          "description": "Print the table of a dine-in order.",
+                          "type": "boolean"
+                        },
+                        "signatureLine": {
+                          "description": "Print \"Tip / Total / Signature\" write-in lines.",
+                          "type": "boolean"
+                        },
+                        "suggestedTips": {
+                          "description": "Suggested tip percentages printed under the total (at most 4, whole numbers 1-100); empty prints none.",
+                          "items": {
+                            "type": "integer"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "paperStyle",
+                        "showBrandName",
+                        "showBranchName",
+                        "showBranchAddress",
+                        "showOrderType",
+                        "showTable",
+                        "showGuests",
+                        "showCashier",
+                        "suggestedTips",
+                        "signatureLine"
+                      ],
+                      "type": "object"
+                    },
+                    "scope": {
+                      "description": "Which axes of (brand, country pack) the stored template is narrowed by. Also its resolution tier, most specific first: brand_country_pack, brand, country_pack, tenant_default.",
+                      "enum": [
+                        "brand_country_pack",
+                        "brand",
+                        "country_pack",
+                        "tenant_default"
+                      ],
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "version": {
+                      "description": "Optimistic-concurrency token, starting at 1. Send it back unchanged on PATCH; a stale value is a 409.",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "tenantId",
+                    "brandId",
+                    "countryPackCode",
+                    "scope",
+                    "languageMode",
+                    "bothOrder",
+                    "logoUrl",
+                    "backSide",
+                    "options",
+                    "headerLines",
+                    "footerLines",
+                    "version",
+                    "createdAt",
+                    "updatedAt"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The stored template."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "id is not a UUID."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown template, or a template of another tenant."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Read one receipt template.",
+        "tags": [
+          "sales"
+        ]
+      },
+      "patch": {
+        "operationId": "ReceiptTemplatesController_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateReceiptTemplateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "backSide": {
+                      "description": "What prints on the back of a double-sided receipt. `none` prints nothing; `logo_pattern` repeats the logo across the whole back page and requires `logoUrl`.",
+                      "enum": [
+                        "none",
+                        "logo_pattern"
+                      ],
+                      "type": "string"
+                    },
+                    "bothOrder": {
+                      "description": "Which language prints first. Only meaningful for `bilingual`.",
+                      "enum": [
+                        "ar_first",
+                        "en_first"
+                      ],
+                      "type": "string"
+                    },
+                    "brandId": {
+                      "description": "null = every brand.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "countryPackCode": {
+                      "description": "null = every country pack.",
+                      "example": "EG",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "footerLines": {
+                      "description": "At most 4 lines.",
+                      "items": {
+                        "properties": {
+                          "ar": {
+                            "description": "At most 120 characters.",
+                            "type": "string"
+                          },
+                          "en": {
+                            "description": "At most 120 characters.",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "en",
+                          "ar"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "headerLines": {
+                      "description": "At most 4 lines.",
+                      "items": {
+                        "properties": {
+                          "ar": {
+                            "description": "At most 120 characters.",
+                            "type": "string"
+                          },
+                          "en": {
+                            "description": "At most 120 characters.",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "en",
+                          "ar"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "languageMode": {
+                      "description": "Which language(s) the printed labels use. `bilingual` prints both, ordered by `bothOrder`.",
+                      "enum": [
+                        "ar",
+                        "en",
+                        "bilingual"
+                      ],
+                      "type": "string"
+                    },
+                    "logoUrl": {
+                      "description": "Absolute https URL of the logo, or null for none.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "options": {
+                      "description": "What the receipt shows and how it looks. None of these can remove fiscal content (tax registration, tax lines, QR).",
+                      "properties": {
+                        "paperStyle": {
+                          "description": "`classic`: serif restaurant check (default). `thermal`: monospaced till-roll look.",
+                          "enum": [
+                            "classic",
+                            "thermal"
+                          ],
+                          "type": "string"
+                        },
+                        "showBranchAddress": {
+                          "description": "Print the branch address.",
+                          "type": "boolean"
+                        },
+                        "showBranchName": {
+                          "description": "Print the branch name.",
+                          "type": "boolean"
+                        },
+                        "showBrandName": {
+                          "description": "Print the brand (restaurant) name in the heading.",
+                          "type": "boolean"
+                        },
+                        "showCashier": {
+                          "description": "Print who served the order.",
+                          "type": "boolean"
+                        },
+                        "showGuests": {
+                          "description": "Print the guest count of a dine-in order.",
+                          "type": "boolean"
+                        },
+                        "showOrderType": {
+                          "description": "Print the order type (dine-in, takeaway…).",
+                          "type": "boolean"
+                        },
+                        "showTable": {
+                          "description": "Print the table of a dine-in order.",
+                          "type": "boolean"
+                        },
+                        "signatureLine": {
+                          "description": "Print \"Tip / Total / Signature\" write-in lines.",
+                          "type": "boolean"
+                        },
+                        "suggestedTips": {
+                          "description": "Suggested tip percentages printed under the total (at most 4, whole numbers 1-100); empty prints none.",
+                          "items": {
+                            "type": "integer"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "paperStyle",
+                        "showBrandName",
+                        "showBranchName",
+                        "showBranchAddress",
+                        "showOrderType",
+                        "showTable",
+                        "showGuests",
+                        "showCashier",
+                        "suggestedTips",
+                        "signatureLine"
+                      ],
+                      "type": "object"
+                    },
+                    "scope": {
+                      "description": "Which axes of (brand, country pack) the stored template is narrowed by. Also its resolution tier, most specific first: brand_country_pack, brand, country_pack, tenant_default.",
+                      "enum": [
+                        "brand_country_pack",
+                        "brand",
+                        "country_pack",
+                        "tenant_default"
+                      ],
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "version": {
+                      "description": "Optimistic-concurrency token, starting at 1. Send it back unchanged on PATCH; a stale value is a 409.",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "tenantId",
+                    "brandId",
+                    "countryPackCode",
+                    "scope",
+                    "languageMode",
+                    "bothOrder",
+                    "logoUrl",
+                    "backSide",
+                    "options",
+                    "headerLines",
+                    "footerLines",
+                    "version",
+                    "createdAt",
+                    "updatedAt"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated template with its incremented `version`. A PATCH that changes nothing returns the template unchanged (same version, no audit entry)."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid content, no field to change, or a body that tries to change the scope (brandId / countryPackCode)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown template, or a template of another tenant."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The supplied `version` is stale; the body carries `currentVersion`."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Partially update a receipt template. Requires the `version` last read (optimistic concurrency). The scope cannot be changed.",
+        "tags": [
+          "sales"
         ]
       }
     },

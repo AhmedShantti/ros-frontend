@@ -28,6 +28,7 @@ const {
   inventoryReasonCodes,
   capturePayment,
   salesReceipt,
+  receiptTemplate,
 } = vi.hoisted(() => {
   class MockServiceError extends Error {
     code: string;
@@ -58,11 +59,13 @@ const {
     inventoryReasonCodes: vi.fn(),
     capturePayment: vi.fn(),
     salesReceipt: vi.fn(),
+    receiptTemplate: vi.fn(),
   };
 });
 
 vi.mock("@/lib/console/services", () => ({
   services: {
+    receiptTemplates: { forPosBranch: (...args: unknown[]) => receiptTemplate(...args) },
     treasury: {
       getCurrentSession: (...args: unknown[]) => getCurrentSession(...args),
       openCashSession: (...args: unknown[]) => openCashSession(...args),
@@ -278,6 +281,10 @@ async function enterPosWithOrder(order: Order) {
 beforeEach(() => {
   window.localStorage.clear();
   vi.clearAllMocks();
+  receiptTemplate.mockResolvedValue({
+    template: { languageMode: "en", bothOrder: "ar_first", logoUrl: null, headerLines: [], footerLines: [] },
+    source: "built_in_default", templateId: null, version: null, isDefault: true,
+  });
   vi.mocked(signOffTerminal).mockImplementation(async () => {
     Session.clearTerminalIdentity();
   });
@@ -996,6 +1003,10 @@ describe("LivePos — receipt Cash row shows tendered cash, not the settled amou
   }
 
   /** A minimal, valid mapped `Receipt` for `order`, with one overridable payment. */
+  // The shared receipt renderer prints label and value as sibling spans of one
+  // flex row, in the template's language (English here), not as i18n keys.
+  const RECEIPT_ROW = '[class*="justify-between"]';
+
   function receiptFixture(
     order: Order,
     payment: {
@@ -1101,15 +1112,15 @@ describe("LivePos — receipt Cash row shows tendered cash, not the settled amou
 
     // Change due still renders correctly from the same payment object.
     await waitFor(() =>
-      expect(within(receiptDialog).getByText("pos.receiptChange")).toBeInTheDocument(),
+      expect(within(receiptDialog).getByText("Change given")).toBeInTheDocument(),
     );
-    const changeRow = within(receiptDialog).getByText("pos.receiptChange").parentElement!;
+    const changeRow = within(receiptDialog).getByText("Change given").closest(RECEIPT_ROW)!;
     expect(changeRow).toHaveTextContent(/100\.00/);
 
     // RECEIPT-CASH-TENDERED-AMOUNT-P0 — the "Cash" row must show what the
     // guest physically handed over (2,500.00), never the amount settled
     // against the order (2,400.00).
-    const cashRow = within(receiptDialog).getByText("Cash").parentElement!;
+    const cashRow = within(receiptDialog).getByText("Cash").closest(RECEIPT_ROW)!;
     expect(cashRow).toHaveTextContent(/2,500\.00/);
     expect(cashRow).not.toHaveTextContent(/2,400\.00/);
   });
@@ -1157,10 +1168,10 @@ describe("LivePos — receipt Cash row shows tendered cash, not the settled amou
     const receiptDialog = await screen.findByRole("dialog");
     await waitFor(() => expect(salesReceipt).toHaveBeenCalledWith(order.businessDay, order.id));
 
-    const cashRow = within(receiptDialog).getByText("Cash").parentElement!;
+    const cashRow = within(receiptDialog).getByText("Cash").closest(RECEIPT_ROW)!;
     expect(cashRow).toHaveTextContent(/2,400\.00/);
     // No change-given row when there is no change to give.
-    expect(within(receiptDialog).queryByText("pos.receiptChange")).not.toBeInTheDocument();
+    expect(within(receiptDialog).queryByText("Change given")).not.toBeInTheDocument();
   });
 
   it("non-cash (manual card) receipt behavior is unchanged: the row shows payment.amount, tenderedAmount is null", async () => {
@@ -1198,10 +1209,10 @@ describe("LivePos — receipt Cash row shows tendered cash, not the settled amou
 
     // `tenderedAmount` is null for card — the `?? payment.amount` fallback
     // means this row is completely unaffected by the fix.
-    const cardRow = within(receiptDialog).getByText(/orders\.card/).parentElement!;
+    const cardRow = within(receiptDialog).getByText(/^Card/).closest(RECEIPT_ROW)!;
     expect(cardRow).toHaveTextContent(/2,400\.00/);
     expect(cardRow).toHaveTextContent("4242");
-    expect(within(receiptDialog).queryByText("pos.receiptChange")).not.toBeInTheDocument();
+    expect(within(receiptDialog).queryByText("Change given")).not.toBeInTheDocument();
   });
 
   it("item-name rendering on the receipt is unaffected by the Cash-row fix", async () => {
@@ -1235,6 +1246,58 @@ describe("LivePos — receipt Cash row shows tendered cash, not the settled amou
     await waitFor(() => expect(salesReceipt).toHaveBeenCalledWith(order.businessDay, order.id));
 
     expect(within(receiptDialog).getByText(/Burger/)).toBeInTheDocument();
+  });
+
+  // FR-POS-101/102 — the drawer shares the renderer with the payment sheet: the
+  // branch's template decides the language, the logo and the header/footer.
+  it("the receipt drawer prints from the branch template in the template's language, not the screen's (screen is English)", async () => {
+    receiptTemplate.mockResolvedValue({
+      template: {
+        languageMode: "ar",
+        bothOrder: "ar_first",
+        logoUrl: "https://cdn.example.com/logo.png",
+        headerLines: [{ en: "Open daily", ar: "مفتوح يوميًا" }],
+        footerLines: [{ en: "See you", ar: "نراكم قريبًا" }],
+      },
+      source: "brand",
+      templateId: "rct_1",
+      version: 2,
+      isDefault: false,
+    });
+    const order = order2400();
+    const user = await enterPosWithOrder(order);
+    await user.click(screen.getByRole("button", { name: "pos.pay" }));
+    const payDialog = await screen.findByRole("dialog");
+    await user.type(within(payDialog).getByLabelText(/orders\.tendered/), "2400");
+    capturePayment.mockResolvedValue({
+      ...order,
+      state: "completed" as const,
+      paidTotal: money(240000),
+      version: 2,
+    });
+    await user.click(within(payDialog).getByRole("button", { name: "pos.capturePayment" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    salesReceipt.mockResolvedValue(
+      receiptFixture(order, {
+        amount: money(240000),
+        tenderedAmount: money(240000),
+        changeGiven: null,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "pos.viewReceipt" }));
+    const receiptDialog = await screen.findByRole("dialog");
+    const receipt = await within(receiptDialog).findByTestId("receipt");
+
+    expect(receiptTemplate).toHaveBeenCalled();
+    expect(receipt).toHaveAttribute("data-receipt-languages", "ar");
+    expect(receipt).toHaveAttribute("dir", "rtl");
+    expect(within(receipt).getByTestId("receipt-logo")).toHaveAttribute("src", "https://cdn.example.com/logo.png");
+    expect(within(receipt).getByTestId("receipt-header")).toHaveTextContent("مفتوح يوميًا");
+    expect(within(receipt).getByTestId("receipt-footer")).toHaveTextContent("نراكم قريبًا");
+    // Arabic labels only, though the screen is English.
+    expect(receipt).toHaveTextContent("المجموع الفرعي");
+    expect(receipt).not.toHaveTextContent("Subtotal");
   });
 });
 

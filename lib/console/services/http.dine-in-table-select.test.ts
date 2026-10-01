@@ -37,7 +37,7 @@ vi.mock("@/lib/api/endpoints", () => ({
     sales: {
       listTables: (...args: unknown[]) => listTables(...args),
       selectDineInTable: (...args: unknown[]) => selectDineInTable(...args),
-      create: (...args: unknown[]) => createOrder(...args),
+      createOrders: (...args: unknown[]) => createOrder(...args),
     },
   },
 }));

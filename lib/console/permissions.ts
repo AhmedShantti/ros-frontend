@@ -285,6 +285,8 @@ export const PERMISSION_CATALOGUE = [
     "View a branch's configuration, read-only.", "عرض إعدادات الفرع للاطلاع فقط."),
   def("settings.branch.manage", "governance", "Branch settings", "إعدادات الفرع",
     "Configure a branch.", "ضبط إعدادات الفرع."),
+  def("settings.tenant.read", "governance", "View tenant settings", "عرض إعدادات المستأجر",
+    "View the tenant's configuration, read-only.", "عرض إعدادات المستأجر للاطلاع فقط."),
   def("settings.tenant.manage", "governance", "Tenant settings", "إعدادات المستأجر",
     "Configure the tenant. Requires MFA.", "ضبط إعدادات المستأجر. يتطلب مصادقة ثنائية.", true),
   def("org.manage", "governance", "Manage organisation", "إدارة المنشأة",
@@ -801,7 +803,7 @@ export const ROLE_DEFINITIONS: Record<RoleKey, RoleDefinition> = {
     permissions: [
       "platform.tenant.manage", "platform.countrypack.manage",
       "org.manage", "security.user.manage", "security.role.manage",
-      "settings.tenant.manage", "settings.branch.manage",
+      "settings.tenant.read", "settings.tenant.manage", "settings.branch.manage",
       "integration.manage", "api.key.manage",
       "audit.view", "governance.view_anomalies",
       "ops.terminal.view", "ops.terminal.manage",
