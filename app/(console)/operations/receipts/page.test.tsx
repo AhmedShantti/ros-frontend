@@ -527,6 +527,9 @@ describe("Receipt template editor", () => {
     it("draws its own ink on the paper, so it stays readable in the dark theme", async () => {
       const user = await openNew();
       expect(printed().style.getPropertyValue("--color-fg")).toBe("#1d1d1b");
+      // The console's utilities read --c-*, so the paper must set those too.
+      expect(printed().style.getPropertyValue("--c-fg")).toBe("#1d1d1b");
+      expect(printed().style.getPropertyValue("--c-line")).not.toBe("");
       await user.click(screen.getByRole("radio", { name: "Thermal roll" }));
       expect(printed().style.getPropertyValue("--color-fg")).toBe("#111111");
       expect(printed().style.getPropertyValue("--color-fg-muted")).not.toBe("");
