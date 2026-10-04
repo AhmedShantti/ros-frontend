@@ -57,6 +57,13 @@ export interface RequestOptions {
    */
   bearer?: string | null;
   signal?: AbortSignal;
+  /**
+   * Receives the response headers of a successful call — for the few list
+   * endpoints that return their next-page cursor in a header
+   * (`x-next-cursor`). A browser only exposes it when the API's CORS
+   * `Access-Control-Expose-Headers` names it.
+   */
+  onResponseHeaders?: (headers: Headers) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +461,7 @@ async function send<T>(method: string, path: string, options: SendOptions = {}):
     );
   }
 
+  options.onResponseHeaders?.(response.headers);
   return payload as T;
 }
 

@@ -794,6 +794,14 @@ export interface WorkforceService {
   ): Promise<void>;
   /** FR-HRM-005 — let the employee work at one more branch. */
   addEmployeeBranch(employeeId: Id, branchId: Id): Promise<void>;
+  /**
+   * FR-HRM-025 — correct a clock time. Only the fields that changed are sent;
+   * the API corrects one field per call and keeps the original on record.
+   */
+  correctAttendance(
+    recordId: Id,
+    input: { clockIn?: string; clockOut?: string; reason: string },
+  ): Promise<void>;
   /** FR-HRM-006 — undo a suspension. Terminated is final. */
   reactivateEmployee(employeeId: Id, reason: string): Promise<void>;
   /** FR-HRM-005 — revoke a permitted branch (never the home branch). */
