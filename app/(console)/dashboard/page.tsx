@@ -55,6 +55,7 @@ import {
   UnsupportedPanel,
 } from "@/components/console/states";
 import { DATA_MODE } from "@/lib/api/config";
+import { StaffingPanel } from "@/components/console/staffing-panel";
 import { LiveTodayStrip, useLiveAlerts } from "@/components/console/live-panels";
 import {
   Badge,
@@ -248,6 +249,8 @@ export default function DashboardPage() {
               <Section title={t("dash.live")} spec="FR-DSH-010">
                 <LiveOperations snapshot={data.live} />
               </Section>
+
+              <StaffingPanel />
 
               <Gate permissions={["report.view.sales", "report.view.financial"]} silent>
                 <Section

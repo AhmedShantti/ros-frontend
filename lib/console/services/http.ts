@@ -107,7 +107,7 @@ import {
   unsupportedWorkforce,
 } from "./unsupported";
 import type { WorkforceService } from "./types";
-import type { Employee } from "../types";
+import type { AttendanceRecord, Employee, ScheduledShift } from "../types";
 import * as map from "./map";
 import { REAL_REPORT_CATALOGUE } from "../reports/real-catalogue";
 
@@ -220,6 +220,9 @@ export const API_COVERAGE = {
     // (`workforce/employees/{id}/role-assignments`). The role picker itself
     // is `security.roles`, already real (see below).
     "workforce.roleAssignments",
+    // Attendance register, schedule list and the staffing summary.
+    "workforce.attendance",
+    "workforce.shifts",
   ],
   /**
    * No endpoint exists in the document. These fail rather than fabricate.
@@ -233,8 +236,6 @@ export const API_COVERAGE = {
     "purchasing",
     // `workforce.employees`/`workforce.setEmployeePin` are live — see above.
     // `shifts`/`attendance`/`overtime`/`performance` remain absent.
-    "workforce.shifts",
-    "workforce.attendance",
     "workforce.overtime",
     "workforce.performance",
     "platform",
@@ -3330,9 +3331,112 @@ const employees: CollectionService<Employee> = {
   },
 };
 
+/** Employee id -> display name, for the attendance and schedule registers. */
+async function employeeNames(): Promise<Map<Id, string>> {
+  const rows = await api.workforceEmployees.list({}).catch(() => []);
+  return new Map(rows.map((row) => [row.id, row.displayName]));
+}
+
+/**
+ * `GET /workforce/attendance` — the register. The API carries no pay, so
+ * `cost` is zero here and the page hides the labour-cost column in live mode
+ * rather than show it. Overtime is not split from regular hours either.
+ */
+const attendance: CollectionService<AttendanceRecord> = {
+  ...unsupportedWorkforce.attendance,
+  async list(query = {}) {
+    const [branchesById, names, page] = await Promise.all([
+      branchIndex().catch(() => new Map<Id, Branch>()),
+      employeeNames(),
+      api.workforceAttendance.list({
+        limit: 100,
+        ...(query.scope?.branchId ? { branchId: query.scope.branchId } : {}),
+      }),
+    ]);
+    const mapped = page.items.map((row): AttendanceRecord => {
+      const person = names.get(row.employeeId) ?? "";
+      const branchName = branchesById.get(row.branchId)?.name ?? { en: "", ar: "" };
+      return {
+        id: row.id,
+        employeeId: row.employeeId,
+        employeeName: { en: person, ar: person },
+        branchId: row.branchId,
+        branchName,
+        date: row.clockInAt.slice(0, 10) as IsoDate,
+        scheduledStart: null,
+        scheduledEnd: null,
+        clockIn: row.clockInAt,
+        clockOut: row.clockOutAt,
+        method: row.method === "mobile" || row.method === "biometric" ? row.method : "pin",
+        regularHours: row.hours ?? 0,
+        overtimeHours: 0,
+        breakMinutes: 0,
+        flags: row.flags.filter((flag) => flag !== "auto_closed"),
+        corrected: row.corrected,
+        cost: { amount: 0, currency: "EGP" },
+      };
+    });
+    return project(mapped, query, {
+      search: (row) => [row.employeeName, row.branchName],
+      filters: {
+        method: (row) => row.method,
+        corrected: (row) => row.corrected,
+        branchId: (row) => row.branchId,
+      },
+      sorters: { date: (row) => row.clockIn ?? "", employeeName: (row) => row.employeeName.en },
+    });
+  },
+};
+
+/**
+ * `GET /workforce/schedules` flattened to shifts. The API has no publish
+ * state, hours, cost or rule-violation fields, so those are derived (hours)
+ * or left empty rather than invented; the page hides pay in live mode.
+ */
+const shifts: CollectionService<ScheduledShift> = {
+  ...unsupportedWorkforce.shifts,
+  async list(query = {}) {
+    const [names, schedules] = await Promise.all([
+      employeeNames(),
+      api.workforceSchedules.list({
+        ...(query.scope?.branchId ? { branchId: query.scope.branchId } : {}),
+      }),
+    ]);
+    const mapped = schedules.flatMap((schedule) =>
+      schedule.shifts.map((row): ScheduledShift => {
+        const person = names.get(row.employeeId) ?? "";
+        const start = new Date(row.startsAt);
+        const end = new Date(row.endsAt);
+        const position = row.position ?? "";
+        return {
+          id: row.id,
+          employeeId: row.employeeId,
+          employeeName: { en: person, ar: person },
+          position: { en: position, ar: position },
+          branchId: row.branchId,
+          date: row.startsAt.slice(0, 10) as IsoDate,
+          startTime: row.startsAt.slice(11, 16),
+          endTime: row.endsAt.slice(11, 16),
+          hours: Math.round(((end.getTime() - start.getTime()) / 3_600_000) * 100) / 100,
+          status: "published",
+          projectedCost: { amount: 0, currency: "EGP" },
+          violations: [],
+        };
+      }),
+    );
+    return project(mapped, query, {
+      search: (row) => [row.employeeName, row.position],
+      filters: { date: (row) => row.date, branchId: (row) => row.branchId },
+      sorters: { date: (row) => `${row.date}${row.startTime}`, employeeName: (row) => row.employeeName.en, hours: (row) => row.hours },
+    });
+  },
+};
+
 const workforce: WorkforceService = {
   ...unsupportedWorkforce,
   employees,
+  attendance,
+  shifts,
   async setEmployeePin(employeeId, pin) {
     await api.workforceEmployees.setPin(String(employeeId), { pin });
   },
@@ -3349,6 +3453,67 @@ const workforce: WorkforceService = {
   },
   async removeEmployeeRoleAssignment(employeeId, assignmentId) {
     await api.workforceEmployees.removeRoleAssignment(String(employeeId), String(assignmentId));
+  },
+  async setEmployeeCompensation(employeeId, input) {
+    await api.workforceEmployees.setCompensation(String(employeeId), {
+      basis: input.basis,
+      amountMinorUnits: input.amountMinorUnits,
+      currency: input.currency,
+      ...(input.effectiveFrom ? { effectiveFrom: input.effectiveFrom } : {}),
+    });
+  },
+  async deactivateEmployee(employeeId, input) {
+    await api.workforceEmployees.deactivate(String(employeeId), {
+      status: input.status,
+      reason: input.reason,
+      ...(input.terminationDate ? { terminationDate: input.terminationDate } : {}),
+    });
+  },
+  async addEmployeeBranch(employeeId, branchId) {
+    await api.workforceEmployees.addBranch(String(employeeId), { branchId: String(branchId) });
+  },
+  async reactivateEmployee(employeeId, reason) {
+    await api.workforceEmployees.reactivate(String(employeeId), { reason });
+  },
+  async removeEmployeeBranch(employeeId, branchId) {
+    await api.workforceEmployees.removeBranch(String(employeeId), String(branchId));
+  },
+  async compensationHistory(employeeId) {
+    const rows = await api.workforceEmployees.compensationHistory(String(employeeId));
+    return rows
+      .map((row) => ({
+        id: row.id,
+        basis: row.basis,
+        amount: map.minorMoney(row.amountMinorUnits, row.currency),
+        effectiveFrom: row.effectiveFrom,
+      }))
+      .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
+  },
+  async staffingSummary(scope) {
+    // One call; the day is the caller's local calendar date, in their zone.
+    const row = await api.workforceSummary.getWorkforceSummary({
+      ...(scope?.branchId ? { branchId: scope.branchId } : {}),
+      businessDay: recentBusinessDays(1)[0]!,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    return {
+      headcount: {
+        total: row.headcount.active + row.headcount.suspended + row.headcount.terminated,
+        active: row.headcount.active,
+        onLeave: 0,
+        suspended: row.headcount.suspended,
+        terminated: row.headcount.terminated,
+      },
+      attendance: {
+        clockedIn: row.attendance.clockedInNow,
+        records: row.attendance.recordCount,
+        lateArrivals: row.attendance.lateArrivals,
+        earlyDepartures: row.attendance.earlyDepartures,
+        missingClockOut: row.attendance.missingClockOuts,
+        unscheduled: row.attendance.noScheduledShift,
+        outsideGeofence: row.attendance.outsideGeofence,
+      },
+    };
   },
 };
 

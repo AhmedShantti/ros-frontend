@@ -33,6 +33,10 @@ import {
   PayrollExportDrawer,
 } from "@/components/console/workforce-forms";
 import { Badge, Button, Callout, Toast } from "@/components/console/ui";
+import { DATA_MODE } from "@/lib/api/config";
+
+/** The live API carries no pay and does not split overtime from regular hours. */
+const LIVE = DATA_MODE === "http";
 
 export default function AttendancePage() {
   return (
@@ -152,14 +156,18 @@ function AttendanceScreen() {
           </span>
         ),
       },
-      {
-        key: "cost",
-        header: t("wf.labourCost"),
-        sortable: true,
-        numeric: true,
-        secondary: true,
-        render: (row) => formatMoney(row.cost, fmt),
-      },
+      ...(LIVE
+        ? []
+        : [
+            {
+              key: "cost",
+              header: t("wf.labourCost"),
+              sortable: true,
+              numeric: true,
+              secondary: true,
+              render: (row: AttendanceRecord) => formatMoney(row.cost, fmt),
+            } satisfies Column<AttendanceRecord>,
+          ]),
       {
         key: "correct",
         header: t("common.actions"),
@@ -205,16 +213,20 @@ function AttendanceScreen() {
       />
 
       <PageBody>
-        <TileGrid columns={4}>
+        <TileGrid columns={LIVE ? 2 : 4}>
           <MetricTile label={t("wf.hours")} value={formatNumber(totals.hours, fmt, 1)} />
-          <MetricTile
-            label={t("wf.overtimeHours")}
-            value={formatNumber(totals.overtime, fmt, 1)}
-          />
-          <MetricTile
-            label={t("wf.labourCost")}
-            value={formatMoney({ amount: totals.cost, currency }, fmt, true)}
-          />
+          {LIVE ? null : (
+            <>
+              <MetricTile
+                label={t("wf.overtimeHours")}
+                value={formatNumber(totals.overtime, fmt, 1)}
+              />
+              <MetricTile
+                label={t("wf.labourCost")}
+                value={formatMoney({ amount: totals.cost, currency }, fmt, true)}
+              />
+            </>
+          )}
           <MetricTile
             label={t("wf.flags")}
             value={formatNumber(totals.flagged, fmt)}

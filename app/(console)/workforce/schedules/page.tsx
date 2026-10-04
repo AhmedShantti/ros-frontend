@@ -33,6 +33,10 @@ import { Gate } from "@/components/console/states";
 import { ScheduleBuilder } from "@/components/console/workforce-forms";
 import { ExportButton } from "@/components/console/export-button";
 import { Badge, Button, Callout, Toast } from "@/components/console/ui";
+import { DATA_MODE } from "@/lib/api/config";
+
+/** The live API carries no pay, hours-cost, publish state or rule checks. */
+const LIVE = DATA_MODE === "http";
 
 export default function SchedulesPage() {
   return (
@@ -99,12 +103,16 @@ function SchedulesScreen() {
         numeric: true,
         render: (row) => formatNumber(row.hours, fmt, 1),
       },
-      {
-        key: "projectedCost",
-        header: t("wf.projectedCost"),
-        numeric: true,
-        render: (row) => formatMoney(row.projectedCost, fmt),
-      },
+      ...(LIVE
+        ? []
+        : [
+            {
+              key: "projectedCost",
+              header: t("wf.projectedCost"),
+              numeric: true,
+              render: (row: ScheduledShift) => formatMoney(row.projectedCost, fmt),
+            } satisfies Column<ScheduledShift>,
+          ]),
       {
         key: "violations",
         header: t("wf.violations"),
@@ -163,15 +171,17 @@ function SchedulesScreen() {
           </Callout>
         ) : null}
 
-        <TileGrid columns={4}>
+        <TileGrid columns={LIVE ? 3 : 4}>
           <MetricTile
             label={t("wf.scheduledHours")}
             value={formatNumber(totals.hours, fmt, 1)}
           />
-          <MetricTile
-            label={t("wf.projectedCost")}
-            value={formatMoney({ amount: totals.cost, currency }, fmt, true)}
-          />
+          {LIVE ? null : (
+            <MetricTile
+              label={t("wf.projectedCost")}
+              value={formatMoney({ amount: totals.cost, currency }, fmt, true)}
+            />
+          )}
           <MetricTile
             label={t("wf.violations")}
             value={formatNumber(totals.violations, fmt)}

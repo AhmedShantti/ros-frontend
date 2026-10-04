@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 207 paths, 140 request DTOs.
+ * `api/openapi.json`. 212 paths, 141 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -1170,6 +1170,10 @@ export interface VolumeTierDto {
 export interface WasteLineDto {
   quantity: string;
   stockItemId: string;
+}
+
+export interface ReactivateEmployeeDto {
+  reason: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -7953,7 +7957,7 @@ export type AttendanceController_correctResponse = {
 
 export type AttendanceController_correctBody = CorrectAttendanceDto;
 
-/** `GET /workforce/employees` */
+/** `GET /workforce/employees` — Employees ordered by code. Pass `limit` (<= 100) to page; the cursor for the next page is returned in the `x-next-cursor` response header (absent on the last page). */
 export type EmployeesController_listResponse = ({
   branches: ({
     branchId: string;
@@ -7968,6 +7972,7 @@ export type EmployeesController_listResponse = ({
   /** { name?, phone?, relation? } */
   emergencyContact: Record<string, unknown> | null;
   employmentType: "full_time" | "part_time" | "casual" | "contractor" | "trainee" | null | null;
+  hasPin: boolean;
   hireDate: string | null;
   homeBranchId: string;
   id: string;
@@ -8193,6 +8198,28 @@ export type EmployeesController_assignRoleBody = AssignRoleDto;
 /** `DELETE /workforce/employees/{employeeId}/role-assignments/{assignmentId}` — DEMO-EMPLOYEE-RBAC-1 — remove ONE of this employee's role assignments. `WorkforceEmployeesService.removeRoleAssignment` confirms the assignment actually belongs to this employee before delegating to `MembershipRolesService.remove`. */
 export type EmployeesController_removeRoleAssignmentResponse = void;
 
+/** `GET /workforce/schedules` — Schedules for a branch and/or week (at most 100, newest week first). */
+export type ScheduleController_listResponse = ({
+  branchId: string;
+  createdAt: string;
+  createdBy: string;
+  id: string;
+  shifts: ({
+    branchId: string;
+    createdAt: string;
+    createdBy: string;
+    employeeId: string;
+    endsAt: string;
+    id: string;
+    position: string | null;
+    scheduleId: string;
+    startsAt: string;
+    tenantId: string;
+  })[];
+  tenantId: string;
+  weekStartDate: string;
+})[];
+
 /** `POST /workforce/schedules` — FR-HRM-010 — create a schedule by branch and week. */
 export type ScheduleController_createResponse = {
   branchId: string;
@@ -8274,6 +8301,95 @@ export type ReportingController_getSalesDailyRangeResponse = {
   to: string;
   toClamped: boolean;
 };
+
+/** `GET /workforce/attendance` — Attendance register: filterable, newest first, cursor-paginated. */
+export type AttendanceController_listResponse = {
+  items: ({
+    branchId: string;
+    clockInAt: string;
+    clockOutAt: string | null;
+    corrected: boolean;
+    employeeId: string;
+    flags: ("late_arrival" | "early_departure" | "missing_clock_out" | "outside_geofence" | "no_scheduled_shift" | "auto_closed")[];
+    /** Worked hours to 2 dp; null while still open. */
+    hours: number | null;
+    id: string;
+    method: "pos_pin" | "mobile" | "biometric" | null | null;
+    scheduledShiftId: string | null;
+    status: "open" | "closed";
+    tenantId: string;
+  })[];
+  nextCursor: string | null;
+};
+
+/** `GET /workforce/summary` */
+export type WorkforceSummaryController_getResponse = {
+  attendance: {
+    clockedInNow: number;
+    earlyDepartures: number;
+    lateArrivals: number;
+    missingClockOuts: number;
+    noScheduledShift: number;
+    outsideGeofence: number;
+    recordCount: number;
+  };
+  branchId: string | null;
+  businessDay: string;
+  headcount: {
+    active: number;
+    suspended: number;
+    terminated: number;
+  };
+  timezone: string;
+};
+
+/** `POST /workforce/employees/{employeeId}/reactivate` — FR-HRM-006 — undo a suspension (terminated is final). */
+export type EmployeesController_reactivateResponse = {
+  branches: ({
+    branchId: string;
+  })[];
+  code: string;
+  /** { phone?, email?, address? } */
+  contactDetails: Record<string, unknown> | null;
+  createdAt: string;
+  dateOfBirth: string | null;
+  department: string | null;
+  displayName: string;
+  /** { name?, phone?, relation? } */
+  emergencyContact: Record<string, unknown> | null;
+  employmentType: "full_time" | "part_time" | "casual" | "contractor" | "trainee" | null | null;
+  hireDate: string | null;
+  homeBranchId: string;
+  id: string;
+  /** Locale -> localised name, e.g. {"en": "...", "ar": "..."}. */
+  namesLocalized: Record<string, unknown>;
+  nationalId: string | null;
+  position: string | null;
+  status: "active" | "suspended" | "terminated";
+  tenantId: string;
+  terminationDate: string | null;
+  updatedAt: string;
+  userId: string | null;
+};
+
+export type EmployeesController_reactivateBody = ReactivateEmployeeDto;
+
+/** `DELETE /workforce/employees/{employeeId}/branches/{branchId}` — FR-HRM-005 — revoke a permitted branch (never the home branch). */
+export type EmployeesController_removeBranchResponse = void;
+
+/** `GET /workforce/employees/{employeeId}/compensation/history` — FR-HRM-003 — full pay history, `hr.compensation.view` holders only. */
+export type EmployeesController_compensationHistoryResponse = ({
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  amountMinorUnits: string;
+  basis: "hourly" | "monthly_salary" | "per_shift";
+  createdAt: string;
+  createdBy: string;
+  currency: string;
+  effectiveFrom: string;
+  employeeId: string;
+  id: string;
+  tenantId: string;
+})[];
 
 // ---------------------------------------------------------------------------
 // Route table
@@ -8548,10 +8664,16 @@ export const ROUTES = {
   EmployeesController_listRoleAssignments: { method: "GET", path: "/workforce/employees/{employeeId}/role-assignments" },
   EmployeesController_assignRole: { method: "POST", path: "/workforce/employees/{employeeId}/role-assignments" },
   EmployeesController_removeRoleAssignment: { method: "DELETE", path: "/workforce/employees/{employeeId}/role-assignments/{assignmentId}" },
+  ScheduleController_list: { method: "GET", path: "/workforce/schedules" },
   ScheduleController_create: { method: "POST", path: "/workforce/schedules" },
   ScheduleController_get: { method: "GET", path: "/workforce/schedules/{scheduleId}" },
   ScheduleController_createShift: { method: "POST", path: "/workforce/schedules/{scheduleId}/shifts" },
   ReportingController_getSalesDailyRange: { method: "GET", path: "/reports/branches/{branchId}/sales-daily" },
+  AttendanceController_list: { method: "GET", path: "/workforce/attendance" },
+  WorkforceSummaryController_get: { method: "GET", path: "/workforce/summary" },
+  EmployeesController_reactivate: { method: "POST", path: "/workforce/employees/{employeeId}/reactivate" },
+  EmployeesController_removeBranch: { method: "DELETE", path: "/workforce/employees/{employeeId}/branches/{branchId}" },
+  EmployeesController_compensationHistory: { method: "GET", path: "/workforce/employees/{employeeId}/compensation/history" },
 } as const;
 
 /** Every operation the document describes. */

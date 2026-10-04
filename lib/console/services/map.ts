@@ -1889,6 +1889,7 @@ interface WireEmployee {
   userId: string | null;
   branches?: { branchId: string }[];
   permittedBranchIds?: string[];
+  hasPin?: boolean;
 }
 
 export function toEmployee(
@@ -1928,6 +1929,7 @@ export function toEmployee(
     // in" fan-out convention.
     hourlyRate: { amount: 0, currency: "EGP" },
     userId: row.userId,
+    hasPin: row.hasPin,
     // gap: no document-storage endpoint exists.
     documents: [],
   };
