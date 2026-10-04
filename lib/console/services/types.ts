@@ -738,6 +738,46 @@ export interface InventoryService {
   lowStock(query?: ScopedQuery): Promise<LowStockRow[]>;
   negativeStock(query?: ScopedQuery): Promise<NegativeStockRow[]>;
   reconciliation(): Promise<ReconciliationReport>;
+  /**
+   * FR-INV-015 — total inventory value as of an arbitrary historical date,
+   * computed from the movement ledger (never the current `levels`
+   * projection, and never `StockItem.standardCost` as a universal stand-in
+   * for every costing method). `asOf` omitted means "now".
+   */
+  valuation(query: InventoryValuationQuery): Promise<InventoryValuationResult>;
+}
+
+export type InventoryValuationGroupBy = "location" | "category" | "item";
+
+export interface InventoryValuationQuery {
+  asOf?: IsoDateTime;
+  groupBy: InventoryValuationGroupBy;
+  locationId?: Id;
+  categoryId?: Id;
+  stockItemId?: Id;
+}
+
+export interface InventoryValuationRow {
+  /** Present only when groupBy=location. */
+  locationId?: Id;
+  locationName?: Localised;
+  /** Present only when groupBy=category. null = no configured category. */
+  categoryId?: Id | null;
+  /** The category's own name (plain string, like `StockItemCategory.name`). Undefined when categoryId is null — the caller supplies its own locale-aware "uncategorized" label rather than one baked in here. */
+  categoryName?: string;
+  /** Present only when groupBy=item. */
+  stockItemId?: Id;
+  itemName?: Localised;
+  value: Money;
+  /** The item's own base unit. Present only when groupBy=item. */
+  quantity?: Quantity;
+}
+
+export interface InventoryValuationResult {
+  asOf: IsoDateTime;
+  groupBy: InventoryValuationGroupBy;
+  totalValue: Money;
+  rows: InventoryValuationRow[];
 }
 
 export interface PurchasingService {

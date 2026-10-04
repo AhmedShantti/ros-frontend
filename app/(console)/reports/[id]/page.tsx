@@ -46,12 +46,20 @@ import {
   Callout,
   Drawer,
   Field,
+  Input,
   Meter,
   SegmentedControl,
   Select,
   Toast,
   cx,
 } from "@/components/console/ui";
+
+/** `datetime-local` inputs are naive — render/parse in the viewer's own clock. */
+function toDatetimeLocal(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 export default function ReportRunnerPage({
   params,
@@ -70,6 +78,7 @@ function Runner({ id }: { id: string }) {
   const [message, setMessage] = useTransientMessage();
 
   const [range, setRange] = useState<DateRange>(() => resolvePreset("last30"));
+  const [asOf, setAsOf] = useState<string>(() => new Date().toISOString());
   const [branchId, setBranchId] = useState<string>(scope.branchId ?? "");
   const [groupBy, setGroupBy] = useState<string>(() => GROUPINGS[id]?.[0]?.key ?? "");
   const [mode, setMode] = useState<CompareMode>("off");
@@ -79,9 +88,18 @@ function Runner({ id }: { id: string }) {
   const catalogue = useAsync<ReportDefinition[]>(() => services.platform.reports(), []);
   const definition = (catalogue.data ?? []).find((entry) => entry.id === id) ?? null;
 
+  // FR-INV-015 — stock valuation is a point-in-time snapshot, not a period:
+  // it has no comparison mode and no branch scope (the registry location the
+  // backend filters by is not the same id as a reporting branch), so it gets
+  // its own single "as of" control instead of the range/compare/branch ones.
+  const isValuation = id === "stock-valuation";
+
   // A comparison fixes the period: "this week" and "this year" are not
   // free-form ranges, so the date picker steps aside while one is chosen.
-  const periods = useMemo(() => resolveComparison(mode, reportToday()), [mode]);
+  const periods = useMemo(
+    () => (isValuation ? null : resolveComparison(mode, reportToday())),
+    [mode, isValuation],
+  );
   const active = periods ? periods.current : range;
   const activeScope = { ...scope, branchId: branchId || scope.branchId };
   const isSales = definition?.category === "sales";
@@ -95,8 +113,9 @@ function Runner({ id }: { id: string }) {
         groupBy,
         compare: mode !== "off",
         locale,
+        asOf: isValuation ? asOf : undefined,
       }),
-    [id, active.from, active.to, branchId, groupBy, mode, locale, nonce],
+    [id, active.from, active.to, branchId, groupBy, mode, locale, nonce, isValuation, asOf],
   );
 
   // Sales reports compare through the daily rollup (FR-RPT-002): a year of
@@ -133,14 +152,16 @@ function Runner({ id }: { id: string }) {
   const groupings = GROUPINGS[id] ?? [];
 
   const filterSummary = useMemo(() => {
-    const parts = [`${active.from} → ${active.to}`];
-    if (branchId) {
+    const parts = isValuation
+      ? [`${t("rep.valuation.asOf")}: ${formatDateTime(asOf, fmt)}`]
+      : [`${active.from} → ${active.to}`];
+    if (!isValuation && branchId) {
       const branch = branches.find((entry) => entry.id === branchId);
       if (branch) parts.push(tx(branch.name));
     }
     if (groupBy) parts.push(groupBy);
     return parts.join(" · ");
-  }, [active.from, active.to, branchId, branches, groupBy, tx]);
+  }, [isValuation, asOf, fmt, t, active.from, active.to, branchId, branches, groupBy, tx]);
 
   // Non-sales reports: the headline column, the previous run, and the notice
   // for when the previous period has nothing in it.
@@ -241,35 +262,52 @@ function Runner({ id }: { id: string }) {
         {/* -- Parameters -------------------------------------------------- */}
         <Section title={t("rep.parameters")} spec="§19.3">
           <div className="space-y-4">
-            <div className="space-y-2">
-              <SegmentedControl<CompareMode>
-                label={t("rep.cmp.mode")}
-                value={mode}
-                onChange={setMode}
-                options={[
-                  { value: "off", label: t("rep.cmp.off") },
-                  { value: "week", label: t("rep.cmp.week") },
-                  { value: "year", label: t("rep.cmp.year") },
-                ]}
-              />
-              {periods ? (
-                <p className="text-fg-subtle text-xs">{t("rep.cmp.fixedPeriod")}</p>
-              ) : (
-                <DateRangeField value={range} onChange={setRange} label={t("common.period")} />
-              )}
-            </div>
+            {isValuation ? (
+              <Field label={t("rep.valuation.asOf")}>
+                <Input
+                  type="datetime-local"
+                  dir="ltr"
+                  value={toDatetimeLocal(asOf)}
+                  max={toDatetimeLocal(new Date().toISOString())}
+                  onChange={(event) => {
+                    if (!event.target.value) return;
+                    setAsOf(new Date(event.target.value).toISOString());
+                  }}
+                />
+              </Field>
+            ) : (
+              <div className="space-y-2">
+                <SegmentedControl<CompareMode>
+                  label={t("rep.cmp.mode")}
+                  value={mode}
+                  onChange={setMode}
+                  options={[
+                    { value: "off", label: t("rep.cmp.off") },
+                    { value: "week", label: t("rep.cmp.week") },
+                    { value: "year", label: t("rep.cmp.year") },
+                  ]}
+                />
+                {periods ? (
+                  <p className="text-fg-subtle text-xs">{t("rep.cmp.fixedPeriod")}</p>
+                ) : (
+                  <DateRangeField value={range} onChange={setRange} label={t("common.period")} />
+                )}
+              </div>
+            )}
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label={t("common.branch")}>
-                <Select value={branchId} onChange={(event) => setBranchId(event.target.value)}>
-                  <option value="">{t("common.all")}</option>
-                  {branches.map((branch) => (
-                    <option key={branch.id} value={branch.id}>
-                      {tx(branch.name)}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+              {isValuation ? null : (
+                <Field label={t("common.branch")}>
+                  <Select value={branchId} onChange={(event) => setBranchId(event.target.value)}>
+                    <option value="">{t("common.all")}</option>
+                    {branches.map((branch) => (
+                      <option key={branch.id} value={branch.id}>
+                        {tx(branch.name)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
 
               {groupings.length > 0 ? (
                 <Field label={t("common.grouping")}>

@@ -536,6 +536,10 @@ export const inventory = {
   listUoms: () =>
     http.get<S.InventoryController_listUomsResponse>("/inventory/uoms"),
 
+  /** `GET /inventory/valuation` — Historical inventory value by location, category or item (FR-INV-015). — Total inventory value as of `asOf` (defaults to now), grouped by the requested dimension. */
+  valuation: (options: { asOf?: string; groupBy?: string; locationId?: string; categoryId?: string; stockItemId?: string } = {}) =>
+    http.get<S.InventoryController_valuationResponse>("/inventory/valuation", { query: { asOf: options.asOf, groupBy: options.groupBy, locationId: options.locationId, categoryId: options.categoryId, stockItemId: options.stockItemId } }),
+
   /** `GET /inventory/waste` — The most recent 200 waste records, newest first. */
   listWaste: () =>
     http.get<S.InventoryController_listWasteResponse>("/inventory/waste"),

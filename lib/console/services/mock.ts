@@ -11,12 +11,14 @@ import type {
   Branch,
   Brand,
   CentralKitchen,
+  Currency,
   EmployeeRoleAssignment,
   Id,
   KitchenTicket,
   Localised,
   Menu,
   MenuItem,
+  Money,
   Order,
   Page,
   PurchaseOrder,
@@ -1880,6 +1882,88 @@ const inventory: InventoryService = {
       note: "Demo data: the ledger and the projection are generated together, so they cannot diverge.",
       divergences: [],
     }));
+  },
+
+  /**
+   * FR-INV-015 — demo mode has no real movement ledger to replay, so this
+   * reports the current fixture snapshot regardless of `asOf` (the same
+   * honest "generated together, cannot diverge" stance `reconciliation()`
+   * above already takes) rather than faking historical variation.
+   */
+  async valuation(query) {
+    return transport(() => {
+      const filtered = stockLevels.filter((level) => {
+        if (query.locationId && level.locationId !== query.locationId) return false;
+        if (query.stockItemId && level.itemId !== query.stockItemId) return false;
+        if (query.categoryId) {
+          const item = stockItemById(level.itemId);
+          if (!item || item.categoryId !== query.categoryId) return false;
+        }
+        return true;
+      });
+
+      const UNCATEGORIZED = "\u0000uncategorized";
+      const keyOf = (level: (typeof stockLevels)[number]): string => {
+        if (query.groupBy === "location") return level.locationId;
+        if (query.groupBy === "item") return level.itemId;
+        return stockItemById(level.itemId)?.categoryId ?? UNCATEGORIZED;
+      };
+
+      const groups = new Map<string, { amount: number; currency: Currency; quantity: number; unit: UnitCode }>();
+      for (const level of filtered) {
+        const key = keyOf(level);
+        const existing = groups.get(key);
+        const quantity = Number(level.onHand.value);
+        if (existing) {
+          existing.amount += level.value.amount;
+          existing.quantity += quantity;
+        } else {
+          groups.set(key, {
+            amount: level.value.amount,
+            currency: level.value.currency,
+            quantity,
+            unit: level.onHand.unit,
+          });
+        }
+      }
+
+      const rows = [...groups.entries()].map(([key, g]) => {
+        const value: Money = { amount: g.amount, currency: g.currency };
+        if (query.groupBy === "location") {
+          return { locationId: key, locationName: locationNameOf(key), value };
+        }
+        if (query.groupBy === "item") {
+          return {
+            stockItemId: key,
+            itemName: stockItemById(key)?.name,
+            value,
+            quantity: { value: String(g.quantity), unit: g.unit },
+          };
+        }
+        const categoryId = key === UNCATEGORIZED ? null : key;
+        return {
+          categoryId,
+          categoryName:
+            categoryId === null
+              ? undefined
+              : demoStockItemCategories.find((c) => c.id === categoryId)?.name,
+          value,
+        };
+      });
+
+      const currency = rows[0]?.value.currency ?? "EGP";
+      const totalValue: Money = {
+        amount: rows.reduce((sum, row) => sum + row.value.amount, 0),
+        currency,
+      };
+
+      return {
+        asOf: query.asOf ?? new Date().toISOString(),
+        groupBy: query.groupBy,
+        totalValue,
+        rows,
+      };
+    });
   },
 };
 

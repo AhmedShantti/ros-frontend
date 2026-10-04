@@ -178,14 +178,19 @@ export const REAL_REPORT_CATALOGUE: ReportDefinition[] = [
   {
     id: "stock-valuation",
     category: "inventory",
-    name: { en: "Current Stock Valuation", ar: "تقييم المخزون الحالي" },
+    name: { en: "Stock Valuation", ar: "تقييم المخزون" },
     description: {
-      en: "By location and item.",
-      ar: "حسب الموقع والصنف.",
+      en: "By location, category or item, at any historical date.",
+      ar: "حسب الموقع أو الفئة أو الصنف، في أي تاريخ سابق.",
     },
-    requiredPermission: "inventory.view",
+    // The whole response is monetary value, computed from the movement
+    // ledger — the same cost-bearing-read gate the backend's own
+    // GET /inventory/valuation requires (FR-INV-015), not the plain
+    // inventory.view every report page's own access gate would otherwise
+    // let through.
+    requiredPermission: "inventory.cost.view",
     async: false,
-    specRef: "§19.3",
+    specRef: "FR-INV-015",
   },
 
   // Financial — the real daily-trading report, via the existing day-close

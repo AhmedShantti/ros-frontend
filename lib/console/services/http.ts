@@ -1954,15 +1954,19 @@ const adjustments: CollectionService<StockAdjustment> = {
  * otherwise every row reads as a pair of UUIDs.
  */
 async function namers() {
-  const [items, locs] = await Promise.all([
+  const [items, locs, cats] = await Promise.all([
     stockItemIndex().catch(() => new Map<Id, StockItem>()),
     locationIndex().catch(() => new Map<Id, StockLocation>()),
+    categoriesRaw().catch(() => [] as Awaited<ReturnType<typeof categoriesRaw>>),
   ]);
+  const catById = new Map(cats.map((c) => [c.id, c.name]));
   return {
     item: (id: Id) => items.get(id)?.name ?? { en: id, ar: id },
     location: (id: Id) => locs.get(id)?.name ?? { en: id, ar: id },
     /** The item's own base unit is the only sensible unit for its quantities. */
     unit: (id: Id) => items.get(id)?.baseUnit ?? "pc",
+    /** Undefined (never a raw id) when the category no longer resolves. */
+    category: (id: Id) => catById.get(id),
   };
 }
 
@@ -2149,6 +2153,51 @@ const inventory: InventoryService = {
         locationName: name.location(row.locationId),
         ledger: map.quantityOf(row.ledger, name.unit(row.stockItemId)),
         projected: map.quantityOf(row.projected, name.unit(row.stockItemId)),
+      })),
+    };
+  },
+
+  /**
+   * FR-INV-015 — historical inventory value from the movement ledger.
+   * `asOf` omitted means "now"; the backend echoes back the effective
+   * boundary it actually used. `value`/`totalValue` arrive as minor-unit
+   * integer strings (never a JSON number — IEEE-754 would silently lose
+   * precision on a large tenant's total), converted here through the SAME
+   * `minorMoney()` every other backend minor-unit money field in this app
+   * already goes through — never a raw `Number()` cast written fresh.
+   */
+  async valuation(query) {
+    const [res, name] = await Promise.all([
+      api.inventory.valuation({
+        asOf: query.asOf,
+        groupBy: query.groupBy,
+        locationId: query.locationId,
+        categoryId: query.categoryId,
+        stockItemId: query.stockItemId,
+      }),
+      namers(),
+    ]);
+    const currency = map.getDefaultCurrency();
+
+    return {
+      asOf: res.asOf,
+      groupBy: res.groupBy,
+      totalValue: map.minorMoney(res.totalValue, currency),
+      rows: res.rows.map((row) => ({
+        locationId: row.locationId,
+        locationName: row.locationId ? name.location(row.locationId) : undefined,
+        categoryId: row.categoryId,
+        categoryName:
+          row.categoryId !== undefined && row.categoryId !== null
+            ? name.category(row.categoryId)
+            : undefined,
+        stockItemId: row.stockItemId,
+        itemName: row.stockItemId ? name.item(row.stockItemId) : undefined,
+        value: map.minorMoney(row.value, currency),
+        quantity:
+          row.stockItemId && row.quantity !== undefined
+            ? map.quantityOf(row.quantity, name.unit(row.stockItemId))
+            : undefined,
       })),
     };
   },

@@ -27,7 +27,7 @@
 import type { Id, Localised, Money, Order, WasteRecord } from "../types";
 import { services } from "../services";
 import type { Scope } from "../services/types";
-import { money } from "../format";
+import { formatQuantity, money } from "../format";
 
 export interface ReportColumn {
   key: string;
@@ -85,6 +85,13 @@ export interface ReportParams {
   /** Compare against the preceding period of equal length. */
   compare: boolean;
   locale: "en" | "ar";
+  /**
+   * FR-INV-015 — a single historical instant, for the one report
+   * (`stock-valuation`) that is a point-in-time snapshot rather than a
+   * `from`/`to` range. Every other builder ignores this field entirely.
+   * Omitted means "now".
+   */
+  asOf?: string;
 }
 
 export interface GroupOption {
@@ -523,46 +530,66 @@ function wasteBy(dimension: "reason" | "item" | "location" | "category"): Builde
   };
 }
 
-/** Current stock valuation, by location or category. */
+/** No per-locale name exists for a category (`StockItemCategory.name` is a plain string). */
+const UNCATEGORIZED: Localised = { en: "Uncategorized", ar: "غير مصنف" };
+
+/**
+ * FR-INV-015 — historical inventory value by location, category or item, as
+ * of `params.asOf` (an instant, never a `from`/`to` range — a stock
+ * valuation does not have a "period"). Reads ONLY
+ * `services.inventory.valuation()`, which replays the movement ledger
+ * through the item's own costing method (FIFO/weighted-average/standard);
+ * it does NOT read `services.inventory.levels.list()` or
+ * `StockItem.standardCost` — that was the PRIOR approximation this report
+ * used before the real backend endpoint existed, and it silently mis-valued
+ * every FIFO/weighted-average item and could never answer a historical
+ * date. There is no fallback to it: a failed call surfaces as an honest
+ * error (`runReport`'s own catch), never a quietly-wrong number.
+ */
 const stockValuation: Builder = async (params) => {
-  const page = await services.inventory.levels.list({ scope: params.scope, limit: 1000 });
-  const levels = page.rows;
+  const groupBy = (params.groupBy || "item") as "location" | "category" | "item";
+  const result = await services.inventory.valuation({ asOf: params.asOf, groupBy });
 
-  const groups = new Map<string, { label: string; value: number; items: number }>();
-  for (const level of levels) {
-    const key = params.groupBy === "item" ? level.itemId : level.locationId;
-    const label =
-      params.groupBy === "item"
-        ? tx(level.itemName, params.locale)
-        : tx(level.locationName, params.locale);
-    const entry = groups.get(key) ?? { label, value: 0, items: 0 };
-    entry.value += level.value.amount;
-    entry.items += 1;
-    groups.set(key, entry);
-  }
-
-  const currency = levels[0]?.value.currency ?? "EGP";
-  const rows: ReportRow[] = [...groups.entries()]
-    .map(([key, entry]) => ({
-      id: key,
-      label: entry.label,
-      values: { items: entry.items, value: entry.value },
-    }))
+  const fmt = { locale: params.locale, arabicIndicNumerals: false };
+  const rows: ReportRow[] = result.rows
+    .map((row) => {
+      const id =
+        groupBy === "location"
+          ? row.locationId!
+          : groupBy === "item"
+            ? row.stockItemId!
+            : row.categoryId ?? "uncategorized";
+      const label =
+        groupBy === "location"
+          ? tx(row.locationName, params.locale)
+          : groupBy === "item"
+            ? tx(row.itemName, params.locale)
+            : row.categoryName ?? tx(UNCATEGORIZED, params.locale);
+      return {
+        id,
+        label,
+        values: {
+          value: row.value.amount,
+          ...(row.quantity ? { quantity: formatQuantity(row.quantity, fmt) } : {}),
+        },
+      };
+    })
     .sort((a, b) => Number(b.values.value) - Number(a.values.value));
 
+  const currency = result.totalValue.currency;
   return {
     columns: [
-      { key: "items", header: "rep.col.items", numeric: true },
+      ...(groupBy === "item"
+        ? [{ key: "quantity", header: "rep.col.onHand" }]
+        : []),
       { key: "value", header: "rep.col.value", numeric: true, currency, share: true },
     ],
     rows,
-    totals: {
-      items: sum(rows.map((row) => Number(row.values.items))),
-      value: sum(rows.map((row) => Number(row.values.value))),
-    },
+    totals: { value: result.totalValue.amount },
     chart: { valueKey: "value", label: "rep.col.value" },
     generatedAt: new Date().toISOString(),
-    // A stock valuation is a snapshot of now, so it is never partial.
+    // A point-in-time valuation is complete by construction — there is no
+    // "period" left to finish, historical or current.
     partial: false,
   };
 };
@@ -747,6 +774,7 @@ export const GROUPINGS: Record<string, GroupOption[]> = {
   ],
   "stock-valuation": [
     { key: "location", labelKey: "rep.group.location" },
+    { key: "category", labelKey: "rep.group.category" },
     { key: "item", labelKey: "rep.group.item" },
   ],
 };

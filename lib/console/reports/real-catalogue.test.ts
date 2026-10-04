@@ -24,6 +24,9 @@ import { hasBuilder } from "./engine";
 const REAL_PERMISSIONS = new Set([
   "pos.order.create",
   "inventory.view",
+  // FR-INV-015 — the cost-bearing read gate (stock-valuation), same as the
+  // backend's own GET /inventory/valuation and GET /inventory/items/:id/movements.
+  "inventory.cost.view",
   "report.view.financial",
 ]);
 

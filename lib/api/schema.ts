@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 207 paths, 140 request DTOs.
+ * `api/openapi.json`. 208 paths, 140 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -3216,6 +3216,27 @@ export type InventoryController_listUomsResponse = ({
   id: string;
   name: string;
 })[];
+
+/** `GET /inventory/valuation` — Historical inventory value by location, category or item (FR-INV-015). — Total inventory value as of `asOf` (defaults to now), grouped by the requested dimension. */
+export type InventoryController_valuationResponse = {
+  /** The effective historical boundary actually used (movement.occurredAt <= asOf). */
+  asOf: string;
+  groupBy: "location" | "category" | "item";
+  rows: ({
+    /** Present only when groupBy=category. null means items with no configured category. */
+    categoryId: string | null;
+    /** Present only when groupBy=location. */
+    locationId: string;
+    /** Base-unit quantity on hand as of `asOf`. Present only when groupBy=item — summing it across unrelated base units at the location/category level would be meaningless. */
+    quantity: string;
+    /** Present only when groupBy=item. */
+    stockItemId: string;
+    /** This row's total inventory value as of `asOf`. */
+    value: string;
+  })[];
+  /** The sum of every row below — always equal to it, never computed independently. */
+  totalValue: string;
+};
 
 /** `GET /inventory/waste` — The most recent 200 waste records, newest first. */
 export type InventoryController_listWasteResponse = ({
@@ -7199,17 +7220,22 @@ export type ProductionController_recipesRequiringCompletionResponse = {
   /** The branch this report was resolved for; null for the tenant-wide view. */
   branchId: string | null;
   entries: ({
-    /** Empty for absent_recipe. */
+    /** Empty for absent_recipe; structural gap codes for incomplete_recipe; `<gap reason>:<component id>` (e.g. `no_valuation:<stock item id>`) for unpriced_ingredient and unconvertible_unit. */
     detail: string[];
     menuItemId: string;
-    reason: "absent_recipe" | "incomplete_recipe";
-    /** The incomplete published version; null for absent_recipe. */
+    /** absent_recipe / incomplete_recipe: BR-MNU-012, sold at zero or partial cost. unpriced_ingredient: a finished recipe with an ingredient that has no cost yet, sold at the partial cost of what can be priced. unconvertible_unit: a recipe unit cannot be converted to the ingredient stock unit; the sale is refused until it is fixed. */
+    reason: "absent_recipe" | "incomplete_recipe" | "unpriced_ingredient" | "unconvertible_unit";
+    /** The published version concerned; null for absent_recipe. */
     recipeVersionId: string | null;
     variantId: string;
   })[];
   incompleteCount: number;
   /** Active variants examined — the denominator of the completeness metric. */
   sellableVariantCount: number;
+  /** Entries with reason unconvertible_unit. */
+  unconvertibleCount: number;
+  /** Entries with reason unpriced_ingredient. */
+  unpricedCount: number;
 };
 
 /** `GET /recipes/{recipeId}/versions` — Version history, newest first, each with its lines. */
@@ -7634,6 +7660,38 @@ export type ReportingController_getOperationalOverviewResponse = {
     windowFrom: string;
     windowTo: string;
   };
+};
+
+/** `GET /reports/branches/{branchId}/sales-daily` — Branch sales totals per business day over a date range (dashboard-only; authorized against the branch it names). — Per-business-day sales totals for the range. */
+export type ReportingController_getSalesDailyRangeResponse = {
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  branchCurrentBusinessDay: string;
+  branchId: string;
+  /** ISO 4217 currency code. */
+  currency: string;
+  currencySource: "TRANSACTION" | "BRANCH_FALLBACK";
+  dataAsOf: string;
+  /** Ascending; days with no sales and no refunds are absent. */
+  days: ({
+    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+    businessDay: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    discounts: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    grossSales: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    netSales: string;
+    orderCount: number;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    refunds: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    taxTotal: string;
+  })[];
+  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
+  from: string;
+  /** The range actually answered; `to` is clamped to the branch’s current business day. */
+  to: string;
+  toClamped: boolean;
 };
 
 /** `POST /service-charge-policy/branch/{branchId}` — The newly created branch-level service-charge policy version. */
@@ -8243,38 +8301,6 @@ export type ScheduleController_createShiftResponse = {
 
 export type ScheduleController_createShiftBody = CreateScheduledShiftDto;
 
-/** `GET /reports/branches/{branchId}/sales-daily` — Branch sales totals per business day over a date range (dashboard-only; authorized against the branch it names). — Per-business-day sales totals for the range. */
-export type ReportingController_getSalesDailyRangeResponse = {
-  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
-  branchCurrentBusinessDay: string;
-  branchId: string;
-  /** ISO 4217 currency code. */
-  currency: string;
-  currencySource: "TRANSACTION" | "BRANCH_FALLBACK";
-  dataAsOf: string;
-  /** Ascending; days with no sales and no refunds are absent. */
-  days: ({
-    /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
-    businessDay: string;
-    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
-    discounts: string;
-    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
-    grossSales: string;
-    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
-    netSales: string;
-    orderCount: number;
-    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
-    refunds: string;
-    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
-    taxTotal: string;
-  })[];
-  /** Business-day partition key (YYYY-MM-DD), not a timestamp. */
-  from: string;
-  /** The range actually answered; `to` is clamped to the branch’s current business day. */
-  to: string;
-  toClamped: boolean;
-};
-
 // ---------------------------------------------------------------------------
 // Route table
 // ---------------------------------------------------------------------------
@@ -8394,6 +8420,7 @@ export const ROUTES = {
   InventoryController_dispatch: { method: "POST", path: "/inventory/transfers" },
   InventoryController_receive: { method: "POST", path: "/inventory/transfers/receive" },
   InventoryController_listUoms: { method: "GET", path: "/inventory/uoms" },
+  InventoryController_valuation: { method: "GET", path: "/inventory/valuation" },
   InventoryController_listWaste: { method: "GET", path: "/inventory/waste" },
   InventoryController_recordWaste: { method: "POST", path: "/inventory/waste" },
   KdsStationsController_listStations: { method: "GET", path: "/kds/stations" },
@@ -8519,6 +8546,7 @@ export const ROUTES = {
   ReportingController_getDailyTradingReport: { method: "GET", path: "/reports/branches/{branchId}/daily-trading/{businessDay}" },
   ReportingController_getComboRevenueAllocation: { method: "GET", path: "/reports/branches/{branchId}/orders/{orderLineId}/combo-allocation/{businessDay}" },
   ReportingController_getOperationalOverview: { method: "GET", path: "/reports/branches/{branchId}/overview" },
+  ReportingController_getSalesDailyRange: { method: "GET", path: "/reports/branches/{branchId}/sales-daily" },
   ServiceChargePolicyController_createBranchPolicy: { method: "POST", path: "/service-charge-policy/branch/{branchId}" },
   ServiceChargePolicyController_createBrandPolicy: { method: "POST", path: "/service-charge-policy/brand/{brandId}" },
   ServiceChargePolicyController_resolve: { method: "GET", path: "/service-charge-policy/resolve" },
@@ -8551,7 +8579,6 @@ export const ROUTES = {
   ScheduleController_create: { method: "POST", path: "/workforce/schedules" },
   ScheduleController_get: { method: "GET", path: "/workforce/schedules/{scheduleId}" },
   ScheduleController_createShift: { method: "POST", path: "/workforce/schedules/{scheduleId}/shifts" },
-  ReportingController_getSalesDailyRange: { method: "GET", path: "/reports/branches/{branchId}/sales-daily" },
 } as const;
 
 /** Every operation the document describes. */
