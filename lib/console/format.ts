@@ -63,6 +63,76 @@ export function formatMoney(money: Money, opts: FormatOptions, compact = false):
   }).format(value);
 }
 
+/**
+ * FR-INV-015 — a minor-unit integer string → an exact currency display
+ * string, for a value too large to trust to `Money.amount: number` (a
+ * tenant's total inventory valuation can exceed `Number.MAX_SAFE_INTEGER`,
+ * which `Number(text)` would silently round). Never routes the digits
+ * through `Number`/`parseInt`/`parseFloat`: only the whole-unit part is
+ * handed to `Intl.NumberFormat` as a `BigInt` (exact, no float coercion,
+ * grouped per locale); the fractional digits are sliced straight from the
+ * wire string. The currency symbol/sign/spacing are borrowed from
+ * formatting the value `1`/`-1` with the SAME options, so output matches
+ * `formatMoney`'s own convention exactly for every value this doesn't
+ * change.
+ */
+export function formatExactMoney(minor: string, currency: Currency, opts: FormatOptions): string {
+  const exponent = CURRENCY_EXPONENT[currency];
+  const text = String(minor ?? "").trim();
+  const negative = text.startsWith("-");
+  const digitsOnly = (negative ? text.slice(1) : text).replace(/^0+(?=\d)/, "") || "0";
+  const padded = digitsOnly.padStart(exponent + 1, "0");
+  const whole = padded.slice(0, padded.length - exponent);
+  const fraction = padded.slice(padded.length - exponent);
+  const groupedWhole = new Intl.NumberFormat(intlLocale(opts), { maximumFractionDigits: 0 }).format(
+    BigInt(whole),
+  );
+
+  const skeleton = new Intl.NumberFormat(intlLocale(opts), {
+    style: "currency",
+    currency,
+    minimumFractionDigits: exponent,
+    maximumFractionDigits: exponent,
+  }).formatToParts(negative ? -1 : 1);
+
+  let out = "";
+  let wroteWhole = false;
+  for (const part of skeleton) {
+    if (part.type === "integer" || part.type === "group") {
+      if (!wroteWhole) {
+        out += groupedWhole;
+        wroteWhole = true;
+      }
+      continue;
+    }
+    out += part.type === "fraction" ? fraction : part.value;
+  }
+  return out;
+}
+
+/**
+ * Orders two minor-unit integer strings by exact signed magnitude — for
+ * sorting money too large to trust to `Number`. Never parses either string
+ * to a number; compares sign, then digit count, then digits lexically.
+ */
+export function compareMinorUnits(a: string, b: string): number {
+  const parse = (value: string) => {
+    const text = String(value ?? "").trim();
+    const negative = text.startsWith("-");
+    const digits = (negative ? text.slice(1) : text).replace(/^0+(?=\d)/, "") || "0";
+    return { negative, digits };
+  };
+  const left = parse(a);
+  const right = parse(b);
+  if (left.negative !== right.negative) return left.negative ? -1 : 1;
+  const sign = left.negative ? -1 : 1;
+  if (left.digits.length !== right.digits.length) {
+    return sign * (left.digits.length - right.digits.length);
+  }
+  if (left.digits === right.digits) return 0;
+  return sign * (left.digits < right.digits ? -1 : 1);
+}
+
 /** Money without the currency symbol — for dense table columns. */
 export function formatAmount(money: Money, opts: FormatOptions, compact = false): string {
   const exponent = CURRENCY_EXPONENT[money.currency];

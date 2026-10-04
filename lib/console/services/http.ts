@@ -2162,9 +2162,11 @@ const inventory: InventoryService = {
    * `asOf` omitted means "now"; the backend echoes back the effective
    * boundary it actually used. `value`/`totalValue` arrive as minor-unit
    * integer strings (never a JSON number — IEEE-754 would silently lose
-   * precision on a large tenant's total), converted here through the SAME
-   * `minorMoney()` every other backend minor-unit money field in this app
-   * already goes through — never a raw `Number()` cast written fresh.
+   * precision on a large tenant's total) and are passed through UNCHANGED
+   * — never `minorMoney()`, never a raw `Number()` cast. A valuation total
+   * can exceed `Number.MAX_SAFE_INTEGER`, which every other money field in
+   * this app accepts losing (via `minorMoney()`) but this one specifically
+   * must not. Format with `formatExactMoney()` at the display boundary.
    */
   async valuation(query) {
     const [res, name] = await Promise.all([
@@ -2182,7 +2184,8 @@ const inventory: InventoryService = {
     return {
       asOf: res.asOf,
       groupBy: res.groupBy,
-      totalValue: map.minorMoney(res.totalValue, currency),
+      currency,
+      totalValue: res.totalValue,
       rows: res.rows.map((row) => ({
         locationId: row.locationId,
         locationName: row.locationId ? name.location(row.locationId) : undefined,
@@ -2193,7 +2196,7 @@ const inventory: InventoryService = {
             : undefined,
         stockItemId: row.stockItemId,
         itemName: row.stockItemId ? name.item(row.stockItemId) : undefined,
-        value: map.minorMoney(row.value, currency),
+        value: row.value,
         quantity:
           row.stockItemId && row.quantity !== undefined
             ? map.quantityOf(row.quantity, name.unit(row.stockItemId))

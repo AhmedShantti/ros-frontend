@@ -54,11 +54,31 @@ import {
   cx,
 } from "@/components/console/ui";
 
-/** `datetime-local` inputs are naive — render/parse in the viewer's own clock. */
-function toDatetimeLocal(iso: string): string {
+/**
+ * `datetime-local` inputs are naive — no timezone designator at all — so a
+ * browser renders/parses them in the VIEWER's own clock, not UTC. These two
+ * helpers are the only place that boundary is crossed; exported (and
+ * exercised directly in `page.test.ts`) rather than left as an unverified
+ * inline assumption.
+ */
+export function toDatetimeLocal(iso: string): string {
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * The reverse: a `datetime-local` value — interpreted by `Date` in the
+ * viewer's own local timezone (per the ECMA-262 Date Time String Format,
+ * since it carries no offset) — as a UTC ISO instant. `null` for empty or
+ * unparseable input, so a caller never has to catch `toISOString()`
+ * throwing on an Invalid Date.
+ */
+export function fromDatetimeLocal(value: string): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
 }
 
 export default function ReportRunnerPage({
@@ -270,8 +290,8 @@ function Runner({ id }: { id: string }) {
                   value={toDatetimeLocal(asOf)}
                   max={toDatetimeLocal(new Date().toISOString())}
                   onChange={(event) => {
-                    if (!event.target.value) return;
-                    setAsOf(new Date(event.target.value).toISOString());
+                    const next = fromDatetimeLocal(event.target.value);
+                    if (next) setAsOf(next);
                   }}
                 />
               </Field>
@@ -338,7 +358,14 @@ function Runner({ id }: { id: string }) {
         {/* -- Result ------------------------------------------------------ */}
         <AsyncPanel state={result}>
           {(data) =>
-            data.unavailable ? (
+            data.permissionDenied ? (
+              <Callout tone="warn" title={t("rep.notPermittedTitle")}>
+                {t("rep.notPermittedBody").replace(
+                  "{permission}",
+                  definition?.requiredPermission ?? "",
+                )}
+              </Callout>
+            ) : data.unavailable ? (
               <Callout tone="muted" title={t("rep.noSourceTitle")}>
                 {t("rep.noSourceBody")}
               </Callout>

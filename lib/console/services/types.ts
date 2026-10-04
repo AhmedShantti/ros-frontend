@@ -768,7 +768,14 @@ export interface InventoryValuationRow {
   /** Present only when groupBy=item. */
   stockItemId?: Id;
   itemName?: Localised;
-  value: Money;
+  /**
+   * Minor-unit integer string, exact — deliberately NOT `Money` (whose
+   * `amount: number` cannot be trusted past `Number.MAX_SAFE_INTEGER`, and
+   * a tenant's total inventory value can exceed it). Never pass this
+   * through `Number`/`parseInt`/`parseFloat`; format it with
+   * `formatExactMoney()` and compare it with `compareMinorUnits()`.
+   */
+  value: string;
   /** The item's own base unit. Present only when groupBy=item. */
   quantity?: Quantity;
 }
@@ -776,7 +783,9 @@ export interface InventoryValuationRow {
 export interface InventoryValuationResult {
   asOf: IsoDateTime;
   groupBy: InventoryValuationGroupBy;
-  totalValue: Money;
+  currency: Currency;
+  /** Minor-unit integer string, exact — see `InventoryValuationRow.value`. */
+  totalValue: string;
   rows: InventoryValuationRow[];
 }
 

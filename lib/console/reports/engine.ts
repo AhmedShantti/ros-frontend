@@ -26,8 +26,9 @@
 
 import type { Id, Localised, Money, Order, WasteRecord } from "../types";
 import { services } from "../services";
+import { ServiceError } from "../services/types";
 import type { Scope } from "../services/types";
-import { formatQuantity, money } from "../format";
+import { compareMinorUnits, formatExactMoney, formatQuantity, money } from "../format";
 
 export interface ReportColumn {
   key: string;
@@ -74,6 +75,16 @@ export interface ReportResult {
   partial: boolean;
   /** Set when the report has no data source wired yet. */
   unavailable?: string;
+  /**
+   * True only when the builder's own backend call came back 403 — never
+   * the frontend's own pre-check (that's `canAny()` in the runner page).
+   * Distinguishes "the backend just denied this" (stale permission cache,
+   * a role change mid-session) from every other failure, so the UI can
+   * show the actual access-denied convention instead of implying there is
+   * no data source. 401/500/network errors are NOT swallowed into this —
+   * they keep the generic `unavailable` treatment.
+   */
+  permissionDenied?: boolean;
 }
 
 export interface ReportParams {
@@ -551,7 +562,11 @@ const stockValuation: Builder = async (params) => {
   const result = await services.inventory.valuation({ asOf: params.asOf, groupBy });
 
   const fmt = { locale: params.locale, arabicIndicNumerals: false };
-  const rows: ReportRow[] = result.rows
+  const rows: ReportRow[] = [...result.rows]
+    // Exact signed-magnitude order on the RAW minor-unit strings — the
+    // backend total can exceed Number.MAX_SAFE_INTEGER, so this must never
+    // become `Number(a.value) - Number(b.value)`.
+    .sort((a, b) => compareMinorUnits(b.value, a.value))
     .map((row) => {
       const id =
         groupBy === "location"
@@ -569,24 +584,28 @@ const stockValuation: Builder = async (params) => {
         id,
         label,
         values: {
-          value: row.value.amount,
+          // A pre-formatted, exact display string — never the raw number
+          // branch of the generic table renderer (`typeof value ===
+          // "number"`), which would require a value this large to survive
+          // a `Number()` cast it cannot survive.
+          value: formatExactMoney(row.value, result.currency, fmt),
           ...(row.quantity ? { quantity: formatQuantity(row.quantity, fmt) } : {}),
         },
       };
-    })
-    .sort((a, b) => Number(b.values.value) - Number(a.values.value));
+    });
 
-  const currency = result.totalValue.currency;
   return {
     columns: [
       ...(groupBy === "item"
         ? [{ key: "quantity", header: "rep.col.onHand" }]
         : []),
-      { key: "value", header: "rep.col.value", numeric: true, currency, share: true },
+      { key: "value", header: "rep.col.value", numeric: true },
     ],
     rows,
-    totals: { value: result.totalValue.amount },
-    chart: { valueKey: "value", label: "rep.col.value" },
+    totals: { value: formatExactMoney(result.totalValue, result.currency, fmt) },
+    // No chart: it can only plot a `Number`, and a valuation total is
+    // exactly the value that isn't safe to put through one. The exact
+    // tabular/total figures above are what must stay correct, not a bar.
     generatedAt: new Date().toISOString(),
     // A point-in-time valuation is complete by construction — there is no
     // "period" left to finish, historical or current.
@@ -815,6 +834,10 @@ export async function runReport(id: string, params: ReportParams): Promise<Repor
       generatedAt: new Date().toISOString(),
       partial: false,
       unavailable: error instanceof Error ? error.message : id,
+      // Only a genuine backend 403 is a permission denial. 401 (session,
+      // not permission), 500 and network errors all keep the generic
+      // "unavailable" treatment below — never swallowed as access-denied.
+      permissionDenied: error instanceof ServiceError && error.status === 403,
     };
   }
 }

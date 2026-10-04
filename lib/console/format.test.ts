@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { currencyExponent, excessPrecision, formatMoney, minorFromInput, signedMinorFromInput, toMajorUnits } from "./format";
+import {
+  compareMinorUnits,
+  currencyExponent,
+  excessPrecision,
+  formatExactMoney,
+  formatMoney,
+  minorFromInput,
+  signedMinorFromInput,
+  toMajorUnits,
+} from "./format";
 import type { Currency } from "./types";
+
+/** `Intl.NumberFormat` currency output uses a non-breaking space (ICU's own choice) between symbol and amount — normalize before comparing against a plain-space literal. */
+const plain = (value: string): string => value.replace(/\s/g, " ");
 
 /*
  * MENU-MANAGEMENT-SLICE-2-PHASE-2-PRICING — exact minor-unit round trips.
@@ -107,5 +119,77 @@ describe("signedMinorFromInput — a negative amount is a real discount, never c
 
   it("rounds a sub-unit fraction rather than truncating (JS `Math.round` ties toward +Infinity, same for a negative amount)", () => {
     expect(signedMinorFromInput("-12.005", 2)).toBe(-1200);
+  });
+});
+
+/*
+ * FR-INV-015 — a stock valuation total can exceed `Number.MAX_SAFE_INTEGER`
+ * for a large enough tenant. `formatExactMoney`/`compareMinorUnits` are the
+ * two places that value is ever touched after leaving the wire, and
+ * neither may route it through `Number`/`parseInt`/`parseFloat`.
+ */
+describe("formatExactMoney — exact past Number.MAX_SAFE_INTEGER, never through Number()", () => {
+  const BIG = "9007199254740993"; // Number(BIG) rounds to ...992 — the bug this guards against.
+
+  it("matches formatMoney's own output for an ordinary value (same visual convention)", () => {
+    expect(formatExactMoney("12550", "EGP", { locale: "en" })).toBe(
+      formatMoney({ amount: 12550, currency: "EGP" }, { locale: "en" }),
+    );
+  });
+
+  it("retains every digit for a value past Number.MAX_SAFE_INTEGER", () => {
+    expect(String(Number(BIG))).not.toBe(BIG); // sanity: Number() really would corrupt it
+    expect(plain(formatExactMoney(BIG, "EGP", { locale: "en" }))).toBe(
+      "EGP 90,071,992,547,409.93",
+    );
+  });
+
+  it("never renders the Number()-rounded neighbour value", () => {
+    expect(formatExactMoney(BIG, "EGP", { locale: "en" })).not.toContain("409.92");
+  });
+
+  it("preserves the sign and every digit for a negative value past the safe-integer boundary", () => {
+    expect(plain(formatExactMoney(`-${BIG}`, "EGP", { locale: "en" }))).toBe(
+      "-EGP 90,071,992,547,409.93",
+    );
+  });
+
+  it("handles zero and small values exactly, with the currency's own exponent", () => {
+    expect(plain(formatExactMoney("0", "EGP", { locale: "en" }))).toBe("EGP 0.00");
+    expect(plain(formatExactMoney("50", "EGP", { locale: "en" }))).toBe("EGP 0.50");
+  });
+
+  it("respects each currency's own exponent, never a hardcoded 100", () => {
+    for (const currency of ["EGP", "SAR", "AED"] as Currency[]) {
+      expect(plain(formatExactMoney("1234", currency, { locale: "en" }))).toContain("12.34");
+    }
+  });
+});
+
+describe("compareMinorUnits — exact signed-magnitude order, never Number(a) - Number(b)", () => {
+  const BIG = "9007199254740993";
+
+  it("orders two values straddling Number.MAX_SAFE_INTEGER correctly", () => {
+    const justOver = "9007199254740995";
+    const justUnder = "9007199254740990";
+    expect(compareMinorUnits(justOver, justUnder)).toBeGreaterThan(0);
+    expect(compareMinorUnits(justUnder, justOver)).toBeLessThan(0);
+  });
+
+  it("treats a value and itself as equal", () => {
+    expect(compareMinorUnits(BIG, BIG)).toBe(0);
+  });
+
+  it("orders a negative value below every positive value, regardless of magnitude", () => {
+    expect(compareMinorUnits(`-${BIG}`, "1")).toBeLessThan(0);
+    expect(compareMinorUnits("1", `-${BIG}`)).toBeGreaterThan(0);
+  });
+
+  it("orders two negative values by magnitude, not lexically", () => {
+    expect(compareMinorUnits("-100", "-9")).toBeLessThan(0); // -100 < -9
+  });
+
+  it("treats a leading-zero string the same as its normalized form", () => {
+    expect(compareMinorUnits("007", "7")).toBe(0);
   });
 });

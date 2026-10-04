@@ -159,7 +159,7 @@ describe("inventory.valuation() — FR-INV-015 HTTP boundary", () => {
 
     const result = await httpServices.inventory.valuation({ groupBy: "location" });
 
-    expect(result.totalValue.amount).toBe(999900);
+    expect(result.totalValue).toBe("999900");
   });
 
   it("renders each group row's value from the backend row, unmodified", async () => {
@@ -170,7 +170,7 @@ describe("inventory.valuation() — FR-INV-015 HTTP boundary", () => {
 
     const result = await httpServices.inventory.valuation({ groupBy: "location" });
 
-    expect(result.rows[0]!.value.amount).toBe(123456);
+    expect(result.rows[0]!.value).toBe("123456");
   });
 
   it("resolves a readable location name for groupBy=location", async () => {
@@ -223,10 +223,11 @@ describe("inventory.valuation() — FR-INV-015 HTTP boundary", () => {
   });
 
   it("propagates a 403 (insufficient inventory.cost.view) without falling back to levels()", async () => {
-    valuation.mockRejectedValue(new Error("403 Forbidden"));
+    const { ServiceError } = await import("./types");
+    valuation.mockRejectedValue(new ServiceError("FORBIDDEN", "403 Forbidden", 403));
 
-    await expect(httpServices.inventory.valuation({ groupBy: "location" })).rejects.toThrow(
-      "403 Forbidden",
+    await expect(httpServices.inventory.valuation({ groupBy: "location" })).rejects.toMatchObject(
+      { status: 403 },
     );
     expect(levels).not.toHaveBeenCalled();
   });
@@ -240,12 +241,42 @@ describe("inventory.valuation() — FR-INV-015 HTTP boundary", () => {
     expect(levels).not.toHaveBeenCalled();
   });
 
-  it("converts a large minor-unit integer string without precision loss", async () => {
-    const big = "9007199254740900"; // well past a float's safe-integer boundary if mishandled
+  it("preserves a minor-unit integer string past Number.MAX_SAFE_INTEGER exactly, never through Number()", async () => {
+    // One past a known-lossy boundary: Number("9007199254740993") rounds to
+    // 9007199254740992 — if this layer ever reintroduces a Number()/
+    // parseInt()/parseFloat() cast, this fixture is specifically chosen to
+    // catch it (BASE_RESPONSE's old "9007199254740900" fixture would NOT
+    // have — it sits just under the safe-integer boundary and round-trips
+    // fine even through an unsafe cast).
+    const big = "9007199254740993";
+    expect(big > String(Number.MAX_SAFE_INTEGER)).toBe(true);
+    expect(String(Number(big))).not.toBe(big); // proves Number() really would corrupt it
     valuation.mockResolvedValue({ ...BASE_RESPONSE, totalValue: big });
 
     const result = await httpServices.inventory.valuation({ groupBy: "location" });
 
-    expect(result.totalValue.amount).toBe(Number(big));
+    expect(result.totalValue).toBe(big);
+    expect(typeof result.totalValue).toBe("string");
+  });
+
+  it("preserves a negative large minor-unit integer string exactly", async () => {
+    const big = "-9007199254740993";
+    valuation.mockResolvedValue({
+      ...BASE_RESPONSE,
+      totalValue: big,
+      rows: [{ locationId: LOCATION_FOR_BRANCH.id, value: big }],
+    });
+
+    const result = await httpServices.inventory.valuation({ groupBy: "location" });
+
+    expect(result.totalValue).toBe(big);
+    expect(result.rows[0]!.value).toBe(big);
+  });
+
+  it("carries the result currency alongside the exact value strings", async () => {
+    const result = await httpServices.inventory.valuation({ groupBy: "location" });
+
+    expect(result.currency).toBeTruthy();
+    expect(typeof result.totalValue).toBe("string");
   });
 });

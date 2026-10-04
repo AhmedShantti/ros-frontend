@@ -18,7 +18,6 @@ import type {
   Localised,
   Menu,
   MenuItem,
-  Money,
   Order,
   Page,
   PurchaseOrder,
@@ -1927,8 +1926,11 @@ const inventory: InventoryService = {
         }
       }
 
+      // Demo fixture amounts are always well within Number's safe range —
+      // only the WIRE CONTRACT (value as a minor-unit string, never a
+      // number) needs to match the real backend here.
       const rows = [...groups.entries()].map(([key, g]) => {
-        const value: Money = { amount: g.amount, currency: g.currency };
+        const value = String(Math.round(g.amount));
         if (query.groupBy === "location") {
           return { locationId: key, locationName: locationNameOf(key), value };
         }
@@ -1951,15 +1953,15 @@ const inventory: InventoryService = {
         };
       });
 
-      const currency = rows[0]?.value.currency ?? "EGP";
-      const totalValue: Money = {
-        amount: rows.reduce((sum, row) => sum + row.value.amount, 0),
-        currency,
-      };
+      const currency = [...groups.values()][0]?.currency ?? "EGP";
+      const totalValue = String(
+        [...groups.values()].reduce((sum, g) => sum + g.amount, 0),
+      );
 
       return {
         asOf: query.asOf ?? new Date().toISOString(),
         groupBy: query.groupBy,
+        currency,
         totalValue,
         rows,
       };
