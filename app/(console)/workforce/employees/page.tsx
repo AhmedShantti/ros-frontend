@@ -33,6 +33,12 @@ import { CollectionToolbar, PageBody, PageHeader, TileGrid } from "@/components/
 import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
 import {
+  BranchAccessSection,
+  CompensationSection,
+  DeactivateSection,
+  EditDetailsSection,
+} from "@/components/console/employee-admin";
+import {
   Badge,
   Button,
   Callout,
@@ -248,6 +254,11 @@ function EmployeesScreen() {
         canManage={canManage}
         branches={branches}
         onClose={() => setSelected(null)}
+        onChanged={async (text) => {
+          setMessage(text);
+          collection.reload();
+          if (selected) setSelected(await services.workforce.employees.get(selected.id));
+        }}
       />
       {creating ? (
         <NewEmployeeDrawer
@@ -289,12 +300,14 @@ function EmployeeDrawer({
   canManage,
   branches,
   onClose,
+  onChanged,
 }: {
   employee: Employee | null;
   canSeePay: boolean;
   canManage: boolean;
   branches: Branch[];
   onClose: () => void;
+  onChanged: (message: string) => void;
 }) {
   const { t, tx, fmt } = useI18n();
   if (!employee) return null;
@@ -316,6 +329,10 @@ function EmployeeDrawer({
       <div className="space-y-5">
         {canManage ? <AccessRoleSection employeeId={employee.id} branches={branches} /> : null}
         {canManage ? <SetPinSection employeeId={employee.id} /> : null}
+        {canManage ? <EditDetailsSection key={`edit-${employee.id}-${employee.name.en}`} employee={employee} onChanged={onChanged} /> : null}
+        {canManage && canSeePay ? <CompensationSection employee={employee} onChanged={onChanged} /> : null}
+        {canManage ? <BranchAccessSection employee={employee} branches={branches} onChanged={onChanged} /> : null}
+        {canManage ? <DeactivateSection employee={employee} onChanged={onChanged} /> : null}
         <DescList>
           <DescRow label={t("wf.position")}>{tx(employee.position)}</DescRow>
           <DescRow label={t("wf.department")}>{tx(employee.department)}</DescRow>
@@ -347,6 +364,15 @@ function EmployeeDrawer({
               <Badge tone="muted">{t("wf.noLogin")}</Badge>
             )}
           </DescRow>
+          {employee.hasPin !== undefined ? (
+            <DescRow label={t("wf.hasPin")}>
+              {employee.hasPin ? (
+                <Badge tone="good">{t("common.yes")}</Badge>
+              ) : (
+                <Badge tone="warn">{t("wf.pinMissing")}</Badge>
+              )}
+            </DescRow>
+          ) : null}
           <DescRow label={t("wf.permittedBranches")} mono>
             {formatNumber(employee.permittedBranchIds.length, fmt)}
           </DescRow>

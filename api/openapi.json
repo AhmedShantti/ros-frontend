@@ -3974,6 +3974,19 @@
           "quantity"
         ],
         "type": "object"
+      },
+      "ReactivateEmployeeDto": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -47254,6 +47267,38 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "enum": [
+                "active",
+                "suspended",
+                "terminated"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -47328,6 +47373,9 @@
                           "null"
                         ]
                       },
+                      "hasPin": {
+                        "type": "boolean"
+                      },
                       "hireDate": {
                         "format": "date",
                         "type": [
@@ -47401,7 +47449,15 @@
                 }
               }
             },
-            "description": ""
+            "description": "Employees ordered by code. Pass `limit` (<= 100) to page; the cursor for the next page is returned in the `x-next-cursor` response header (absent on the last page).",
+            "headers": {
+              "x-next-cursor": {
+                "description": "Pass back as `cursor` to fetch the next page.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -48781,6 +48837,143 @@
         "tags": [
           "workforce-schedules"
         ]
+      },
+      "get": {
+        "operationId": "ScheduleController_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "branchId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The stored `weekStartDate` (exact match), `YYYY-MM-DD`.",
+            "in": "query",
+            "name": "weekStart",
+            "required": false,
+            "schema": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "branchId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "createdBy": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "shifts": {
+                        "items": {
+                          "properties": {
+                            "branchId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "createdAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "createdBy": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "employeeId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "endsAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "id": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "position": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "scheduleId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "startsAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "tenantId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "tenantId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "weekStartDate": {
+                        "format": "date",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Schedules for a branch and/or week (at most 100, newest week first).",
+        "tags": [
+          "workforce-schedules"
+        ]
       }
     },
     "/workforce/schedules/{scheduleId}": {
@@ -49228,6 +49421,640 @@
         "summary": "Branch sales totals per business day over a date range (dashboard-only; authorized against the branch it names).",
         "tags": [
           "reporting"
+        ]
+      }
+    },
+    "/workforce/attendance": {
+      "get": {
+        "operationId": "AttendanceController_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "branchId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "employeeId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Inclusive lower bound on clock-in time.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exclusive upper bound on clock-in time.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated; a row must carry ALL listed flags.",
+            "in": "query",
+            "name": "flags",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "late_arrival",
+                  "early_departure",
+                  "missing_clock_out",
+                  "outside_geofence",
+                  "no_scheduled_shift",
+                  "auto_closed"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 80,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "properties": {
+                          "branchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "clockInAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "clockOutAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "corrected": {
+                            "type": "boolean"
+                          },
+                          "employeeId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "flags": {
+                            "items": {
+                              "enum": [
+                                "late_arrival",
+                                "early_departure",
+                                "missing_clock_out",
+                                "outside_geofence",
+                                "no_scheduled_shift",
+                                "auto_closed"
+                              ],
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "hours": {
+                            "description": "Worked hours to 2 dp; null while still open.",
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "method": {
+                            "enum": [
+                              "pos_pin",
+                              "mobile",
+                              "biometric",
+                              null
+                            ],
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "scheduledShiftId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "enum": [
+                              "open",
+                              "closed"
+                            ],
+                            "type": "string"
+                          },
+                          "tenantId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Attendance register: filterable, newest first, cursor-paginated.",
+        "tags": [
+          "workforce-attendance"
+        ]
+      }
+    },
+    "/workforce/summary": {
+      "get": {
+        "operationId": "WorkforceSummaryController_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "branchId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "businessDay",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timezone",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "attendance": {
+                      "properties": {
+                        "clockedInNow": {
+                          "type": "integer"
+                        },
+                        "earlyDepartures": {
+                          "type": "integer"
+                        },
+                        "lateArrivals": {
+                          "type": "integer"
+                        },
+                        "missingClockOuts": {
+                          "type": "integer"
+                        },
+                        "noScheduledShift": {
+                          "type": "integer"
+                        },
+                        "outsideGeofence": {
+                          "type": "integer"
+                        },
+                        "recordCount": {
+                          "type": "integer"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "businessDay": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "headcount": {
+                      "properties": {
+                        "active": {
+                          "type": "integer"
+                        },
+                        "suspended": {
+                          "type": "integer"
+                        },
+                        "terminated": {
+                          "type": "integer"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "timezone": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "workforce-summary"
+        ]
+      }
+    },
+    "/workforce/employees/{employeeId}/reactivate": {
+      "post": {
+        "operationId": "EmployeesController_reactivate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "employeeId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReactivateEmployeeDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "branches": {
+                      "items": {
+                        "properties": {
+                          "branchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "contactDetails": {
+                      "description": "{ phone?, email?, address? }",
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "dateOfBirth": {
+                      "format": "date",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "department": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "emergencyContact": {
+                      "description": "{ name?, phone?, relation? }",
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "employmentType": {
+                      "enum": [
+                        "full_time",
+                        "part_time",
+                        "casual",
+                        "contractor",
+                        "trainee",
+                        null
+                      ],
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "hireDate": {
+                      "format": "date",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "homeBranchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "namesLocalized": {
+                      "description": "Locale -> localised name, e.g. {\"en\": \"...\", \"ar\": \"...\"}.",
+                      "type": "object"
+                    },
+                    "nationalId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "position": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "enum": [
+                        "active",
+                        "suspended",
+                        "terminated"
+                      ],
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "terminationDate": {
+                      "format": "date",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "updatedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "userId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "FR-HRM-006 — undo a suspension (terminated is final).",
+        "tags": [
+          "workforce-employees"
+        ]
+      }
+    },
+    "/workforce/employees/{employeeId}/branches/{branchId}": {
+      "delete": {
+        "operationId": "EmployeesController_removeBranch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "employeeId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque client-chosen key. A replay with the same key returns the original result unchanged.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "FR-HRM-005 — revoke a permitted branch (never the home branch).",
+        "tags": [
+          "workforce-employees"
+        ]
+      }
+    },
+    "/workforce/employees/{employeeId}/compensation/history": {
+      "get": {
+        "operationId": "EmployeesController_compensationHistory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "employeeId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "amountMinorUnits": {
+                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                        "example": "1250",
+                        "pattern": "^-?\\d+$",
+                        "type": "string"
+                      },
+                      "basis": {
+                        "enum": [
+                          "hourly",
+                          "monthly_salary",
+                          "per_shift"
+                        ],
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "createdBy": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "currency": {
+                        "pattern": "^[A-Z]{3}$",
+                        "type": "string"
+                      },
+                      "effectiveFrom": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "employeeId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "tenantId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "FR-HRM-003 — full pay history, `hr.compensation.view` holders only.",
+        "tags": [
+          "workforce-employees"
         ]
       }
     }

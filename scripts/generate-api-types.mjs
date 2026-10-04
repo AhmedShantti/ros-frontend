@@ -300,7 +300,7 @@ for (const [tag, ops] of byTag) {
     if (optionFields.length > 0) {
       args.push(`options: { ${optionFields.join("; ")} } = {}`);
       if (op.queryParams.length > 0) {
-        callOptions.push(`query: { ${op.queryParams.map((p) => `${p.name}: options.${p.name}`).join(", ")} }`);
+        callOptions.push(`query: { ${op.queryParams.map((p) => (p.schema?.type === "array" ? `${p.name}: options.${p.name}?.join(",")` : `${p.name}: options.${p.name}`)).join(", ")} }`);
       }
       if (ifMatch) callOptions.push("ifMatch: options.ifMatch");
     }

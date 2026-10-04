@@ -777,6 +777,55 @@ export interface WorkforceService {
     scope: { type: "tenant" } | { type: "branch"; branchId: Id },
   ): Promise<EmployeeRoleAssignment>;
   removeEmployeeRoleAssignment(employeeId: Id, assignmentId: Id): Promise<void>;
+  /** FR-HRM-003 — a new effective-dated pay version. Amount is exact minor units. */
+  setEmployeeCompensation(
+    employeeId: Id,
+    input: {
+      basis: "hourly" | "monthly_salary" | "per_shift";
+      amountMinorUnits: string;
+      currency: string;
+      effectiveFrom?: string;
+    },
+  ): Promise<void>;
+  /** FR-HRM-006 — suspend or terminate; the API never hard-deletes. */
+  deactivateEmployee(
+    employeeId: Id,
+    input: { status: "suspended" | "terminated"; reason: string; terminationDate?: string },
+  ): Promise<void>;
+  /** FR-HRM-005 — let the employee work at one more branch. */
+  addEmployeeBranch(employeeId: Id, branchId: Id): Promise<void>;
+  /** FR-HRM-006 — undo a suspension. Terminated is final. */
+  reactivateEmployee(employeeId: Id, reason: string): Promise<void>;
+  /** FR-HRM-005 — revoke a permitted branch (never the home branch). */
+  removeEmployeeBranch(employeeId: Id, branchId: Id): Promise<void>;
+  /** FR-HRM-003 — every effective-dated pay version, newest first. */
+  compensationHistory(employeeId: Id): Promise<CompensationVersion[]>;
+  /** Headcount plus today's attendance for the dashboard panel. */
+  staffingSummary(scope?: Scope): Promise<StaffingSummary>;
+}
+
+export interface CompensationVersion {
+  id: Id;
+  basis: "hourly" | "monthly_salary" | "per_shift";
+  amount: Money;
+  effectiveFrom: string;
+}
+
+/**
+ * The dashboard's staffing snapshot. `attendance` is null when no branch
+ * overview could be read — a dash, never a fabricated zero.
+ */
+export interface StaffingSummary {
+  headcount: { total: number; active: number; onLeave: number; suspended: number; terminated: number };
+  attendance: {
+    clockedIn: number;
+    records: number;
+    lateArrivals: number;
+    earlyDepartures: number;
+    missingClockOut: number;
+    unscheduled: number;
+    outsideGeofence: number;
+  } | null;
 }
 
 /** A user's membership of a tenant — what a role is actually assigned to. */

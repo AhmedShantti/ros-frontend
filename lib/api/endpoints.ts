@@ -1171,6 +1171,10 @@ export const workforceAttendance = {
   correct: (attendanceRecordId: string, body: S.CorrectAttendanceDto) =>
     http.post<S.AttendanceController_correctResponse>("/workforce/attendance/{attendanceRecordId}/correct", { params: { attendanceRecordId }, body }),
 
+  /** `GET /workforce/attendance` — Attendance register: filterable, newest first, cursor-paginated. */
+  list: (options: { branchId?: string; employeeId?: string; from?: string; to?: string; flags?: ("late_arrival" | "early_departure" | "missing_clock_out" | "outside_geofence" | "no_scheduled_shift" | "auto_closed")[]; cursor?: string; limit?: number } = {}) =>
+    http.get<S.AttendanceController_listResponse>("/workforce/attendance", { query: { branchId: options.branchId, employeeId: options.employeeId, from: options.from, to: options.to, flags: options.flags?.join(","), cursor: options.cursor, limit: options.limit } }),
+
 };
 
 // ---------------------------------------------------------------------------
@@ -1178,9 +1182,9 @@ export const workforceAttendance = {
 // ---------------------------------------------------------------------------
 
 export const workforceEmployees = {
-  /** `GET /workforce/employees` */
-  list: (options: { branchId?: string } = {}) =>
-    http.get<S.EmployeesController_listResponse>("/workforce/employees", { query: { branchId: options.branchId } }),
+  /** `GET /workforce/employees` — Employees ordered by code. Pass `limit` (<= 100) to page; the cursor for the next page is returned in the `x-next-cursor` response header (absent on the last page). */
+  list: (options: { branchId?: string; status?: "active" | "suspended" | "terminated"; limit?: number; cursor?: string } = {}) =>
+    http.get<S.EmployeesController_listResponse>("/workforce/employees", { query: { branchId: options.branchId, status: options.status, limit: options.limit, cursor: options.cursor } }),
 
   /** `POST /workforce/employees` — FR-HRM-001/002/005 — create a full employee record. */
   create: (body: S.CreateEmployeeDto) =>
@@ -1226,6 +1230,18 @@ export const workforceEmployees = {
   removeRoleAssignment: (employeeId: string, assignmentId: string) =>
     http.delete<S.EmployeesController_removeRoleAssignmentResponse>("/workforce/employees/{employeeId}/role-assignments/{assignmentId}", { params: { employeeId, assignmentId } }),
 
+  /** `POST /workforce/employees/{employeeId}/reactivate` — FR-HRM-006 — undo a suspension (terminated is final). */
+  reactivate: (employeeId: string, body: S.ReactivateEmployeeDto) =>
+    http.post<S.EmployeesController_reactivateResponse>("/workforce/employees/{employeeId}/reactivate", { params: { employeeId }, body, idempotent: true }),
+
+  /** `DELETE /workforce/employees/{employeeId}/branches/{branchId}` — FR-HRM-005 — revoke a permitted branch (never the home branch). */
+  removeBranch: (employeeId: string, branchId: string) =>
+    http.delete<S.EmployeesController_removeBranchResponse>("/workforce/employees/{employeeId}/branches/{branchId}", { params: { employeeId, branchId }, idempotent: true }),
+
+  /** `GET /workforce/employees/{employeeId}/compensation/history` — FR-HRM-003 — full pay history, `hr.compensation.view` holders only. */
+  compensationHistory: (employeeId: string) =>
+    http.get<S.EmployeesController_compensationHistoryResponse>("/workforce/employees/{employeeId}/compensation/history", { params: { employeeId } }),
+
 };
 
 // ---------------------------------------------------------------------------
@@ -1233,6 +1249,10 @@ export const workforceEmployees = {
 // ---------------------------------------------------------------------------
 
 export const workforceSchedules = {
+  /** `GET /workforce/schedules` — Schedules for a branch and/or week (at most 100, newest week first). */
+  list: (options: { branchId?: string; weekStart?: string } = {}) =>
+    http.get<S.ScheduleController_listResponse>("/workforce/schedules", { query: { branchId: options.branchId, weekStart: options.weekStart } }),
+
   /** `POST /workforce/schedules` — FR-HRM-010 — create a schedule by branch and week. */
   create: (body: S.CreateScheduleDto) =>
     http.post<S.ScheduleController_createResponse>("/workforce/schedules", { body }),
@@ -1247,5 +1267,16 @@ export const workforceSchedules = {
 
 };
 
+// ---------------------------------------------------------------------------
+// workforce-summary
+// ---------------------------------------------------------------------------
+
+export const workforceSummary = {
+  /** `GET /workforce/summary` */
+  getWorkforceSummary: (options: { branchId?: string; businessDay?: string; timezone?: string } = {}) =>
+    http.get<S.WorkforceSummaryController_getResponse>("/workforce/summary", { query: { branchId: options.branchId, businessDay: options.businessDay, timezone: options.timezone } }),
+
+};
+
 /** Every group, for the diagnostics screen and for `api.catalogue.listItems()` style calls. */
-export const api = { auth, rbac, password, tenants, terminals, treasury, catalogue, governance, health, inventory, kitchen, production, sales, organisation, platformSettings, procurement, reporting, sync, workforceAttendance, workforceEmployees, workforceSchedules };
+export const api = { auth, rbac, password, tenants, terminals, treasury, catalogue, governance, health, inventory, kitchen, production, sales, organisation, platformSettings, procurement, reporting, sync, workforceAttendance, workforceEmployees, workforceSchedules, workforceSummary };

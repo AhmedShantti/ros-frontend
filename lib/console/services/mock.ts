@@ -2184,6 +2184,56 @@ const workforce: WorkforceService = {
       existing.filter((a) => a.id !== assignmentId),
     );
   },
+  // Demo/offline: mutate the fixture row in place so the roster reflects it.
+  async setEmployeeCompensation(employeeId, input) {
+    const row = employees.find((e) => e.id === employeeId);
+    if (row) row.hourlyRate = { amount: Number(input.amountMinorUnits), currency: row.hourlyRate.currency };
+  },
+  async deactivateEmployee(employeeId, input) {
+    const row = employees.find((e) => e.id === employeeId);
+    if (row) row.status = input.status;
+  },
+  async reactivateEmployee(employeeId) {
+    const row = employees.find((e) => e.id === employeeId);
+    if (row && row.status === "suspended") row.status = "active";
+  },
+  async removeEmployeeBranch(employeeId, branchId) {
+    const row = employees.find((e) => e.id === employeeId);
+    if (row && row.homeBranchId !== branchId) {
+      row.permittedBranchIds = row.permittedBranchIds.filter((id) => id !== branchId);
+    }
+  },
+  async compensationHistory(employeeId) {
+    const row = employees.find((e) => e.id === employeeId);
+    return row
+      ? [{ id: `mock-pay-${row.id}`, basis: "hourly" as const, amount: row.hourlyRate, effectiveFrom: row.hiredOn }]
+      : [];
+  },
+  async addEmployeeBranch(employeeId, branchId) {
+    const row = employees.find((e) => e.id === employeeId);
+    if (row && !row.permittedBranchIds.includes(branchId)) row.permittedBranchIds.push(branchId);
+  },
+  async staffingSummary() {
+    const count = (status: string) => employees.filter((e) => e.status === status).length;
+    return {
+      headcount: {
+        total: employees.length,
+        active: count("active"),
+        onLeave: count("on_leave"),
+        suspended: count("suspended"),
+        terminated: count("terminated"),
+      },
+      attendance: {
+        clockedIn: attendanceRecords.filter((a) => !a.clockOut).length,
+        records: attendanceRecords.length,
+        lateArrivals: attendanceRecords.filter((a) => a.flags.includes("late_arrival")).length,
+        earlyDepartures: attendanceRecords.filter((a) => a.flags.includes("early_departure")).length,
+        missingClockOut: attendanceRecords.filter((a) => a.flags.includes("missing_clock_out")).length,
+        unscheduled: attendanceRecords.filter((a) => a.flags.includes("no_scheduled_shift")).length,
+        outsideGeofence: attendanceRecords.filter((a) => a.flags.includes("outside_geofence")).length,
+      },
+    };
+  },
   shifts: makeCollection({
     rows: scheduledShifts,
     idOf: (s) => s.id,

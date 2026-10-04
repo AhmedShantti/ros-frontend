@@ -1520,6 +1520,8 @@ export interface Employee {
   /** FR-HRM-003 — visible only with hr.compensation.view. */
   hourlyRate: Money;
   userId: Id | null;
+  /** Live only — whether a POS PIN credential exists. Undefined in demo data. */
+  hasPin?: boolean;
   documents: EmployeeDocument[];
 }
 
