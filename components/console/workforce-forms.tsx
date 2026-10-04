@@ -22,6 +22,7 @@
  * outside the system where nobody can see it.
  */
 
+import { DATA_MODE } from "@/lib/api/config";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Check, Copy, Plus, Trash2, X } from "lucide-react";
 
@@ -77,6 +78,9 @@ export interface DraftShift {
   startTime: string;
   endTime: string;
 }
+
+/** The live API carries no pay and corrects clock times only. */
+const LIVE = DATA_MODE === "http";
 
 function hoursBetween(start: string, end: string): number {
   const [sh, sm] = start.split(":").map(Number);
@@ -625,32 +629,27 @@ export function AttendanceCorrectionDrawer({
 
   if (!record) return null;
 
-  const changed =
+  const timeChanged =
     clockIn !== (record.clockIn?.slice(11, 16) ?? "") ||
-    clockOut !== (record.clockOut?.slice(11, 16) ?? "") ||
-    breakMinutes !== String(record.breakMinutes);
+    clockOut !== (record.clockOut?.slice(11, 16) ?? "");
+  // The live API corrects clock times only; break minutes are demo-only.
+  const changed = timeChanged || (!LIVE && breakMinutes !== String(record.breakMinutes));
 
   const valid = changed && reason.trim().length >= 6 && Boolean(clockIn);
 
   async function submit() {
     if (!record || !valid) return;
     const day = record.date;
-    const hours =
-      clockIn && clockOut
-        ? Math.max(0, hoursBetween(clockIn, clockOut) - Number(breakMinutes || 0) / 60)
-        : record.regularHours;
+    const iso = (hhmm: string) => `${day}T${hhmm}:00.000Z`;
+    const inChanged = clockIn !== (record.clockIn?.slice(11, 16) ?? "");
+    const outChanged = clockOut !== (record.clockOut?.slice(11, 16) ?? "");
 
     await action.run(
       () =>
-        services.workforce.attendance.update(record.id, {
-          clockIn: clockIn ? `${day}T${clockIn}:00.000Z` : null,
-          clockOut: clockOut ? `${day}T${clockOut}:00.000Z` : null,
-          breakMinutes: Number(breakMinutes || 0),
-          regularHours: Math.min(hours, 8),
-          overtimeHours: Math.max(0, hours - 8),
-          method: "manual",
-          corrected: true,
-          flags: record.flags.filter((flag) => flag !== "missing_clock_out"),
+        services.workforce.correctAttendance(record.id, {
+          ...(inChanged && clockIn ? { clockIn: iso(clockIn) } : {}),
+          ...(outChanged && clockOut ? { clockOut: iso(clockOut) } : {}),
+          reason: reason.trim(),
         }),
       { onSuccess: () => onSaved(t("wf.correctionSaved")) },
     );
@@ -703,7 +702,7 @@ export function AttendanceCorrectionDrawer({
           </DescRow>
         </DescList>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className={cx("grid gap-3", LIVE ? "sm:grid-cols-2" : "sm:grid-cols-3")}>
           <Field label={t("wf.correctedIn")} required>
             <Input
               type="time"
@@ -720,15 +719,17 @@ export function AttendanceCorrectionDrawer({
               onChange={(event) => setClockOut(event.target.value)}
             />
           </Field>
-          <Field label={t("wf.breakMinutes")} hint={t("wf.breakMinutesHint")}>
-            <Input
-              dir="ltr"
-              inputMode="numeric"
-              value={breakMinutes}
-              onChange={(event) => setBreakMinutes(event.target.value)}
-              className="text-end font-mono tabular-nums"
-            />
-          </Field>
+          {LIVE ? null : (
+            <Field label={t("wf.breakMinutes")} hint={t("wf.breakMinutesHint")}>
+              <Input
+                dir="ltr"
+                inputMode="numeric"
+                value={breakMinutes}
+                onChange={(event) => setBreakMinutes(event.target.value)}
+                className="text-end font-mono tabular-nums"
+              />
+            </Field>
+          )}
         </div>
 
         <Field

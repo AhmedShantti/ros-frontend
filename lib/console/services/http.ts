@@ -3252,7 +3252,7 @@ const employees: CollectionService<Employee> = {
   async list(query = {}) {
     const tenantId = tenantOf(query);
     const branchesById = await branchIndex().catch(() => new Map<Id, Branch>());
-    const rows = await api.workforceEmployees.list({});
+    const rows = await allEmployees();
     const mapped = rows.map((row) => map.toEmployee(row, branchesById));
     return project(mapped, query, {
       search: (row) => [row.name, row.code, row.position, row.department],
@@ -3331,10 +3331,64 @@ const employees: CollectionService<Employee> = {
   },
 };
 
+/**
+ * Every employee, paged 100 at a time through `x-next-cursor`.
+ *
+ * The header is only readable in the browser if the API's CORS config
+ * exposes it. When a full page arrives with no cursor, that is ambiguous
+ * (last page, or header hidden), so it falls back to one unbounded request —
+ * which the API serves in full — rather than silently stopping at 100.
+ */
+async function allEmployees(): Promise<S.EmployeesController_listResponse> {
+  // Loaded on first use: the client pulls in the session store, which the
+  // service-layer specs replace wholesale.
+  const { http } = await import("@/lib/api/client");
+  const out: S.EmployeesController_listResponse = [];
+  let cursor: string | undefined;
+  for (let hop = 0; hop < 50; hop += 1) {
+    let next: string | null = null;
+    const rows = await http.get<S.EmployeesController_listResponse>("/workforce/employees", {
+      query: { limit: 100, cursor },
+      onResponseHeaders: (headers) => {
+        next = headers.get("x-next-cursor");
+      },
+    });
+    out.push(...rows);
+    if (next) {
+      cursor = next;
+      continue;
+    }
+    if (rows.length === 100 && hop === 0) return api.workforceEmployees.list({});
+    return out;
+  }
+  return out;
+}
+
 /** Employee id -> display name, for the attendance and schedule registers. */
 async function employeeNames(): Promise<Map<Id, string>> {
-  const rows = await api.workforceEmployees.list({}).catch(() => []);
+  const rows = await allEmployees().catch(() => []);
   return new Map(rows.map((row) => [row.id, row.displayName]));
+}
+
+/** The newest ATTENDANCE_PAGES x 100 attendance rows, following `nextCursor`. */
+const ATTENDANCE_PAGES = 5;
+
+async function attendancePages(
+  branchId?: string,
+): Promise<S.AttendanceController_listResponse["items"]> {
+  const out: S.AttendanceController_listResponse["items"] = [];
+  let cursor: string | undefined;
+  for (let hop = 0; hop < ATTENDANCE_PAGES; hop += 1) {
+    const page = await api.workforceAttendance.list({
+      limit: 100,
+      ...(branchId ? { branchId } : {}),
+      ...(cursor ? { cursor } : {}),
+    });
+    out.push(...page.items);
+    if (!page.nextCursor) break;
+    cursor = page.nextCursor;
+  }
+  return out;
 }
 
 /**
@@ -3348,12 +3402,9 @@ const attendance: CollectionService<AttendanceRecord> = {
     const [branchesById, names, page] = await Promise.all([
       branchIndex().catch(() => new Map<Id, Branch>()),
       employeeNames(),
-      api.workforceAttendance.list({
-        limit: 100,
-        ...(query.scope?.branchId ? { branchId: query.scope.branchId } : {}),
-      }),
+      attendancePages(query.scope?.branchId ?? undefined),
     ]);
-    const mapped = page.items.map((row): AttendanceRecord => {
+    const mapped = page.map((row): AttendanceRecord => {
       const person = names.get(row.employeeId) ?? "";
       const branchName = branchesById.get(row.branchId)?.name ?? { en: "", ar: "" };
       return {
@@ -3471,6 +3522,23 @@ const workforce: WorkforceService = {
   },
   async addEmployeeBranch(employeeId, branchId) {
     await api.workforceEmployees.addBranch(String(employeeId), { branchId: String(branchId) });
+  },
+  async correctAttendance(recordId, input) {
+    // One call per changed field — the API corrects a single field at a time.
+    if (input.clockIn) {
+      await api.workforceAttendance.correct(String(recordId), {
+        field: "clock_in_at",
+        correctedValue: input.clockIn,
+        reason: input.reason,
+      });
+    }
+    if (input.clockOut) {
+      await api.workforceAttendance.correct(String(recordId), {
+        field: "clock_out_at",
+        correctedValue: input.clockOut,
+        reason: input.reason,
+      });
+    }
   },
   async reactivateEmployee(employeeId, reason) {
     await api.workforceEmployees.reactivate(String(employeeId), { reason });

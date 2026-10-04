@@ -2193,6 +2193,15 @@ const workforce: WorkforceService = {
     const row = employees.find((e) => e.id === employeeId);
     if (row) row.status = input.status;
   },
+  async correctAttendance(recordId, input) {
+    const row = attendanceRecords.find((a) => a.id === recordId);
+    if (!row) return;
+    if (input.clockIn) row.clockIn = input.clockIn;
+    if (input.clockOut) row.clockOut = input.clockOut;
+    row.method = "manual";
+    row.corrected = true;
+    row.flags = row.flags.filter((flag) => flag !== "missing_clock_out");
+  },
   async reactivateEmployee(employeeId) {
     const row = employees.find((e) => e.id === employeeId);
     if (row && row.status === "suspended") row.status = "active";

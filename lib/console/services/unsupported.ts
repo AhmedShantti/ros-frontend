@@ -121,6 +121,7 @@ export const unsupportedWorkforce: WorkforceService = {
   setEmployeeCompensation: async () => notImplemented("Employee compensation"),
   deactivateEmployee: async () => notImplemented("Employee deactivation"),
   addEmployeeBranch: async () => notImplemented("Employee branch assignment"),
+  correctAttendance: async () => notImplemented("Attendance correction"),
   reactivateEmployee: async () => notImplemented("Employee reactivation"),
   removeEmployeeBranch: async () => notImplemented("Employee branch removal"),
   compensationHistory: async () => notImplemented("Compensation history"),
