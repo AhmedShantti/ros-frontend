@@ -11,6 +11,7 @@ import type {
   PurchaseOrderLine,
   Requisition,
   RequisitionLine,
+  StockItem,
   Supplier,
   SupplierInvoice,
 } from "../types";
@@ -21,6 +22,16 @@ import { dateAgo, dateAhead, hoursAgo } from "./clock";
 
 const rng = createRng(0x9c17);
 const EGP = (amount: number): Money => ({ amount: Math.round(amount), currency: "EGP" });
+
+/**
+ * `purchaseUnit`/`purchaseConversion` are only `undefined` on a real
+ * (`DATA_MODE=http`) stock item (FR-INV-003 — the real backend has a
+ * genuine PurchaseUnit collection instead). Every fixture `stockItems`
+ * seeds here always sets both, so this is a type-level guard for this
+ * mock module only, never a real fallback value reaching production UI.
+ */
+const purchaseUnitOf = (item: StockItem) => item.purchaseUnit ?? item.baseUnit;
+const purchaseConversionOf = (item: StockItem) => item.purchaseConversion ?? 1;
 
 // ---------------------------------------------------------------------------
 // Suppliers — SRS §12.3
@@ -121,8 +132,8 @@ export const requisitions: Requisition[] = (() => {
         id: `rql_${i}_${li}`,
         itemId: stockItem.id,
         itemName: stockItem.name,
-        quantity: { value: qty.toFixed(3), unit: stockItem.purchaseUnit },
-        estimatedCost: EGP(qty * stockItem.unitCost.amount * stockItem.purchaseConversion),
+        quantity: { value: qty.toFixed(3), unit: purchaseUnitOf(stockItem) },
+        estimatedCost: EGP(qty * stockItem.unitCost.amount * purchaseConversionOf(stockItem)),
       };
     });
 
@@ -182,15 +193,15 @@ export const purchaseOrders: PurchaseOrder[] = (() => {
     const lines: PurchaseOrderLine[] = Array.from({ length: lineCount }, (_, li) => {
       const stockItem = pool[(li * 2 + i) % pool.length]!;
       const qty = int(rng, 4, 90);
-      const unitPrice = stockItem.unitCost.amount * stockItem.purchaseConversion;
+      const unitPrice = stockItem.unitCost.amount * purchaseConversionOf(stockItem);
       const received =
         status === "received" ? qty : status === "partially_received" ? Math.floor(qty * 0.6) : 0;
       return {
         id: `pol_${i}_${li}`,
         itemId: stockItem.id,
         itemName: stockItem.name,
-        quantity: { value: qty.toFixed(3), unit: stockItem.purchaseUnit },
-        receivedQuantity: { value: received.toFixed(3), unit: stockItem.purchaseUnit },
+        quantity: { value: qty.toFixed(3), unit: purchaseUnitOf(stockItem) },
+        receivedQuantity: { value: received.toFixed(3), unit: purchaseUnitOf(stockItem) },
         unitPrice: EGP(unitPrice),
         taxRate: 14,
         lineTotal: EGP(qty * unitPrice),
@@ -319,13 +330,13 @@ export const goodsReceipts: GoodsReceipt[] = (() => {
         id: `grl_direct_${i}_${li}`,
         itemId: stockItem.id,
         itemName: stockItem.name,
-        ordered: { value: "0.000", unit: stockItem.purchaseUnit },
-        received: { value: qty.toFixed(3), unit: stockItem.purchaseUnit },
-        rejected: { value: "0.000", unit: stockItem.purchaseUnit },
+        ordered: { value: "0.000", unit: purchaseUnitOf(stockItem) },
+        received: { value: qty.toFixed(3), unit: purchaseUnitOf(stockItem) },
+        rejected: { value: "0.000", unit: purchaseUnitOf(stockItem) },
         rejectionReason: null,
         batchNumber: null,
         expiryDate: null,
-        unitPrice: EGP(stockItem.unitCost.amount * stockItem.purchaseConversion),
+        unitPrice: EGP(stockItem.unitCost.amount * purchaseConversionOf(stockItem)),
         priceVariancePercent: 0,
       };
     });

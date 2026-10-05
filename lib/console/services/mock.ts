@@ -21,6 +21,7 @@ import type {
   Order,
   Page,
   PurchaseOrder,
+  PurchaseUnit,
   RecipeLine,
   RestaurantTable,
   Station,
@@ -1412,6 +1413,23 @@ let demoCategorySeq = demoStockItemCategories.length;
 const demoStorageAreas: StorageArea[] = [...storageAreas];
 let demoStorageAreaSeq = demoStorageAreas.length;
 
+/**
+ * FR-INV-003 — mutable so a demo-mode create/edit/delete call persists for
+ * the session. Seeded with one item's two case sizes so "Case 12" and
+ * "Case 24" coexist in the demo, the same example the SRS itself uses.
+ * Every other item starts with none configured — that is the real empty
+ * state, never a fallback to base-unit-times-one.
+ */
+const demoPurchaseUnits: PurchaseUnit[] = (() => {
+  const seeded = stockItems.find((row) => row.sku === "BEV-005");
+  if (!seeded) return [];
+  return [
+    { id: "pu_1", stockItemId: seeded.id, name: "Case 12", conversionFactorToBase: "12.000000", supplierId: null },
+    { id: "pu_2", stockItemId: seeded.id, name: "Case 24", conversionFactorToBase: "24.000000", supplierId: null },
+  ];
+})();
+let demoPurchaseUnitSeq = demoPurchaseUnits.length;
+
 /** The category catalogue has no per-locale name — both locales read the same string. */
 function categoryDisplayOf(categoryId: Id | null | undefined): Localised | undefined {
   const name = demoStockItemCategories.find((row) => row.id === categoryId)?.name;
@@ -1822,6 +1840,59 @@ const inventory: InventoryService = {
         (row) => row.itemId === itemId && row.locationId === input.locationId,
       );
       if (level) level.storageAreaId = input.storageAreaId ?? null;
+    });
+  },
+
+  // -- Purchase units ----------------------------------------------------
+
+  async listPurchaseUnits(itemId) {
+    return transport(() => demoPurchaseUnits.filter((row) => row.stockItemId === itemId));
+  },
+
+  async createPurchaseUnit(itemId, input) {
+    return transport(() => {
+      demoPurchaseUnitSeq += 1;
+      const created: PurchaseUnit = {
+        id: `pu_${demoPurchaseUnitSeq}`,
+        stockItemId: itemId,
+        name: input.name,
+        conversionFactorToBase: input.conversionFactorToBase,
+        supplierId: null,
+      };
+      demoPurchaseUnits.push(created);
+      return created;
+    });
+  },
+
+  async updatePurchaseUnit(itemId, purchaseUnitId, input) {
+    return transport(() => {
+      const row = demoPurchaseUnits.find(
+        (unit) => unit.id === purchaseUnitId && unit.stockItemId === itemId,
+      );
+      if (!row) throw new ServiceError("NOT_FOUND", "That purchase unit no longer exists.", 404);
+      if (input.name !== undefined) row.name = input.name;
+      if (input.conversionFactorToBase !== undefined) row.conversionFactorToBase = input.conversionFactorToBase;
+      return row;
+    });
+  },
+
+  // Demo-only: "pu_1" (the seeded "Case 12") stands in for a unit already
+  // referenced by a purchase order line, so the delete-conflict state is
+  // something a reviewer can actually see without a real backend.
+  async deletePurchaseUnit(itemId, purchaseUnitId) {
+    return transport(() => {
+      const index = demoPurchaseUnits.findIndex(
+        (unit) => unit.id === purchaseUnitId && unit.stockItemId === itemId,
+      );
+      if (index === -1) throw new ServiceError("NOT_FOUND", "That purchase unit no longer exists.", 404);
+      if (purchaseUnitId === "pu_1") {
+        throw new ServiceError(
+          "CONFLICT",
+          "This purchase unit is already in use on a purchase order and cannot be deleted.",
+          409,
+        );
+      }
+      demoPurchaseUnits.splice(index, 1);
     });
   },
 

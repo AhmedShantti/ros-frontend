@@ -2040,6 +2040,58 @@ const inventory: InventoryService = {
     invalidateInventory();
   },
 
+  // -- Purchase units ----------------------------------------------------
+  //
+  // FR-INV-003 — item-specific purchase units. `supplierId` is deliberately
+  // never sent from this app: no real, backend-integrated supplier
+  // catalogue exists on the frontend yet (`purchasing: unsupportedPurchasing`
+  // below), and showing a raw UUID picker or a fabricated name would be
+  // worse than simply leaving every unit this UI creates supplier-neutral
+  // (the field stays optional/null on the backend either way).
+
+  async listPurchaseUnits(itemId) {
+    const rows = await api.inventory.listPurchaseUnits(itemId);
+    return rows.map((row) => ({
+      id: row.id,
+      stockItemId: row.stockItemId,
+      name: row.name,
+      conversionFactorToBase: row.conversionFactorToBase,
+      supplierId: row.supplierId,
+    }));
+  },
+
+  async createPurchaseUnit(itemId, input) {
+    const row = await api.inventory.createPurchaseUnit(itemId, {
+      name: input.name,
+      conversionFactorToBase: input.conversionFactorToBase,
+    });
+    return {
+      id: row.id,
+      stockItemId: row.stockItemId,
+      name: row.name,
+      conversionFactorToBase: row.conversionFactorToBase,
+      supplierId: row.supplierId,
+    };
+  },
+
+  async updatePurchaseUnit(itemId, purchaseUnitId, input) {
+    const row = await api.inventory.updatePurchaseUnit(itemId, purchaseUnitId, {
+      name: input.name,
+      conversionFactorToBase: input.conversionFactorToBase,
+    });
+    return {
+      id: row.id,
+      stockItemId: row.stockItemId,
+      name: row.name,
+      conversionFactorToBase: row.conversionFactorToBase,
+      supplierId: row.supplierId,
+    };
+  },
+
+  async deletePurchaseUnit(itemId, purchaseUnitId) {
+    await api.inventory.deletePurchaseUnit(itemId, purchaseUnitId);
+  },
+
   // -- Reason codes ----------------------------------------------------------
 
   async reasonCodes() {

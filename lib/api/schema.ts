@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 208 paths, 140 request DTOs.
+ * `api/openapi.json`. 210 paths, 142 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -342,6 +342,12 @@ export interface CreateOrderDto {
   /** FR-OFF-015 — the device's own clock reading for the sale. Recorded as `origin_device_time`; it never decides the business day. */
   originDeviceTime: string;
   tableId?: string;
+}
+
+export interface CreatePackagingUnitDto {
+  conversionFactorToBase: string;
+  name: string;
+  supplierId?: string;
 }
 
 export interface CreatePrintRoutingDto {
@@ -1065,6 +1071,13 @@ export interface UpdateModifierGroupDto {
   maxSelections?: number;
   minSelections?: number;
   name: Record<string, unknown>;
+}
+
+export interface UpdatePackagingUnitDto {
+  conversionFactorToBase?: string;
+  name?: string;
+  /** `null` clears it; omitted leaves it unchanged. */
+  supplierId?: string | null;
 }
 
 export interface UpdatePurchaseOrderDto {
@@ -3060,6 +3073,43 @@ export type InventoryController_listMovementsResponse = ({
   referenceId: string;
   referenceType: string;
 })[];
+
+/** `GET /inventory/items/{itemId}/purchase-units` — FR-INV-003 — the item-specific purchase units a PurchaseOrderLine's `purchaseUnitId` may select from, alongside the item's own canonical base Uom. — The stock item's own item-specific purchase units. */
+export type InventoryController_listPurchaseUnitsResponse = ({
+  /** This unit's conversion factor to the stock item's base unit. */
+  conversionFactorToBase: string;
+  id: string;
+  name: string;
+  stockItemId: string;
+  supplierId: string | null;
+})[];
+
+/** `POST /inventory/items/{itemId}/purchase-units` — The created purchase unit. */
+export type InventoryController_createPurchaseUnitResponse = {
+  /** This unit's conversion factor to the stock item's base unit. */
+  conversionFactorToBase: string;
+  id: string;
+  name: string;
+  stockItemId: string;
+  supplierId: string | null;
+};
+
+export type InventoryController_createPurchaseUnitBody = CreatePackagingUnitDto;
+
+/** `PATCH /inventory/items/{itemId}/purchase-units/{purchaseUnitId}` — The updated purchase unit. Safe to edit even after it has been used on a purchase order — every such line snapshots its own copy of this unit as it was at that moment (FR-INV-003). */
+export type InventoryController_updatePurchaseUnitResponse = {
+  /** This unit's conversion factor to the stock item's base unit. */
+  conversionFactorToBase: string;
+  id: string;
+  name: string;
+  stockItemId: string;
+  supplierId: string | null;
+};
+
+export type InventoryController_updatePurchaseUnitBody = UpdatePackagingUnitDto;
+
+/** `DELETE /inventory/items/{itemId}/purchase-units/{purchaseUnitId}` */
+export type InventoryController_deletePurchaseUnitResponse = void;
 
 /** `POST /inventory/items/{itemId}/reorder-config` — FR-INV-065: per-location reorder configuration. — The upserted reorder configuration. */
 export type InventoryController_setReorderConfigResponse = {
@@ -8406,6 +8456,10 @@ export const ROUTES = {
   InventoryController_getItem: { method: "GET", path: "/inventory/items/{itemId}" },
   InventoryController_changeBaseUnit: { method: "POST", path: "/inventory/items/{itemId}/base-unit" },
   InventoryController_listMovements: { method: "GET", path: "/inventory/items/{itemId}/movements" },
+  InventoryController_listPurchaseUnits: { method: "GET", path: "/inventory/items/{itemId}/purchase-units" },
+  InventoryController_createPurchaseUnit: { method: "POST", path: "/inventory/items/{itemId}/purchase-units" },
+  InventoryController_updatePurchaseUnit: { method: "PATCH", path: "/inventory/items/{itemId}/purchase-units/{purchaseUnitId}" },
+  InventoryController_deletePurchaseUnit: { method: "DELETE", path: "/inventory/items/{itemId}/purchase-units/{purchaseUnitId}" },
   InventoryController_setReorderConfig: { method: "POST", path: "/inventory/items/{itemId}/reorder-config" },
   InventoryController_setStorageAreaAssignment: { method: "POST", path: "/inventory/items/{itemId}/storage-area" },
   InventoryController_levels: { method: "GET", path: "/inventory/levels" },

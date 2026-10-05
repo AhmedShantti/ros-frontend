@@ -610,8 +610,18 @@ export interface StockItem {
    * UUID. Undefined in demo mode, where units are codes all the way down.
    */
   baseUnitId?: Id;
-  purchaseUnit: UnitCode;
-  purchaseConversion: number;
+  /**
+   * FR-INV-003 — legacy, single-slot, demo-only fields. The real backend
+   * has no such pair on a stock item at all: it has a genuine COLLECTION
+   * of item-specific `PurchaseUnit`s (see that type below), each with its
+   * own conversion factor — "Case 12" and "Case 24" coexist on the same
+   * item. Undefined on the real (`DATA_MODE=http`) path on purpose, so
+   * nothing mistakes the base unit for a configured purchase unit; still
+   * populated in demo-mode fixtures for the unrelated mock Purchasing
+   * screens, which predate and do not use the real `PurchaseUnit` list.
+   */
+  purchaseUnit?: UnitCode;
+  purchaseConversion?: number;
   costingMethod: CostingMethod;
   batchTracked: boolean;
   expiryTracked: boolean;
@@ -621,6 +631,23 @@ export interface StockItem {
   allergens: string[];
   unitCost: Money;
   active: boolean;
+}
+
+/**
+ * FR-INV-003 — an item-specific purchase unit (e.g. "Case 12"), distinct
+ * from the canonical UnitCode catalogue. A stock item may have several —
+ * "Case 12" from one supplier, "Case 24" from another — each with its own
+ * independent conversion factor to the item's base unit. `name` is free
+ * packaging text, never a `UnitCode`; `conversionFactorToBase` is a
+ * decimal string (never run through float math — see `format.ts`'s own
+ * Decimal-safe helpers) matching the backend's `Decimal(20,6)` column.
+ */
+export interface PurchaseUnit {
+  id: Id;
+  stockItemId: Id;
+  name: string;
+  conversionFactorToBase: string;
+  supplierId: Id | null;
 }
 
 export interface StockLevel {

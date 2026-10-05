@@ -907,8 +907,10 @@ export function toStockItem(row: WireStockItem, tenantId: Id, category: Localise
     categoryId: row.categoryId,
     baseUnit: unitOf(row.baseUnitId),
     baseUnitId: row.baseUnitId,
-    purchaseUnit: unitOf(row.baseUnitId), // gap: no purchase-unit conversion yet.
-    purchaseConversion: 1,
+    // FR-INV-003 — deliberately omitted (`undefined`), never a fabricated
+    // 1:1 stand-in. The real backend has a genuine PurchaseUnit collection
+    // instead — see `inventory.listPurchaseUnits()` — which is what the
+    // Stock Item screen's own "Purchase Units" section reads from.
     costingMethod: row.costingMethod,
     batchTracked: row.isBatchTracked,
     expiryTracked: row.expiryTracked,

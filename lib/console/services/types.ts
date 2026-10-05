@@ -63,6 +63,7 @@ import type {
   Page,
   Quantity,
   PurchaseOrder,
+  PurchaseUnit,
   Recipe,
   RecipeLine,
   ReportDefinition,
@@ -733,6 +734,27 @@ export interface InventoryService {
     itemId: Id,
     input: { locationId: Id; storageAreaId: Id | null },
   ): Promise<void>;
+
+  // -- Purchase units ----------------------------------------------------
+  /** FR-INV-003 — an item's own item-specific purchase units (e.g. "Case
+   *  12"), each with an independent conversion factor to its base unit. */
+  listPurchaseUnits(itemId: Id): Promise<PurchaseUnit[]>;
+  /** `conversionFactorToBase` is a decimal string — see `PurchaseUnit`'s
+   *  own doc comment. */
+  createPurchaseUnit(
+    itemId: Id,
+    input: { name: string; conversionFactorToBase: string },
+  ): Promise<PurchaseUnit>;
+  /** Safe to edit even after the unit has been used on a purchase order —
+   *  every such line snapshots its own copy at commitment time. */
+  updatePurchaseUnit(
+    itemId: Id,
+    purchaseUnitId: Id,
+    input: { name?: string; conversionFactorToBase?: string },
+  ): Promise<PurchaseUnit>;
+  /** Rejected (409) if already referenced by a purchase order line or an
+   *  agreed supplier price — never force-deleted, never soft-deleted. */
+  deletePurchaseUnit(itemId: Id, purchaseUnitId: Id): Promise<void>;
 
   // -- Computed reports ------------------------------------------------------
   lowStock(query?: ScopedQuery): Promise<LowStockRow[]>;

@@ -25,9 +25,21 @@ const itemsCreate = vi.fn();
 const unitsOfMeasure = vi.fn();
 const categories = vi.fn();
 const createCategory = vi.fn();
+const listPurchaseUnits = vi.fn();
+const createPurchaseUnit = vi.fn();
+const updatePurchaseUnit = vi.fn();
+const deletePurchaseUnit = vi.fn();
 
 vi.mock("@/lib/console/services", () => ({
-  ServiceError: class ServiceError extends Error {},
+  ServiceError: class ServiceError extends Error {
+    code: string;
+    status: number;
+    constructor(code: string, message: string, status = 500) {
+      super(message);
+      this.code = code;
+      this.status = status;
+    }
+  },
   services: {
     inventory: {
       items: {
@@ -37,9 +49,15 @@ vi.mock("@/lib/console/services", () => ({
       unitsOfMeasure: (...args: unknown[]) => unitsOfMeasure(...args),
       categories: (...args: unknown[]) => categories(...args),
       createCategory: (...args: unknown[]) => createCategory(...args),
+      listPurchaseUnits: (...args: unknown[]) => listPurchaseUnits(...args),
+      createPurchaseUnit: (...args: unknown[]) => createPurchaseUnit(...args),
+      updatePurchaseUnit: (...args: unknown[]) => updatePurchaseUnit(...args),
+      deletePurchaseUnit: (...args: unknown[]) => deletePurchaseUnit(...args),
     },
   },
 }));
+
+let granted = new Set(["inventory.view", "inventory.adjust"]);
 
 vi.mock("@/lib/console/providers", () => ({
   useI18n: () => ({
@@ -52,6 +70,7 @@ vi.mock("@/lib/console/providers", () => ({
   }),
   useSession: () => ({
     scope: { tenantId: "t1", brandId: null, branchId: null },
+    canAny: (perms: string[]) => perms.some((perm) => granted.has(perm)),
   }),
 }));
 
@@ -91,9 +110,11 @@ async function openNewItemDrawer(user: ReturnType<typeof userEvent.setup>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  granted = new Set(["inventory.view", "inventory.adjust"]);
   itemsList.mockResolvedValue({ rows: [ITEM_FLOUR], total: 1 });
   unitsOfMeasure.mockResolvedValue([UOM_GRAM, UOM_KG]);
   categories.mockResolvedValue([]);
+  listPurchaseUnits.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -465,5 +486,236 @@ describe("Stock items — category lifecycle (FR-INV-001)", () => {
 
     await screen.findByText("Category parent not found.");
     expect(itemsCreate).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * FR-INV-003 — Purchase Units. Replaces the fake single
+ * `purchaseUnit`/`purchaseConversion` stand-in (a fabricated "1 kg = 1 kg")
+ * with the real backend PackagingUnit collection:
+ * `GET/POST /inventory/items/:itemId/purchase-units`,
+ * `PATCH/DELETE .../purchase-units/:purchaseUnitId`. No supplier field is
+ * exposed in this UI — no real, backend-integrated supplier catalogue
+ * exists on this frontend yet (`unsupportedPurchasing` in
+ * `lib/console/services/http.ts`).
+ */
+describe("Stock items — purchase units (FR-INV-003)", () => {
+  const CASE_12 = {
+    id: "pu-12",
+    stockItemId: ITEM_FLOUR.id,
+    name: "Case 12",
+    conversionFactorToBase: "12.000000",
+    supplierId: null,
+  };
+  const CASE_24 = {
+    id: "pu-24",
+    stockItemId: ITEM_FLOUR.id,
+    name: "Case 24",
+    conversionFactorToBase: "24.000000",
+    supplierId: null,
+  };
+
+  async function openItemDrawer(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByText("Flour"));
+    return screen.getByRole("dialog", { name: "Flour" });
+  }
+
+  it("fetches purchase units via the real route, keyed by the item's id", async () => {
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openItemDrawer(user);
+
+    await waitFor(() => expect(listPurchaseUnits).toHaveBeenCalledWith(ITEM_FLOUR.id));
+  });
+
+  it("renders the honest empty state when no purchase units are configured — never a base-unit x1 fallback", async () => {
+    listPurchaseUnits.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    const dialog = await openItemDrawer(user);
+
+    expect(await within(dialog).findByText("inv.noPurchaseUnitsConfigured")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/1 kg = 1(\.00)? kg/)).not.toBeInTheDocument();
+  });
+
+  it("renders Case 12 and Case 24 simultaneously, each with its own conversion factor and a readable base-unit label", async () => {
+    listPurchaseUnits.mockResolvedValue([CASE_12, CASE_24]);
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    const dialog = await openItemDrawer(user);
+
+    expect(await within(dialog).findByText("1 Case 12 = 12 kg")).toBeInTheDocument();
+    expect(within(dialog).getByText("1 Case 24 = 24 kg")).toBeInTheDocument();
+  });
+
+  it("never renders a raw purchase-unit-id or a supplier field", async () => {
+    listPurchaseUnits.mockResolvedValue([CASE_12]);
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    const dialog = await openItemDrawer(user);
+
+    await within(dialog).findByText("Case 12");
+    expect(within(dialog).queryByText(CASE_12.id)).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText(/supplier/i)).not.toBeInTheDocument();
+  });
+
+  it("a view-only user (no inventory.adjust) sees the list but gets no Add/Edit/Delete controls", async () => {
+    granted = new Set(["inventory.view"]);
+    listPurchaseUnits.mockResolvedValue([CASE_12]);
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    const dialog = await openItemDrawer(user);
+
+    await within(dialog).findByText("Case 12");
+    expect(
+      within(dialog).queryByRole("button", { name: "inv.addPurchaseUnit" }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "common.edit" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "common.delete" })).not.toBeInTheDocument();
+  });
+
+  it("surfaces a runtime load failure (e.g. a revoked permission) via the existing honest error pattern", async () => {
+    listPurchaseUnits.mockRejectedValue(new Error("Forbidden."));
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    const dialog = await openItemDrawer(user);
+
+    expect(await within(dialog).findByText("Forbidden.")).toBeInTheDocument();
+  });
+
+  it("create sends the real route the exact name and conversionFactorToBase string, with no supplierId", async () => {
+    listPurchaseUnits.mockResolvedValue([]);
+    createPurchaseUnit.mockResolvedValue(CASE_12);
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    const dialog = await openItemDrawer(user);
+
+    await user.click(within(dialog).getByRole("button", { name: "inv.addPurchaseUnit" }));
+    const form = screen.getByRole("dialog", { name: "inv.addPurchaseUnit" });
+    await user.type(within(form).getByLabelText(/common\.name/), "Case 12");
+    await user.type(within(form).getByLabelText(/inv\.purchaseUnitConversion/), "12.5");
+    await user.click(within(form).getByRole("button", { name: "common.create" }));
+
+    await waitFor(() =>
+      expect(createPurchaseUnit).toHaveBeenCalledWith(ITEM_FLOUR.id, {
+        name: "Case 12",
+        conversionFactorToBase: "12.5",
+      }),
+    );
+    const [, body] = createPurchaseUnit.mock.calls[0]!;
+    expect(body).not.toHaveProperty("supplierId");
+  });
+
+  it("rejects a zero conversion factor client-side — create is never called", async () => {
+    listPurchaseUnits.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    const dialog = await openItemDrawer(user);
+
+    await user.click(within(dialog).getByRole("button", { name: "inv.addPurchaseUnit" }));
+    const form = screen.getByRole("dialog", { name: "inv.addPurchaseUnit" });
+    await user.type(within(form).getByLabelText(/common\.name/), "Case 12");
+    await user.type(within(form).getByLabelText(/inv\.purchaseUnitConversion/), "0");
+
+    expect(within(form).getByRole("button", { name: "common.create" })).toBeDisabled();
+    expect(createPurchaseUnit).not.toHaveBeenCalled();
+  });
+
+  it("rejects a negative conversion factor client-side", async () => {
+    listPurchaseUnits.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    const dialog = await openItemDrawer(user);
+
+    await user.click(within(dialog).getByRole("button", { name: "inv.addPurchaseUnit" }));
+    const form = screen.getByRole("dialog", { name: "inv.addPurchaseUnit" });
+    await user.type(within(form).getByLabelText(/common\.name/), "Case 12");
+    await user.type(within(form).getByLabelText(/inv\.purchaseUnitConversion/), "-5");
+
+    expect(within(form).getByRole("button", { name: "common.create" })).toBeDisabled();
+    expect(createPurchaseUnit).not.toHaveBeenCalled();
+  });
+
+  it("rejects a conversion factor with more than 6 decimal places client-side, without silently rounding it", async () => {
+    listPurchaseUnits.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    const dialog = await openItemDrawer(user);
+
+    await user.click(within(dialog).getByRole("button", { name: "inv.addPurchaseUnit" }));
+    const form = screen.getByRole("dialog", { name: "inv.addPurchaseUnit" });
+    await user.type(within(form).getByLabelText(/common\.name/), "Case 12");
+    await user.type(within(form).getByLabelText(/inv\.purchaseUnitConversion/), "1.1234567");
+
+    expect(within(form).getByRole("button", { name: "common.create" })).toBeDisabled();
+    expect(createPurchaseUnit).not.toHaveBeenCalled();
+  });
+
+  it("edit PATCHes the selected purchaseUnitId, not a different row", async () => {
+    listPurchaseUnits.mockResolvedValue([CASE_12, CASE_24]);
+    updatePurchaseUnit.mockResolvedValue({ ...CASE_24, name: "Case 24 (relabeled)" });
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    const dialog = await openItemDrawer(user);
+
+    await within(dialog).findByText("Case 24");
+    const row24 = within(dialog).getByText("Case 24").closest("li")!;
+    await user.click(within(row24).getByRole("button", { name: "common.edit" }));
+
+    const form = screen.getByRole("dialog", { name: "inv.editPurchaseUnit" });
+    const nameInput = within(form).getByLabelText(/common\.name/);
+    await user.clear(nameInput);
+    await user.type(nameInput, "Case 24 (relabeled)");
+    await user.click(within(form).getByRole("button", { name: "common.save" }));
+
+    await waitFor(() =>
+      expect(updatePurchaseUnit).toHaveBeenCalledWith(
+        ITEM_FLOUR.id,
+        CASE_24.id,
+        expect.objectContaining({ name: "Case 24 (relabeled)" }),
+      ),
+    );
+  });
+
+  it("delete calls the real DELETE route for the clicked row", async () => {
+    listPurchaseUnits.mockResolvedValue([CASE_12]);
+    deletePurchaseUnit.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    const dialog = await openItemDrawer(user);
+
+    await within(dialog).findByText("Case 12");
+    await user.click(within(dialog).getByRole("button", { name: "common.delete" }));
+
+    await waitFor(() => expect(deletePurchaseUnit).toHaveBeenCalledWith(ITEM_FLOUR.id, CASE_12.id));
+  });
+
+  it("a delete conflict (409) stays visible and the row is not falsely removed", async () => {
+    listPurchaseUnits.mockResolvedValue([CASE_12]);
+    const { ServiceError } = await import("@/lib/console/services");
+    deletePurchaseUnit.mockRejectedValue(
+      new ServiceError("CONFLICT", "This purchase unit is referenced by a purchase order.", 409),
+    );
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    const dialog = await openItemDrawer(user);
+
+    await within(dialog).findByText("Case 12");
+    await user.click(within(dialog).getByRole("button", { name: "common.delete" }));
+
+    await within(dialog).findByText("This purchase unit is referenced by a purchase order.");
+    expect(within(dialog).getByText("Case 12")).toBeInTheDocument();
+  });
+
+  it("never falls back to the stock-item list/levels API for purchase-unit data", async () => {
+    listPurchaseUnits.mockResolvedValue([CASE_12]);
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openItemDrawer(user);
+
+    await waitFor(() => expect(listPurchaseUnits).toHaveBeenCalled());
+    // itemsList is the item master list — called once on mount for the
+    // page itself, never again for purchase-unit data.
+    expect(itemsList).toHaveBeenCalledTimes(1);
   });
 });

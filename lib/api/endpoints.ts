@@ -480,6 +480,22 @@ export const inventory = {
   listMovements: (itemId: string, options: { locationId?: string } = {}) =>
     http.get<S.InventoryController_listMovementsResponse>("/inventory/items/{itemId}/movements", { params: { itemId }, query: { locationId: options.locationId } }),
 
+  /** `GET /inventory/items/{itemId}/purchase-units` — FR-INV-003 — the item-specific purchase units a PurchaseOrderLine's `purchaseUnitId` may select from, alongside the item's own canonical base Uom. — The stock item's own item-specific purchase units. */
+  listPurchaseUnits: (itemId: string) =>
+    http.get<S.InventoryController_listPurchaseUnitsResponse>("/inventory/items/{itemId}/purchase-units", { params: { itemId } }),
+
+  /** `POST /inventory/items/{itemId}/purchase-units` — The created purchase unit. */
+  createPurchaseUnit: (itemId: string, body: S.CreatePackagingUnitDto) =>
+    http.post<S.InventoryController_createPurchaseUnitResponse>("/inventory/items/{itemId}/purchase-units", { params: { itemId }, body }),
+
+  /** `PATCH /inventory/items/{itemId}/purchase-units/{purchaseUnitId}` — The updated purchase unit. Safe to edit even after it has been used on a purchase order — every such line snapshots its own copy of this unit as it was at that moment (FR-INV-003). */
+  updatePurchaseUnit: (itemId: string, purchaseUnitId: string, body: S.UpdatePackagingUnitDto) =>
+    http.patch<S.InventoryController_updatePurchaseUnitResponse>("/inventory/items/{itemId}/purchase-units/{purchaseUnitId}", { params: { itemId, purchaseUnitId }, body }),
+
+  /** `DELETE /inventory/items/{itemId}/purchase-units/{purchaseUnitId}` */
+  deletePurchaseUnit: (itemId: string, purchaseUnitId: string) =>
+    http.delete<S.InventoryController_deletePurchaseUnitResponse>("/inventory/items/{itemId}/purchase-units/{purchaseUnitId}", { params: { itemId, purchaseUnitId } }),
+
   /** `POST /inventory/items/{itemId}/reorder-config` — FR-INV-065: per-location reorder configuration. — The upserted reorder configuration. */
   setReorderConfig: (itemId: string, body: S.SetReorderConfigDto) =>
     http.post<S.InventoryController_setReorderConfigResponse>("/inventory/items/{itemId}/reorder-config", { params: { itemId }, body }),
