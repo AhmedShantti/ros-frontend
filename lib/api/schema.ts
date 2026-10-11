@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 210 paths, 142 request DTOs.
+ * `api/openapi.json`. 214 paths, 144 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -264,6 +264,14 @@ export interface CreateEmployeeDto {
   permittedBranchIds?: string[];
   position?: string;
   userId?: string;
+}
+
+export interface CreateInventoryApprovalPolicyDto {
+  adjustmentValueThresholdMinor: string | null;
+  countVarianceValueThresholdMinor: string | null;
+  /** Omitted = effective immediately (resolved to DATABASE time). */
+  effectiveFrom?: string;
+  wasteValueThresholdMinor: string | null;
 }
 
 export interface CreateMenuDto {
@@ -565,6 +573,15 @@ export interface DeactivateEmployeeDto {
   terminationDate?: string;
 }
 
+export interface DecideInventoryApprovalDto {
+  /** The branch the approving employee's PIN/membership is verified against — the `DecidePurchaseOrderDto.approvalBranchId` precedent, never a device identity. */
+  approvalBranchId: string;
+  approvalDecisionId: string;
+  comment?: string;
+  employeeCode: string;
+  pin: string;
+}
+
 export interface DecidePurchaseOrderDto {
   /** CROSSCUT-POS-KDS-TERMINAL-DECOUPLING-P0 §9 — a Purchase Order may be tenant-wide (warehouse/central-kitchen delivery), so no single unambiguous branch is always derivable from the order itself. This is OPERATIONAL identity context ONLY — the branch the approving employee's PIN/membership is verified against — never a device identity. Never the branch a Purchase Order is attributed or delivered to. */
   approvalBranchId: string;
@@ -616,7 +633,7 @@ export interface FinalizeCashSessionCloseDto {
   /** OPTIONAL — the attempt the deciding manager was shown. If a recount has since superseded it the finalize is refused (409) instead of deciding a count the manager never saw. Omitted by older clients: behaviour is then unchanged (the session's current attempt is decided). */
   closeAttemptId?: string;
   comment?: string;
-  decision: "approved" | "rejected";
+  decision: "rejected" | "approved";
   /** The deciding manager's employee code — mirrors `PinLoginDto`. */
   managerEmployeeCode: string;
   /** FR-SEC-020: 4-8 digits. Never logged, never echoed. */
@@ -735,6 +752,7 @@ export interface PostMovementDto {
   movementType: "purchase_receipt" | "purchase_return" | "sale_depletion" | "sale_reversal" | "transfer_out" | "transfer_in" | "production_input" | "production_output" | "waste" | "count_adjustment" | "manual_adjustment" | "opening_balance" | "expiry_writeoff";
   notes?: string;
   quantity: string;
+  /** FR-INV-035/FR-INV-016 contextual fix — the DB `ck_reason_required` CHECK already forces a reason code for `manual_adjustment`/`waste` movements, but that surfaces as a raw constraint-violation 500, not a clean 400. This DTO/route backs EVERY movement type (including `opening_balance`, which must stay reason-code-optional), so the validator is scoped to `manual_adjustment` only, not a blanket `@IsNotEmpty()` — the `ValidateIf` condition runs the UUID check whenever the movement IS a manual_adjustment (forcing presence) OR the caller supplied something anyway (still validating its shape). */
   reasonCodeId?: string;
   referenceId: string;
   referenceType: string;
@@ -817,8 +835,6 @@ export interface RecordWasteDto {
   locationId: string;
   notes?: string;
   reasonCodeId: string;
-  /** B-2: caller-supplied approval gate. */
-  requiresApproval?: boolean;
 }
 
 export interface RecountCashSessionCloseDto {
@@ -1903,6 +1919,42 @@ export type DrawersController_createDrawerResponse = {
 
 export type DrawersController_createDrawerBody = CreateDrawerDto;
 
+/** `GET /branches/{branchId}/inventory-approval-policy` — `policy` is `null` when none has ever been configured. — `policy` is null if the branch has none configured yet. */
+export type InventoryApprovalPolicyController_getPolicyResponse = {
+  policy: {
+    /** FR-INV-035. Non-negative minor-unit integer string, or null to always require approval for this action. */
+    adjustmentValueThresholdMinor: string | null;
+    branchId: string;
+    /** FR-INV-047. Non-negative minor-unit integer string, or null to always require approval for this action. */
+    countVarianceValueThresholdMinor: string | null;
+    createdAt: string;
+    /** ISO 4217 currency code — the branch's own base currency, never client-supplied. */
+    currency: string;
+    effectiveFrom: string;
+    id: string;
+    /** FR-INV-058. Non-negative minor-unit integer string, or null to always require approval for this action. */
+    wasteValueThresholdMinor: string | null;
+  } | null;
+};
+
+/** `POST /branches/{branchId}/inventory-approval-policy` — The newly created inventory approval policy version. */
+export type InventoryApprovalPolicyController_createPolicyResponse = {
+  /** FR-INV-035. Non-negative minor-unit integer string, or null to always require approval for this action. */
+  adjustmentValueThresholdMinor: string | null;
+  branchId: string;
+  /** FR-INV-047. Non-negative minor-unit integer string, or null to always require approval for this action. */
+  countVarianceValueThresholdMinor: string | null;
+  createdAt: string;
+  /** ISO 4217 currency code — the branch's own base currency, never client-supplied. */
+  currency: string;
+  effectiveFrom: string;
+  id: string;
+  /** FR-INV-058. Non-negative minor-unit integer string, or null to always require approval for this action. */
+  wasteValueThresholdMinor: string | null;
+};
+
+export type InventoryApprovalPolicyController_createPolicyBody = CreateInventoryApprovalPolicyDto;
+
 /** `POST /cash-sessions` — Open a cashier shift and its cash session — FR-POS-090, FR-FIN-001/002. ONE command for the cashier, two records for the model. FR-POS-090 describes a single action ("open a shift, declaring an opening float"), and the cashier should not have to know that a shift is a Workforce concept and a session a Treasury one. They stay distinct in the schema (carried item P1D-A); only the command is unified, and both are written in one transaction. `Idempotency-Key` is MANDATORY (FR-API-020): opening a drawer is a financially significant act, and a retry over a flaky link must not produce a second shift or a second session. The two client ULIDs are independent duplicate protection beneath it. — The opened cash session and its shift, plus whether this call created them (false on an idempotent replay of an already-open pair). */
 export type TreasuryController_openCashSessionResponse = {
   cashSession: {
@@ -2863,6 +2915,75 @@ export type HealthController_checkResponse = {
   status: "ok";
 };
 
+/** `GET /inventory/approvals` — Inventory approval requests (stock_adjustment/count_adjustment/waste), newest first. */
+export type InventoryApprovalsController_listResponse = ({
+  /** The value frozen at request time that crossed the policy threshold — may legitimately differ from the final ledger cost, which is always computed live at approval time. */
+  approvalBasisValueMinor: string;
+  approvalRequestId: string;
+  /** For stock_adjustment, the approval request’s own id (no real Inventory entity exists at request time — Design A, no staging table). */
+  entityId: string;
+  expiresAt: string;
+  kind: "stock_adjustment" | "count_adjustment" | "waste";
+  requestedAt: string;
+  requestedBy: string;
+  requiredPermission: string;
+  status: "pending" | "approved" | "rejected";
+})[];
+
+/** `POST /inventory/approvals/{approvalRequestId}/approve` — The result of posting the approved action. */
+export type InventoryApprovalsController_approveResponse = {
+  /** Present only once the adjustment has actually been posted. */
+  movementId: string;
+  status: string;
+} | {
+  /** Present only once the count has actually been posted. */
+  adjustments: ({
+    stockItemId: string;
+    variance: number;
+  })[];
+  sessionId: string;
+  status: string;
+} | {
+  /** Present only once the waste has actually been posted. */
+  lines: ({
+    movementId: string;
+    stockItemId: string;
+  })[];
+  status: string;
+  /** Present only once the waste has actually been posted. */
+  totalValue: string;
+  wasteRecordId: string;
+};
+
+export type InventoryApprovalsController_approveBody = DecideInventoryApprovalDto;
+
+/** `POST /inventory/approvals/{approvalRequestId}/reject` — The result of recording the rejection. */
+export type InventoryApprovalsController_rejectResponse = {
+  /** Present only once the adjustment has actually been posted. */
+  movementId: string;
+  status: string;
+} | {
+  /** Present only once the count has actually been posted. */
+  adjustments: ({
+    stockItemId: string;
+    variance: number;
+  })[];
+  sessionId: string;
+  status: string;
+} | {
+  /** Present only once the waste has actually been posted. */
+  lines: ({
+    movementId: string;
+    stockItemId: string;
+  })[];
+  status: string;
+  /** Present only once the waste has actually been posted. */
+  totalValue: string;
+  wasteRecordId: string;
+};
+
+export type InventoryApprovalsController_rejectBody = DecideInventoryApprovalDto;
+
 /** `GET /inventory/categories` — List the stock item category catalogue (FR-INV-001). — All stock item categories in the tenant. */
 export type InventoryController_listCategoriesResponse = ({
   id: string;
@@ -2965,6 +3086,10 @@ export type InventoryController_postCountResponse = {
   /** FR-INV-044: reported, not folded into the variance — the expected quantity was frozen at open. */
   movementsDuringCountWindow: number;
   status: "posted";
+} | {
+  approvalRequestId: string;
+  id: string;
+  status: "pending_approval";
 };
 
 /** `GET /inventory/expiring` — FR-INV-024 computation. Alert delivery deferred. — Batches expiring within `days` (default 7) (FR-INV-024). */
@@ -3158,7 +3283,7 @@ export type InventoryController_lowStockResponse = ({
   stockItemId: string;
 })[];
 
-/** `POST /inventory/movements` — Post a standalone movement (opening balance / manual adjustment) to the ledger. — The posted movement. */
+/** `POST /inventory/movements` — Post a standalone movement (opening balance / manual adjustment) to the ledger. — The posted movement, or the pending approval it created. */
 export type InventoryController_postMovementResponse = {
   /** Stock balance after this movement. A JS number here, not a string — see the schema-level note. */
   balanceAfter: number;
@@ -3172,6 +3297,13 @@ export type InventoryController_postMovementResponse = {
   totalCost: string;
   /** Cost per base unit for this movement. */
   unitCost: string;
+} | {
+  movementId: string;
+  status: "posted";
+} | {
+  /** FR-INV-035 — above the policy threshold (or no policy/null threshold): no StockMovement is posted; this request awaits a Governance decision via /inventory/approvals. */
+  approvalRequestId: string;
+  status: "pending_approval";
 };
 
 export type InventoryController_postMovementBody = PostMovementDto;
@@ -3299,15 +3431,19 @@ export type InventoryController_listWasteResponse = ({
   totalValue: string;
 })[];
 
-/** `POST /inventory/waste` — Record waste (writes waste movements for each line; FR-INV-055…059). — The recorded waste. */
+/** `POST /inventory/waste` — Record waste (writes waste movements for each line; FR-INV-055…059). — The recorded waste, or the pending approval it created. */
 export type InventoryController_recordWasteResponse = {
   id: string;
   lines: ({
     movementId: string;
     stockItemId: string;
   })[];
+  status: "posted";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   totalValue: string;
+} | {
+  approvalRequestId: string;
+  status: "pending_approval";
 };
 
 export type InventoryController_recordWasteBody = RecordWasteDto;
@@ -8392,6 +8528,8 @@ export const ROUTES = {
   DayCloseController_post: { method: "POST", path: "/branches/{branchId}/day-closes/{businessDay}" },
   DrawersController_listDrawers: { method: "GET", path: "/branches/{branchId}/drawers" },
   DrawersController_createDrawer: { method: "POST", path: "/branches/{branchId}/drawers" },
+  InventoryApprovalPolicyController_getPolicy: { method: "GET", path: "/branches/{branchId}/inventory-approval-policy" },
+  InventoryApprovalPolicyController_createPolicy: { method: "POST", path: "/branches/{branchId}/inventory-approval-policy" },
   TreasuryController_openCashSession: { method: "POST", path: "/cash-sessions" },
   TreasuryController_getCurrentSession: { method: "GET", path: "/cash-sessions/current" },
   TreasuryController_listSessionDrawers: { method: "GET", path: "/cash-sessions/drawers" },
@@ -8442,6 +8580,9 @@ export const ROUTES = {
   AuditQueryController_search: { method: "GET", path: "/governance/audit/entries" },
   AuditQueryController_exportEntries: { method: "GET", path: "/governance/audit/entries/export" },
   HealthController_check: { method: "GET", path: "/health" },
+  InventoryApprovalsController_list: { method: "GET", path: "/inventory/approvals" },
+  InventoryApprovalsController_approve: { method: "POST", path: "/inventory/approvals/{approvalRequestId}/approve" },
+  InventoryApprovalsController_reject: { method: "POST", path: "/inventory/approvals/{approvalRequestId}/reject" },
   InventoryController_listCategories: { method: "GET", path: "/inventory/categories" },
   InventoryController_createCategory: { method: "POST", path: "/inventory/categories" },
   InventoryController_recordCount: { method: "POST", path: "/inventory/count-lines/{lineId}" },

@@ -167,6 +167,8 @@ export const PERMISSION_CATALOGUE = [
     "Post counts whose variance exceeds the threshold.", "ترحيل جرد تتجاوز فروقاته الحد المسموح.", true),
   def("inventory.adjust", "inventory", "Adjust stock", "تسوية المخزون",
     "Make a manual stock adjustment with a reason.", "إجراء تسوية يدوية للمخزون مع ذكر السبب.", true),
+  def("inventory.approve_adjustment", "inventory", "Approve adjustment", "اعتماد التسوية",
+    "Approve a manual stock adjustment above the branch's value threshold.", "اعتماد تسوية مخزون يدوية تتجاوز حد القيمة للفرع.", true),
   def("inventory.transfer.create", "inventory", "Create transfer", "إنشاء تحويل",
     "Dispatch stock to another location.", "إرسال مخزون إلى موقع آخر."),
   def("inventory.transfer.receive", "inventory", "Receive transfer", "استلام تحويل",

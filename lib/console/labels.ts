@@ -270,6 +270,7 @@ export const COUNT_STATUS: Record<CountStatus, Entry> = {
   draft: e("Draft", "مسودة", "muted"),
   counting: e("Counting", "جارٍ العد", "accent"),
   submitted: e("Submitted", "مُرسل", "warn"),
+  pending_approval: e("Pending approval", "بانتظار الاعتماد", "warn"),
   posted: e("Posted", "مُرحّل", "good"),
   cancelled: e("Cancelled", "ملغى", "bad"),
 };

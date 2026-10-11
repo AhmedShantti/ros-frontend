@@ -23,9 +23,11 @@
  */
 
 import type { KitchenSetupStation, ModifierRecipeEffect, PreBill, Receipt } from "./types";
+import type { PermissionKey } from "../permissions";
 
 import type {
   ActorType,
+  ApprovalRequest,
   AuditEntry,
   Batch,
   Branch,
@@ -1075,11 +1077,25 @@ export function toCountLine(row: WireCountLine, context: LevelContext = {}): Cou
 
 type WireCountSession = S.InventoryController_listCountsResponse[number];
 
+/**
+ * The backend's OWN generated document still declares this enum as only
+ * `in_progress`/`posted`/`cancelled` (verified against the accepted
+ * Inventory-approval-workflow HEAD) even though the real `CountSessionStatus`
+ * column — and the real value `toSessionSummary()` passes straight through
+ * with no narrowing — has carried `pending_approval` since that same
+ * backend change (FR-INV-047). A documentation gap on a frozen backend,
+ * not something this frontend task can fix there, so the generated
+ * `WireCountSession["status"]` type is deliberately widened at the one
+ * place it is read, rather than trusted as exhaustive.
+ */
+type RealCountSessionStatus = WireCountSession["status"] | "pending_approval";
+
 /** The backend has no `submitted` state distinct from posting — always null. */
-const COUNT_STATUS_OF: Record<WireCountSession["status"], CountSession["status"]> = {
+const COUNT_STATUS_OF: Record<RealCountSessionStatus, CountSession["status"]> = {
   in_progress: "counting",
   posted: "posted",
   cancelled: "cancelled",
+  pending_approval: "pending_approval",
 };
 
 /**
@@ -1120,7 +1136,7 @@ export function toCountSession(
     scope: localised(COUNT_SCOPE_LABEL[row.scopeType]),
     scopeId: row.scopeId,
     mode: row.isBlindCount ? "blind" : "open",
-    status: COUNT_STATUS_OF[row.status],
+    status: COUNT_STATUS_OF[row.status as RealCountSessionStatus],
     openedAt: row.startedAt,
     submittedAt: null,
     postedAt: row.postedAt,
@@ -1169,6 +1185,80 @@ export function toWasteRecord(
     stationId: null,
     approval: row.requiresApproval ? "pending" : "not_required",
     notes: null,
+  };
+}
+
+type WireInventoryApproval = S.InventoryApprovalsController_listResponse[number];
+
+/**
+ * Mirrors `APPROVAL_KIND`'s own three Inventory entries (`labels.ts`) —
+ * duplicated rather than imported, since `services/` never reaches into
+ * presentation-layer `labels.ts` anywhere else in this codebase (a
+ * boundary this file otherwise keeps for every other local label, e.g.
+ * `COUNT_SCOPE_LABEL` above).
+ */
+const INVENTORY_APPROVAL_KIND_LABEL: Record<WireInventoryApproval["kind"], Localised> = {
+  stock_adjustment: { en: "Stock adjustment", ar: "تسوية مخزون" },
+  count_adjustment: { en: "Count adjustment", ar: "تسوية جرد" },
+  waste: { en: "Waste", ar: "هدر" },
+};
+
+const INVENTORY_APPROVAL_REASON: Record<WireInventoryApproval["kind"], Localised> = {
+  stock_adjustment: {
+    en: "Above the branch's manual-adjustment approval threshold.",
+    ar: "أعلى من حد اعتماد التسوية اليدوية للفرع.",
+  },
+  count_adjustment: {
+    en: "Above the branch's count-variance approval threshold.",
+    ar: "أعلى من حد اعتماد فرق الجرد للفرع.",
+  },
+  waste: {
+    en: "Above the branch's waste approval threshold.",
+    ar: "أعلى من حد اعتماد الهدر للفرع.",
+  },
+};
+
+/**
+ * `GET /inventory/approvals` carries only what Governance's generic
+ * request/decision model actually stores — no branch, no requester name,
+ * no free-text reason. Everything genuinely unavailable stays honest
+ * (`EMPTY`/`""`), never fabricated; `requestedByName` is resolved from
+ * `context.employeeNameByUserId` when a matching employee record exists
+ * (the same one-list-call, index-once pattern `locationIndex()` uses),
+ * and falls back to a short id rather than a lie when it does not.
+ */
+export function toInventoryApprovalRequest(
+  row: WireInventoryApproval,
+  context: { tenantId: Id; employeeNameByUserId: Map<Id, Localised> },
+): ApprovalRequest {
+  const requestedByName =
+    context.employeeNameByUserId.get(row.requestedBy) ??
+    localised(row.requestedBy.slice(0, 8).toUpperCase());
+
+  return {
+    id: row.approvalRequestId,
+    tenantId: context.tenantId,
+    reference: row.approvalRequestId.slice(0, 8).toUpperCase(),
+    kind: row.kind,
+    entityType: row.kind,
+    entityId: row.entityId,
+    entityLabel: INVENTORY_APPROVAL_KIND_LABEL[row.kind],
+    branchId: "",
+    branchName: EMPTY,
+    value: minorMoney(row.approvalBasisValueMinor),
+    requestedBy: row.requestedBy,
+    requestedByName,
+    requestedAt: row.requestedAt,
+    // The wire type is a plain string; the backend guarantees it is always
+    // one of the three Inventory approve-permission keys (see
+    // `INVENTORY_APPROVAL_KIND_LABEL`'s own key set).
+    requiredPermission: row.requiredPermission as PermissionKey,
+    status: row.status,
+    decidedBy: null,
+    decidedAt: null,
+    comment: null,
+    expiresAt: row.expiresAt,
+    reason: INVENTORY_APPROVAL_REASON[row.kind],
   };
 }
 

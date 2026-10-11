@@ -839,3 +839,106 @@ describe("Stock counts — count session history (FR-INV-050)", () => {
     expect(within(dialog).getByText("Storage area — Walk-in Chiller")).toBeInTheDocument();
   });
 });
+
+describe("Stock counts — pending_approval (FR-INV-047 acceptance-review hardening)", () => {
+  const LIST_ROW_PENDING = {
+    ...COUNT_SESSION_FIXTURE,
+    id: "cs-pending",
+    reference: "CNT-PENDING",
+    status: "pending_approval" as const,
+    requiresApproval: true,
+    flaggedCount: null,
+    netVarianceValue: null,
+  };
+  const FLOUR_LINE = {
+    id: "line-1",
+    itemId: ITEM_FLOUR.id,
+    itemName: ITEM_FLOUR.name,
+    sku: ITEM_FLOUR.sku,
+    expected: { value: "100", unit: "kg" as const },
+    counted: { value: "80", unit: "kg" as const },
+    varianceQty: -20,
+    varianceValue: { amount: -2000, currency: "EGP" as const },
+    variancePercent: -20,
+    flagged: true,
+    recount: false,
+  };
+
+  it("9. a pending_approval session renders a real, labelled status — never blank/undefined", async () => {
+    countsList.mockResolvedValue({ rows: [LIST_ROW_PENDING], total: 1 });
+    render(<CountsScreen />);
+
+    expect(await screen.findByText("CNT-PENDING")).toBeInTheDocument();
+    expect(screen.getByText("Pending approval")).toBeInTheDocument();
+  });
+
+  it("10. a pending_approval session exposes neither a Post button nor an editable row", async () => {
+    countsList.mockResolvedValue({ rows: [LIST_ROW_PENDING], total: 1 });
+    countsGet.mockResolvedValue({
+      ...COUNT_SESSION_FIXTURE,
+      id: LIST_ROW_PENDING.id,
+      status: "pending_approval",
+      requiresApproval: true,
+      lines: [FLOUR_LINE],
+    });
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await user.click(await screen.findByText("CNT-PENDING"));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).queryByRole("button", { name: /inv\.postCount/ })).not.toBeInTheDocument();
+
+    // The line row has no click handler while pending — clicking it must
+    // never open the counted-quantity editor.
+    await user.click(within(dialog).getByText(ITEM_FLOUR.sku));
+    expect(screen.queryByLabelText("inv.counted")).not.toBeInTheDocument();
+  });
+
+  it("11. a posted session (unrelated to pending_approval) still renders and still shows its Post history correctly", async () => {
+    const postedRow = {
+      ...COUNT_SESSION_FIXTURE,
+      id: "cs-posted-2",
+      reference: "CNT-POSTED-2",
+      status: "posted" as const,
+      postedAt: "2026-01-03T00:00:00Z",
+      postedBy: "u2",
+      flaggedCount: null,
+      netVarianceValue: null,
+    };
+    countsList.mockResolvedValue({ rows: [postedRow], total: 1 });
+    render(<CountsScreen />);
+
+    expect(await screen.findByText("CNT-POSTED-2")).toBeInTheDocument();
+    expect(screen.getByText("Posted")).toBeInTheDocument();
+  });
+
+  it("12. a session the backend returned to in_progress after a reject (requiresApproval reset by FIX 1) is editable again — no stale pending UI", async () => {
+    const rejectedThenReopenedRow = {
+      ...LIST_ROW_PENDING,
+      id: "cs-reopened",
+      reference: "CNT-REOPENED",
+      status: "counting" as const,
+      requiresApproval: false,
+    };
+    countsList.mockResolvedValue({ rows: [rejectedThenReopenedRow], total: 1 });
+    countsGet.mockResolvedValue({
+      ...COUNT_SESSION_FIXTURE,
+      id: rejectedThenReopenedRow.id,
+      status: "counting",
+      requiresApproval: false,
+      lines: [FLOUR_LINE],
+    });
+    const user = userEvent.setup();
+    render(<CountsScreen />);
+    await user.click(await screen.findByText("CNT-REOPENED"));
+    const dialog = await screen.findByRole("dialog");
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+
+    await user.click(within(dialog).getByText(ITEM_FLOUR.sku));
+
+    // A second, nested drawer (the counted-quantity editor) opens on top —
+    // the row has a real click handler again, unlike the pending_approval
+    // case (test 10, where the identical click opens nothing).
+    await waitFor(() => expect(screen.getAllByRole("dialog")).toHaveLength(2));
+  });
+});

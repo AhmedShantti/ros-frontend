@@ -38,6 +38,7 @@ import { deviceId } from "@/lib/api/ids";
 import type * as S from "@/lib/api/schema";
 
 import type {
+  ApprovalRequest,
   Batch,
   Branch,
   BranchRankingRow,
@@ -49,6 +50,7 @@ import type {
   Id,
   IsoDate,
   KitchenTicket,
+  Localised,
   Menu,
   MenuCategory,
   MetricSummary,
@@ -211,6 +213,11 @@ export const API_COVERAGE = {
     "finance.paymentSummary",
     "finance.taxSummary",
     "governance.audit",
+    // FR-INV-035/047/058 — real for the three Inventory kinds
+    // (`stock_adjustment`/`count_adjustment`/`waste`) via
+    // `GET /inventory/approvals` + approve/reject. Every other kind this
+    // generic queue's type anticipates has no endpoint and stays absent.
+    "governance.approvals",
     // LIVE-DEMO-HOTFIX-1 — `workforce/employees` (list/create/get/update/
     // remove, plus PIN set) is wired to the real backend. `shifts`/
     // `attendance`/`overtime`/`performance` remain absent (see below).
@@ -246,9 +253,9 @@ export const API_COVERAGE = {
     "finance.cashSessions",
     "finance.expenses",
     "security.users",
-    // The audit trail is live — see `governance.audit` above. Approvals,
-    // anomaly flags and SoD analysis have no endpoint of their own.
-    "governance.approvals",
+    // The audit trail and Inventory's own three approval kinds are live —
+    // see `governance.audit`/`governance.approvals` above. Anomaly flags
+    // and SoD analysis still have no endpoint of their own.
     "governance.anomalies",
     "governance.sodConflicts",
   ],
@@ -1926,7 +1933,7 @@ const adjustments: CollectionService<StockAdjustment> = {
     if (!input.locationId || !input.itemId) {
       throw new ServiceError("BAD_REQUEST", "Choose a location and an item.", 400);
     }
-    await api.inventory.postMovement({
+    const result = await api.inventory.postMovement({
       locationId: input.locationId,
       stockItemId: input.itemId,
       movementType: "manual_adjustment",
@@ -1936,7 +1943,23 @@ const adjustments: CollectionService<StockAdjustment> = {
       reasonCodeId: input.reasonCode,
       notes: input.notes ?? undefined,
     });
-    return input as StockAdjustment;
+    // FR-INV-035 — `movementType: "manual_adjustment"` never actually
+    // produces the bare ledger-entry branch of this union (that is every
+    // OTHER movement type's shape); the real response is always one of
+    // the two discriminated outcomes below. The backend, never this
+    // client, decides which — there is no local threshold to predict it.
+    if ("approvalRequestId" in result) {
+      return {
+        ...(input as StockAdjustment),
+        id: result.approvalRequestId,
+        approval: "pending",
+      } satisfies StockAdjustment;
+    }
+    return {
+      ...(input as StockAdjustment),
+      id: "movementId" in result ? result.movementId : result.id,
+      approval: "not_required",
+    } satisfies StockAdjustment;
   },
 
   async update() {
@@ -4191,6 +4214,48 @@ const finance: FinanceService = {
 };
 
 /**
+ * `requestedBy` on an Inventory approval row is a bare user id; an employee
+ * record naming that same user (where one exists) gives it a real display
+ * name. One list call, indexed once — the same convention `locationIndex()`
+ * uses — never a per-row lookup.
+ */
+const employeeNameByUserId = async (): Promise<Map<Id, Localised>> => {
+  const rows = await api.workforceEmployees.list({}).catch(() => []);
+  const byUser = new Map<Id, Localised>();
+  for (const row of rows) {
+    if (row.userId) {
+      byUser.set(
+        row.userId,
+        map.localised(row.namesLocalized, { en: row.displayName, ar: row.displayName }),
+      );
+    }
+  }
+  return byUser;
+};
+
+/**
+ * `GET /inventory/approvals` — the only real backend list behind this
+ * facade today. `status` is forwarded when it is one of the three real
+ * values the route accepts; anything else (a mock-only status like
+ * `escalated`/`expired`, which an Inventory request can never carry) asks
+ * for every status, same as omitting the param.
+ */
+async function fetchInventoryApprovals(
+  status?: string,
+): Promise<ApprovalRequest[]> {
+  const [rows, employeeNames] = await Promise.all([
+    api.inventory.list({
+      status: status === "pending" || status === "approved" || status === "rejected" ? status : undefined,
+    }),
+    employeeNameByUserId(),
+  ]);
+  const tenantId = getTenantId() ?? "";
+  return rows.map((row) =>
+    map.toInventoryApprovalRequest(row, { tenantId, employeeNameByUserId: employeeNames }),
+  );
+}
+
+/**
  * FR-AUD-008 — the tenant audit log.
  *
  * `GET /governance/audit/entries` is a real search endpoint, not a bare
@@ -4200,8 +4265,14 @@ const finance: FinanceService = {
  * `lib/console/feeds.ts` uses for movements and waste — rather than walking
  * the full cursor, which the audit screen does not need today.
  *
- * Approvals, anomaly flags and SoD analysis have no endpoint at all and
- * keep failing through `unsupportedGovernance`.
+ * Approvals are now real for the three Inventory kinds
+ * (`stock_adjustment`/`count_adjustment`/`waste`) — `GET /inventory/approvals`
+ * plus `POST /inventory/approvals/{id}/approve|reject`. Every OTHER kind
+ * this generic queue's own type anticipates (discount, refund, purchase_order,
+ * expense, price_change, overtime) has no backend endpoint at all yet and is
+ * simply absent from the list this returns — never fabricated. Anomaly
+ * flags and SoD analysis still have no endpoint and keep failing through
+ * `unsupportedGovernance`.
  */
 const governance: GovernanceService = {
   ...unsupportedGovernance,
@@ -4225,6 +4296,46 @@ const governance: GovernanceService = {
       // (a row it already fetched is opened from memory, not refetched).
       notImplemented("Reading a single audit entry by id");
     },
+  },
+  approvals: {
+    async list(query = {}) {
+      const status = typeof query.filters?.status === "string" ? query.filters.status : undefined;
+      const rows = await fetchInventoryApprovals(status);
+      return project(rows, query, {
+        search: (row) => [row.reference, row.entityLabel, row.requestedByName],
+        // Every row is tenant-wide (no branchId on the wire — see
+        // `toInventoryApprovalRequest`'s own docblock), so a branch scope
+        // or filter never excludes one.
+        branchOf: () => null,
+        filters: { status: (row) => row.status, kind: (row) => row.kind },
+        sorters: { requestedAt: (row) => row.requestedAt, value: (row) => row.value.amount },
+      });
+    },
+    async get(id) {
+      // No single-request read exists; the full (unfiltered) list always
+      // does, and it is one call, not N.
+      const rows = await fetchInventoryApprovals();
+      return rows.find((row) => row.id === id) ?? null;
+    },
+  },
+  async decide(id, decision, options) {
+    const body = {
+      approvalDecisionId: deviceId(),
+      approvalBranchId: options?.approvalBranchId ?? "",
+      employeeCode: options?.employeeCode ?? "",
+      pin: options?.pin ?? "",
+      ...(options?.comment ? { comment: options.comment } : {}),
+    };
+    if (decision === "approved") {
+      await api.inventory.approve(id, body);
+    } else {
+      await api.inventory.reject(id, body);
+    }
+    const decided = await governance.approvals.get(id);
+    if (!decided) {
+      throw new ServiceError("NOT_FOUND", "That approval request no longer exists.", 404);
+    }
+    return decided;
   },
 };
 

@@ -22,8 +22,9 @@
 
 import { useMemo, useState } from "react";
 import { Check, X } from "lucide-react";
-import type { ApprovalRequest } from "@/lib/console/types";
+import type { ApprovalRequest, Branch } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
+import { ServiceError } from "@/lib/console/services/types";
 import { useCollection, useTransientMessage, useBranches } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import {
@@ -45,6 +46,8 @@ import {
   DescRow,
   Drawer,
   Field,
+  Input,
+  Select,
   Textarea,
   Toast,
 } from "@/components/console/ui";
@@ -83,13 +86,38 @@ function ApprovalsScreen() {
 
   const currency = collection.rows[0]?.value.currency ?? "EGP";
 
-  async function decide(request: ApprovalRequest, decision: "approved" | "rejected", comment: string) {
+  async function decide(
+    request: ApprovalRequest,
+    decision: "approved" | "rejected",
+    credentials: { comment: string; employeeCode: string; pin: string; approvalBranchId: string },
+  ) {
     try {
-      await services.governance.decide(request.id, decision, comment || undefined);
+      await services.governance.decide(request.id, decision, {
+        comment: credentials.comment || undefined,
+        employeeCode: credentials.employeeCode,
+        pin: credentials.pin,
+        approvalBranchId: credentials.approvalBranchId,
+      });
       setMessage(decision === "approved" ? t("common.approved") : t("common.rejected"));
       setSelected(null);
       collection.reload();
     } catch (error) {
+      // A network failure never removed or changed the request locally in
+      // the first place (no optimistic update above) — the row stays
+      // exactly as last fetched, and the message just explains why.
+      if (error instanceof ServiceError) {
+        if (error.status === 403) {
+          setMessage(t("apr.decideForbidden"));
+          return;
+        }
+        if (error.status === 409) {
+          setMessage(t("apr.decideConflict"));
+          collection.reload();
+          return;
+        }
+        setMessage(error.message);
+        return;
+      }
       setMessage(error instanceof Error ? error.message : t("state.errorTitle"));
     }
   }
@@ -222,6 +250,7 @@ function ApprovalsScreen() {
       <ApprovalDrawer
         request={selected}
         currentUserId={session?.user.id ?? null}
+        branches={branches}
         onClose={() => setSelected(null)}
         onDecide={decide}
       />
@@ -235,21 +264,30 @@ function ApprovalsScreen() {
 function ApprovalDrawer({
   request,
   currentUserId,
+  branches,
   onClose,
   onDecide,
 }: {
   request: ApprovalRequest | null;
   currentUserId: string | null;
+  branches: Branch[];
   onClose: () => void;
   onDecide: (
     request: ApprovalRequest,
     decision: "approved" | "rejected",
-    comment: string,
+    credentials: { comment: string; employeeCode: string; pin: string; approvalBranchId: string },
   ) => void;
 }) {
   const { t, tx, fmt } = useI18n();
   const { canAny } = useSession();
   const [comment, setComment] = useState("");
+  // The real decide endpoints behind this queue PIN-verify the approver
+  // against a specific branch membership — never against the signed-in
+  // session alone (§15.4's own permission check is a separate, coarser
+  // gate). Reset whenever the open request changes, never persisted.
+  const [employeeCode, setEmployeeCode] = useState("");
+  const [pin, setPin] = useState("");
+  const [approvalBranchId, setApprovalBranchId] = useState("");
 
   if (!request) return null;
 
@@ -264,6 +302,15 @@ function ApprovalDrawer({
     (request.status === "pending" || request.status === "escalated") &&
     !isOwnRequest &&
     holdsPermission;
+  const credentialsValid =
+    employeeCode.trim() !== "" && /^[0-9]{4,8}$/.test(pin) && approvalBranchId !== "";
+
+  function reset() {
+    setComment("");
+    setEmployeeCode("");
+    setPin("");
+    setApprovalBranchId("");
+  }
 
   return (
     <Drawer
@@ -281,9 +328,10 @@ function ApprovalDrawer({
             <Button
               variant="danger"
               icon={<X size={14} />}
+              disabled={!credentialsValid}
               onClick={() => {
-                onDecide(request, "rejected", comment);
-                setComment("");
+                onDecide(request, "rejected", { comment, employeeCode, pin, approvalBranchId });
+                reset();
               }}
             >
               {t("common.reject")}
@@ -291,9 +339,10 @@ function ApprovalDrawer({
             <Button
               variant="primary"
               icon={<Check size={14} />}
+              disabled={!credentialsValid}
               onClick={() => {
-                onDecide(request, "approved", comment);
-                setComment("");
+                onDecide(request, "approved", { comment, employeeCode, pin, approvalBranchId });
+                reset();
               }}
             >
               {t("common.approve")}
@@ -350,13 +399,51 @@ function ApprovalDrawer({
         ) : null}
 
         {decidable ? (
-          <Field label={t("apr.comment")} hint={t("apr.commentHint")}>
-            <Textarea
-              rows={3}
-              value={comment}
-              onChange={(event) => setComment(event.target.value)}
-            />
-          </Field>
+          <>
+            <Field label={t("apr.comment")} hint={t("apr.commentHint")}>
+              <Textarea
+                rows={3}
+                value={comment}
+                onChange={(event) => setComment(event.target.value)}
+              />
+            </Field>
+
+            {/*
+             * The decision itself is PIN-verified server-side against a
+             * specific branch membership (§15.4) — these three fields are
+             * never persisted beyond this form, never logged, and never
+             * sent anywhere but this one decide request's own body.
+             */}
+            <Field label={t("apr.approvalBranch")} required>
+              <Select
+                value={approvalBranchId}
+                onChange={(event) => setApprovalBranchId(event.target.value)}
+              >
+                <option value="">{t("entry.chooseLocation")}</option>
+                {branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {tx(branch.name)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={t("apr.employeeCode")} required>
+              <Input
+                value={employeeCode}
+                onChange={(event) => setEmployeeCode(event.target.value)}
+                autoComplete="off"
+              />
+            </Field>
+            <Field label={t("apr.pin")} required>
+              <Input
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                value={pin}
+                onChange={(event) => setPin(event.target.value)}
+              />
+            </Field>
+          </>
         ) : null}
 
         <Callout tone="muted">{t("apr.expiryNote")}</Callout>

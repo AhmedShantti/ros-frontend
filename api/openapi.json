@@ -852,6 +852,38 @@
         ],
         "type": "object"
       },
+      "CreateInventoryApprovalPolicyDto": {
+        "properties": {
+          "adjustmentValueThresholdMinor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "countVarianceValueThresholdMinor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effectiveFrom": {
+            "description": "Omitted = effective immediately (resolved to DATABASE time).",
+            "type": "string"
+          },
+          "wasteValueThresholdMinor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "adjustmentValueThresholdMinor",
+          "countVarianceValueThresholdMinor",
+          "wasteValueThresholdMinor"
+        ],
+        "type": "object"
+      },
       "CreateMenuDto": {
         "properties": {
           "activeWindow": {
@@ -1949,6 +1981,39 @@
         ],
         "type": "object"
       },
+      "DecideInventoryApprovalDto": {
+        "properties": {
+          "approvalBranchId": {
+            "description": "The branch the approving employee's PIN/membership is verified against — the `DecidePurchaseOrderDto.approvalBranchId` precedent, never a device identity.",
+            "type": "string"
+          },
+          "approvalDecisionId": {
+            "type": "string"
+          },
+          "comment": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "employeeCode": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "pin": {
+            "maxLength": 12,
+            "minLength": 4,
+            "type": "string"
+          }
+        },
+        "required": [
+          "approvalDecisionId",
+          "approvalBranchId",
+          "employeeCode",
+          "pin"
+        ],
+        "type": "object"
+      },
       "DecidePurchaseOrderDto": {
         "properties": {
           "approvalBranchId": {
@@ -2111,8 +2176,8 @@
           },
           "decision": {
             "enum": [
-              "approved",
-              "rejected"
+              "rejected",
+              "approved"
             ],
             "type": "string"
           },
@@ -2508,6 +2573,7 @@
             "type": "string"
           },
           "reasonCodeId": {
+            "description": "FR-INV-035/FR-INV-016 contextual fix — the DB `ck_reason_required`\nCHECK already forces a reason code for `manual_adjustment`/`waste`\nmovements, but that surfaces as a raw constraint-violation 500, not a\nclean 400. This DTO/route backs EVERY movement type (including\n`opening_balance`, which must stay reason-code-optional), so the\nvalidator is scoped to `manual_adjustment` only, not a blanket\n`@IsNotEmpty()` — the `ValidateIf` condition runs the UUID check\nwhenever the movement IS a manual_adjustment (forcing presence) OR\nthe caller supplied something anyway (still validating its shape).",
             "type": "string"
           },
           "referenceId": {
@@ -2737,10 +2803,6 @@
           },
           "reasonCodeId": {
             "type": "string"
-          },
-          "requiresApproval": {
-            "description": "B-2: caller-supplied approval gate.",
-            "type": "boolean"
           }
         },
         "required": [
@@ -8569,6 +8631,282 @@
         ],
         "tags": [
           "treasury"
+        ]
+      }
+    },
+    "/branches/{branchId}/inventory-approval-policy": {
+      "get": {
+        "operationId": "InventoryApprovalPolicyController_getPolicy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "policy": {
+                      "properties": {
+                        "adjustmentValueThresholdMinor": {
+                          "description": "FR-INV-035. Non-negative minor-unit integer string, or null to always require approval for this action.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "branchId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "countVarianceValueThresholdMinor": {
+                          "description": "FR-INV-047. Non-negative minor-unit integer string, or null to always require approval for this action.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "createdAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "currency": {
+                          "description": "ISO 4217 currency code — the branch's own base currency, never client-supplied.",
+                          "example": "EGP",
+                          "type": "string"
+                        },
+                        "effectiveFrom": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "wasteValueThresholdMinor": {
+                          "description": "FR-INV-058. Non-negative minor-unit integer string, or null to always require approval for this action.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "`policy` is null if the branch has none configured yet."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown branch."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "`policy` is `null` when none has ever been configured.",
+        "tags": [
+          "inventory"
+        ]
+      },
+      "post": {
+        "operationId": "InventoryApprovalPolicyController_createPolicy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque client-chosen key. A replay with the same key and request body returns the original result unchanged.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInventoryApprovalPolicyDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "adjustmentValueThresholdMinor": {
+                      "description": "FR-INV-035. Non-negative minor-unit integer string, or null to always require approval for this action.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "branchId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "countVarianceValueThresholdMinor": {
+                      "description": "FR-INV-047. Non-negative minor-unit integer string, or null to always require approval for this action.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "currency": {
+                      "description": "ISO 4217 currency code — the branch's own base currency, never client-supplied.",
+                      "example": "EGP",
+                      "type": "string"
+                    },
+                    "effectiveFrom": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "wasteValueThresholdMinor": {
+                      "description": "FR-INV-058. Non-negative minor-unit integer string, or null to always require approval for this action.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The newly created inventory approval policy version."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/over-long Idempotency-Key, an invalid threshold, or a past effectiveFrom."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown branch."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A policy version with this exact effective time already exists for this branch."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "inventory"
         ]
       }
     },
@@ -15360,6 +15698,498 @@
         ]
       }
     },
+    "/inventory/approvals": {
+      "get": {
+        "operationId": "InventoryApprovalsController_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "approvalBasisValueMinor": {
+                        "description": "The value frozen at request time that crossed the policy threshold — may legitimately differ from the final ledger cost, which is always computed live at approval time.",
+                        "example": "1250",
+                        "pattern": "^-?\\d+$",
+                        "type": "string"
+                      },
+                      "approvalRequestId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "entityId": {
+                        "description": "For stock_adjustment, the approval request’s own id (no real Inventory entity exists at request time — Design A, no staging table).",
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "expiresAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "kind": {
+                        "enum": [
+                          "stock_adjustment",
+                          "count_adjustment",
+                          "waste"
+                        ],
+                        "type": "string"
+                      },
+                      "requestedAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "requestedBy": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "requiredPermission": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "pending",
+                          "approved",
+                          "rejected"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "approvalRequestId",
+                      "kind",
+                      "entityId",
+                      "requestedBy",
+                      "requestedAt",
+                      "status",
+                      "requiredPermission",
+                      "approvalBasisValueMinor",
+                      "expiresAt"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Inventory approval requests (stock_adjustment/count_adjustment/waste), newest first."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing the required permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/approvals/{approvalRequestId}/approve": {
+      "post": {
+        "operationId": "InventoryApprovalsController_approve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "approvalRequestId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideInventoryApprovalDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "movementId": {
+                          "description": "Present only once the adjustment has actually been posted.",
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "adjustments": {
+                          "description": "Present only once the count has actually been posted.",
+                          "items": {
+                            "properties": {
+                              "stockItemId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "variance": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "stockItemId",
+                              "variance"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "sessionId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "lines": {
+                          "description": "Present only once the waste has actually been posted.",
+                          "items": {
+                            "properties": {
+                              "movementId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "stockItemId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "stockItemId",
+                              "movementId"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "totalValue": {
+                          "description": "Present only once the waste has actually been posted.",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "wasteRecordId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "The result of posting the approved action."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The decision was rejected by the database (self-approval, excluded approver, or expired), or the approver lacks the specific required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Approval request not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "That approval request already has a final decision."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/approvals/{approvalRequestId}/reject": {
+      "post": {
+        "operationId": "InventoryApprovalsController_reject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "approvalRequestId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideInventoryApprovalDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "movementId": {
+                          "description": "Present only once the adjustment has actually been posted.",
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "adjustments": {
+                          "description": "Present only once the count has actually been posted.",
+                          "items": {
+                            "properties": {
+                              "stockItemId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "variance": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "stockItemId",
+                              "variance"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "sessionId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "lines": {
+                          "description": "Present only once the waste has actually been posted.",
+                          "items": {
+                            "properties": {
+                              "movementId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "stockItemId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "stockItemId",
+                              "movementId"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "totalValue": {
+                          "description": "Present only once the waste has actually been posted.",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "wasteRecordId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "The result of recording the rejection."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing or invalid access token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The decision was rejected by the database (self-approval, excluded approver, or expired), or the approver lacks the specific required permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Approval request not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "That approval request already has a final decision."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
     "/inventory/categories": {
       "get": {
         "operationId": "InventoryController_listCategories",
@@ -16199,40 +17029,78 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "adjustments": {
-                      "items": {
-                        "properties": {
-                          "stockItemId": {
-                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                            "format": "uuid",
-                            "type": "string"
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "adjustments": {
+                          "items": {
+                            "properties": {
+                              "stockItemId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "variance": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "stockItemId",
+                              "variance"
+                            ],
+                            "type": "object"
                           },
-                          "variance": {
-                            "type": "number"
-                          }
+                          "type": "array"
                         },
-                        "type": "object"
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "movementsDuringCountWindow": {
+                          "description": "FR-INV-044: reported, not folded into the variance — the expected quantity was frozen at open.",
+                          "type": "integer"
+                        },
+                        "status": {
+                          "const": "posted",
+                          "type": "string"
+                        }
                       },
-                      "type": "array"
-                    },
-                    "id": {
-                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                      "format": "uuid",
-                      "type": "string"
-                    },
-                    "movementsDuringCountWindow": {
-                      "description": "FR-INV-044: reported, not folded into the variance — the expected quantity was frozen at open.",
-                      "type": "integer"
-                    },
-                    "status": {
-                      "enum": [
-                        "posted"
+                      "required": [
+                        "id",
+                        "status",
+                        "adjustments",
+                        "movementsDuringCountWindow"
                       ],
-                      "type": "string"
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "approvalRequestId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "pending_approval",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "status",
+                        "approvalRequestId"
+                      ],
+                      "type": "object"
                     }
-                  },
-                  "type": "object"
+                  ]
                 }
               }
             },
@@ -16246,7 +17114,7 @@
                 }
               }
             },
-            "description": "The count session has already been posted."
+            "description": "The count session has already been posted, or is awaiting an approval decision."
           },
           "401": {
             "content": {
@@ -16266,7 +17134,7 @@
                 }
               }
             },
-            "description": "The session requires approval, which the Governance workflow does not yet implement — posting is refused rather than completed unapproved."
+            "description": "No tenant context / insufficient permission."
           },
           "404": {
             "content": {
@@ -17899,7 +18767,17 @@
     "/inventory/movements": {
       "post": {
         "operationId": "InventoryController_postMovement",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "Optional for this route (unlike the mandatory-everywhere-else FR-API-020 routes — existing callers never sent one). Only consulted for movementType=manual_adjustment: a replay with the same key and request body returns the original outcome unchanged (Idempotent-Replay: true) instead of creating a second pending ApprovalRequest or a second StockMovement. Omit it and behavior is identical to before this header existed.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -17915,55 +18793,107 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "balanceAfter": {
-                      "description": "Stock balance after this movement. A JS number here, not a string — see the schema-level note.",
-                      "type": "number"
-                    },
-                    "consumedBatches": {
-                      "items": {
-                        "properties": {
-                          "batchId": {
-                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                            "format": "uuid",
-                            "type": "string"
-                          },
-                          "quantity": {
-                            "type": "number"
-                          }
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "balanceAfter": {
+                          "description": "Stock balance after this movement. A JS number here, not a string — see the schema-level note.",
+                          "type": "number"
                         },
-                        "type": "object"
+                        "consumedBatches": {
+                          "items": {
+                            "properties": {
+                              "batchId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "quantity": {
+                                "type": "number"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "occurredAt": {
+                          "example": "2026-08-23T14:30:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "totalCost": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        },
+                        "unitCost": {
+                          "description": "Cost per base unit for this movement.",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        }
                       },
-                      "type": "array"
+                      "required": [
+                        "id",
+                        "occurredAt",
+                        "balanceAfter",
+                        "unitCost",
+                        "totalCost",
+                        "consumedBatches"
+                      ],
+                      "type": "object"
                     },
-                    "id": {
-                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                      "format": "uuid",
-                      "type": "string"
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "movementId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "posted",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "movementId"
+                      ],
+                      "type": "object"
                     },
-                    "occurredAt": {
-                      "example": "2026-08-23T14:30:00.000Z",
-                      "format": "date-time",
-                      "type": "string"
-                    },
-                    "totalCost": {
-                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                      "example": "1250",
-                      "pattern": "^-?\\d+$",
-                      "type": "string"
-                    },
-                    "unitCost": {
-                      "description": "Cost per base unit for this movement.",
-                      "example": "1250",
-                      "pattern": "^-?\\d+$",
-                      "type": "string"
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "approvalRequestId": {
+                          "description": "FR-INV-035 — above the policy threshold (or no policy/null threshold): no StockMovement is posted; this request awaits a Governance decision via /inventory/approvals.",
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "pending_approval",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "approvalRequestId"
+                      ],
+                      "type": "object"
                     }
-                  },
-                  "type": "object"
+                  ]
                 }
               }
             },
-            "description": "The posted movement."
+            "description": "The posted movement, or the pending approval it created."
           },
           "401": {
             "content": {
@@ -17994,6 +18924,16 @@
               }
             },
             "description": "Stock item or location not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Idempotency-Key was already used for a different request body, or is still being processed."
           }
         },
         "security": [
@@ -18994,7 +19934,17 @@
       },
       "post": {
         "operationId": "InventoryController_recordWaste",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "Optional for this route (unlike the mandatory-everywhere-else FR-API-020 routes — existing callers never sent one). A replay with the same key and request body returns the original outcome unchanged (Idempotent-Replay: true) instead of creating a second pending WasteRecord/ApprovalRequest or a second set of waste movements. Omit it and behavior is identical to before this header existed. The POS/post-fire void waste path is a separate, already-replay-safe call path and is unaffected either way.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -19010,42 +19960,80 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "id": {
-                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                      "format": "uuid",
-                      "type": "string"
-                    },
-                    "lines": {
-                      "items": {
-                        "properties": {
-                          "movementId": {
-                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                            "format": "uuid",
-                            "type": "string"
-                          },
-                          "stockItemId": {
-                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                            "format": "uuid",
-                            "type": "string"
-                          }
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
                         },
-                        "type": "object"
+                        "lines": {
+                          "items": {
+                            "properties": {
+                              "movementId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "stockItemId": {
+                                "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                "format": "uuid",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "stockItemId",
+                              "movementId"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "status": {
+                          "const": "posted",
+                          "type": "string"
+                        },
+                        "totalValue": {
+                          "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                          "example": "1250",
+                          "pattern": "^-?\\d+$",
+                          "type": "string"
+                        }
                       },
-                      "type": "array"
+                      "required": [
+                        "status",
+                        "id",
+                        "totalValue",
+                        "lines"
+                      ],
+                      "type": "object"
                     },
-                    "totalValue": {
-                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
-                      "example": "1250",
-                      "pattern": "^-?\\d+$",
-                      "type": "string"
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "approvalRequestId": {
+                          "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "pending_approval",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "approvalRequestId"
+                      ],
+                      "type": "object"
                     }
-                  },
-                  "type": "object"
+                  ]
                 }
               }
             },
-            "description": "The recorded waste."
+            "description": "The recorded waste, or the pending approval it created."
           },
           "401": {
             "content": {
@@ -19065,7 +20053,7 @@
                 }
               }
             },
-            "description": "requiresApproval was set — the Governance approval workflow is not implemented in this phase, so the posting is refused rather than completed unapproved."
+            "description": "No tenant context / insufficient permission."
           },
           "404": {
             "content": {
@@ -19076,6 +20064,16 @@
               }
             },
             "description": "Location, reason code or stock item not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The Idempotency-Key was already used for a different request body, or is still being processed."
           }
         },
         "security": [

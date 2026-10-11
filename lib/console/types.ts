@@ -732,7 +732,19 @@ export interface StockMovement {
 }
 
 export type CountMode = "blind" | "open";
-export type CountStatus = "draft" | "counting" | "submitted" | "posted" | "cancelled";
+/**
+ * `pending_approval` (FR-INV-047) — the session's high-value variance is
+ * frozen and awaits a Governance decision; zero `count_adjustment`
+ * movements exist yet. Distinct from `counting`: it is never editable, and
+ * posting it again is refused until the decision lands.
+ */
+export type CountStatus =
+  | "draft"
+  | "counting"
+  | "submitted"
+  | "pending_approval"
+  | "posted"
+  | "cancelled";
 
 export interface CountLine {
   id: Id;

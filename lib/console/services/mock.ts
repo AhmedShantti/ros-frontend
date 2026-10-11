@@ -2577,7 +2577,11 @@ const governance: GovernanceService = {
   async sodConflicts() {
     return transport(() => sodConflicts);
   },
-  async decide(id, decision, comment) {
+  // `options.employeeCode`/`.pin`/`.approvalBranchId` are a real backend's
+  // PIN-verification inputs — the demo decision has no PIN store to verify
+  // against, so it ignores them and only reads `.comment`, exactly as the
+  // old 3-positional-argument shape did.
+  async decide(id, decision, options) {
     return transport(() => {
       const index = approvalRequests.findIndex((a) => a.id === id);
       if (index === -1) {
@@ -2597,7 +2601,7 @@ const governance: GovernanceService = {
         status: decision,
         decidedBy: { en: "You (demo session)", ar: "أنت (جلسة تجريبية)" },
         decidedAt: new Date().toISOString(),
-        comment: comment ?? null,
+        comment: options?.comment ?? null,
       };
       approvalRequests[index] = updated;
       return updated;

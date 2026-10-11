@@ -136,9 +136,11 @@ export function CountsScreen() {
     );
     return {
       open: rows.filter((row) => row.status === "counting").length,
-      awaitingApproval: rows.filter(
-        (row) => row.status === "counting" && row.requiresApproval,
-      ).length,
+      // FR-INV-047 — `pending_approval` is its own distinct status, never
+      // concurrent with `counting`; `status` alone is the state-machine
+      // source here, not `requiresApproval` (a secondary, informational
+      // field only — see `CountSession.requiresApproval`'s own doc comment).
+      awaitingApproval: rows.filter((row) => row.status === "pending_approval").length,
       flagged:
         withVariance.length > 0
           ? withVariance.reduce((sum, row) => sum + (row.flaggedCount ?? 0), 0)
@@ -388,10 +390,16 @@ function CountDrawer({
 
   async function post() {
     if (!session) return;
+    // FR-INV-047 — the backend alone decides whether this posts directly
+    // or goes to approval; `update()`'s own refetch already carries the
+    // real resulting status, so that is what drives the message, never an
+    // assumption that posting the request means the count actually posted.
     await action.run(() => services.inventory.counts.update(session.id, { status: "posted" }), {
-      onSuccess: () => {
+      onSuccess: (updated) => {
         detail.reload();
-        onChanged(t("inv.countPosted"));
+        onChanged(
+          updated.status === "pending_approval" ? t("inv.countSubmittedForApproval") : t("inv.countPosted"),
+        );
       },
     });
   }
@@ -541,7 +549,14 @@ function CountDrawer({
             rowKey={(row) => row.id}
             caption={t("inv.countLines")}
             emptyTitle={t("inv.countLines")}
-            onRowClick={canCount && current.status !== "posted" ? setEditing : undefined}
+            onRowClick={
+              // FR-INV-047 — a pending_approval session is never editable:
+              // it is frozen awaiting a Governance decision, not merely
+              // "not yet posted" (the bug this condition used to have).
+              canCount && current.status !== "posted" && current.status !== "pending_approval"
+                ? setEditing
+                : undefined
+            }
             dense
           />
 

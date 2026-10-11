@@ -309,7 +309,24 @@ export interface GovernanceService {
   audit: ReadonlyCollectionService<AuditEntry>;
   anomalies: ReadonlyCollectionService<AnomalyFlag>;
   sodConflicts(scope: Scope): Promise<SodConflict[]>;
-  decide(id: Id, decision: "approved" | "rejected", comment?: string): Promise<ApprovalRequest>;
+  /**
+   * `employeeCode`/`pin`/`approvalBranchId` are required by every REAL
+   * decide endpoint behind this facade (Inventory's own included): the
+   * approver is PIN-verified against a specific branch membership, never
+   * against the signed-in session alone. The mock/demo decision ignores
+   * them. Omitted against a real endpoint, the call fails the same way it
+   * would from a raw request missing those fields.
+   */
+  decide(
+    id: Id,
+    decision: "approved" | "rejected",
+    options?: {
+      comment?: string;
+      employeeCode?: string;
+      pin?: string;
+      approvalBranchId?: Id;
+    },
+  ): Promise<ApprovalRequest>;
 }
 
 /** FR-ORG — one opening interval on one weekday. */

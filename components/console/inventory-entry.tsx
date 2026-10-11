@@ -50,9 +50,6 @@ import {
 
 export type EntryKind = "waste" | "adjustment";
 
-/** Above this value the entry needs a manager rather than a post button. */
-const APPROVAL_THRESHOLD_MINOR = 50_000;
-
 /**
  * FR-INV-059 — reason categories that are consumption rather than loss.
  *
@@ -144,7 +141,6 @@ export function InventoryEntryDrawer({
   const selectedReason = (reasons.data ?? []).find((row) => row.code === reasonCode);
   const isTrueWaste =
     kind === "waste" && !CONTROLLED_CATEGORIES.has(selectedReason?.category ?? "");
-  const needsApproval = valueMinor > APPROVAL_THRESHOLD_MINOR;
 
   const problems = useMemo(() => {
     const list: string[] = [];
@@ -175,8 +171,13 @@ export function InventoryEntryDrawer({
             ? quantity.value
             : `-${quantity.value}`;
 
+        // The backend alone decides whether this posts directly or goes to
+        // an approval queue (FR-INV-035/058) — there is no client-side
+        // threshold to predict it with, so both calls return the real
+        // outcome (`approval: "pending" | "not_required"`) for `onSuccess`
+        // below to read, rather than this drawer guessing in advance.
         if (kind === "waste") {
-          await services.inventory.waste.create({
+          return services.inventory.waste.create({
             locationId: locationId!,
             itemId: itemId!,
             quantity,
@@ -185,21 +186,20 @@ export function InventoryEntryDrawer({
             notes: notes.trim() || null,
             value: money(valueMinor, currency),
           });
-        } else {
-          await services.inventory.adjustments.create({
-            locationId: locationId!,
-            itemId: itemId!,
-            quantity: { value: signed, unit: quantity.unit },
-            reasonCode,
-            notes: notes.trim() || null,
-            value: money(valueMinor, currency),
-          });
         }
+        return services.inventory.adjustments.create({
+          locationId: locationId!,
+          itemId: itemId!,
+          quantity: { value: signed, unit: quantity.unit },
+          reasonCode,
+          notes: notes.trim() || null,
+          value: money(valueMinor, currency),
+        });
       },
       {
-        onSuccess: () => {
+        onSuccess: (saved) => {
           onSaved(
-            needsApproval
+            saved.approval === "pending"
               ? t("entry.submittedForApproval")
               : kind === "waste"
                 ? t("entry.wasteRecorded")
@@ -223,16 +223,12 @@ export function InventoryEntryDrawer({
       footer={
         <div className="flex gap-2">
           <Button
-            variant={needsApproval ? "primary" : kind === "waste" ? "danger" : "primary"}
+            variant={kind === "waste" ? "danger" : "primary"}
             loading={action.pending}
             disabled={problems.length > 0}
             onClick={() => void submit()}
           >
-            {needsApproval
-              ? t("entry.submitForApproval")
-              : kind === "waste"
-                ? t("entry.postWaste")
-                : t("entry.postAdjustment")}
+            {kind === "waste" ? t("entry.postWaste") : t("entry.postAdjustment")}
           </Button>
           <Button variant="ghost" onClick={onClose}>
             {t("common.cancel")}
@@ -388,20 +384,11 @@ export function InventoryEntryDrawer({
             {item ? formatMoney(money(unitCost, currency), fmt) : "—"}
           </DescRow>
           <DescRow label={<span className="text-fg font-semibold">{t("entry.value")}</span>} mono>
-            <span className={cx("font-semibold", needsApproval ? "text-warn" : "text-fg")}>
+            <span className="text-fg font-semibold">
               {formatMoney(money(valueMinor, currency), fmt)}
             </span>
           </DescRow>
         </DescList>
-
-        {needsApproval ? (
-          <Callout tone="warn" title={t("entry.approvalTitle")}>
-            {t("entry.approvalBody").replace(
-              "{threshold}",
-              formatMoney(money(APPROVAL_THRESHOLD_MINOR, currency), fmt),
-            )}
-          </Callout>
-        ) : null}
 
         {problems.length > 0 ? (
           <ul className="text-fg-subtle space-y-0.5 text-xs">

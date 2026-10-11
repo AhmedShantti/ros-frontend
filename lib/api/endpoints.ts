@@ -239,6 +239,173 @@ export const treasury = {
 };
 
 // ---------------------------------------------------------------------------
+// inventory
+// ---------------------------------------------------------------------------
+
+export const inventory = {
+  /** `GET /branches/{branchId}/inventory-approval-policy` — `policy` is `null` when none has ever been configured. — `policy` is null if the branch has none configured yet. */
+  getPolicy: (branchId: string) =>
+    http.get<S.InventoryApprovalPolicyController_getPolicyResponse>("/branches/{branchId}/inventory-approval-policy", { params: { branchId } }),
+
+  /** `POST /branches/{branchId}/inventory-approval-policy` — The newly created inventory approval policy version. */
+  createPolicy: (branchId: string, body: S.CreateInventoryApprovalPolicyDto) =>
+    http.post<S.InventoryApprovalPolicyController_createPolicyResponse>("/branches/{branchId}/inventory-approval-policy", { params: { branchId }, body, idempotent: true }),
+
+  /** `GET /inventory/approvals` — Inventory approval requests (stock_adjustment/count_adjustment/waste), newest first. */
+  list: (options: { status?: string } = {}) =>
+    http.get<S.InventoryApprovalsController_listResponse>("/inventory/approvals", { query: { status: options.status } }),
+
+  /** `POST /inventory/approvals/{approvalRequestId}/approve` — The result of posting the approved action. */
+  approve: (approvalRequestId: string, body: S.DecideInventoryApprovalDto) =>
+    http.post<S.InventoryApprovalsController_approveResponse>("/inventory/approvals/{approvalRequestId}/approve", { params: { approvalRequestId }, body }),
+
+  /** `POST /inventory/approvals/{approvalRequestId}/reject` — The result of recording the rejection. */
+  reject: (approvalRequestId: string, body: S.DecideInventoryApprovalDto) =>
+    http.post<S.InventoryApprovalsController_rejectResponse>("/inventory/approvals/{approvalRequestId}/reject", { params: { approvalRequestId }, body }),
+
+  /** `GET /inventory/categories` — List the stock item category catalogue (FR-INV-001). — All stock item categories in the tenant. */
+  listCategories: () =>
+    http.get<S.InventoryController_listCategoriesResponse>("/inventory/categories"),
+
+  /** `POST /inventory/categories` — The created stock item category. */
+  createCategory: (body: S.CreateStockItemCategoryDto) =>
+    http.post<S.InventoryController_createCategoryResponse>("/inventory/categories", { body }),
+
+  /** `POST /inventory/count-lines/{lineId}` — Record a counted quantity for one count line. — The updated count line. */
+  recordCount: (lineId: string, body: S.RecordCountDto) =>
+    http.post<S.InventoryController_recordCountResponse>("/inventory/count-lines/{lineId}", { params: { lineId }, body }),
+
+  /** `GET /inventory/counts` — List count sessions, newest first (FR-INV-050). — Up to 200 count sessions matching the given filters. */
+  listCounts: (options: { status?: string; mode?: string; locationId?: string } = {}) =>
+    http.get<S.InventoryController_listCountsResponse>("/inventory/counts", { query: { status: options.status, mode: options.mode, locationId: options.locationId } }),
+
+  /** `POST /inventory/counts` — Open a count session and freeze expected quantities for its scope. — The opened count session. */
+  openCount: (body: S.OpenCountDto) =>
+    http.post<S.InventoryController_openCountResponse>("/inventory/counts", { body }),
+
+  /** `GET /inventory/counts/{sessionId}` — Get one count session (FR-INV-050). — The count session. */
+  getCount: (sessionId: string) =>
+    http.get<S.InventoryController_getCountResponse>("/inventory/counts/{sessionId}", { params: { sessionId } }),
+
+  /** `GET /inventory/counts/{sessionId}/lines` — This session's count lines. expectedQuantity/countedQuantity/variance are null while a blind count is still in_progress and not yet recorded. */
+  countLines: (sessionId: string) =>
+    http.get<S.InventoryController_countLinesResponse>("/inventory/counts/{sessionId}/lines", { params: { sessionId } }),
+
+  /** `POST /inventory/counts/{sessionId}/post` — Post a count session: writes count_adjustment movements bringing recorded stock to counted stock. — The posted count session. */
+  postCount: (sessionId: string) =>
+    http.post<S.InventoryController_postCountResponse>("/inventory/counts/{sessionId}/post", { params: { sessionId } }),
+
+  /** `GET /inventory/expiring` — FR-INV-024 computation. Alert delivery deferred. — Batches expiring within `days` (default 7) (FR-INV-024). */
+  expiring: (options: { days?: string } = {}) =>
+    http.get<S.InventoryController_expiringResponse>("/inventory/expiring", { query: { days: options.days } }),
+
+  /** `GET /inventory/items` — All stock items in the tenant. */
+  listItems: () =>
+    http.get<S.InventoryController_listItemsResponse>("/inventory/items"),
+
+  /** `POST /inventory/items` — Create a stock item (FR-INV-001). — The created stock item. */
+  createItem: (body: S.CreateStockItemDto) =>
+    http.post<S.InventoryController_createItemResponse>("/inventory/items", { body }),
+
+  /** `GET /inventory/items/{itemId}` — The stock item. */
+  getItem: (itemId: string) =>
+    http.get<S.InventoryController_getItemResponse>("/inventory/items/{itemId}", { params: { itemId } }),
+
+  /** `POST /inventory/items/{itemId}/base-unit` — FR-INV-002: rejected once any movement exists. — The updated stock item. */
+  changeBaseUnit: (itemId: string, body: S.ChangeBaseUnitDto) =>
+    http.post<S.InventoryController_changeBaseUnitResponse>("/inventory/items/{itemId}/base-unit", { params: { itemId }, body }),
+
+  /** `GET /inventory/items/{itemId}/movements` — Cost-bearing read — gated by inventory.cost.view, not inventory.view. — The most recent 200 ledger movements for this item, newest first. */
+  listMovements: (itemId: string, options: { locationId?: string } = {}) =>
+    http.get<S.InventoryController_listMovementsResponse>("/inventory/items/{itemId}/movements", { params: { itemId }, query: { locationId: options.locationId } }),
+
+  /** `GET /inventory/items/{itemId}/purchase-units` — FR-INV-003 — the item-specific purchase units a PurchaseOrderLine's `purchaseUnitId` may select from, alongside the item's own canonical base Uom. — The stock item's own item-specific purchase units. */
+  listPurchaseUnits: (itemId: string) =>
+    http.get<S.InventoryController_listPurchaseUnitsResponse>("/inventory/items/{itemId}/purchase-units", { params: { itemId } }),
+
+  /** `POST /inventory/items/{itemId}/purchase-units` — The created purchase unit. */
+  createPurchaseUnit: (itemId: string, body: S.CreatePackagingUnitDto) =>
+    http.post<S.InventoryController_createPurchaseUnitResponse>("/inventory/items/{itemId}/purchase-units", { params: { itemId }, body }),
+
+  /** `PATCH /inventory/items/{itemId}/purchase-units/{purchaseUnitId}` — The updated purchase unit. Safe to edit even after it has been used on a purchase order — every such line snapshots its own copy of this unit as it was at that moment (FR-INV-003). */
+  updatePurchaseUnit: (itemId: string, purchaseUnitId: string, body: S.UpdatePackagingUnitDto) =>
+    http.patch<S.InventoryController_updatePurchaseUnitResponse>("/inventory/items/{itemId}/purchase-units/{purchaseUnitId}", { params: { itemId, purchaseUnitId }, body }),
+
+  /** `DELETE /inventory/items/{itemId}/purchase-units/{purchaseUnitId}` */
+  deletePurchaseUnit: (itemId: string, purchaseUnitId: string) =>
+    http.delete<S.InventoryController_deletePurchaseUnitResponse>("/inventory/items/{itemId}/purchase-units/{purchaseUnitId}", { params: { itemId, purchaseUnitId } }),
+
+  /** `POST /inventory/items/{itemId}/reorder-config` — FR-INV-065: per-location reorder configuration. — The upserted reorder configuration. */
+  setReorderConfig: (itemId: string, body: S.SetReorderConfigDto) =>
+    http.post<S.InventoryController_setReorderConfigResponse>("/inventory/items/{itemId}/reorder-config", { params: { itemId }, body }),
+
+  /** `POST /inventory/items/{itemId}/storage-area` — FR-INV-040 — deterministic item+location storage-area membership, independent of on-hand quantity (a never-moved, zero-stock item may still be assigned). `storageAreaId: null` clears the assignment. — The current assignment (storageAreaId is null once cleared). */
+  setStorageAreaAssignment: (itemId: string, body: S.SetStorageAreaAssignmentDto) =>
+    http.post<S.InventoryController_setStorageAreaAssignmentResponse>("/inventory/items/{itemId}/storage-area", { params: { itemId }, body }),
+
+  /** `GET /inventory/levels` — Current stock levels (FR-INV-010/015). */
+  levels: (options: { locationId?: string } = {}) =>
+    http.get<S.InventoryController_levelsResponse>("/inventory/levels", { query: { locationId: options.locationId } }),
+
+  /** `GET /inventory/low-stock` — FR-INV-066 computation against per-location reorder points. — Levels below their per-location reorder point (FR-INV-066/065). */
+  lowStock: () =>
+    http.get<S.InventoryController_lowStockResponse>("/inventory/low-stock"),
+
+  /** `POST /inventory/movements` — Post a standalone movement (opening balance / manual adjustment) to the ledger. — The posted movement, or the pending approval it created. */
+  postMovement: (body: S.PostMovementDto) =>
+    http.post<S.InventoryController_postMovementResponse>("/inventory/movements", { body, idempotent: true }),
+
+  /** `GET /inventory/negative-stock` — FR-INV-014 computation. Alert delivery deferred. — Stock levels currently below zero (FR-INV-014; negative levels are permitted and recorded, this surfaces them). */
+  negativeStock: () =>
+    http.get<S.InventoryController_negativeStockResponse>("/inventory/negative-stock"),
+
+  /** `GET /inventory/reason-codes` — All reason codes in the tenant. */
+  listReasonCodes: () =>
+    http.get<S.InventoryController_listReasonCodesResponse>("/inventory/reason-codes"),
+
+  /** `POST /inventory/reason-codes` — The created reason code. */
+  createReasonCode: (body: S.CreateReasonCodeDto) =>
+    http.post<S.InventoryController_createReasonCodeResponse>("/inventory/reason-codes", { body }),
+
+  /** `GET /inventory/reconciliation` — FR-INV-011/051 computation. Scheduling deferred (D-INV-08). — On-demand ledger-vs-projection reconciliation (FR-INV-011/051). Scheduling and alert delivery are deferred (D-INV-08). */
+  reconcile: () =>
+    http.get<S.InventoryController_reconcileResponse>("/inventory/reconciliation"),
+
+  /** `GET /inventory/storage-areas` — List the storage area catalogue, optionally by location (FR-INV-040). — Storage areas in the tenant, optionally filtered by locationId. */
+  listStorageAreas: (options: { locationId?: string } = {}) =>
+    http.get<S.InventoryController_listStorageAreasResponse>("/inventory/storage-areas", { query: { locationId: options.locationId } }),
+
+  /** `POST /inventory/storage-areas` — The created storage area. */
+  createStorageArea: (body: S.CreateStorageAreaDto) =>
+    http.post<S.InventoryController_createStorageAreaResponse>("/inventory/storage-areas", { body }),
+
+  /** `POST /inventory/transfers` — Dispatch a transfer (writes the transfer_out leg). — The dispatched transfer. */
+  dispatch: (body: S.DispatchTransferDto) =>
+    http.post<S.InventoryController_dispatchResponse>("/inventory/transfers", { body }),
+
+  /** `POST /inventory/transfers/receive` — Receive a dispatched transfer (writes the transfer_in leg, plus a discrepancy adjustment if the received quantity differs). — The received transfer. */
+  receive: (body: S.ReceiveTransferDto) =>
+    http.post<S.InventoryController_receiveResponse>("/inventory/transfers/receive", { body }),
+
+  /** `GET /inventory/uoms` — List the unit-of-measure catalogue (FR-INV-001). — Every unit of measure known to the platform. */
+  listUoms: () =>
+    http.get<S.InventoryController_listUomsResponse>("/inventory/uoms"),
+
+  /** `GET /inventory/valuation` — Historical inventory value by location, category or item (FR-INV-015). — Total inventory value as of `asOf` (defaults to now), grouped by the requested dimension. */
+  valuation: (options: { asOf?: string; groupBy?: string; locationId?: string; categoryId?: string; stockItemId?: string } = {}) =>
+    http.get<S.InventoryController_valuationResponse>("/inventory/valuation", { query: { asOf: options.asOf, groupBy: options.groupBy, locationId: options.locationId, categoryId: options.categoryId, stockItemId: options.stockItemId } }),
+
+  /** `GET /inventory/waste` — The most recent 200 waste records, newest first. */
+  listWaste: () =>
+    http.get<S.InventoryController_listWasteResponse>("/inventory/waste"),
+
+  /** `POST /inventory/waste` — Record waste (writes waste movements for each line; FR-INV-055…059). — The recorded waste, or the pending approval it created. */
+  recordWaste: (body: S.RecordWasteDto) =>
+    http.post<S.InventoryController_recordWasteResponse>("/inventory/waste", { body, idempotent: true }),
+
+};
+
+// ---------------------------------------------------------------------------
 // catalogue
 // ---------------------------------------------------------------------------
 
@@ -416,153 +583,6 @@ export const health = {
   /** `GET /health` — Service is up. */
   check: () =>
     http.get<S.HealthController_checkResponse>("/health"),
-
-};
-
-// ---------------------------------------------------------------------------
-// inventory
-// ---------------------------------------------------------------------------
-
-export const inventory = {
-  /** `GET /inventory/categories` — List the stock item category catalogue (FR-INV-001). — All stock item categories in the tenant. */
-  listCategories: () =>
-    http.get<S.InventoryController_listCategoriesResponse>("/inventory/categories"),
-
-  /** `POST /inventory/categories` — The created stock item category. */
-  createCategory: (body: S.CreateStockItemCategoryDto) =>
-    http.post<S.InventoryController_createCategoryResponse>("/inventory/categories", { body }),
-
-  /** `POST /inventory/count-lines/{lineId}` — Record a counted quantity for one count line. — The updated count line. */
-  recordCount: (lineId: string, body: S.RecordCountDto) =>
-    http.post<S.InventoryController_recordCountResponse>("/inventory/count-lines/{lineId}", { params: { lineId }, body }),
-
-  /** `GET /inventory/counts` — List count sessions, newest first (FR-INV-050). — Up to 200 count sessions matching the given filters. */
-  listCounts: (options: { status?: string; mode?: string; locationId?: string } = {}) =>
-    http.get<S.InventoryController_listCountsResponse>("/inventory/counts", { query: { status: options.status, mode: options.mode, locationId: options.locationId } }),
-
-  /** `POST /inventory/counts` — Open a count session and freeze expected quantities for its scope. — The opened count session. */
-  openCount: (body: S.OpenCountDto) =>
-    http.post<S.InventoryController_openCountResponse>("/inventory/counts", { body }),
-
-  /** `GET /inventory/counts/{sessionId}` — Get one count session (FR-INV-050). — The count session. */
-  getCount: (sessionId: string) =>
-    http.get<S.InventoryController_getCountResponse>("/inventory/counts/{sessionId}", { params: { sessionId } }),
-
-  /** `GET /inventory/counts/{sessionId}/lines` — This session's count lines. expectedQuantity/countedQuantity/variance are null while a blind count is still in_progress and not yet recorded. */
-  countLines: (sessionId: string) =>
-    http.get<S.InventoryController_countLinesResponse>("/inventory/counts/{sessionId}/lines", { params: { sessionId } }),
-
-  /** `POST /inventory/counts/{sessionId}/post` — Post a count session: writes count_adjustment movements bringing recorded stock to counted stock. — The posted count session. */
-  postCount: (sessionId: string) =>
-    http.post<S.InventoryController_postCountResponse>("/inventory/counts/{sessionId}/post", { params: { sessionId } }),
-
-  /** `GET /inventory/expiring` — FR-INV-024 computation. Alert delivery deferred. — Batches expiring within `days` (default 7) (FR-INV-024). */
-  expiring: (options: { days?: string } = {}) =>
-    http.get<S.InventoryController_expiringResponse>("/inventory/expiring", { query: { days: options.days } }),
-
-  /** `GET /inventory/items` — All stock items in the tenant. */
-  listItems: () =>
-    http.get<S.InventoryController_listItemsResponse>("/inventory/items"),
-
-  /** `POST /inventory/items` — Create a stock item (FR-INV-001). — The created stock item. */
-  createItem: (body: S.CreateStockItemDto) =>
-    http.post<S.InventoryController_createItemResponse>("/inventory/items", { body }),
-
-  /** `GET /inventory/items/{itemId}` — The stock item. */
-  getItem: (itemId: string) =>
-    http.get<S.InventoryController_getItemResponse>("/inventory/items/{itemId}", { params: { itemId } }),
-
-  /** `POST /inventory/items/{itemId}/base-unit` — FR-INV-002: rejected once any movement exists. — The updated stock item. */
-  changeBaseUnit: (itemId: string, body: S.ChangeBaseUnitDto) =>
-    http.post<S.InventoryController_changeBaseUnitResponse>("/inventory/items/{itemId}/base-unit", { params: { itemId }, body }),
-
-  /** `GET /inventory/items/{itemId}/movements` — Cost-bearing read — gated by inventory.cost.view, not inventory.view. — The most recent 200 ledger movements for this item, newest first. */
-  listMovements: (itemId: string, options: { locationId?: string } = {}) =>
-    http.get<S.InventoryController_listMovementsResponse>("/inventory/items/{itemId}/movements", { params: { itemId }, query: { locationId: options.locationId } }),
-
-  /** `GET /inventory/items/{itemId}/purchase-units` — FR-INV-003 — the item-specific purchase units a PurchaseOrderLine's `purchaseUnitId` may select from, alongside the item's own canonical base Uom. — The stock item's own item-specific purchase units. */
-  listPurchaseUnits: (itemId: string) =>
-    http.get<S.InventoryController_listPurchaseUnitsResponse>("/inventory/items/{itemId}/purchase-units", { params: { itemId } }),
-
-  /** `POST /inventory/items/{itemId}/purchase-units` — The created purchase unit. */
-  createPurchaseUnit: (itemId: string, body: S.CreatePackagingUnitDto) =>
-    http.post<S.InventoryController_createPurchaseUnitResponse>("/inventory/items/{itemId}/purchase-units", { params: { itemId }, body }),
-
-  /** `PATCH /inventory/items/{itemId}/purchase-units/{purchaseUnitId}` — The updated purchase unit. Safe to edit even after it has been used on a purchase order — every such line snapshots its own copy of this unit as it was at that moment (FR-INV-003). */
-  updatePurchaseUnit: (itemId: string, purchaseUnitId: string, body: S.UpdatePackagingUnitDto) =>
-    http.patch<S.InventoryController_updatePurchaseUnitResponse>("/inventory/items/{itemId}/purchase-units/{purchaseUnitId}", { params: { itemId, purchaseUnitId }, body }),
-
-  /** `DELETE /inventory/items/{itemId}/purchase-units/{purchaseUnitId}` */
-  deletePurchaseUnit: (itemId: string, purchaseUnitId: string) =>
-    http.delete<S.InventoryController_deletePurchaseUnitResponse>("/inventory/items/{itemId}/purchase-units/{purchaseUnitId}", { params: { itemId, purchaseUnitId } }),
-
-  /** `POST /inventory/items/{itemId}/reorder-config` — FR-INV-065: per-location reorder configuration. — The upserted reorder configuration. */
-  setReorderConfig: (itemId: string, body: S.SetReorderConfigDto) =>
-    http.post<S.InventoryController_setReorderConfigResponse>("/inventory/items/{itemId}/reorder-config", { params: { itemId }, body }),
-
-  /** `POST /inventory/items/{itemId}/storage-area` — FR-INV-040 — deterministic item+location storage-area membership, independent of on-hand quantity (a never-moved, zero-stock item may still be assigned). `storageAreaId: null` clears the assignment. — The current assignment (storageAreaId is null once cleared). */
-  setStorageAreaAssignment: (itemId: string, body: S.SetStorageAreaAssignmentDto) =>
-    http.post<S.InventoryController_setStorageAreaAssignmentResponse>("/inventory/items/{itemId}/storage-area", { params: { itemId }, body }),
-
-  /** `GET /inventory/levels` — Current stock levels (FR-INV-010/015). */
-  levels: (options: { locationId?: string } = {}) =>
-    http.get<S.InventoryController_levelsResponse>("/inventory/levels", { query: { locationId: options.locationId } }),
-
-  /** `GET /inventory/low-stock` — FR-INV-066 computation against per-location reorder points. — Levels below their per-location reorder point (FR-INV-066/065). */
-  lowStock: () =>
-    http.get<S.InventoryController_lowStockResponse>("/inventory/low-stock"),
-
-  /** `POST /inventory/movements` — Post a standalone movement (opening balance / manual adjustment) to the ledger. — The posted movement. */
-  postMovement: (body: S.PostMovementDto) =>
-    http.post<S.InventoryController_postMovementResponse>("/inventory/movements", { body }),
-
-  /** `GET /inventory/negative-stock` — FR-INV-014 computation. Alert delivery deferred. — Stock levels currently below zero (FR-INV-014; negative levels are permitted and recorded, this surfaces them). */
-  negativeStock: () =>
-    http.get<S.InventoryController_negativeStockResponse>("/inventory/negative-stock"),
-
-  /** `GET /inventory/reason-codes` — All reason codes in the tenant. */
-  listReasonCodes: () =>
-    http.get<S.InventoryController_listReasonCodesResponse>("/inventory/reason-codes"),
-
-  /** `POST /inventory/reason-codes` — The created reason code. */
-  createReasonCode: (body: S.CreateReasonCodeDto) =>
-    http.post<S.InventoryController_createReasonCodeResponse>("/inventory/reason-codes", { body }),
-
-  /** `GET /inventory/reconciliation` — FR-INV-011/051 computation. Scheduling deferred (D-INV-08). — On-demand ledger-vs-projection reconciliation (FR-INV-011/051). Scheduling and alert delivery are deferred (D-INV-08). */
-  reconcile: () =>
-    http.get<S.InventoryController_reconcileResponse>("/inventory/reconciliation"),
-
-  /** `GET /inventory/storage-areas` — List the storage area catalogue, optionally by location (FR-INV-040). — Storage areas in the tenant, optionally filtered by locationId. */
-  listStorageAreas: (options: { locationId?: string } = {}) =>
-    http.get<S.InventoryController_listStorageAreasResponse>("/inventory/storage-areas", { query: { locationId: options.locationId } }),
-
-  /** `POST /inventory/storage-areas` — The created storage area. */
-  createStorageArea: (body: S.CreateStorageAreaDto) =>
-    http.post<S.InventoryController_createStorageAreaResponse>("/inventory/storage-areas", { body }),
-
-  /** `POST /inventory/transfers` — Dispatch a transfer (writes the transfer_out leg). — The dispatched transfer. */
-  dispatch: (body: S.DispatchTransferDto) =>
-    http.post<S.InventoryController_dispatchResponse>("/inventory/transfers", { body }),
-
-  /** `POST /inventory/transfers/receive` — Receive a dispatched transfer (writes the transfer_in leg, plus a discrepancy adjustment if the received quantity differs). — The received transfer. */
-  receive: (body: S.ReceiveTransferDto) =>
-    http.post<S.InventoryController_receiveResponse>("/inventory/transfers/receive", { body }),
-
-  /** `GET /inventory/uoms` — List the unit-of-measure catalogue (FR-INV-001). — Every unit of measure known to the platform. */
-  listUoms: () =>
-    http.get<S.InventoryController_listUomsResponse>("/inventory/uoms"),
-
-  /** `GET /inventory/valuation` — Historical inventory value by location, category or item (FR-INV-015). — Total inventory value as of `asOf` (defaults to now), grouped by the requested dimension. */
-  valuation: (options: { asOf?: string; groupBy?: string; locationId?: string; categoryId?: string; stockItemId?: string } = {}) =>
-    http.get<S.InventoryController_valuationResponse>("/inventory/valuation", { query: { asOf: options.asOf, groupBy: options.groupBy, locationId: options.locationId, categoryId: options.categoryId, stockItemId: options.stockItemId } }),
-
-  /** `GET /inventory/waste` — The most recent 200 waste records, newest first. */
-  listWaste: () =>
-    http.get<S.InventoryController_listWasteResponse>("/inventory/waste"),
-
-  /** `POST /inventory/waste` — Record waste (writes waste movements for each line; FR-INV-055…059). — The recorded waste. */
-  recordWaste: (body: S.RecordWasteDto) =>
-    http.post<S.InventoryController_recordWasteResponse>("/inventory/waste", { body }),
 
 };
 
@@ -1268,4 +1288,4 @@ export const workforceSchedules = {
 };
 
 /** Every group, for the diagnostics screen and for `api.catalogue.listItems()` style calls. */
-export const api = { auth, rbac, password, tenants, terminals, treasury, catalogue, governance, health, inventory, kitchen, production, sales, organisation, platformSettings, procurement, reporting, sync, workforceAttendance, workforceEmployees, workforceSchedules };
+export const api = { auth, rbac, password, tenants, terminals, treasury, inventory, catalogue, governance, health, kitchen, production, sales, organisation, platformSettings, procurement, reporting, sync, workforceAttendance, workforceEmployees, workforceSchedules };
