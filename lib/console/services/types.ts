@@ -31,6 +31,7 @@ import type {
   ContributionMarginRow,
   CountSession,
   CountryPack,
+  CreateInventoryApprovalPolicyInput,
   Currency,
   DashboardData,
   DayClose,
@@ -44,6 +45,7 @@ import type {
   GoodsReceipt,
   Id,
   Integration,
+  InventoryApprovalPolicy,
   IsoDate,
   IsoDateTime,
   KitchenQueueSnapshot,
@@ -772,6 +774,15 @@ export interface InventoryService {
   /** Rejected (409) if already referenced by a purchase order line or an
    *  agreed supplier price — never force-deleted, never soft-deleted. */
   deletePurchaseUnit(itemId: Id, purchaseUnitId: Id): Promise<void>;
+
+  // -- Approval policy ---------------------------------------------------
+  /** FR-INV-035/047/058 — the branch's current effective policy, or `null` if none has ever been configured. */
+  getApprovalPolicy(branchId: Id): Promise<InventoryApprovalPolicy | null>;
+  /** Creates a new effective policy version (insert-only; there is no update). Currency is always server-derived. */
+  createApprovalPolicy(
+    branchId: Id,
+    input: CreateInventoryApprovalPolicyInput,
+  ): Promise<InventoryApprovalPolicy>;
 
   // -- Computed reports ------------------------------------------------------
   lowStock(query?: ScopedQuery): Promise<LowStockRow[]>;

@@ -201,6 +201,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: "/inventory/expiry", labelKey: "nav.expiry", icon: AlertTriangle, permissions: ["inventory.view"] },
       { href: "/inventory/adjustments", labelKey: "nav.adjustments", icon: ClipboardCheck, permissions: ["inventory.view"] },
       { href: "/inventory/reason-codes", labelKey: "nav.reasonCodes", icon: Tags, permissions: ["inventory.adjust"] },
+      { href: "/inventory/approval-policy", labelKey: "nav.inventoryApprovalPolicy", icon: ShieldCheck, permissions: ["settings.branch.manage"] },
     ],
   },
   {

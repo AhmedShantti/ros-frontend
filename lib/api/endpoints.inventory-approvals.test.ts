@@ -143,6 +143,82 @@ describe("api.inventory.postCount — no Idempotency-Key dependency", () => {
   });
 });
 
+const POLICY_BODY = {
+  adjustmentValueThresholdMinor: "50000",
+  countVarianceValueThresholdMinor: "100000",
+  wasteValueThresholdMinor: "30000",
+};
+
+const POLICY_RESPONSE = {
+  id: "iapv-1",
+  branchId: "branch-1",
+  currency: "EGP",
+  adjustmentValueThresholdMinor: "50000",
+  countVarianceValueThresholdMinor: "100000",
+  wasteValueThresholdMinor: "30000",
+  effectiveFrom: "2026-01-01T00:00:00.000Z",
+  createdAt: "2026-01-01T00:00:00.000Z",
+};
+
+describe("api.inventory.createPolicy — Idempotency-Key", () => {
+  it("5. sends an Idempotency-Key header", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(201, POLICY_RESPONSE));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.inventory.createPolicy("branch-1", POLICY_BODY);
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const key = (init.headers as Record<string, string>)["idempotency-key"];
+    expect(key).toBeTruthy();
+  });
+
+  it("a retry of the same logical Save (401 replay) reuses one key for both attempts", async () => {
+    let call = 0;
+    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) => {
+      if (String(url).includes("/auth/refresh")) {
+        return jsonResponse(200, { accessToken: "tok2", refreshToken: "ref2", expiresIn: 900 });
+      }
+      call += 1;
+      if (call === 1) return jsonResponse(401, { message: "expired" });
+      return jsonResponse(201, POLICY_RESPONSE);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(Session, "getRefreshToken").mockReturnValue("ref");
+    vi.spyOn(Session, "isAccessTokenStale").mockReturnValue(false);
+
+    await api.inventory.createPolicy("branch-1", POLICY_BODY);
+
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    const policyCalls = calls.filter(([url]) => String(url).includes("/inventory-approval-policy"));
+    expect(policyCalls.length).toBe(2);
+    const keys = policyCalls.map(([, init]) => (init.headers as Record<string, string>)["idempotency-key"]);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[0]).toBe(keys[1]);
+  });
+
+  it("two separate deliberate Saves mint two different keys", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(201, POLICY_RESPONSE));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.inventory.createPolicy("branch-1", POLICY_BODY);
+    await api.inventory.createPolicy("branch-1", POLICY_BODY);
+
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    const keys = calls.map(([, init]) => (init.headers as Record<string, string>)["idempotency-key"]);
+    expect(new Set(keys).size).toBe(2);
+  });
+});
+
+describe("api.inventory.getPolicy — no policy configured", () => {
+  it("6. a null policy round-trips with no reshaping", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { policy: null })));
+
+    const result = await api.inventory.getPolicy("branch-1");
+
+    expect(result).toEqual({ policy: null });
+  });
+});
+
 describe("dual-outcome submit responses pass through untouched", () => {
   it("4a. postMovement: a pending_approval body round-trips with no reshaping", async () => {
     const body = { status: "pending_approval", approvalRequestId: "req-1" };

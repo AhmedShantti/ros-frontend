@@ -884,6 +884,33 @@ export interface StockAdjustment {
   notes: string | null;
 }
 
+/**
+ * FR-INV-035/047/058 — the branch's effective inventory-approval thresholds.
+ * Branch-scoped, insert-only, effective-dated on the backend; this is always
+ * the most recently effective version as of now. Each threshold is a
+ * non-negative minor-unit integer *string* (never `Number`, matching
+ * `InventoryValuationRow.value`'s own contract) — `null` means "always
+ * require approval for this action," not "unset."
+ */
+export interface InventoryApprovalPolicy {
+  id: Id;
+  branchId: Id;
+  /** The branch's own base currency — server-derived, never client-supplied. */
+  currency: Currency;
+  adjustmentValueThresholdMinor: string | null;
+  countVarianceValueThresholdMinor: string | null;
+  wasteValueThresholdMinor: string | null;
+  effectiveFrom: IsoDateTime;
+  createdAt: IsoDateTime;
+}
+
+/** The three thresholds a new effective policy version is created with. */
+export interface CreateInventoryApprovalPolicyInput {
+  adjustmentValueThresholdMinor: string | null;
+  countVarianceValueThresholdMinor: string | null;
+  wasteValueThresholdMinor: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Customers and loyalty — SRS ch.18
 // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ import type {
   Currency,
   EmployeeRoleAssignment,
   Id,
+  InventoryApprovalPolicy,
   KitchenTicket,
   Localised,
   Menu,
@@ -1413,6 +1414,10 @@ let demoCategorySeq = demoStockItemCategories.length;
 const demoStorageAreas: StorageArea[] = [...storageAreas];
 let demoStorageAreaSeq = demoStorageAreas.length;
 
+/** FR-INV-035/047/058 — one effective policy per branch, insert-only like the real table. Empty until a demo-mode `createApprovalPolicy` call seeds it. */
+const demoApprovalPolicies = new Map<Id, InventoryApprovalPolicy>();
+let demoApprovalPolicySeq = 0;
+
 /**
  * FR-INV-003 — mutable so a demo-mode create/edit/delete call persists for
  * the session. Seeded with one item's two case sizes so "Case 12" and
@@ -1893,6 +1898,33 @@ const inventory: InventoryService = {
         );
       }
       demoPurchaseUnits.splice(index, 1);
+    });
+  },
+
+  // -- Approval policy ---------------------------------------------------
+
+  async getApprovalPolicy(branchId) {
+    return transport(() => demoApprovalPolicies.get(branchId) ?? null);
+  },
+
+  async createApprovalPolicy(branchId, input) {
+    return transport(() => {
+      const branch = branchById.get(branchId);
+      if (!branch) throw new ServiceError("NOT_FOUND", "Branch not found.", 404);
+      demoApprovalPolicySeq += 1;
+      const now = new Date().toISOString();
+      const created: InventoryApprovalPolicy = {
+        id: `iapv_${demoApprovalPolicySeq}`,
+        branchId,
+        currency: branch.currency,
+        adjustmentValueThresholdMinor: input.adjustmentValueThresholdMinor,
+        countVarianceValueThresholdMinor: input.countVarianceValueThresholdMinor,
+        wasteValueThresholdMinor: input.wasteValueThresholdMinor,
+        effectiveFrom: now,
+        createdAt: now,
+      };
+      demoApprovalPolicies.set(branchId, created);
+      return created;
     });
   },
 

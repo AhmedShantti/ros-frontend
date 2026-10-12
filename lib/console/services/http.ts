@@ -2115,6 +2115,41 @@ const inventory: InventoryService = {
     await api.inventory.deletePurchaseUnit(itemId, purchaseUnitId);
   },
 
+  // -- Approval policy ---------------------------------------------------
+
+  async getApprovalPolicy(branchId) {
+    const { policy } = await api.inventory.getPolicy(branchId);
+    if (!policy) return null;
+    return {
+      id: policy.id,
+      branchId: policy.branchId,
+      currency: map.currencyOf(policy.currency),
+      adjustmentValueThresholdMinor: policy.adjustmentValueThresholdMinor,
+      countVarianceValueThresholdMinor: policy.countVarianceValueThresholdMinor,
+      wasteValueThresholdMinor: policy.wasteValueThresholdMinor,
+      effectiveFrom: policy.effectiveFrom,
+      createdAt: policy.createdAt,
+    };
+  },
+
+  async createApprovalPolicy(branchId, input) {
+    const row = await api.inventory.createPolicy(branchId, {
+      adjustmentValueThresholdMinor: input.adjustmentValueThresholdMinor,
+      countVarianceValueThresholdMinor: input.countVarianceValueThresholdMinor,
+      wasteValueThresholdMinor: input.wasteValueThresholdMinor,
+    });
+    return {
+      id: row.id,
+      branchId: row.branchId,
+      currency: map.currencyOf(row.currency),
+      adjustmentValueThresholdMinor: row.adjustmentValueThresholdMinor,
+      countVarianceValueThresholdMinor: row.countVarianceValueThresholdMinor,
+      wasteValueThresholdMinor: row.wasteValueThresholdMinor,
+      effectiveFrom: row.effectiveFrom,
+      createdAt: row.createdAt,
+    };
+  },
+
   // -- Reason codes ----------------------------------------------------------
 
   async reasonCodes() {
