@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * `http.inventory-locations.test.ts` — the real `http.ts` and `map.ts` run.
  */
 
+const recordRecount = vi.fn();
+const recordVarianceExplanation = vi.fn();
 const listCounts = vi.fn();
 const getCount = vi.fn();
 const countLines = vi.fn();
@@ -23,6 +25,8 @@ const listCentralKitchens = vi.fn();
 vi.mock("@/lib/api/endpoints", () => ({
   api: {
     inventory: {
+      recordRecount: (...args: unknown[]) => recordRecount(...args),
+      recordVarianceExplanation: (...args: unknown[]) => recordVarianceExplanation(...args),
       listCounts: (...args: unknown[]) => listCounts(...args),
       getCount: (...args: unknown[]) => getCount(...args),
       countLines: (...args: unknown[]) => countLines(...args),
@@ -224,5 +228,35 @@ describe("inventory.counts.get() — a posted session stays readable", () => {
     // Once its own lines are loaded the figures are real, not null.
     expect(session!.flaggedCount).toBe(0);
     expect(session!.netVarianceValue).not.toBeNull();
+  });
+});
+
+describe("FR-INV-046 read metadata and HTTP actions", () => {
+  it("retains all server history and maps head/actor/explanation fields verbatim", async () => {
+    const fields = { stockItemId: "item-1", expectedQuantity: "10", countedQuantity: "9", variance: "-1",
+      countedBy: "actor-1", countedAt: "2026-10-14T00:00:00Z", varianceExplanation: "Reason",
+      varianceExplainedBy: "actor-2", varianceExplainedAt: "2026-10-14T01:00:00Z" };
+    const rows = [{ ...fields, id: "root", recountOfLineId: null, isCurrentHead: false },
+      { ...fields, id: "head", recountOfLineId: "root", isCurrentHead: true }];
+    countLines.mockResolvedValue(rows);
+    const result = await httpServices.inventory.counts.get("cs-1");
+    expect(result?.lines).toHaveLength(2);
+    for (const wire of rows) {
+      expect(result?.lines.find((line) => line.id === wire.id)).toMatchObject({
+        id: wire.id, itemId: wire.stockItemId, recountOfLineId: wire.recountOfLineId,
+        isCurrentHead: wire.isCurrentHead, countedBy: wire.countedBy, countedAt: wire.countedAt,
+        varianceExplanation: wire.varianceExplanation, varianceExplainedBy: wire.varianceExplainedBy,
+        varianceExplainedAt: wire.varianceExplainedAt,
+      });
+    }
+  });
+  it("routes both actions to HTTP with no mock fallback", async () => {
+    recordRecount.mockResolvedValue({ id: "new-head" }); recordVarianceExplanation.mockResolvedValue({ id: "head" });
+    await httpServices.inventory.recordRecount("head", "9.125");
+    await httpServices.inventory.recordVarianceExplanation("head", "Reason");
+    expect(recordRecount).toHaveBeenCalledWith("head", { countedQuantity: "9.125" });
+    expect(recordVarianceExplanation).toHaveBeenCalledWith("head", { explanation: "Reason" });
+    recordRecount.mockRejectedValue(new Error("Backend refused"));
+    await expect(httpServices.inventory.recordRecount("head", "9")).rejects.toThrow("Backend refused");
   });
 });

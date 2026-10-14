@@ -113,13 +113,16 @@ export class ServiceError extends Error {
   readonly code: string;
   readonly status: number;
   readonly detail?: string;
+  /** Original server error body; callers must validate before using it. */
+  readonly payload?: unknown;
 
-  constructor(code: string, message: string, status = 500, detail?: string) {
+  constructor(code: string, message: string, status = 500, detail?: string, payload?: unknown) {
     super(message);
     this.name = "ServiceError";
     this.code = code;
     this.status = status;
     this.detail = detail;
+    this.payload = payload;
   }
 }
 
@@ -705,6 +708,8 @@ export interface InventoryService {
   // -- Counting --------------------------------------------------------------
   /** FR-INV-042 — record a counted quantity against one open count line. */
   recordCount(lineId: Id, countedQuantity: string): Promise<void>;
+  recordRecount(lineId: Id, countedQuantity: string): Promise<void>;
+  recordVarianceExplanation(lineId: Id, explanation: string): Promise<void>;
 
   // -- Transfers -------------------------------------------------------------
   /**

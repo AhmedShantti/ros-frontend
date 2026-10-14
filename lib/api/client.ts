@@ -451,6 +451,7 @@ async function send<T>(method: string, path: string, options: SendOptions = {}):
       messageFrom(envelope, response.status),
       response.status,
       `${method} ${path}`,
+      payload,
     );
   }
 

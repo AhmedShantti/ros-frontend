@@ -25,7 +25,8 @@ import { useI18n, useSession } from "@/lib/console/providers";
 import { formatDateTime } from "@/lib/console/format";
 import { Gate } from "@/components/console/states";
 import { PageBody, PageHeader, Section } from "@/components/console/page";
-import { Button, Callout, Field, Select, Toast } from "@/components/console/ui";
+import { Button, Callout, Field, Input, Select, Toast } from "@/components/console/ui";
+import { percentToBps, bpsToPercent } from "@/lib/console/count-variance-review";
 import { MoneyInput } from "@/components/console/fields";
 
 export default function InventoryApprovalPolicyPage() {
@@ -70,7 +71,7 @@ function InventoryApprovalPolicyScreen() {
       <PageHeader
         title={t("inv.approvalPolicyTitle")}
         subtitle={t("inv.approvalPolicySubtitle")}
-        spec="FR-INV-035/047/058"
+        spec="FR-INV-035/046/047/058"
       />
 
       <PageBody>
@@ -100,7 +101,7 @@ function InventoryApprovalPolicyScreen() {
                 <ApprovalPolicyForm
                   key={`${branchId}:${policyQuery.data?.id ?? "none"}`}
                   branchId={branchId}
-                  currency={selectedBranch.currency}
+                  currency={policyQuery.data?.currency ?? selectedBranch.currency}
                   policy={policyQuery.data}
                   onSaved={() => {
                     setMessage(t("inv.approvalPolicySaved"));
@@ -149,13 +150,22 @@ function ApprovalPolicyForm({
     policy?.wasteValueThresholdMinor != null ? Number(policy.wasteValueThresholdMinor) : null,
   );
 
+  const [recountValue, setRecountValue] = useState<number | null>(
+    policy?.countRecountVarianceValueThresholdMinor != null ? Number(policy.countRecountVarianceValueThresholdMinor) : null,
+  );
+  const [recountPercent, setRecountPercent] = useState(bpsToPercent(policy?.countRecountVariancePercentBps));
+  const recountBps = percentToBps(recountPercent);
+
   async function save() {
+    if (recountBps === undefined) return;
     await action.run(
       () =>
         services.inventory.createApprovalPolicy(branchId, {
           adjustmentValueThresholdMinor: adjustment === null ? null : String(adjustment),
           countVarianceValueThresholdMinor: countVariance === null ? null : String(countVariance),
           wasteValueThresholdMinor: waste === null ? null : String(waste),
+          countRecountVarianceValueThresholdMinor: recountValue === null ? null : String(recountValue),
+          countRecountVariancePercentBps: recountBps,
         }),
       { onSuccess: onSaved },
     );
@@ -180,13 +190,22 @@ function ApprovalPolicyForm({
         <MoneyInput value={waste} onChange={setWaste} currency={currency} disabled={action.pending} />
       </Field>
 
+      <Field label={t("inv.recountValueThreshold")} hint={t("inv.recountThresholdHint")}>
+        <MoneyInput value={recountValue} onChange={setRecountValue} currency={currency} disabled={action.pending} min={0} />
+      </Field>
+      <Field label={t("inv.recountPercentThreshold")} hint={t("inv.recountPercentHint")}>
+        <Input inputMode="decimal" dir="ltr" value={recountPercent} disabled={action.pending}
+          aria-invalid={recountBps === undefined} onChange={(event) => setRecountPercent(event.target.value)} />
+      </Field>
+      {recountBps === undefined ? <Callout tone="bad">{t("inv.recountPercentInvalid")}</Callout> : null}
+
       {policy ? (
         <p className="text-fg-subtle text-xs">
           {t("inv.approvalPolicyEffectiveSince")} {formatDateTime(policy.effectiveFrom, fmt)}
         </p>
       ) : null}
 
-      <Button variant="primary" loading={action.pending} onClick={save}>
+      <Button variant="primary" loading={action.pending} disabled={recountBps === undefined} onClick={save}>
         {t("common.save")}
       </Button>
     </div>

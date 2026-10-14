@@ -1071,7 +1071,14 @@ export function toCountLine(row: WireCountLine, context: LevelContext = {}): Cou
     varianceValue: { amount: Math.round(unitCost.amount * variance), currency: unitCost.currency },
     variancePercent: expected === 0 ? 0 : (variance / expected) * 100,
     flagged: Math.abs(variance) > 0,
-    recount: false,
+    recount: row.recountOfLineId != null,
+    recountOfLineId: row.recountOfLineId,
+    countedBy: row.countedBy,
+    countedAt: row.countedAt,
+    varianceExplanation: row.varianceExplanation,
+    varianceExplainedBy: row.varianceExplainedBy,
+    varianceExplainedAt: row.varianceExplainedAt,
+    isCurrentHead: row.isCurrentHead,
   };
 }
 

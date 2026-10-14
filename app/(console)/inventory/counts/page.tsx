@@ -19,6 +19,7 @@ import { Plus, X } from "lucide-react";
 import type { CountLine, CountSession, Id, Localised, StockItem } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
+import { countVarianceViolations, type CountVarianceViolation } from "@/lib/console/count-variance-review";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import {
@@ -52,6 +53,7 @@ import {
   Input,
   Select,
   Toast,
+  Textarea,
   Toggle,
 } from "@/components/console/ui";
 
@@ -331,6 +333,7 @@ export function CountsScreen() {
       </PageBody>
 
       <CountDrawer
+        key={selected?.id ?? "none"}
         session={selected}
         onClose={() => setSelected(null)}
         onChanged={(note) => {
@@ -359,7 +362,7 @@ export function CountsScreen() {
 
 // ---------------------------------------------------------------------------
 
-function CountDrawer({
+export function CountDrawer({
   session,
   onClose,
   onChanged,
@@ -373,6 +376,9 @@ function CountDrawer({
   const canCount = usePermission("inventory.count.perform");
   const action = useAction();
   const [editing, setEditing] = useState<CountLine | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [violations, setViolations] = useState<CountVarianceViolation[]>([]);
+  const [review, setReview] = useState<{ line: CountLine; mode: "recount" | "explanation" } | null>(null);
   const scopeCatalogues = useScopeCatalogues();
 
   /**
@@ -381,21 +387,50 @@ function CountDrawer({
    * `counts.get()` is what fans that out.
    */
   const detail = useAsync(
-    async () => (session ? services.inventory.counts.get(session.id) : null),
+    async () => {
+      const result = session ? await services.inventory.counts.get(session.id) : null;
+      setRefreshing(false);
+      return result;
+    },
     [session?.id],
   );
 
   const current = detail.data ?? session;
   const hidden = current ? expectedIsHidden(current) : false;
+  // Only an authoritative, loaded in_progress session can be edited.
+  const canPerform = canCount && current?.status === "counting" &&
+    detail.data?.id === session?.id && !detail.loading && !refreshing && !detail.error && !action.pending;
+  const violationIds = new Set(violations.map((v) => v.lineId));
+  const canEdit = (line: CountLine) => canPerform && line.isCurrentHead === true && line.varianceExplanation === null;
+  const canReview = (line: CountLine) => canPerform && line.isCurrentHead === true && (violationIds.has(line.id) || line.varianceExplanation !== null);
+
+  function reviewed(lineId: string, message: string) {
+    setReview(null);
+    setRefreshing(true);
+    setViolations((previous) => previous.filter((v) => v.lineId !== lineId));
+    action.clearError();
+    detail.reload();
+    onChanged(message);
+  }
 
   async function post() {
-    if (!session) return;
+    if (!session || detail.loading || refreshing || detail.error || action.pending || review || editing) return;
     // FR-INV-047 — the backend alone decides whether this posts directly
     // or goes to approval; `update()`'s own refetch already carries the
     // real resulting status, so that is what drives the message, never an
     // assumption that posting the request means the count actually posted.
     await action.run(() => services.inventory.counts.update(session.id, { status: "posted" }), {
+      onError: (error) => {
+        const blockedLines = countVarianceViolations(error);
+        setViolations(blockedLines);
+        if (blockedLines.length > 0) {
+          setRefreshing(true);
+          detail.reload();
+        }
+      },
       onSuccess: (updated) => {
+        setRefreshing(true);
+        setViolations([]);
         detail.reload();
         onChanged(
           updated.status === "pending_approval" ? t("inv.countSubmittedForApproval") : t("inv.countPosted"),
@@ -404,7 +439,7 @@ function CountDrawer({
     });
   }
 
-  const columns = useMemo<Column<CountLine>[]>(() => {
+  const columns: Column<CountLine>[] = (() => {
     const base: Column<CountLine>[] = [
       {
         key: "item",
@@ -480,13 +515,26 @@ function CountDrawer({
         <span className="flex flex-wrap gap-1">
           {row.flagged ? <Badge tone="warn">{t("inv.flagged")}</Badge> : null}
           {row.recount ? <Badge tone="bad">{t("inv.recount")}</Badge> : null}
-          {!row.flagged && !row.recount ? <span className="text-fg-subtle">—</span> : null}
+          {row.isCurrentHead === false ? <Badge tone="muted">{t("inv.historicalMeasurement")}</Badge> : null}
+          {violationIds.has(row.id) ? <Badge tone="bad">{t("inv.varianceReviewLine")}</Badge> : null}
+          {row.varianceExplanation ? <span className="text-xs">{row.varianceExplanation}</span> : null}
+          {!row.flagged && !row.recount && !violationIds.has(row.id) ? <span className="text-fg-subtle">—</span> : null}
         </span>
       ),
     });
 
+    if (current?.lines.some((row) => row.isCurrentHead === true && (violationIds.has(row.id) || row.varianceExplanation !== null))) base.push({
+      key: "reviewActions",
+      header: t("inv.varianceExplanation"),
+      render: (row) => (violationIds.has(row.id) || row.varianceExplanation !== null) && row.isCurrentHead === true ? (
+        <span className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+          <Button disabled={!canReview(row)} onClick={() => setReview({ line: row, mode: "recount" })}>{t("inv.recountAction")}</Button>
+          <Button disabled={!canReview(row)} onClick={() => setReview({ line: row, mode: "explanation" })}>{t("inv.addExplanation")}</Button>
+        </span>
+      ) : null,
+    });
     return base;
-  }, [t, tx, fmt, hidden]);
+  })();
 
   if (!session || !current) return null;
 
@@ -501,7 +549,7 @@ function CountDrawer({
       subtitle={scopeDetail(current, tx, scopeCatalogues)}
       footer={
         canPost && (current.status === "submitted" || current.status === "counting") ? (
-          <Button variant="primary" loading={action.pending} onClick={post}>
+          <Button variant="primary" loading={action.pending} disabled={detail.loading || refreshing || Boolean(detail.error) || editing !== null || review !== null} onClick={post}>
             {t("inv.postCount")}
           </Button>
         ) : null
@@ -509,6 +557,8 @@ function CountDrawer({
     >
       <div className="space-y-5">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+        {detail.error ? <Callout tone="bad">{detail.error.message}</Callout> : null}
+        {violations.length > 0 ? <Callout tone="warn">{t("inv.varianceReviewRequired")}</Callout> : null}
         {hidden ? <Callout tone="accent">{t("inv.blindNote")}</Callout> : null}
 
         <DescList>
@@ -553,18 +603,25 @@ function CountDrawer({
               // FR-INV-047 — a pending_approval session is never editable:
               // it is frozen awaiting a Governance decision, not merely
               // "not yet posted" (the bug this condition used to have).
-              canCount && current.status !== "posted" && current.status !== "pending_approval"
-                ? setEditing
-                : undefined
+              canPerform ? (line) => { if (canEdit(line)) setEditing(line); } : undefined
             }
             dense
           />
 
+          <VarianceReviewDrawer
+            key={review ? `${review.line.id}:${review.mode}` : "none"}
+            review={review}
+            enabled={review !== null && current.lines.some((l) => l.id === review.line.id && canReview(l))}
+            onClose={() => setReview(null)}
+            onSaved={(lineId, mode) => reviewed(lineId, t(mode === "recount" ? "inv.recountRecorded" : "inv.explanationRecorded"))}
+          />
           <RecordCountDrawer
             line={editing}
+            enabled={editing !== null && canEdit(editing) && current.lines.some((l) => l.id === editing.id && l.isCurrentHead === true && l.varianceExplanation === null)}
             onClose={() => setEditing(null)}
             onSaved={() => {
               setEditing(null);
+              setRefreshing(true);
               detail.reload();
               onChanged(t("inv.countRecorded"));
             }}
@@ -585,10 +642,12 @@ function CountDrawer({
  */
 function RecordCountDrawer({
   line,
+  enabled,
   onClose,
   onSaved,
 }: {
   line: CountLine | null;
+  enabled: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -602,7 +661,7 @@ function RecordCountDrawer({
 
   if (!line) return null;
 
-  const valid = counted.trim() !== "" && Number.isFinite(Number(counted));
+  const valid = enabled && counted.trim() !== "" && Number.isFinite(Number(counted));
 
   async function save() {
     if (!line || !valid) return;
@@ -643,6 +702,7 @@ function RecordCountDrawer({
           <Input
             inputMode="decimal"
             dir="ltr"
+            disabled={!enabled || action.pending}
             value={counted}
             onChange={(event) => setCounted(event.target.value)}
           />
@@ -653,6 +713,48 @@ function RecordCountDrawer({
 }
 
 // ---------------------------------------------------------------------------
+
+/** A new immutable measurement or an explanation; neither decides approval. */
+function VarianceReviewDrawer({ review, enabled, onClose, onSaved }: {
+  review: { line: CountLine; mode: "recount" | "explanation" } | null;
+  enabled: boolean;
+  onClose: () => void;
+  onSaved: (lineId: string, mode: "recount" | "explanation") => void;
+}) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const [quantity, setQuantity] = useState("");
+  const [explanation, setExplanation] = useState(review?.line.varianceExplanation ?? "");
+  if (!review) return null;
+  const trimmed = explanation.trim();
+  const valid = enabled && (review.mode === "recount"
+    ? quantity.trim() !== "" && Number.isFinite(Number(quantity))
+    : trimmed.length > 0 && trimmed.length <= 500);
+  async function save() {
+    if (!review || !valid) return;
+    await action.run(() => review.mode === "recount"
+      ? services.inventory.recordRecount(review.line.id, quantity.trim())
+      : services.inventory.recordVarianceExplanation(review.line.id, trimmed), {
+      onSuccess: () => onSaved(review.line.id, review.mode),
+    });
+  }
+  return <Drawer open onClose={onClose} title={t(review.mode === "recount" ? "inv.recountAction" : "inv.addExplanation")}
+    subtitle={tx(review.line.itemName)} footer={<div className="flex gap-2">
+      <Button variant="primary" disabled={!valid} loading={action.pending} onClick={save}>{t("common.save")}</Button>
+      <Button variant="ghost" disabled={action.pending} onClick={onClose}>{t("common.cancel")}</Button>
+    </div>}>
+    <div className="space-y-4">
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      {review.mode === "recount" ? <Field label={t("inv.counted")} required>
+        <Input inputMode="decimal" dir="ltr" value={quantity} disabled={!enabled || action.pending}
+          onChange={(event) => setQuantity(event.target.value)} />
+      </Field> : <Field label={t("inv.varianceExplanation")} hint={t("inv.explanationHint")} required>
+        <Textarea value={explanation} disabled={!enabled || action.pending} aria-invalid={trimmed.length > 500}
+          onChange={(event) => setExplanation(event.target.value)} />
+      </Field>}
+    </div>
+  </Drawer>;
+}
 
 /**
  * FR-INV-041 — open a session and freeze expected quantities for its scope.

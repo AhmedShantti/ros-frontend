@@ -122,6 +122,8 @@ describe("Inventory approval policy — Save (real POST, minor-unit strings)", (
         adjustmentValueThresholdMinor: "50000",
         countVarianceValueThresholdMinor: "100000",
         wasteValueThresholdMinor: "30000",
+        countRecountVarianceValueThresholdMinor: null,
+        countRecountVariancePercentBps: null,
       }),
     );
     const [, body] = createApprovalPolicy.mock.calls[0]!;
@@ -169,5 +171,69 @@ describe("Inventory approval policy — Save (real POST, minor-unit strings)", (
 
     await user.click(screen.getByRole("button", { name: "common.save" }));
     await waitFor(() => expect(createApprovalPolicy).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("FR-INV-046 policy controls", () => {
+  it.each([["10", 1000], ["5.25", 525], ["0.01", 1], ["125.50", 12550]])("saves %s percent as %i basis points", async (text, bps) => {
+    const user = userEvent.setup();
+    render(<InventoryApprovalPolicyPage />);
+    await user.type(await screen.findByLabelText(/^inv\.recountPercentThreshold/), text);
+    await user.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() => expect(createApprovalPolicy).toHaveBeenCalledWith("branch-a", {
+      adjustmentValueThresholdMinor: null, countVarianceValueThresholdMinor: null,
+      wasteValueThresholdMinor: null, countRecountVarianceValueThresholdMinor: null,
+      countRecountVariancePercentBps: bps,
+    }));
+  });
+
+  it("blank recount fields send explicit null and existing fields stay unchanged", async () => {
+    getApprovalPolicy.mockResolvedValue(EXISTING_POLICY);
+    const user = userEvent.setup(); render(<InventoryApprovalPolicyPage />);
+    await screen.findByLabelText(/^inv\.recountPercentThreshold/);
+    await user.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() => expect(createApprovalPolicy).toHaveBeenCalledWith("branch-a", {
+      adjustmentValueThresholdMinor: "50000", countVarianceValueThresholdMinor: "100000",
+      wasteValueThresholdMinor: "30000", countRecountVarianceValueThresholdMinor: null,
+      countRecountVariancePercentBps: null,
+    }));
+  });
+
+  it("pre-fills both new fields, uses server currency, and saves major-unit recount value", async () => {
+    getApprovalPolicy.mockResolvedValue({ ...EXISTING_POLICY, currency: "AED",
+      countRecountVarianceValueThresholdMinor: "1234", countRecountVariancePercentBps: 525 });
+    const user = userEvent.setup(); render(<InventoryApprovalPolicyPage />);
+    const value = await screen.findByLabelText(/^inv\.recountValueThreshold/);
+    expect(value).toHaveValue("12.34");
+    expect(screen.getByLabelText(/^inv\.recountPercentThreshold/)).toHaveValue("5.25");
+    expect(screen.getAllByText("AED").length).toBeGreaterThan(0);
+    await user.clear(value); await user.type(value, "25.50");
+    await user.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() => expect(createApprovalPolicy).toHaveBeenCalledWith("branch-a", expect.objectContaining({
+      countRecountVarianceValueThresholdMinor: "2550", countRecountVariancePercentBps: 525,
+    })));
+  });
+
+  it("clearing previously configured recount fields disables both dimensions with explicit null", async () => {
+    getApprovalPolicy.mockResolvedValue({ ...EXISTING_POLICY,
+      countRecountVarianceValueThresholdMinor: "1234", countRecountVariancePercentBps: 525 });
+    const user = userEvent.setup(); render(<InventoryApprovalPolicyPage />);
+    await user.clear(await screen.findByLabelText(/^inv\.recountValueThreshold/));
+    await user.clear(screen.getByLabelText(/^inv\.recountPercentThreshold/));
+    await user.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() => expect(createApprovalPolicy).toHaveBeenCalledWith("branch-a", {
+      adjustmentValueThresholdMinor: "50000", countVarianceValueThresholdMinor: "100000",
+      wasteValueThresholdMinor: "30000", countRecountVarianceValueThresholdMinor: null,
+      countRecountVariancePercentBps: null,
+    }));
+  });
+
+  it("rejects non-whole-bps percentage without a request", async () => {
+    const user = userEvent.setup(); render(<InventoryApprovalPolicyPage />);
+    await user.type(await screen.findByLabelText(/^inv\.recountPercentThreshold/), "5.251");
+    expect(screen.getByText("inv.recountPercentInvalid")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "common.save" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "common.save" }));
+    expect(createApprovalPolicy).not.toHaveBeenCalled();
   });
 });

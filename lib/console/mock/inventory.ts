@@ -349,7 +349,14 @@ export const countSessions: CountSession[] = (() => {
         varianceValue: EGP(varianceQty * stockItem.unitCost.amount),
         variancePercent: Math.round(variancePercent * 10) / 10,
         flagged: Math.abs(variancePercent) > 6,
-        recount: Math.abs(variancePercent) > 12 && chance(rng, 0.4),
+        recount: false,
+        recountOfLineId: null,
+        countedBy: counted === null ? null : 'demo-counter',
+        countedAt: counted === null ? null : new Date().toISOString(),
+        varianceExplanation: null,
+        varianceExplainedBy: null,
+        varianceExplainedAt: null,
+        isCurrentHead: true,
       };
     });
 

@@ -157,3 +157,16 @@ describe("Inventory approval policy — FR-INV-035/047/058 HTTP boundary", () =>
     expect(createPolicy).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("FR-INV-046 policy HTTP mapping", () => {
+  it("maps both new fields exactly and posts them without changing the three approval fields", async () => {
+    const row = { ...POLICY_ROW, countRecountVarianceValueThresholdMinor: "1250", countRecountVariancePercentBps: 525 };
+    getPolicy.mockResolvedValue({ policy: row }); createPolicy.mockResolvedValue(row);
+    const policy = await httpServices.inventory.getApprovalPolicy("branch-1");
+    expect(policy).toEqual(row);
+    const input = { adjustmentValueThresholdMinor: "50000", countVarianceValueThresholdMinor: "100000",
+      wasteValueThresholdMinor: "30000", countRecountVarianceValueThresholdMinor: null, countRecountVariancePercentBps: null };
+    expect(await httpServices.inventory.createApprovalPolicy("branch-1", input)).toEqual(row);
+    expect(createPolicy).toHaveBeenCalledWith("branch-1", input);
+  });
+});

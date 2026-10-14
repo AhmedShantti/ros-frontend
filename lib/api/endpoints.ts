@@ -275,6 +275,14 @@ export const inventory = {
   recordCount: (lineId: string, body: S.RecordCountDto) =>
     http.post<S.InventoryController_recordCountResponse>("/inventory/count-lines/{lineId}", { params: { lineId }, body }),
 
+  /** `POST /inventory/count-lines/{lineId}/recount` — Record a recount for one count line (FR-INV-046). Creates a new line; the original is retained. — The newly created recount line. */
+  recordRecount: (lineId: string, body: S.RecordCountDto) =>
+    http.post<S.InventoryController_recordRecountResponse>("/inventory/count-lines/{lineId}/recount", { params: { lineId }, body, idempotent: true }),
+
+  /** `POST /inventory/count-lines/{lineId}/variance-explanation` — Record a written variance explanation for one count line (FR-INV-046). — The recorded (or replaced) explanation. */
+  recordVarianceExplanation: (lineId: string, body: S.RecordVarianceExplanationDto) =>
+    http.post<S.InventoryController_recordVarianceExplanationResponse>("/inventory/count-lines/{lineId}/variance-explanation", { params: { lineId }, body }),
+
   /** `GET /inventory/counts` — List count sessions, newest first (FR-INV-050). — Up to 200 count sessions matching the given filters. */
   listCounts: (options: { status?: string; mode?: string; locationId?: string } = {}) =>
     http.get<S.InventoryController_listCountsResponse>("/inventory/counts", { query: { status: options.status, mode: options.mode, locationId: options.locationId } }),

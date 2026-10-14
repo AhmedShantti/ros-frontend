@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 214 paths, 144 request DTOs.
+ * `api/openapi.json`. 216 paths, 145 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -268,6 +268,10 @@ export interface CreateEmployeeDto {
 
 export interface CreateInventoryApprovalPolicyDto {
   adjustmentValueThresholdMinor: string | null;
+  /** See `countRecountVarianceValueThresholdMinor`'s own doc comment for the omitted/null/value rule. Basis points — deliberately uncapped (may exceed 10000). */
+  countRecountVariancePercentBps?: number | null;
+  /** FR-INV-046 (2026-10-12 closure) — deliberately DIFFERENT omission rule from the three required fields above: these two are each OPTIONAL (may be left out of the body entirely), because a stale/old frontend client that only knows the original three fields must not accidentally erase an already-configured FR-INV-046 setting by omitting it. - omitted (key absent) -> preserve the branch's current effective value for this field. - explicit JSON `null` -> disable this dimension. - a value -> set it. `@IsOptional()` is what makes BOTH `undefined` and an explicit `null` skip the format validator below — exactly the existing `UpdatePackagingUnitDto.supplierId` precedent ("null clears it; omitted leaves it unchanged"). */
+  countRecountVarianceValueThresholdMinor?: string | null;
   countVarianceValueThresholdMinor: string | null;
   /** Omitted = effective immediately (resolved to DATABASE time). */
   effectiveFrom?: string;
@@ -828,6 +832,10 @@ export interface RecipeLineDto {
 
 export interface RecordCountDto {
   countedQuantity: string;
+}
+
+export interface RecordVarianceExplanationDto {
+  explanation: string;
 }
 
 export interface RecordWasteDto {
@@ -1925,6 +1933,10 @@ export type InventoryApprovalPolicyController_getPolicyResponse = {
     /** FR-INV-035. Non-negative minor-unit integer string, or null to always require approval for this action. */
     adjustmentValueThresholdMinor: string | null;
     branchId: string;
+    /** FR-INV-046 — per-count-line percentage-variance threshold, basis points (500 = 5.00%). Null = not evaluated. Uncapped — may exceed 10000. */
+    countRecountVariancePercentBps: number | null;
+    /** FR-INV-046 — per-count-line value threshold, NOT the FR-INV-047 session-aggregate threshold above. Non-negative minor-unit integer string, or null to always require approval for this action. */
+    countRecountVarianceValueThresholdMinor: string | null;
     /** FR-INV-047. Non-negative minor-unit integer string, or null to always require approval for this action. */
     countVarianceValueThresholdMinor: string | null;
     createdAt: string;
@@ -1942,6 +1954,10 @@ export type InventoryApprovalPolicyController_createPolicyResponse = {
   /** FR-INV-035. Non-negative minor-unit integer string, or null to always require approval for this action. */
   adjustmentValueThresholdMinor: string | null;
   branchId: string;
+  /** FR-INV-046 — per-count-line percentage-variance threshold, basis points (500 = 5.00%). Null = not evaluated. Uncapped — may exceed 10000. */
+  countRecountVariancePercentBps: number | null;
+  /** FR-INV-046 — per-count-line value threshold, NOT the FR-INV-047 session-aggregate threshold above. Non-negative minor-unit integer string, or null to always require approval for this action. */
+  countRecountVarianceValueThresholdMinor: string | null;
   /** FR-INV-047. Non-negative minor-unit integer string, or null to always require approval for this action. */
   countVarianceValueThresholdMinor: string | null;
   createdAt: string;
@@ -3011,6 +3027,36 @@ export type InventoryController_recordCountResponse = {
 
 export type InventoryController_recordCountBody = RecordCountDto;
 
+/** `POST /inventory/count-lines/{lineId}/recount` — Record a recount for one count line (FR-INV-046). Creates a new line; the original is retained. — The newly created recount line. */
+export type InventoryController_recordRecountResponse = {
+  countedAt: string;
+  countedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  countedQuantity: string | null;
+  /** Copied forward from the recounted line — never re-read from current stock (FR-INV-044). */
+  expectedQuantity: string | null;
+  /** The new (recount) count line. */
+  id: string;
+  /** The line this recount targets. */
+  recountOfLineId: string;
+  stockItemId: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  variance: string | null;
+};
+
+export type InventoryController_recordRecountBody = RecordCountDto;
+
+/** `POST /inventory/count-lines/{lineId}/variance-explanation` — Record a written variance explanation for one count line (FR-INV-046). — The recorded (or replaced) explanation. */
+export type InventoryController_recordVarianceExplanationResponse = {
+  /** The count line this explanation was recorded on. */
+  id: string;
+  varianceExplainedAt: string;
+  varianceExplainedBy: string;
+  varianceExplanation: string;
+};
+
+export type InventoryController_recordVarianceExplanationBody = RecordVarianceExplanationDto;
+
 /** `GET /inventory/counts` — List count sessions, newest first (FR-INV-050). — Up to 200 count sessions matching the given filters. */
 export type InventoryController_listCountsResponse = ({
   id: string;
@@ -3066,14 +3112,23 @@ export type InventoryController_getCountResponse = {
 
 /** `GET /inventory/counts/{sessionId}/lines` — This session's count lines. expectedQuantity/countedQuantity/variance are null while a blind count is still in_progress and not yet recorded. */
 export type InventoryController_countLinesResponse = ({
+  countedAt: string | null;
+  countedBy: string | null;
   /** Decimal quantity as a string (preserves exact precision). */
   countedQuantity: string | null;
   /** Hidden (returned null) while the session is a blind count still in progress. */
   expectedQuantity: string | null;
   id: string;
+  /** True iff no line in this session recounts this line. Historical rows remain in the response. */
+  isCurrentHead: boolean;
+  /** The prior measurement, or null for a root line. */
+  recountOfLineId: string | null;
   stockItemId: string;
   /** Decimal quantity as a string (preserves exact precision). */
   variance: string | null;
+  varianceExplainedAt: string | null;
+  varianceExplainedBy: string | null;
+  varianceExplanation: string | null;
 })[];
 
 /** `POST /inventory/counts/{sessionId}/post` — Post a count session: writes count_adjustment movements bringing recorded stock to counted stock. — The posted count session. */
@@ -8586,6 +8641,8 @@ export const ROUTES = {
   InventoryController_listCategories: { method: "GET", path: "/inventory/categories" },
   InventoryController_createCategory: { method: "POST", path: "/inventory/categories" },
   InventoryController_recordCount: { method: "POST", path: "/inventory/count-lines/{lineId}" },
+  InventoryController_recordRecount: { method: "POST", path: "/inventory/count-lines/{lineId}/recount" },
+  InventoryController_recordVarianceExplanation: { method: "POST", path: "/inventory/count-lines/{lineId}/variance-explanation" },
   InventoryController_listCounts: { method: "GET", path: "/inventory/counts" },
   InventoryController_openCount: { method: "POST", path: "/inventory/counts" },
   InventoryController_getCount: { method: "GET", path: "/inventory/counts/{sessionId}" },

@@ -1722,12 +1722,46 @@ const inventory: InventoryService = {
 
   // -- Counting --------------------------------------------------------------
 
+  async recordRecount(lineId, countedQuantity) {
+    return transport(() => {
+      const session = countSessions.find((s) => s.lines.some((l) => l.id === lineId));
+      const line = session?.lines.find((l) => l.id === lineId);
+      if (!session || !line) throw new ServiceError("NOT_FOUND", "Count line not found.", 404);
+      if (session.status !== "counting" || !line.isCurrentHead) throw new ServiceError("CONFLICT", "This count line cannot be recounted.", 409);
+      const variance = Number(countedQuantity) - Number(line.expected.value);
+      session.lines.push({ ...line, id: crypto.randomUUID(), recountOfLineId: line.id,
+        counted: { ...line.expected, value: countedQuantity }, countedBy: 'demo-counter', countedAt: new Date().toISOString(),
+        varianceQty: variance, variancePercent: Number(line.expected.value) === 0 ? 0 : variance / Number(line.expected.value) * 100,
+        varianceValue: { ...line.varianceValue, amount: line.varianceQty === 0 ? 0 : Math.round(line.varianceValue.amount / line.varianceQty * variance) },
+        recount: true, varianceExplanation: null, varianceExplainedBy: null, varianceExplainedAt: null,
+        isCurrentHead: true });
+      line.isCurrentHead = false;
+    });
+  },
+
+  async recordVarianceExplanation(lineId, explanation) {
+    return transport(() => {
+      const session = countSessions.find((s) => s.lines.some((l) => l.id === lineId));
+      const line = session?.lines.find((l) => l.id === lineId);
+      if (!session || !line) throw new ServiceError("NOT_FOUND", "Count line not found.", 404);
+      if (session.status !== "counting" || !line.isCurrentHead) throw new ServiceError("CONFLICT", "This count line cannot be explained.", 409);
+      const trimmed = explanation.trim();
+      if (!trimmed || trimmed.length > 500) throw new ServiceError("BAD_REQUEST", "Enter an explanation of up to 500 characters.", 400);
+      line.varianceExplanation = trimmed;
+      line.varianceExplainedBy = 'demo-counter';
+      line.varianceExplainedAt = new Date().toISOString();
+    });
+  },
+
   async recordCount(lineId, countedQuantity) {
     return transport(() => {
       for (const session of countSessions) {
         const line = session.lines.find((row) => row.id === lineId);
         if (!line) continue;
 
+        if (session.status !== "counting" || !line.isCurrentHead || line.varianceExplanation !== null) throw new ServiceError("CONFLICT", "This measurement cannot be edited.", 409);
+        line.countedBy = 'demo-counter';
+        line.countedAt = new Date().toISOString();
         line.counted = { value: countedQuantity, unit: line.expected.unit };
         const expected = Number(line.expected.value);
         const counted = Number(countedQuantity);
@@ -1919,6 +1953,8 @@ const inventory: InventoryService = {
         currency: branch.currency,
         adjustmentValueThresholdMinor: input.adjustmentValueThresholdMinor,
         countVarianceValueThresholdMinor: input.countVarianceValueThresholdMinor,
+        countRecountVarianceValueThresholdMinor: input.countRecountVarianceValueThresholdMinor === undefined ? demoApprovalPolicies.get(branchId)?.countRecountVarianceValueThresholdMinor ?? null : input.countRecountVarianceValueThresholdMinor,
+        countRecountVariancePercentBps: input.countRecountVariancePercentBps === undefined ? demoApprovalPolicies.get(branchId)?.countRecountVariancePercentBps ?? null : input.countRecountVariancePercentBps,
         wasteValueThresholdMinor: input.wasteValueThresholdMinor,
         effectiveFrom: now,
         createdAt: now,

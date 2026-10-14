@@ -163,6 +163,8 @@ export const API_COVERAGE = {
     "inventory.counts",
     "inventory.transfers",
     "inventory.recordCount",
+    "inventory.recordRecount",
+    "inventory.recordVarianceExplanation",
     "inventory.receiveTransfer",
     "inventory.setReorderConfig",
     "inventory.reasonCodes",
@@ -2005,6 +2007,14 @@ const inventory: InventoryService = {
 
   // -- Counting --------------------------------------------------------------
 
+  async recordRecount(lineId, countedQuantity) {
+    await api.inventory.recordRecount(lineId, { countedQuantity });
+  },
+
+  async recordVarianceExplanation(lineId, explanation) {
+    await api.inventory.recordVarianceExplanation(lineId, { explanation });
+  },
+
   async recordCount(lineId, countedQuantity) {
     await api.inventory.recordCount(lineId, { countedQuantity });
   },
@@ -2126,6 +2136,8 @@ const inventory: InventoryService = {
       currency: map.currencyOf(policy.currency),
       adjustmentValueThresholdMinor: policy.adjustmentValueThresholdMinor,
       countVarianceValueThresholdMinor: policy.countVarianceValueThresholdMinor,
+      countRecountVarianceValueThresholdMinor: policy.countRecountVarianceValueThresholdMinor,
+      countRecountVariancePercentBps: policy.countRecountVariancePercentBps,
       wasteValueThresholdMinor: policy.wasteValueThresholdMinor,
       effectiveFrom: policy.effectiveFrom,
       createdAt: policy.createdAt,
@@ -2136,6 +2148,10 @@ const inventory: InventoryService = {
     const row = await api.inventory.createPolicy(branchId, {
       adjustmentValueThresholdMinor: input.adjustmentValueThresholdMinor,
       countVarianceValueThresholdMinor: input.countVarianceValueThresholdMinor,
+      ...(input.countRecountVarianceValueThresholdMinor !== undefined
+        ? { countRecountVarianceValueThresholdMinor: input.countRecountVarianceValueThresholdMinor } : {}),
+      ...(input.countRecountVariancePercentBps !== undefined
+        ? { countRecountVariancePercentBps: input.countRecountVariancePercentBps } : {}),
       wasteValueThresholdMinor: input.wasteValueThresholdMinor,
     });
     return {
@@ -2144,6 +2160,8 @@ const inventory: InventoryService = {
       currency: map.currencyOf(row.currency),
       adjustmentValueThresholdMinor: row.adjustmentValueThresholdMinor,
       countVarianceValueThresholdMinor: row.countVarianceValueThresholdMinor,
+      countRecountVarianceValueThresholdMinor: row.countRecountVarianceValueThresholdMinor,
+      countRecountVariancePercentBps: row.countRecountVariancePercentBps,
       wasteValueThresholdMinor: row.wasteValueThresholdMinor,
       effectiveFrom: row.effectiveFrom,
       createdAt: row.createdAt,

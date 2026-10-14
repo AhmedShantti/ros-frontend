@@ -860,6 +860,21 @@
               "null"
             ]
           },
+          "countRecountVariancePercentBps": {
+            "description": "See `countRecountVarianceValueThresholdMinor`'s own doc comment for the omitted/null/value rule. Basis points — deliberately uncapped (may exceed 10000).",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "countRecountVarianceValueThresholdMinor": {
+            "description": "FR-INV-046 (2026-10-12 closure) — deliberately DIFFERENT omission rule\nfrom the three required fields above: these two are each OPTIONAL\n(may be left out of the body entirely), because a stale/old frontend\nclient that only knows the original three fields must not accidentally\nerase an already-configured FR-INV-046 setting by omitting it.\n  - omitted (key absent)      -> preserve the branch's current\n    effective value for this field.\n  - explicit JSON `null`      -> disable this dimension.\n  - a value                   -> set it.\n`@IsOptional()` is what makes BOTH `undefined` and an explicit `null`\nskip the format validator below — exactly the existing\n`UpdatePackagingUnitDto.supplierId` precedent (\"null clears it; omitted\nleaves it unchanged\").",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "countVarianceValueThresholdMinor": {
             "type": [
               "string",
@@ -2782,6 +2797,19 @@
         },
         "required": [
           "countedQuantity"
+        ],
+        "type": "object"
+      },
+      "RecordVarianceExplanationDto": {
+        "properties": {
+          "explanation": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "explanation"
         ],
         "type": "object"
       },
@@ -8669,6 +8697,20 @@
                           "format": "uuid",
                           "type": "string"
                         },
+                        "countRecountVariancePercentBps": {
+                          "description": "FR-INV-046 — per-count-line percentage-variance threshold, basis points (500 = 5.00%). Null = not evaluated. Uncapped — may exceed 10000.",
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "countRecountVarianceValueThresholdMinor": {
+                          "description": "FR-INV-046 — per-count-line value threshold, NOT the FR-INV-047 session-aggregate threshold above. Non-negative minor-unit integer string, or null to always require approval for this action.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
                         "countVarianceValueThresholdMinor": {
                           "description": "FR-INV-047. Non-negative minor-unit integer string, or null to always require approval for this action.",
                           "type": [
@@ -8807,6 +8849,20 @@
                       "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                       "format": "uuid",
                       "type": "string"
+                    },
+                    "countRecountVariancePercentBps": {
+                      "description": "FR-INV-046 — per-count-line percentage-variance threshold, basis points (500 = 5.00%). Null = not evaluated. Uncapped — may exceed 10000.",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "countRecountVarianceValueThresholdMinor": {
+                      "description": "FR-INV-046 — per-count-line value threshold, NOT the FR-INV-047 session-aggregate threshold above. Non-negative minor-unit integer string, or null to always require approval for this action.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     },
                     "countVarianceValueThresholdMinor": {
                       "description": "FR-INV-047. Non-negative minor-unit integer string, or null to always require approval for this action.",
@@ -16453,6 +16509,306 @@
         ]
       }
     },
+    "/inventory/count-lines/{lineId}/recount": {
+      "post": {
+        "operationId": "InventoryController_recordRecount",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lineId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Mandatory. A replay with the same key and request body returns the original recount unchanged; the same key with a different body is a 409.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordCountDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "countedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "countedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "countedQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "expectedQuantity": {
+                      "description": "Copied forward from the recounted line — never re-read from current stock (FR-INV-044).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "id": {
+                      "description": "The new (recount) count line.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "recountOfLineId": {
+                      "description": "The line this recount targets.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "stockItemId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "variance": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "recountOfLineId",
+                    "stockItemId",
+                    "expectedQuantity",
+                    "countedQuantity",
+                    "variance",
+                    "countedBy",
+                    "countedAt"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The newly created recount line."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The count session is not in_progress."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Count line not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "This line has already been recounted (it is no longer the current head), or the Idempotency-Key was reused with a different request body."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Record a recount for one count line (FR-INV-046). Creates a new line; the original is retained.",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/count-lines/{lineId}/variance-explanation": {
+      "post": {
+        "operationId": "InventoryController_recordVarianceExplanation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lineId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordVarianceExplanationDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "description": "The count line this explanation was recorded on.",
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "varianceExplainedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "varianceExplainedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "varianceExplanation": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "varianceExplanation",
+                    "varianceExplainedBy",
+                    "varianceExplainedAt"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The recorded (or replaced) explanation."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The count session is not in_progress, or the explanation is empty/whitespace-only or over 500 characters."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Count line not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "This line has already been recounted and is no longer the current head."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Record a written variance explanation for one count line (FR-INV-046).",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
     "/inventory/counts": {
       "get": {
         "operationId": "InventoryController_listCounts",
@@ -16922,6 +17278,21 @@
                 "schema": {
                   "items": {
                     "properties": {
+                      "countedAt": {
+                        "format": "date-time",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "countedBy": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
                       "countedQuantity": {
                         "description": "Decimal quantity as a string (preserves exact precision).",
                         "example": "2.5",
@@ -16945,6 +17316,19 @@
                         "format": "uuid",
                         "type": "string"
                       },
+                      "isCurrentHead": {
+                        "description": "True iff no line in this session recounts this line. Historical rows remain in the response.",
+                        "type": "boolean"
+                      },
+                      "recountOfLineId": {
+                        "description": "The prior measurement, or null for a root line.",
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
                       "stockItemId": {
                         "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                         "format": "uuid",
@@ -16954,6 +17338,27 @@
                         "description": "Decimal quantity as a string (preserves exact precision).",
                         "example": "2.5",
                         "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "varianceExplainedAt": {
+                        "format": "date-time",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "varianceExplainedBy": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "varianceExplanation": {
                         "type": [
                           "string",
                           "null"
@@ -17114,7 +17519,7 @@
                 }
               }
             },
-            "description": "The count session has already been posted, or is awaiting an approval decision."
+            "description": "The count session has already been posted, is awaiting an approval decision, or (FR-INV-046) one or more count lines exceed the configured variance threshold with neither a recount nor a written explanation — the response body then includes `violatingLines` (lineId/stockItemId/exceededDimensions, never cost or monetary value)."
           },
           "401": {
             "content": {

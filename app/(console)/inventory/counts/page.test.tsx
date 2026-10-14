@@ -862,6 +862,9 @@ describe("Stock counts — pending_approval (FR-INV-047 acceptance-review harden
     variancePercent: -20,
     flagged: true,
     recount: false,
+    recountOfLineId: null, countedBy: "u1", countedAt: "2026-01-01T00:00:00Z",
+    varianceExplanation: null, varianceExplainedBy: null, varianceExplainedAt: null,
+    isCurrentHead: true,
   };
 
   it("9. a pending_approval session renders a real, labelled status — never blank/undefined", async () => {

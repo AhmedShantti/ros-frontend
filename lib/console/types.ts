@@ -759,6 +759,14 @@ export interface CountLine {
   variancePercent: number;
   flagged: boolean;
   recount: boolean;
+  recountOfLineId: Id | null;
+  countedBy: Id | null;
+  countedAt: IsoDateTime | null;
+  varianceExplanation: string | null;
+  varianceExplainedBy: Id | null;
+  varianceExplainedAt: IsoDateTime | null;
+  /** Authoritative backend read field; never inferred from quantities. */
+  isCurrentHead: boolean;
 }
 
 export interface CountSession {
@@ -899,15 +907,19 @@ export interface InventoryApprovalPolicy {
   currency: Currency;
   adjustmentValueThresholdMinor: string | null;
   countVarianceValueThresholdMinor: string | null;
+  countRecountVarianceValueThresholdMinor: string | null;
+  countRecountVariancePercentBps: number | null;
   wasteValueThresholdMinor: string | null;
   effectiveFrom: IsoDateTime;
   createdAt: IsoDateTime;
 }
 
-/** The three thresholds a new effective policy version is created with. */
+/** Approval thresholds plus optional FR-INV-046 dimensions (omission carries forward). */
 export interface CreateInventoryApprovalPolicyInput {
   adjustmentValueThresholdMinor: string | null;
   countVarianceValueThresholdMinor: string | null;
+  countRecountVarianceValueThresholdMinor?: string | null;
+  countRecountVariancePercentBps?: number | null;
   wasteValueThresholdMinor: string | null;
 }
 
