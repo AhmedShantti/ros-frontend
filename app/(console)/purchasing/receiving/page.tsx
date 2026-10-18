@@ -31,7 +31,6 @@ import {
   formatMoney,
   formatNumber,
   formatPercent,
-  formatQuantity,
 } from "@/lib/console/format";
 import { RECEIPT_STATUS, labelOf } from "@/lib/console/labels";
 import { suppliers } from "@/lib/console/mock/purchasing";
@@ -287,13 +286,13 @@ function ReceiptDrawer({
         header: t("pur.ordered"),
         numeric: true,
         secondary: true,
-        render: (row) => formatQuantity(row.ordered, fmt),
+        render: (row) => `${row.ordered.value} ${row.purchaseUnitLabel ?? row.ordered.unit}`,
       },
       {
         key: "received",
         header: t("inv.received"),
         numeric: true,
-        render: (row) => formatQuantity(row.received, fmt),
+        render: (row) => `${row.received.value} ${row.purchaseUnitLabel ?? row.received.unit}`,
       },
       {
         key: "rejected",
@@ -304,7 +303,7 @@ function ReceiptDrawer({
           return rejected === 0 ? (
             <span className="text-fg-subtle">—</span>
           ) : (
-            <span className="text-bad">{formatQuantity(row.rejected, fmt)}</span>
+            <span className="text-bad">{row.rejected.value} {row.purchaseUnitLabel ?? row.rejected.unit}</span>
           );
         },
       },

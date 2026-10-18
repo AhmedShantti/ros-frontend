@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 219 paths, 148 request DTOs.
+ * `api/openapi.json`. 221 paths, 150 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -264,6 +264,15 @@ export interface CreateEmployeeDto {
   permittedBranchIds?: string[];
   position?: string;
   userId?: string;
+}
+
+export interface CreateGoodsReceiptDto {
+  lines: GoodsReceiptLineDto[];
+  locationId?: string;
+  purchaseOrderId?: string;
+  supplierId?: string;
+  temperatureC?: string;
+  temperatureOk?: boolean;
 }
 
 export interface CreateInventoryApprovalPolicyDto {
@@ -654,6 +663,19 @@ export interface FinalizeCashSessionCloseDto {
 
 export interface ForgotPasswordDto {
   email: string;
+}
+
+export interface GoodsReceiptLineDto {
+  batchNumber?: string;
+  expiryDate?: string;
+  productionDate?: string;
+  purchaseOrderLineId?: string;
+  purchaseUnitId: string;
+  receivedQuantity: string;
+  rejectedQuantity?: string;
+  rejectionReason?: string;
+  stockItemId: string;
+  unitPrice?: string;
 }
 
 export interface GpsDto {
@@ -6831,6 +6853,143 @@ export type ProcurementController_comparativePricingResponse = ({
   volumeTiers: (Record<string, unknown>)[] | null;
 })[];
 
+/** `GET /procurement/goods-receipts` */
+export type GoodsReceiptsController_listResponse = ({
+  currency: string;
+  id: string;
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedQuantity: string;
+    batchId: string | null;
+    batchNumber: string | null;
+    expiryDate: string | null;
+    id: string;
+    movementId: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedQuantity: string;
+    productionDate: string | null;
+    purchaseOrderLineId: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    purchaseUnitConversionFactor: string;
+    purchaseUnitId: string;
+    purchaseUnitLabel: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    rejectedQuantity: string;
+    rejectionReason: string | null;
+    stockItemId: string;
+    unitCostMinor: string;
+    unitPrice: string;
+  })[];
+  locationId: string;
+  purchaseOrderId: string | null;
+  purchaseOrderReference: string | null;
+  receivedAt: string;
+  receivedBy: string;
+  reference: string;
+  status: "posted";
+  supplierId: string;
+  supplierName: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  temperatureC: string | null;
+  temperatureOk: boolean;
+})[];
+
+/** `POST /procurement/goods-receipts` */
+export type GoodsReceiptsController_postResponse = {
+  currency: string;
+  id: string;
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedQuantity: string;
+    batchId: string | null;
+    batchNumber: string | null;
+    expiryDate: string | null;
+    id: string;
+    movementId: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedQuantity: string;
+    productionDate: string | null;
+    purchaseOrderLineId: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    purchaseUnitConversionFactor: string;
+    purchaseUnitId: string;
+    purchaseUnitLabel: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    rejectedQuantity: string;
+    rejectionReason: string | null;
+    stockItemId: string;
+    unitCostMinor: string;
+    unitPrice: string;
+  })[];
+  locationId: string;
+  purchaseOrderId: string | null;
+  purchaseOrderReference: string | null;
+  receivedAt: string;
+  receivedBy: string;
+  reference: string;
+  status: "posted";
+  supplierId: string;
+  supplierName: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  temperatureC: string | null;
+  temperatureOk: boolean;
+};
+
+export type GoodsReceiptsController_postBody = CreateGoodsReceiptDto;
+
+/** `GET /procurement/goods-receipts/{id}` */
+export type GoodsReceiptsController_getResponse = {
+  currency: string;
+  id: string;
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedQuantity: string;
+    batchId: string | null;
+    batchNumber: string | null;
+    expiryDate: string | null;
+    id: string;
+    movementId: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedQuantity: string;
+    productionDate: string | null;
+    purchaseOrderLineId: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    purchaseUnitConversionFactor: string;
+    purchaseUnitId: string;
+    purchaseUnitLabel: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    rejectedQuantity: string;
+    rejectionReason: string | null;
+    stockItemId: string;
+    unitCostMinor: string;
+    unitPrice: string;
+  })[];
+  locationId: string;
+  purchaseOrderId: string | null;
+  purchaseOrderReference: string | null;
+  receivedAt: string;
+  receivedBy: string;
+  reference: string;
+  status: "posted";
+  supplierId: string;
+  supplierName: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  temperatureC: string | null;
+  temperatureOk: boolean;
+};
+
 /** `GET /procurement/purchase-orders` */
 export type PurchaseOrdersController_listResponse = ({
   approvalBand: "auto" | "tier_1" | "tier_2" | "tier_3" | null | null;
@@ -6842,7 +7001,14 @@ export type PurchaseOrdersController_listResponse = ({
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -6864,7 +7030,14 @@ export type PurchaseOrdersController_createResponse = {
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -6888,7 +7061,14 @@ export type PurchaseOrdersController_getByIdResponse = {
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -6910,7 +7090,14 @@ export type PurchaseOrdersController_updateResponse = {
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -6934,7 +7121,14 @@ export type PurchaseOrdersController_amendResponse = {
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -6961,7 +7155,14 @@ export type PurchaseOrdersController_approveResponse = {
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -6985,7 +7186,14 @@ export type PurchaseOrdersController_rejectResponse = {
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -7009,7 +7217,14 @@ export type PurchaseOrdersController_submitResponse = {
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -8932,6 +9147,9 @@ export const ROUTES = {
   PlatformSettingsController_upsertTerminal: { method: "PUT", path: "/platform/settings/terminal/{terminalId}/{settingKey}" },
   PlatformSettingsController_unsetTerminal: { method: "DELETE", path: "/platform/settings/terminal/{terminalId}/{settingKey}" },
   ProcurementController_comparativePricing: { method: "GET", path: "/procurement/comparative-pricing" },
+  GoodsReceiptsController_list: { method: "GET", path: "/procurement/goods-receipts" },
+  GoodsReceiptsController_post: { method: "POST", path: "/procurement/goods-receipts" },
+  GoodsReceiptsController_get: { method: "GET", path: "/procurement/goods-receipts/{id}" },
   PurchaseOrdersController_list: { method: "GET", path: "/procurement/purchase-orders" },
   PurchaseOrdersController_create: { method: "POST", path: "/procurement/purchase-orders" },
   PurchaseOrdersController_getById: { method: "GET", path: "/procurement/purchase-orders/{id}" },

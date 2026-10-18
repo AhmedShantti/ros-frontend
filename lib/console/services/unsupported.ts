@@ -91,7 +91,13 @@ export const unsupportedPurchasing: PurchasingService = {
   suppliers: absentCollection("Suppliers"),
   requisitions: absentCollection("Purchase requisitions"),
   orders: absentCollection("Purchase orders"),
-  receipts: absentCollection("Goods receipts"),
+  receipts: {
+    list: async () => notImplemented("Goods receipts"),
+    get: async () => notImplemented("Goods receipts"),
+    create: async () => notImplemented("Goods receipts"),
+    update: async () => notImplemented("Goods receipts"),
+    remove: async () => notImplemented("Goods receipts"),
+  },
   invoices: absentCollection("Supplier invoices"),
   approveOrder: async () => notImplemented("Approving a purchase order"),
 };

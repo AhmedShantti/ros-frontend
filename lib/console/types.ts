@@ -1209,6 +1209,8 @@ export interface PurchaseOrderLine {
   id: Id;
   itemId: Id;
   itemName: Localised;
+  purchaseUnitId?: Id;
+  purchaseUnitLabel?: string;
   quantity: Quantity;
   receivedQuantity: Quantity;
   unitPrice: Money;
@@ -1244,6 +1246,10 @@ export interface GoodsReceiptLine {
   id: Id;
   itemId: Id;
   itemName: Localised;
+  purchaseOrderLineId?: Id | null;
+  purchaseUnitId?: Id;
+  purchaseUnitLabel?: string;
+  productionDate?: IsoDate | null;
   ordered: Quantity;
   received: Quantity;
   rejected: Quantity;
@@ -1265,6 +1271,7 @@ export interface GoodsReceipt {
   supplierName: Localised;
   locationId: Id;
   locationName: Localised;
+  currency?: Currency;
   status: ReceiptStatus;
   receivedAt: IsoDateTime;
   receivedBy: Localised;

@@ -858,10 +858,32 @@ export interface PurchasingService {
   suppliers: CollectionService<Supplier>;
   requisitions: CollectionService<Requisition>;
   orders: CollectionService<PurchaseOrder>;
-  receipts: CollectionService<GoodsReceipt>;
+  receipts: Omit<CollectionService<GoodsReceipt>, "create"> & {
+    create(input: NewGoodsReceiptInput): Promise<GoodsReceipt>;
+  };
   invoices: CollectionService<SupplierInvoice>;
   /** Mock action — POST /v1/purchase-orders/{id}/approve. */
   approveOrder(id: Id): Promise<PurchaseOrder>;
+}
+
+export interface NewGoodsReceiptInput {
+  purchaseOrderId?: Id;
+  supplierId: Id;
+  locationId: Id;
+  temperatureC?: string;
+  temperatureOk?: boolean;
+  lines: Array<{
+    purchaseOrderLineId?: Id;
+    stockItemId: Id;
+    purchaseUnitId: Id;
+    receivedQuantity: string;
+    rejectedQuantity: string;
+    unitPrice?: string;
+    batchNumber?: string;
+    productionDate?: string;
+    expiryDate?: string;
+    rejectionReason?: string;
+  }>;
 }
 
 export interface WorkforceService {

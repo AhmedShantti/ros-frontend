@@ -1066,6 +1066,18 @@ export const procurement = {
   comparativePricing: (options: { stockItemId?: string; at?: string; quantity?: string } = {}) =>
     http.get<S.ProcurementController_comparativePricingResponse>("/procurement/comparative-pricing", { query: { stockItemId: options.stockItemId, at: options.at, quantity: options.quantity } }),
 
+  /** `GET /procurement/goods-receipts` */
+  listGoodsReceipts: () =>
+    http.get<S.GoodsReceiptsController_listResponse>("/procurement/goods-receipts"),
+
+  /** `POST /procurement/goods-receipts` */
+  postGoodsReceipts: (body: S.CreateGoodsReceiptDto) =>
+    http.post<S.GoodsReceiptsController_postResponse>("/procurement/goods-receipts", { body, idempotent: true }),
+
+  /** `GET /procurement/goods-receipts/{id}` */
+  getGoodsReceipts: (id: string) =>
+    http.get<S.GoodsReceiptsController_getResponse>("/procurement/goods-receipts/{id}", { params: { id } }),
+
   /** `GET /procurement/purchase-orders` */
   listPurchaseOrders: (options: { status?: "draft" | "pending_approval" | "approved" | "rejected"; supplierId?: string } = {}) =>
     http.get<S.PurchaseOrdersController_listResponse>("/procurement/purchase-orders", { query: { status: options.status, supplierId: options.supplierId } }),

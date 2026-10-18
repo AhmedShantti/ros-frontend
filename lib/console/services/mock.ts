@@ -8,6 +8,7 @@
  */
 
 import type {
+  GoodsReceipt,
   Branch,
   Brand,
   CentralKitchen,
@@ -65,6 +66,7 @@ import type {
   ServiceRegistry,
   UnitOfMeasure,
   WorkforceService,
+  NewGoodsReceiptInput,
 } from "./types";
 import { ServiceError } from "./types";
 import { crmService } from "./crm";
@@ -2220,6 +2222,27 @@ const purchaseOrdersCollection: CollectionService<PurchaseOrder> = makeCollectio
   }),
 });
 
+const mockGoodsReceiptCollection = makeCollection({
+  rows: goodsReceipts,
+  idOf: (g) => g.id,
+  search: (g) => [g.reference, g.supplierName, g.locationName, g.purchaseOrderRef],
+  branchOf: (g) => locationBranch(g.locationId),
+  filters: { status: (g) => g.status, supplierId: (g) => g.supplierId, temperatureOk: (g) => g.temperatureOk },
+  sorters: { receivedAt: (g) => g.receivedAt, total: (g) => g.total.amount },
+  factory: (input, id) => ({
+    id, tenantId: tenants[0]!.id, reference: `GRN-${Math.floor(Math.random() * 9000) + 1000}`,
+    purchaseOrderId: input.purchaseOrderId ?? null, purchaseOrderRef: input.purchaseOrderRef ?? null,
+    supplierId: input.supplierId ?? suppliers[0]!.id,
+    supplierName: (input.supplierName as Localised) ?? suppliers[0]!.tradingName,
+    locationId: input.locationId ?? branches[0]!.id,
+    locationName: (input.locationName as Localised) ?? branches[0]!.name,
+    status: input.status ?? "posted", receivedAt: input.receivedAt ?? new Date().toISOString(),
+    receivedBy: employees[0]!.name, temperatureC: input.temperatureC ?? null, temperatureOk: input.temperatureOk ?? true,
+    lines: input.lines ?? [],
+    total: input.total ?? { amount: 0, currency: "EGP" },
+  }),
+});
+
 const purchasing: PurchasingService = {
   suppliers: makeCollection({
     rows: suppliers,
@@ -2294,41 +2317,42 @@ const purchasing: PurchasingService = {
     }),
   }),
   orders: purchaseOrdersCollection,
-  receipts: makeCollection({
-    rows: goodsReceipts,
-    idOf: (g) => g.id,
-    search: (g) => [g.reference, g.supplierName, g.locationName, g.purchaseOrderRef],
-    branchOf: (g) => locationBranch(g.locationId),
-    filters: { status: (g) => g.status, supplierId: (g) => g.supplierId, temperatureOk: (g) => g.temperatureOk },
-    sorters: { receivedAt: (g) => g.receivedAt, total: (g) => g.total.amount },
-    factory: (input, id) => ({
-      id,
-      tenantId: tenants[0]!.id,
-      reference: `GRN-${Math.floor(Math.random() * 9000) + 1000}`,
-      purchaseOrderId: input.purchaseOrderId ?? null,
-      purchaseOrderRef: input.purchaseOrderRef ?? null,
-      supplierId: input.supplierId ?? suppliers[0]!.id,
-      supplierName: (input.supplierName as Localised) ?? suppliers[0]!.tradingName,
-      locationId: input.locationId ?? branches[0]!.id,
-      locationName: (input.locationName as Localised) ?? branches[0]!.name,
-      status: input.status ?? "posted",
-      receivedAt: input.receivedAt ?? new Date().toISOString(),
-      receivedBy: employees[0]!.name,
-      temperatureC: input.temperatureC ?? null,
-      temperatureOk: input.temperatureOk ?? true,
-      lines: input.lines ?? [],
-      total:
-        input.total ??
-        {
-          amount: (input.lines ?? []).reduce(
-            (sum, line) =>
-              sum + Math.round(Number(line.received.value || 0) * line.unitPrice.amount),
-            0,
-          ),
-          currency: "EGP",
-        },
-    }),
-  }),
+  receipts: {
+    list: (query) => mockGoodsReceiptCollection.list(query),
+    get: (id) => mockGoodsReceiptCollection.get(id),
+    async create(input: NewGoodsReceiptInput) {
+      const po = input.purchaseOrderId ? purchaseOrders.find((entry) => entry.id === input.purchaseOrderId) : undefined;
+      const supplier = suppliers.find((entry) => entry.id === input.supplierId) ?? suppliers[0]!;
+      const location = stockLocations.find((entry) => entry.id === input.locationId) ?? branches[0]!;
+      const lines = input.lines.map((line, index) => {
+        const item = stockItems.find((entry) => entry.id === line.stockItemId);
+        const poLine = po?.lines.find((entry) => entry.id === line.purchaseOrderLineId);
+        const unit = item?.baseUnit ?? "pc";
+        return {
+          id: `mock-grl-${Date.now()}-${index}`, itemId: line.stockItemId,
+          itemName: item?.name ?? { en: line.stockItemId, ar: line.stockItemId },
+          purchaseOrderLineId: line.purchaseOrderLineId ?? null, purchaseUnitId: line.purchaseUnitId,
+          purchaseUnitLabel: poLine?.quantity.unit ?? unit,
+          ordered: poLine?.quantity ?? { value: "0", unit },
+          received: { value: line.receivedQuantity, unit },
+          rejected: { value: line.rejectedQuantity, unit },
+          rejectionReason: line.rejectionReason ?? null, batchNumber: line.batchNumber ?? null,
+          productionDate: line.productionDate ?? null, expiryDate: line.expiryDate ?? null,
+          unitPrice: { amount: Number(line.unitPrice ?? 0), currency: supplier.currency },
+          priceVariancePercent: 0,
+        };
+      });
+      return mockGoodsReceiptCollection.create({
+        purchaseOrderId: input.purchaseOrderId ?? null, purchaseOrderRef: po?.reference ?? null,
+        supplierId: input.supplierId, supplierName: supplier.tradingName, locationId: input.locationId,
+        locationName: location.name, status: "posted", temperatureC: input.temperatureC ? Number(input.temperatureC) : null,
+        temperatureOk: input.temperatureOk ?? true, lines,
+        total: { amount: lines.reduce((sum, line) => sum + Number(line.received.value) * line.unitPrice.amount, 0), currency: supplier.currency },
+      });
+    },
+    update: (id, patch) => mockGoodsReceiptCollection.update(id, patch),
+    remove: (id) => mockGoodsReceiptCollection.remove(id),
+  },
   invoices: makeCollection({
     rows: supplierInvoices,
     idOf: (i) => i.id,

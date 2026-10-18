@@ -46,6 +46,7 @@ import type {
   CentralKitchen,
   CountSession,
   DayClose,
+  GoodsReceipt,
   HourlySalesPoint,
   Id,
   IsoDate,
@@ -57,6 +58,7 @@ import type {
   ModifierGroup,
   OperationalAlert,
   Order,
+  PurchaseOrder,
   Recipe,
   Role,
   StockAdjustment,
@@ -64,6 +66,7 @@ import type {
   StockLevel,
   StockLocation,
   StockMovement,
+  Supplier,
   Station,
   Tenant,
   Terminal,
@@ -76,6 +79,7 @@ import type {
   CatalogueService,
   CollectionService,
   DashboardService,
+  PurchasingService,
   DiscountInput,
   FinanceService,
   GovernanceService,
@@ -91,6 +95,7 @@ import type {
   ScopedQuery,
   SecurityService,
   ServiceRegistry,
+  NewGoodsReceiptInput,
 } from "./types";
 import { ServiceError } from "./types";
 import { crmService } from "./crm";
@@ -4439,6 +4444,170 @@ const governance: GovernanceService = {
 // The registry
 // ---------------------------------------------------------------------------
 
+function decimalMicros(value: string): bigint {
+  if (!/^\d{1,12}(\.\d{1,6})?$/.test(value)) return 0n;
+  const [whole, fraction = ""] = value.split(".");
+  return BigInt(whole!) * 1_000_000n + BigInt(fraction.padEnd(6, "0") || "0");
+}
+
+function microsDecimal(value: bigint): string {
+  const whole = value / 1_000_000n;
+  const fraction = (value % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
+function divideMicros(numerator: bigint, denominator: bigint): bigint {
+  if (denominator <= 0n) return 0n;
+  const scaled = numerator * 1_000_000n;
+  const quotient = scaled / denominator;
+  const remainder = scaled % denominator;
+  return remainder * 2n >= denominator ? quotient + 1n : quotient;
+}
+
+const receiving: PurchasingService = {
+  suppliers: {
+    list: async (query = {}) => {
+      const rows = await api.procurement.listSuppliers({ status: "active" });
+      const mapped: Supplier[] = rows.map((row) => {
+        const contact = row.contacts[0] ?? {};
+        const label = row.tradingName ?? row.legalName;
+        return {
+          id: row.id,
+          tenantId: getTenantId() ?? "",
+          code: row.code,
+          legalName: { en: row.legalName, ar: row.legalName },
+          tradingName: { en: label, ar: label },
+          taxRegistration: row.taxRegistrationNumber ?? "",
+          contactName: String(contact.name ?? ""),
+          phone: String(contact.phone ?? ""),
+          email: String(contact.email ?? ""),
+          paymentTermsDays: row.paymentTermsNetDays,
+          currency: map.currencyOf(row.currency),
+          leadTimeDays: row.deliveryLeadTimeDays,
+          minimumOrderValue: map.money(Number(row.minimumOrderValue), map.currencyOf(row.currency)),
+          deliveryDays: row.deliveryDays.map(String),
+          active: row.status === "active",
+          scorecard: { onTimeDeliveryRate: 0, fillRate: 0, priceStability: 0, qualityRejectionRate: 0, invoiceAccuracy: 0, averageLeadTimeDays: 0 },
+          outstandingBalance: map.money(0, map.currencyOf(row.currency)),
+        };
+      });
+      return project(mapped, query, { search: (row) => [row.code, row.legalName, row.tradingName] });
+    },
+    get: async (id) => (await receiving.suppliers.list()).rows.find((row) => row.id === id) ?? null,
+    create: async () => notImplemented("Creating a supplier"),
+    update: async () => notImplemented("Updating a supplier"),
+    remove: async () => notImplemented("Deleting a supplier"),
+  },
+  requisitions: unsupportedPurchasing.requisitions,
+  orders: {
+    list: async (query = {}) => {
+      const [orders, suppliers, itemIndex, locIndex] = await Promise.all([
+        api.procurement.listPurchaseOrders({ status: "approved" }),
+        receiving.suppliers.list(),
+        stockItemIndex(),
+        locationIndex(),
+      ]);
+      const supplierById = new Map(suppliers.rows.map((supplier) => [supplier.id, supplier]));
+      const mapped: PurchaseOrder[] = orders.map((po) => {
+        const supplier = supplierById.get(po.supplierId);
+        const location = locIndex.get(po.deliveryLocationId);
+        const lines = (po.lines as Array<Record<string, unknown>>).map((line) => {
+          const itemId = String(line.stockItemId);
+          const unit = String(line.purchaseUnitLabel);
+          const orderedPurchase = decimalMicros(String(line.quantity));
+          const conversionFactor = decimalMicros(String(line.purchaseUnitConversionFactor));
+          const remainingBase = decimalMicros(String(line.remainingBaseQuantity ?? "0"));
+          const remainingPurchase = divideMicros(remainingBase, conversionFactor);
+          const acceptedPurchase = orderedPurchase > remainingPurchase ? orderedPurchase - remainingPurchase : 0n;
+          return {
+            id: String(line.id), itemId, itemName: itemIndex.get(itemId)?.name ?? { en: itemId, ar: itemId },
+            purchaseUnitId: String(line.purchaseUnitId), purchaseUnitLabel: unit,
+            quantity: { value: String(line.quantity), unit: itemIndex.get(itemId)?.baseUnit ?? "pc" }, receivedQuantity: { value: microsDecimal(acceptedPurchase), unit: itemIndex.get(itemId)?.baseUnit ?? "pc" },
+            unitPrice: map.money(Number(line.unitPrice), map.currencyOf(po.currency)), taxRate: 0,
+            lineTotal: map.money(Number(line.lineTotal), map.currencyOf(po.currency)),
+          };
+        }).filter((line) => decimalMicros(line.quantity.value) > decimalMicros(line.receivedQuantity.value));
+        const supplierLabel = supplier?.tradingName ?? { en: "", ar: "" };
+        return {
+          id: po.id, tenantId: getTenantId() ?? "", reference: `PO-${po.id.slice(0, 8).toUpperCase()}`,
+          supplierId: po.supplierId, supplierName: supplierLabel, deliveryLocationId: po.deliveryLocationId,
+          deliveryLocationName: location?.name ?? { en: po.deliveryLocationId, ar: po.deliveryLocationId },
+          status: "approved" as const, approvalTier: (po.approvalBand === "tier_1" ? 1 : po.approvalBand === "tier_2" ? 2 : po.approvalBand === "tier_3" ? 3 : 0) as 0 | 1 | 2 | 3,
+          createdBy: { en: po.requestedBy, ar: po.requestedBy }, createdAt: po.expectedDeliveryDate,
+          expectedDelivery: po.expectedDeliveryDate.slice(0, 10), approvedBy: null, approvedAt: null, lines,
+          subtotal: map.money(Number(po.subtotal), map.currencyOf(po.currency)), taxTotal: map.money(Number(po.taxTotal), map.currencyOf(po.currency)),
+          total: map.money(Number(po.grandTotal), map.currencyOf(po.currency)),
+        };
+      }).filter((po) => po.lines.some((line) => decimalMicros(line.quantity.value) > decimalMicros(line.receivedQuantity.value)));
+      return project(mapped, query, { search: (row) => [row.reference, row.supplierName] });
+    },
+    get: async (id) => (await receiving.orders.list()).rows.find((row) => row.id === id) ?? null,
+    create: async () => notImplemented("Creating a purchase order"),
+    update: async () => notImplemented("Updating a purchase order"),
+    remove: async () => notImplemented("Deleting a purchase order"),
+  },
+  receipts: {
+    list: async (query = {}) => {
+      const rows = await api.procurement.listGoodsReceipts();
+      const [items, locs] = await Promise.all([stockItemIndex(), locationIndex()]);
+      const mapped: GoodsReceipt[] = rows.map((row) => {
+        const supplierName = typeof row.supplierName === "string" ? { en: row.supplierName, ar: row.supplierName } : { en: row.supplierId, ar: row.supplierId };
+        const currency = map.currencyOf(row.currency);
+        const lines = row.lines.map((line) => ({
+          id: line.id, itemId: line.stockItemId, itemName: items.get(line.stockItemId)?.name ?? { en: line.stockItemId, ar: line.stockItemId },
+          purchaseOrderLineId: line.purchaseOrderLineId, purchaseUnitId: line.purchaseUnitId,
+          ordered: { value: line.orderedQuantity ?? "0", unit: items.get(line.stockItemId)?.baseUnit ?? "pc" },
+          received: { value: line.receivedQuantity, unit: items.get(line.stockItemId)?.baseUnit ?? "pc" },
+          rejected: { value: line.rejectedQuantity, unit: items.get(line.stockItemId)?.baseUnit ?? "pc" },
+          purchaseUnitLabel: line.purchaseUnitLabel,
+          rejectionReason: line.rejectionReason, batchNumber: line.batchNumber,
+          productionDate: line.productionDate?.slice(0, 10) ?? null, expiryDate: line.expiryDate?.slice(0, 10) ?? null,
+          unitPrice: map.money(Number(line.unitPrice), currency), priceVariancePercent: 0,
+        }));
+        const amount = lines.reduce((sum, line) => sum + Number(line.received.value) * line.unitPrice.amount, 0);
+        const loc = locs.get(row.locationId);
+        return {
+          id: row.id, tenantId: getTenantId() ?? "", reference: row.reference,
+          purchaseOrderId: row.purchaseOrderId, purchaseOrderRef: row.purchaseOrderReference,
+          supplierId: row.supplierId, supplierName, locationId: row.locationId,
+          locationName: loc?.name ?? { en: row.locationId, ar: row.locationId }, status: "posted",
+          receivedAt: row.receivedAt, receivedBy: { en: row.receivedBy, ar: row.receivedBy },
+          temperatureC: row.temperatureC === null ? null : Number(row.temperatureC), temperatureOk: row.temperatureOk,
+          lines, total: map.money(Math.round(amount), currency), currency,
+        };
+      });
+      return project(mapped, query, { search: (row) => [row.reference, row.supplierName, row.locationName, row.purchaseOrderRef] });
+    },
+    get: async (id) => (await receiving.receipts.list()).rows.find((row) => row.id === id) ?? null,
+    create: async (input: NewGoodsReceiptInput) => {
+      const row = await api.procurement.postGoodsReceipts({
+        ...(input.purchaseOrderId ? { purchaseOrderId: input.purchaseOrderId } : {}),
+        supplierId: input.supplierId, locationId: input.locationId,
+        ...(input.temperatureC === undefined ? {} : { temperatureC: input.temperatureC }),
+        ...(input.temperatureOk === undefined ? {} : { temperatureOk: input.temperatureOk }),
+        lines: input.lines.map((line) => ({
+          ...(line.purchaseOrderLineId ? { purchaseOrderLineId: line.purchaseOrderLineId } : {}),
+          stockItemId: line.stockItemId, purchaseUnitId: line.purchaseUnitId,
+          receivedQuantity: line.receivedQuantity, rejectedQuantity: line.rejectedQuantity,
+          ...(line.unitPrice === undefined ? {} : { unitPrice: line.unitPrice }),
+          ...(line.batchNumber ? { batchNumber: line.batchNumber } : {}),
+          ...(line.productionDate ? { productionDate: line.productionDate } : {}),
+          ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
+          ...(line.rejectionReason ? { rejectionReason: line.rejectionReason } : {}),
+        })),
+      });
+      return (await receiving.receipts.list()).rows.find((receipt) => receipt.id === row.id)!;
+    },
+    update: async () => notImplemented("Editing a posted goods receipt"),
+    remove: async () => notImplemented("Deleting a posted goods receipt"),
+  },
+  invoices: unsupportedPurchasing.invoices,
+  approveOrder: async (id) => {
+    const row = await api.procurement.getByIdPurchaseOrders(id);
+    return (await receiving.orders.list()).rows.find((order) => order.id === row.id)!;
+  },
+};
+
 export const httpServices: ServiceRegistry = {
   /*
    * Customers, loyalty and promotions have no endpoints in the document, so
@@ -4466,7 +4635,7 @@ export const httpServices: ServiceRegistry = {
 
   // No endpoint exists anywhere in the document for these. They fail with
   // NOT_IMPLEMENTED rather than serving invented rows. See API_COVERAGE.
-  purchasing: unsupportedPurchasing,
+  purchasing: receiving,
   costing: unsupportedCosting,
   workforce,
   platform,
