@@ -1605,6 +1605,7 @@ const stockItems: CollectionService<StockItem> = {
       isDirectlySellable: input.isDirectlySellable,
       isProducedItem: input.isProducedItem,
       accountingExportAccountCode: input.accountingExportAccountCode,
+      allergens: input.allergens,
       shelfLifeDays: input.shelfLifeDays ?? undefined,
       densityGramsPerMillilitre: input.densityGramsPerMillilitre ?? undefined,
       // `standardCost` is not a StockItem domain field — the page smuggles
@@ -1642,6 +1643,10 @@ const stockItems: CollectionService<StockItem> = {
           ? { accountingExportAccountCode: patch.accountingExportAccountCode }
           : {}),
       });
+    }
+    if (patch.allergens !== undefined) {
+      await api.inventory.setItemAllergens(id, { allergens: patch.allergens });
+      invalidateCatalogue();
     }
     invalidateInventory();
     const row = await api.inventory.getItem(id);
@@ -2045,6 +2050,13 @@ const inventory: InventoryService = {
       densityGramsPerMillilitre,
     });
     invalidateInventory();
+    return map.toStockItem(row, getTenantId() ?? "");
+  },
+
+  async setItemAllergens(itemId, allergens) {
+    const row = await api.inventory.setItemAllergens(itemId, { allergens });
+    invalidateInventory();
+    invalidateCatalogue();
     return map.toStockItem(row, getTenantId() ?? "");
   },
 

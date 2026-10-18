@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 218 paths, 147 request DTOs.
+ * `api/openapi.json`. 219 paths, 148 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -489,6 +489,8 @@ export interface CreateStockItemCategoryDto {
 
 export interface CreateStockItemDto {
   accountingExportAccountCode?: string | null;
+  /** FR-INV-001 — declared stock-item allergen labels. */
+  allergens?: string[];
   baseUnitId: string;
   batchStrategy?: "fifo" | "fefo";
   categoryId?: string;
@@ -962,6 +964,10 @@ export interface SetReorderConfigDto {
   minStock?: string | null;
   reorderPoint: string;
   reorderQuantity: string;
+}
+
+export interface SetStockItemAllergensDto {
+  allergens: string[];
 }
 
 export interface SetStockItemDensityDto {
@@ -3182,6 +3188,8 @@ export type InventoryController_expiringResponse = ({
 export type InventoryController_listItemsResponse = ({
   /** Optional future accounting export mapping; no accounting posting semantics are implied. */
   accountingExportAccountCode: string | null;
+  /** Declared allergen labels; an empty array clears the declarations. */
+  allergens: string[];
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
@@ -3209,6 +3217,8 @@ export type InventoryController_listItemsResponse = ({
 export type InventoryController_createItemResponse = {
   /** Optional future accounting export mapping; no accounting posting semantics are implied. */
   accountingExportAccountCode: string | null;
+  /** Declared allergen labels; an empty array clears the declarations. */
+  allergens: string[];
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
@@ -3238,6 +3248,8 @@ export type InventoryController_createItemBody = CreateStockItemDto;
 export type InventoryController_getItemResponse = {
   /** Optional future accounting export mapping; no accounting posting semantics are implied. */
   accountingExportAccountCode: string | null;
+  /** Declared allergen labels; an empty array clears the declarations. */
+  allergens: string[];
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
@@ -3261,10 +3273,43 @@ export type InventoryController_getItemResponse = {
   standardCost: string | null;
 };
 
+/** `PATCH /inventory/items/{itemId}/allergens` — Set or clear stock-item allergen declarations (FR-INV-001). — The updated stock item. */
+export type InventoryController_setItemAllergensResponse = {
+  /** Optional future accounting export mapping; no accounting posting semantics are implied. */
+  accountingExportAccountCode: string | null;
+  /** Declared allergen labels; an empty array clears the declarations. */
+  allergens: string[];
+  baseUnitId: string;
+  batchStrategy: "fifo" | "fefo";
+  categoryId: string | null;
+  costingMethod: "weighted_average" | "fifo" | "standard";
+  /** Item density in grams per millilitre; required for mass↔volume conversion. */
+  densityGramsPerMillilitre: string | null;
+  expiryTracked: boolean;
+  id: string;
+  isActive: boolean;
+  isBatchTracked: boolean;
+  /** Stock-item classification only; does not create a Menu item or alter sales behavior. */
+  isDirectlySellable: boolean;
+  /** Explicit stock-item classification; independent of recipe existence. */
+  isProducedItem: boolean;
+  /** Opaque localized-name object (locale -> name). */
+  names: Record<string, unknown>;
+  recipeUnitId: string | null;
+  shelfLifeDays: number | null;
+  sku: string;
+  /** Cost per base unit as a decimal string of minor units. */
+  standardCost: string | null;
+};
+
+export type InventoryController_setItemAllergensBody = SetStockItemAllergensDto;
+
 /** `POST /inventory/items/{itemId}/base-unit` — FR-INV-002: rejected once any movement exists. — The updated stock item. */
 export type InventoryController_changeBaseUnitResponse = {
   /** Optional future accounting export mapping; no accounting posting semantics are implied. */
   accountingExportAccountCode: string | null;
+  /** Declared allergen labels; an empty array clears the declarations. */
+  allergens: string[];
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
@@ -3294,6 +3339,8 @@ export type InventoryController_changeBaseUnitBody = ChangeBaseUnitDto;
 export type InventoryController_updateItemClassificationResponse = {
   /** Optional future accounting export mapping; no accounting posting semantics are implied. */
   accountingExportAccountCode: string | null;
+  /** Declared allergen labels; an empty array clears the declarations. */
+  allergens: string[];
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
@@ -3323,6 +3370,8 @@ export type InventoryController_updateItemClassificationBody = UpdateStockItemCl
 export type InventoryController_setItemDensityResponse = {
   /** Optional future accounting export mapping; no accounting posting semantics are implied. */
   accountingExportAccountCode: string | null;
+  /** Declared allergen labels; an empty array clears the declarations. */
+  allergens: string[];
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
@@ -8774,6 +8823,7 @@ export const ROUTES = {
   InventoryController_listItems: { method: "GET", path: "/inventory/items" },
   InventoryController_createItem: { method: "POST", path: "/inventory/items" },
   InventoryController_getItem: { method: "GET", path: "/inventory/items/{itemId}" },
+  InventoryController_setItemAllergens: { method: "PATCH", path: "/inventory/items/{itemId}/allergens" },
   InventoryController_changeBaseUnit: { method: "POST", path: "/inventory/items/{itemId}/base-unit" },
   InventoryController_updateItemClassification: { method: "PATCH", path: "/inventory/items/{itemId}/classification" },
   InventoryController_setItemDensity: { method: "PATCH", path: "/inventory/items/{itemId}/density" },

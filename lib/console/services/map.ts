@@ -924,7 +924,7 @@ export function toStockItem(row: WireStockItem, tenantId: Id, category: Localise
     shelfLifeDays: row.shelfLifeDays,
     densityGramsPerMillilitre: row.densityGramsPerMillilitre,
     defaultSupplierId: null, // gap: purchasing is not implemented.
-    allergens: [],
+    allergens: row.allergens,
     // `standardCost` is already a minor-unit integer string on the wire —
     // `minorMoney`, not `money` (which reads a *decimal* string and would
     // scale an already-minor-unit "1234" up by another 100x).

@@ -319,6 +319,10 @@ export const inventory = {
   getItem: (itemId: string) =>
     http.get<S.InventoryController_getItemResponse>("/inventory/items/{itemId}", { params: { itemId } }),
 
+  /** `PATCH /inventory/items/{itemId}/allergens` — Set or clear stock-item allergen declarations (FR-INV-001). — The updated stock item. */
+  setItemAllergens: (itemId: string, body: S.SetStockItemAllergensDto) =>
+    http.patch<S.InventoryController_setItemAllergensResponse>("/inventory/items/{itemId}/allergens", { params: { itemId }, body }),
+
   /** `POST /inventory/items/{itemId}/base-unit` — FR-INV-002: rejected once any movement exists. — The updated stock item. */
   changeBaseUnit: (itemId: string, body: S.ChangeBaseUnitDto) =>
     http.post<S.InventoryController_changeBaseUnitResponse>("/inventory/items/{itemId}/base-unit", { params: { itemId }, body }),

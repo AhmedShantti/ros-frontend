@@ -749,6 +749,8 @@ export interface InventoryService {
   unitsOfMeasure(): Promise<UnitOfMeasure[]>;
   /** FR-INV-004 — set or clear exact item density in grams per millilitre. */
   setItemDensity(itemId: Id, densityGramsPerMillilitre: string | null): Promise<StockItem>;
+  /** FR-INV-001 — set/replace declared stock-item allergens; [] clears the list. */
+  setItemAllergens(itemId: Id, allergens: string[]): Promise<StockItem>;
 
   // -- Categories --------------------------------------------------------------
   /** FR-INV-001 — the catalogue a stock item's `categoryId` is chosen from. */

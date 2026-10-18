@@ -31,6 +31,7 @@ const createPurchaseUnit = vi.fn();
 const updatePurchaseUnit = vi.fn();
 const deletePurchaseUnit = vi.fn();
 const setItemDensity = vi.fn();
+const setItemAllergens = vi.fn();
 
 vi.mock("@/lib/console/services", () => ({
   ServiceError: class ServiceError extends Error {
@@ -57,6 +58,7 @@ vi.mock("@/lib/console/services", () => ({
       updatePurchaseUnit: (...args: unknown[]) => updatePurchaseUnit(...args),
       deletePurchaseUnit: (...args: unknown[]) => deletePurchaseUnit(...args),
       setItemDensity: (...args: unknown[]) => setItemDensity(...args),
+      setItemAllergens: (...args: unknown[]) => setItemAllergens(...args),
     },
   },
 }));
@@ -103,7 +105,7 @@ const ITEM_FLOUR = {
   storage: "ambient",
   shelfLifeDays: null,
   defaultSupplierId: null,
-  allergens: [],
+  allergens: ["Milk"],
   unitCost: { amount: 0, currency: "EGP" },
   active: true,
 };
@@ -126,6 +128,10 @@ beforeEach(() => {
   setItemDensity.mockImplementation(async (_itemId, densityGramsPerMillilitre) => ({
     ...ITEM_FLOUR,
     densityGramsPerMillilitre,
+  }));
+  setItemAllergens.mockImplementation(async (_itemId, allergens) => ({
+    ...ITEM_FLOUR,
+    allergens,
   }));
 });
 
@@ -264,6 +270,48 @@ describe("Stock items — classification and accounting export mapping (FR-INV-0
         accountingExportAccountCode: null,
       }),
     );
+  });
+});
+
+describe("Stock item allergen declarations (FR-INV-001)", () => {
+  it("creates normalized allergen labels and shows the safety note", async () => {
+    itemsCreate.mockResolvedValue({ ...ITEM_FLOUR, id: "item-new" });
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    await user.type(await screen.findByLabelText(/common\.name/), "Peanut sauce");
+    await user.type(screen.getByLabelText(/inv\.sku/), "PNT-001");
+    const unit = screen.getByLabelText(/inv\.baseUnit/);
+    await user.click(unit);
+    await user.click(screen.getByRole("option", { name: "Gram" }));
+    await user.type(screen.getByLabelText(/inv\.allergens/), "Peanut\n sesame \nPEANUT");
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+
+    await waitFor(() =>
+      expect(itemsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ allergens: ["Peanut", "sesame"] }),
+      ),
+    );
+  });
+
+  it("loads existing declarations and supports replacement and clearing", async () => {
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await user.click(await screen.findByText("Flour"));
+    const dialog = await screen.findByRole("dialog");
+    const allergenInput = within(dialog).getByRole("textbox", { name: "inv.allergens" });
+    expect(allergenInput).toHaveValue("Milk");
+
+    await user.clear(allergenInput);
+    await user.type(allergenInput, "Egg\nFish");
+    await user.click(within(dialog).getByRole("button", { name: "inv.saveAllergens" }));
+    await waitFor(() => expect(setItemAllergens).toHaveBeenCalledWith("item-flour", ["Egg", "Fish"]));
+
+    await user.clear(allergenInput);
+    await user.click(within(dialog).getByRole("button", { name: "inv.saveAllergens" }));
+    await waitFor(() => expect(setItemAllergens).toHaveBeenLastCalledWith("item-flour", []));
+    expect(within(dialog).getByText("inv.allergensSafetyNote")).toBeInTheDocument();
   });
 });
 

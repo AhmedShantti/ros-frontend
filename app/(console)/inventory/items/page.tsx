@@ -37,6 +37,7 @@ import {
   Field,
   Input,
   Select,
+  Textarea,
   Toast,
   Toggle,
 } from "@/components/console/ui";
@@ -46,6 +47,20 @@ import { useAction } from "@/lib/console/actions";
 function isValidOptionalDensity(value: string): boolean {
   const trimmed = value.trim();
   return trimmed === "" || (/^\d{1,10}(\.\d{1,10})?$/.test(trimmed) && /[1-9]/.test(trimmed));
+}
+
+function parseAllergenLabels(value: string): string[] {
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of value.split("\n")) {
+    const label = raw.trim();
+    if (!label) continue;
+    const key = label.toLocaleLowerCase("en");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    labels.push(label);
+  }
+  return labels;
 }
 
 export default function StockItemsPage() {
@@ -336,6 +351,12 @@ export function StockItemsScreen() {
             ltr: true,
             hint: t("inv.accountingExportAccountCodeHint"),
           },
+          {
+            name: "allergens",
+            label: t("inv.allergens"),
+            kind: "textarea",
+            hint: t("inv.allergensHint"),
+          },
         ]}
         onClose={() => setCreating(false)}
         onSubmit={(values) =>
@@ -350,6 +371,7 @@ export function StockItemsScreen() {
             isProducedItem: values.isProducedItem === "true",
             accountingExportAccountCode:
               values.accountingExportAccountCode.trim() || null,
+            allergens: parseAllergenLabels(values.allergens),
             // Only sent for standard costing — switching away from Standard
             // never carries a stale cost into the request. `standardCost` is
             // the money field's own minor-unit integer string, passed
@@ -563,22 +585,71 @@ function ItemDrawer({
 
         <PurchaseUnitsSection item={item} onMessage={onMessage} />
 
-        {item.allergens.length > 0 ? (
-          <section>
-            <h3 className="text-fg mb-2 text-sm font-semibold">{t("menu.allergens")}</h3>
-            <div className="flex flex-wrap gap-1.5">
-              {item.allergens.map((allergen) => (
-                <Badge key={allergen} tone="warn">
-                  {allergen}
-                </Badge>
-              ))}
-            </div>
-          </section>
-        ) : null}
+        <StockItemAllergenEditor
+          key={`${item.id}-allergens`}
+          item={item}
+          onMessage={onMessage}
+          onUpdated={onUpdated}
+        />
 
         <Callout tone="muted">{t("inv.baseUnitNote")}</Callout>
       </div>
     </Drawer>
+  );
+}
+
+function StockItemAllergenEditor({
+  item,
+  onMessage,
+  onUpdated,
+}: {
+  item: StockItem;
+  onMessage: (message: string) => void;
+  onUpdated: () => void;
+}) {
+  const { t } = useI18n();
+  const session = useSession();
+  const canMutate = session.canAny(["inventory.adjust"]);
+  const action = useAction(onMessage);
+  const [allergens, setAllergens] = useState(item.allergens.join("\n"));
+
+  async function save() {
+    const values = parseAllergenLabels(allergens);
+    await action.run(() => services.inventory.setItemAllergens(item.id, values), {
+      onSuccess: (updated) => {
+        setAllergens(updated.allergens.join("\n"));
+        onUpdated();
+        onMessage(t("inv.allergensSaved"));
+      },
+    });
+  }
+
+  return (
+    <section className="space-y-2">
+      <Field label={t("inv.allergens")} hint={t("inv.allergensHint")}>
+        <Textarea
+          value={allergens}
+          rows={3}
+          disabled={!canMutate || action.pending}
+          aria-label={t("inv.allergens")}
+          onChange={(event) => setAllergens(event.target.value)}
+        />
+      </Field>
+      <p className="text-fg-subtle text-xs">{t("inv.allergensSafetyNote")}</p>
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      {canMutate ? (
+        <Button type="button" size="sm" loading={action.pending} onClick={() => void save()}>
+          {t("inv.saveAllergens")}
+        </Button>
+      ) : null}
+      {item.allergens.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5" aria-label={t("inv.allergensDeclared")}>
+          {item.allergens.map((allergen) => (
+            <Badge key={allergen} tone="warn">{allergen}</Badge>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 

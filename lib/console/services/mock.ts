@@ -1513,7 +1513,10 @@ const inventory: InventoryService = {
       shelfLifeDays: input.shelfLifeDays ?? null,
       densityGramsPerMillilitre: input.densityGramsPerMillilitre ?? null,
       defaultSupplierId: input.defaultSupplierId ?? null,
-      allergens: input.allergens ?? [],
+      allergens: [...new Map((input.allergens ?? []).map((value) => {
+        const label = value.trim();
+        return [label.toLocaleLowerCase("en"), label] as const;
+      }).filter(([key, label]) => Boolean(key && label))).values()],
       unitCost: input.unitCost ?? { amount: 0, currency: "EGP" },
       active: true,
     }),
@@ -1789,6 +1792,22 @@ const inventory: InventoryService = {
       const row = stockItems.find((candidate) => candidate.id === itemId);
       if (!row) throw new ServiceError("NOT_FOUND", "Stock item not found.", 404);
       row.densityGramsPerMillilitre = densityGramsPerMillilitre;
+      return row;
+    });
+  },
+
+  async setItemAllergens(itemId, allergens) {
+    return transport(() => {
+      const row = stockItems.find((candidate) => candidate.id === itemId);
+      if (!row) throw new ServiceError("NOT_FOUND", "Stock item not found.", 404);
+      const seen = new Set<string>();
+      row.allergens = allergens.flatMap((value) => {
+        const label = value.trim();
+        const key = label.toLocaleLowerCase("en");
+        if (!label || seen.has(key)) return [];
+        seen.add(key);
+        return [label];
+      });
       return row;
     });
   },

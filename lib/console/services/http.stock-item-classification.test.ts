@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const createItem = vi.fn();
 const getItem = vi.fn();
 const updateItemClassification = vi.fn();
+const setItemAllergens = vi.fn();
 
 vi.mock("@/lib/api/endpoints", () => ({
   api: {
@@ -10,6 +11,7 @@ vi.mock("@/lib/api/endpoints", () => ({
       createItem: (...args: unknown[]) => createItem(...args),
       getItem: (...args: unknown[]) => getItem(...args),
       updateItemClassification: (...args: unknown[]) => updateItemClassification(...args),
+      setItemAllergens: (...args: unknown[]) => setItemAllergens(...args),
     },
   },
 }));
@@ -35,6 +37,7 @@ const wireItem = (overrides: Record<string, unknown> = {}) => ({
   isDirectlySellable: true,
   isProducedItem: false,
   accountingExportAccountCode: "REV-UNASSUMED",
+  allergens: [],
   isActive: true,
   ...overrides,
 });
@@ -97,5 +100,34 @@ describe("stock item classification — HTTP serialization and response mapping"
       isProducedItem: false,
       accountingExportAccountCode: null,
     });
+  });
+
+  it("serializes stock-item allergen create values and maps allergen readback", async () => {
+    createItem.mockResolvedValue(wireItem({ allergens: ["Gluten", "Milk"] }));
+    const created = await httpServices.inventory.items.create({
+      sku: "WTR-001",
+      name: { en: "Water", ar: "ماء" },
+      baseUnitId: "uom-piece",
+      allergens: ["Gluten", "Milk"],
+    });
+    expect(createItem).toHaveBeenCalledWith(
+      expect.objectContaining({ allergens: ["Gluten", "Milk"] }),
+    );
+    expect(created.allergens).toEqual(["Gluten", "Milk"]);
+  });
+
+  it("supports allergen replacement and clear serialization with immediate response mapping", async () => {
+    setItemAllergens.mockResolvedValue(wireItem({ allergens: [] }));
+    const cleared = await httpServices.inventory.setItemAllergens("stock-item-1", []);
+    expect(setItemAllergens).toHaveBeenCalledWith("stock-item-1", { allergens: [] });
+    expect(cleared.allergens).toEqual([]);
+
+    setItemAllergens.mockResolvedValue(wireItem({ allergens: ["Egg"] }));
+    getItem.mockResolvedValue(wireItem({ allergens: ["Egg"] }));
+    const replaced = await httpServices.inventory.items.update("stock-item-1", {
+      allergens: ["Egg"],
+    });
+    expect(setItemAllergens).toHaveBeenLastCalledWith("stock-item-1", { allergens: ["Egg"] });
+    expect(replaced.allergens).toEqual(["Egg"]);
   });
 });
