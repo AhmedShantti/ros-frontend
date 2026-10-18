@@ -1629,6 +1629,14 @@
       },
       "CreateStockItemDto": {
         "properties": {
+          "accountingExportAccountCode": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "baseUnitId": {
             "type": "string"
           },
@@ -1657,6 +1665,12 @@
             "type": "boolean"
           },
           "isBatchTracked": {
+            "type": "boolean"
+          },
+          "isDirectlySellable": {
+            "type": "boolean"
+          },
+          "isProducedItem": {
             "type": "boolean"
           },
           "names": {
@@ -3895,6 +3909,26 @@
         "required": [
           "stationId"
         ],
+        "type": "object"
+      },
+      "UpdateStockItemClassificationDto": {
+        "properties": {
+          "accountingExportAccountCode": {
+            "description": "Omitted preserves the mapping; null explicitly clears it.",
+            "maxLength": 32,
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isDirectlySellable": {
+            "type": "boolean"
+          },
+          "isProducedItem": {
+            "type": "boolean"
+          }
+        },
         "type": "object"
       },
       "UpdateSupplierDto": {
@@ -17697,6 +17731,13 @@
                 "schema": {
                   "items": {
                     "properties": {
+                      "accountingExportAccountCode": {
+                        "description": "Optional future accounting export mapping; no accounting posting semantics are implied.",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
                       "baseUnitId": {
                         "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                         "format": "uuid",
@@ -17746,6 +17787,14 @@
                         "type": "boolean"
                       },
                       "isBatchTracked": {
+                        "type": "boolean"
+                      },
+                      "isDirectlySellable": {
+                        "description": "Stock-item classification only; does not create a Menu item or alter sales behavior.",
+                        "type": "boolean"
+                      },
+                      "isProducedItem": {
+                        "description": "Explicit stock-item classification; independent of recipe existence.",
                         "type": "boolean"
                       },
                       "names": {
@@ -17836,6 +17885,13 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "accountingExportAccountCode": {
+                      "description": "Optional future accounting export mapping; no accounting posting semantics are implied.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "baseUnitId": {
                       "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                       "format": "uuid",
@@ -17885,6 +17941,14 @@
                       "type": "boolean"
                     },
                     "isBatchTracked": {
+                      "type": "boolean"
+                    },
+                    "isDirectlySellable": {
+                      "description": "Stock-item classification only; does not create a Menu item or alter sales behavior.",
+                      "type": "boolean"
+                    },
+                    "isProducedItem": {
+                      "description": "Explicit stock-item classification; independent of recipe existence.",
                       "type": "boolean"
                     },
                     "names": {
@@ -17997,6 +18061,13 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "accountingExportAccountCode": {
+                      "description": "Optional future accounting export mapping; no accounting posting semantics are implied.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "baseUnitId": {
                       "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                       "format": "uuid",
@@ -18046,6 +18117,14 @@
                       "type": "boolean"
                     },
                     "isBatchTracked": {
+                      "type": "boolean"
+                    },
+                    "isDirectlySellable": {
+                      "description": "Stock-item classification only; does not create a Menu item or alter sales behavior.",
+                      "type": "boolean"
+                    },
+                    "isProducedItem": {
+                      "description": "Explicit stock-item classification; independent of recipe existence.",
                       "type": "boolean"
                     },
                     "names": {
@@ -18157,6 +18236,13 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "accountingExportAccountCode": {
+                      "description": "Optional future accounting export mapping; no accounting posting semantics are implied.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "baseUnitId": {
                       "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                       "format": "uuid",
@@ -18206,6 +18292,14 @@
                       "type": "boolean"
                     },
                     "isBatchTracked": {
+                      "type": "boolean"
+                    },
+                    "isDirectlySellable": {
+                      "description": "Stock-item classification only; does not create a Menu item or alter sales behavior.",
+                      "type": "boolean"
+                    },
+                    "isProducedItem": {
+                      "description": "Explicit stock-item classification; independent of recipe existence.",
                       "type": "boolean"
                     },
                     "names": {
@@ -18297,9 +18391,9 @@
         ]
       }
     },
-    "/inventory/items/{itemId}/density": {
+    "/inventory/items/{itemId}/classification": {
       "patch": {
-        "operationId": "InventoryController_setItemDensity",
+        "operationId": "InventoryController_updateItemClassification",
         "parameters": [
           {
             "in": "path",
@@ -18316,7 +18410,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SetStockItemDensityDto"
+                "$ref": "#/components/schemas/UpdateStockItemClassificationDto"
               }
             }
           },
@@ -18328,6 +18422,13 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "accountingExportAccountCode": {
+                      "description": "Optional future accounting export mapping; no accounting posting semantics are implied.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "baseUnitId": {
                       "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                       "format": "uuid",
@@ -18377,6 +18478,200 @@
                       "type": "boolean"
                     },
                     "isBatchTracked": {
+                      "type": "boolean"
+                    },
+                    "isDirectlySellable": {
+                      "description": "Stock-item classification only; does not create a Menu item or alter sales behavior.",
+                      "type": "boolean"
+                    },
+                    "isProducedItem": {
+                      "description": "Explicit stock-item classification; independent of recipe existence.",
+                      "type": "boolean"
+                    },
+                    "names": {
+                      "description": "Opaque localized-name object (locale -> name).",
+                      "type": "object"
+                    },
+                    "recipeUnitId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "shelfLifeDays": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "sku": {
+                      "type": "string"
+                    },
+                    "standardCost": {
+                      "description": "Cost per base unit as a decimal string of minor units.",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated stock item."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid stock-item classification or export account code."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stock item not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update stock-item classification and export mapping (FR-INV-001).",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/items/{itemId}/density": {
+      "patch": {
+        "operationId": "InventoryController_setItemDensity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetStockItemDensityDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "accountingExportAccountCode": {
+                      "description": "Optional future accounting export mapping; no accounting posting semantics are implied.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "baseUnitId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "batchStrategy": {
+                      "enum": [
+                        "fifo",
+                        "fefo"
+                      ],
+                      "type": "string"
+                    },
+                    "categoryId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "costingMethod": {
+                      "enum": [
+                        "weighted_average",
+                        "fifo",
+                        "standard"
+                      ],
+                      "type": "string"
+                    },
+                    "densityGramsPerMillilitre": {
+                      "description": "Item density in grams per millilitre; required for mass↔volume conversion.",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "expiryTracked": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "isActive": {
+                      "type": "boolean"
+                    },
+                    "isBatchTracked": {
+                      "type": "boolean"
+                    },
+                    "isDirectlySellable": {
+                      "description": "Stock-item classification only; does not create a Menu item or alter sales behavior.",
+                      "type": "boolean"
+                    },
+                    "isProducedItem": {
+                      "description": "Explicit stock-item classification; independent of recipe existence.",
                       "type": "boolean"
                     },
                     "names": {

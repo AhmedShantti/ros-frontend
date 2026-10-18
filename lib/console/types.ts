@@ -629,6 +629,11 @@ export interface StockItem {
   shelfLifeDays: number | null;
   /** FR-INV-004 — density in grams per millilitre; null means mass/volume conversion is unavailable. */
   densityGramsPerMillilitre?: string | null;
+  /** FR-INV-001 — explicit item classification, independent of Menu/Production records. */
+  isDirectlySellable: boolean;
+  isProducedItem: boolean;
+  /** Future accounting export mapping; not a posting or revenue account field. */
+  accountingExportAccountCode: string | null;
   defaultSupplierId: Id | null;
   allergens: string[];
   unitCost: Money;

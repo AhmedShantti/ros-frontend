@@ -916,6 +916,9 @@ export function toStockItem(row: WireStockItem, tenantId: Id, category: Localise
     costingMethod: row.costingMethod,
     batchTracked: row.isBatchTracked,
     expiryTracked: row.expiryTracked,
+    isDirectlySellable: row.isDirectlySellable,
+    isProducedItem: row.isProducedItem,
+    accountingExportAccountCode: row.accountingExportAccountCode,
     // gap: storageRequirements is an opaque blob and not returned on reads.
     storage: "ambient",
     shelfLifeDays: row.shelfLifeDays,

@@ -22,6 +22,7 @@ import userEvent from "@testing-library/user-event";
 
 const itemsList = vi.fn();
 const itemsCreate = vi.fn();
+const itemsUpdate = vi.fn();
 const unitsOfMeasure = vi.fn();
 const categories = vi.fn();
 const createCategory = vi.fn();
@@ -46,6 +47,7 @@ vi.mock("@/lib/console/services", () => ({
       items: {
         list: (...args: unknown[]) => itemsList(...args),
         create: (...args: unknown[]) => itemsCreate(...args),
+        update: (...args: unknown[]) => itemsUpdate(...args),
       },
       unitsOfMeasure: (...args: unknown[]) => unitsOfMeasure(...args),
       categories: (...args: unknown[]) => categories(...args),
@@ -95,6 +97,9 @@ const ITEM_FLOUR = {
   costingMethod: "weighted_average",
   batchTracked: false,
   expiryTracked: false,
+  isDirectlySellable: true,
+  isProducedItem: false,
+  accountingExportAccountCode: "INV-500",
   storage: "ambient",
   shelfLifeDays: null,
   defaultSupplierId: null,
@@ -114,6 +119,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   granted = new Set(["inventory.view", "inventory.adjust"]);
   itemsList.mockResolvedValue({ rows: [ITEM_FLOUR], total: 1 });
+  itemsUpdate.mockImplementation(async (_id, patch) => ({ ...ITEM_FLOUR, ...patch }));
   unitsOfMeasure.mockResolvedValue([UOM_GRAM, UOM_KG]);
   categories.mockResolvedValue([]);
   listPurchaseUnits.mockResolvedValue([]);
@@ -164,6 +170,11 @@ describe("Stock items — base unit selection (FR-INV-001)", () => {
         expect.objectContaining({ baseUnitId: UOM_KG.id }),
       ),
     );
+    expect(itemsCreate.mock.calls[0]![0]).toMatchObject({
+      isDirectlySellable: false,
+      isProducedItem: false,
+      accountingExportAccountCode: null,
+    });
   });
 
   it("blocks stock item creation while no unit catalogue is available (empty)", async () => {
@@ -194,6 +205,65 @@ describe("Stock items — base unit selection (FR-INV-001)", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getAllByText("kg").length).toBeGreaterThan(0);
     expect(within(dialog).queryByRole("button", { name: /inv\.baseUnit/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("Stock items — classification and accounting export mapping (FR-INV-001)", () => {
+  it("creates both explicit classifications independently of the account mapping", async () => {
+    itemsCreate.mockResolvedValue({ ...ITEM_FLOUR, id: "item-new" });
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    await user.type(await screen.findByLabelText(/common\.name/), "Bottled water");
+    await user.type(screen.getByLabelText(/inv\.sku/), "WTR-001");
+    const unit = screen.getByLabelText(/inv\.baseUnit/);
+    await user.click(unit);
+    await user.click(screen.getByRole("option", { name: "Gram" }));
+    await user.click(screen.getByRole("switch", { name: "inv.directlySellable" }));
+    await user.click(screen.getByRole("switch", { name: "inv.producedItem" }));
+    await user.type(screen.getByLabelText(/inv\.accountingExportAccountCode/), "  REV-UNASSUMED  ");
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+
+    await waitFor(() =>
+      expect(itemsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          isDirectlySellable: true,
+          isProducedItem: true,
+          accountingExportAccountCode: "REV-UNASSUMED",
+        }),
+      ),
+    );
+    const [payload] = itemsCreate.mock.calls[0]!;
+    expect(payload).not.toHaveProperty("revenueAccountCode");
+  });
+
+  it("renders persisted values, toggles both flags, and clears the mapping on update", async () => {
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await user.click(await screen.findByText("Flour"));
+    const dialog = await screen.findByRole("dialog");
+    const heading = within(dialog).getByRole("heading", { name: "inv.stockItemClassification" });
+    const section = heading.closest("section")!;
+    const directlySellable = within(section).getByRole("switch", { name: "inv.directlySellable" });
+    const produced = within(section).getByRole("switch", { name: "inv.producedItem" });
+    const accountCode = within(section).getByRole("textbox", { name: "inv.accountingExportAccountCode" });
+
+    expect(directlySellable).toHaveAttribute("aria-checked", "true");
+    expect(produced).toHaveAttribute("aria-checked", "false");
+    expect(accountCode).toHaveValue("INV-500");
+    await user.click(directlySellable);
+    await user.click(produced);
+    await user.clear(accountCode);
+    await user.click(within(section).getByRole("button", { name: "inv.saveClassification" }));
+
+    await waitFor(() =>
+      expect(itemsUpdate).toHaveBeenCalledWith("item-flour", {
+        isDirectlySellable: false,
+        isProducedItem: true,
+        accountingExportAccountCode: null,
+      }),
+    );
   });
 });
 

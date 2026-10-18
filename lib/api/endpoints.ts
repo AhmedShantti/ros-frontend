@@ -323,6 +323,10 @@ export const inventory = {
   changeBaseUnit: (itemId: string, body: S.ChangeBaseUnitDto) =>
     http.post<S.InventoryController_changeBaseUnitResponse>("/inventory/items/{itemId}/base-unit", { params: { itemId }, body }),
 
+  /** `PATCH /inventory/items/{itemId}/classification` — Update stock-item classification and export mapping (FR-INV-001). — The updated stock item. */
+  updateItemClassification: (itemId: string, body: S.UpdateStockItemClassificationDto) =>
+    http.patch<S.InventoryController_updateItemClassificationResponse>("/inventory/items/{itemId}/classification", { params: { itemId }, body }),
+
   /** `PATCH /inventory/items/{itemId}/density` — Set or clear item density for mass↔volume conversion (FR-INV-004). — The updated stock item. */
   setItemDensity: (itemId: string, body: S.SetStockItemDensityDto) =>
     http.patch<S.InventoryController_setItemDensityResponse>("/inventory/items/{itemId}/density", { params: { itemId }, body }),

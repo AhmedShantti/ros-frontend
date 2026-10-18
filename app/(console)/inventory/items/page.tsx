@@ -38,6 +38,7 @@ import {
   Input,
   Select,
   Toast,
+  Toggle,
 } from "@/components/console/ui";
 import { RecordDrawer } from "@/components/console/record-drawer";
 import { useAction } from "@/lib/console/actions";
@@ -259,6 +260,7 @@ export function StockItemsScreen() {
         categoryNameById={categoryNameById}
         onClose={() => setSelected(null)}
         onMessage={setMessage}
+        onUpdated={() => void collection.reload()}
       />
       <RecordDrawer
         open={creating}
@@ -314,6 +316,26 @@ export function StockItemsScreen() {
             validate: (value) =>
               isValidOptionalDensity(value) ? null : t("inv.densityInvalid"),
           },
+          {
+            name: "isDirectlySellable",
+            label: t("inv.directlySellable"),
+            kind: "toggle",
+            hint: t("inv.directlySellableHint"),
+          },
+          {
+            name: "isProducedItem",
+            label: t("inv.producedItem"),
+            kind: "toggle",
+            hint: t("inv.producedItemHint"),
+          },
+          {
+            name: "accountingExportAccountCode",
+            label: t("inv.accountingExportAccountCode"),
+            kind: "text",
+            maxLength: 32,
+            ltr: true,
+            hint: t("inv.accountingExportAccountCodeHint"),
+          },
         ]}
         onClose={() => setCreating(false)}
         onSubmit={(values) =>
@@ -324,6 +346,10 @@ export function StockItemsScreen() {
             categoryId: values.categoryId ? values.categoryId : null,
             costingMethod: values.costingMethod as never,
             densityGramsPerMillilitre: values.densityGramsPerMillilitre?.trim() || undefined,
+            isDirectlySellable: values.isDirectlySellable === "true",
+            isProducedItem: values.isProducedItem === "true",
+            accountingExportAccountCode:
+              values.accountingExportAccountCode.trim() || null,
             // Only sent for standard costing — switching away from Standard
             // never carries a stale cost into the request. `standardCost` is
             // the money field's own minor-unit integer string, passed
@@ -442,11 +468,13 @@ function ItemDrawer({
   categoryNameById,
   onClose,
   onMessage,
+  onUpdated,
 }: {
   item: StockItem | null;
   categoryNameById: Map<string, string>;
   onClose: () => void;
   onMessage: (message: string) => void;
+  onUpdated: () => void;
 }) {
   const { t, tx, fmt } = useI18n();
   if (!item) return null;
@@ -526,6 +554,13 @@ function ItemDrawer({
 
         <DensityEditor key={item.id} item={item} onMessage={onMessage} />
 
+        <StockItemClassificationEditor
+          key={`${item.id}-classification`}
+          item={item}
+          onMessage={onMessage}
+          onUpdated={onUpdated}
+        />
+
         <PurchaseUnitsSection item={item} onMessage={onMessage} />
 
         {item.allergens.length > 0 ? (
@@ -544,6 +579,83 @@ function ItemDrawer({
         <Callout tone="muted">{t("inv.baseUnitNote")}</Callout>
       </div>
     </Drawer>
+  );
+}
+
+function StockItemClassificationEditor({
+  item,
+  onMessage,
+  onUpdated,
+}: {
+  item: StockItem;
+  onMessage: (message: string) => void;
+  onUpdated: () => void;
+}) {
+  const { t } = useI18n();
+  const session = useSession();
+  const canMutate = session.canAny(["inventory.adjust"]);
+  const action = useAction(onMessage);
+  const [isDirectlySellable, setIsDirectlySellable] = useState(item.isDirectlySellable);
+  const [isProducedItem, setIsProducedItem] = useState(item.isProducedItem);
+  const [accountCode, setAccountCode] = useState(item.accountingExportAccountCode ?? "");
+
+  async function save() {
+    await action.run(
+      () =>
+        services.inventory.items.update(item.id, {
+          isDirectlySellable,
+          isProducedItem,
+          accountingExportAccountCode: accountCode.trim() || null,
+        }),
+      {
+        onSuccess: (updated) => {
+          setIsDirectlySellable(updated.isDirectlySellable);
+          setIsProducedItem(updated.isProducedItem);
+          setAccountCode(updated.accountingExportAccountCode ?? "");
+          onUpdated();
+          onMessage(t("inv.classificationSaved"));
+        },
+      },
+    );
+  }
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-fg text-sm font-semibold">{t("inv.stockItemClassification")}</h3>
+      <Toggle
+        checked={isDirectlySellable}
+        onChange={setIsDirectlySellable}
+        label={t("inv.directlySellable")}
+        hint={t("inv.directlySellableHint")}
+        disabled={!canMutate || action.pending}
+      />
+      <Toggle
+        checked={isProducedItem}
+        onChange={setIsProducedItem}
+        label={t("inv.producedItem")}
+        hint={t("inv.producedItemHint")}
+        disabled={!canMutate || action.pending}
+      />
+      <Field
+        label={t("inv.accountingExportAccountCode")}
+        hint={t("inv.accountingExportAccountCodeHint")}
+      >
+        <Input
+          value={accountCode}
+          maxLength={32}
+          dir="ltr"
+          aria-label={t("inv.accountingExportAccountCode")}
+          disabled={!canMutate || action.pending}
+          onChange={(event) => setAccountCode(event.target.value)}
+        />
+      </Field>
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      {canMutate ? (
+        <Button type="button" size="sm" loading={action.pending} onClick={() => void save()}>
+          {t("inv.saveClassification")}
+        </Button>
+      ) : null}
+    </section>
   );
 }
 

@@ -1602,6 +1602,9 @@ const stockItems: CollectionService<StockItem> = {
       costingMethod: input.costingMethod,
       isBatchTracked: input.batchTracked,
       expiryTracked: input.expiryTracked,
+      isDirectlySellable: input.isDirectlySellable,
+      isProducedItem: input.isProducedItem,
+      accountingExportAccountCode: input.accountingExportAccountCode,
       shelfLifeDays: input.shelfLifeDays ?? undefined,
       densityGramsPerMillilitre: input.densityGramsPerMillilitre ?? undefined,
       // `standardCost` is not a StockItem domain field — the page smuggles
@@ -1617,11 +1620,28 @@ const stockItems: CollectionService<StockItem> = {
   },
 
   async update(id, patch) {
-    // The API exposes targeted mutations, not a general PATCH. `baseUnitId`
-    // (the real UUID) — same reasoning as `create` above; no UI currently
-    // triggers this specific patch, but it must stay correct regardless.
+    // Targeted mutation routes preserve independent domains: base-unit changes
+    // retain the FR-INV-002 movement guard; classification changes never
+    // trigger Menu, Production, POS, or Accounting workflows.
     if (patch.baseUnitId) {
       await api.inventory.changeBaseUnit(id, { baseUnitId: patch.baseUnitId });
+    }
+    if (
+      patch.isDirectlySellable !== undefined ||
+      patch.isProducedItem !== undefined ||
+      patch.accountingExportAccountCode !== undefined
+    ) {
+      await api.inventory.updateItemClassification(id, {
+        ...(patch.isDirectlySellable !== undefined
+          ? { isDirectlySellable: patch.isDirectlySellable }
+          : {}),
+        ...(patch.isProducedItem !== undefined
+          ? { isProducedItem: patch.isProducedItem }
+          : {}),
+        ...(patch.accountingExportAccountCode !== undefined
+          ? { accountingExportAccountCode: patch.accountingExportAccountCode }
+          : {}),
+      });
     }
     invalidateInventory();
     const row = await api.inventory.getItem(id);

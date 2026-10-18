@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 217 paths, 146 request DTOs.
+ * `api/openapi.json`. 218 paths, 147 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -488,6 +488,7 @@ export interface CreateStockItemCategoryDto {
 }
 
 export interface CreateStockItemDto {
+  accountingExportAccountCode?: string | null;
   baseUnitId: string;
   batchStrategy?: "fifo" | "fefo";
   categoryId?: string;
@@ -495,6 +496,8 @@ export interface CreateStockItemDto {
   densityGramsPerMillilitre?: string;
   expiryTracked?: boolean;
   isBatchTracked?: boolean;
+  isDirectlySellable?: boolean;
+  isProducedItem?: boolean;
   names: Record<string, unknown>;
   recipeUnitId?: string;
   shelfLifeDays?: number;
@@ -1149,6 +1152,13 @@ export interface UpdateStationDto {
 
 export interface UpdateStationRoutingRuleDto {
   stationId: string;
+}
+
+export interface UpdateStockItemClassificationDto {
+  /** Omitted preserves the mapping; null explicitly clears it. */
+  accountingExportAccountCode?: string | null;
+  isDirectlySellable?: boolean;
+  isProducedItem?: boolean;
 }
 
 export interface UpdateSupplierDto {
@@ -3170,6 +3180,8 @@ export type InventoryController_expiringResponse = ({
 
 /** `GET /inventory/items` — All stock items in the tenant. */
 export type InventoryController_listItemsResponse = ({
+  /** Optional future accounting export mapping; no accounting posting semantics are implied. */
+  accountingExportAccountCode: string | null;
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
@@ -3180,6 +3192,10 @@ export type InventoryController_listItemsResponse = ({
   id: string;
   isActive: boolean;
   isBatchTracked: boolean;
+  /** Stock-item classification only; does not create a Menu item or alter sales behavior. */
+  isDirectlySellable: boolean;
+  /** Explicit stock-item classification; independent of recipe existence. */
+  isProducedItem: boolean;
   /** Opaque localized-name object (locale -> name). */
   names: Record<string, unknown>;
   recipeUnitId: string | null;
@@ -3191,6 +3207,8 @@ export type InventoryController_listItemsResponse = ({
 
 /** `POST /inventory/items` — Create a stock item (FR-INV-001). — The created stock item. */
 export type InventoryController_createItemResponse = {
+  /** Optional future accounting export mapping; no accounting posting semantics are implied. */
+  accountingExportAccountCode: string | null;
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
@@ -3201,6 +3219,10 @@ export type InventoryController_createItemResponse = {
   id: string;
   isActive: boolean;
   isBatchTracked: boolean;
+  /** Stock-item classification only; does not create a Menu item or alter sales behavior. */
+  isDirectlySellable: boolean;
+  /** Explicit stock-item classification; independent of recipe existence. */
+  isProducedItem: boolean;
   /** Opaque localized-name object (locale -> name). */
   names: Record<string, unknown>;
   recipeUnitId: string | null;
@@ -3214,6 +3236,8 @@ export type InventoryController_createItemBody = CreateStockItemDto;
 
 /** `GET /inventory/items/{itemId}` — The stock item. */
 export type InventoryController_getItemResponse = {
+  /** Optional future accounting export mapping; no accounting posting semantics are implied. */
+  accountingExportAccountCode: string | null;
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
@@ -3224,6 +3248,10 @@ export type InventoryController_getItemResponse = {
   id: string;
   isActive: boolean;
   isBatchTracked: boolean;
+  /** Stock-item classification only; does not create a Menu item or alter sales behavior. */
+  isDirectlySellable: boolean;
+  /** Explicit stock-item classification; independent of recipe existence. */
+  isProducedItem: boolean;
   /** Opaque localized-name object (locale -> name). */
   names: Record<string, unknown>;
   recipeUnitId: string | null;
@@ -3235,6 +3263,8 @@ export type InventoryController_getItemResponse = {
 
 /** `POST /inventory/items/{itemId}/base-unit` — FR-INV-002: rejected once any movement exists. — The updated stock item. */
 export type InventoryController_changeBaseUnitResponse = {
+  /** Optional future accounting export mapping; no accounting posting semantics are implied. */
+  accountingExportAccountCode: string | null;
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
@@ -3245,6 +3275,10 @@ export type InventoryController_changeBaseUnitResponse = {
   id: string;
   isActive: boolean;
   isBatchTracked: boolean;
+  /** Stock-item classification only; does not create a Menu item or alter sales behavior. */
+  isDirectlySellable: boolean;
+  /** Explicit stock-item classification; independent of recipe existence. */
+  isProducedItem: boolean;
   /** Opaque localized-name object (locale -> name). */
   names: Record<string, unknown>;
   recipeUnitId: string | null;
@@ -3256,8 +3290,10 @@ export type InventoryController_changeBaseUnitResponse = {
 
 export type InventoryController_changeBaseUnitBody = ChangeBaseUnitDto;
 
-/** `PATCH /inventory/items/{itemId}/density` — Set or clear item density for mass↔volume conversion (FR-INV-004). — The updated stock item. */
-export type InventoryController_setItemDensityResponse = {
+/** `PATCH /inventory/items/{itemId}/classification` — Update stock-item classification and export mapping (FR-INV-001). — The updated stock item. */
+export type InventoryController_updateItemClassificationResponse = {
+  /** Optional future accounting export mapping; no accounting posting semantics are implied. */
+  accountingExportAccountCode: string | null;
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
@@ -3268,6 +3304,39 @@ export type InventoryController_setItemDensityResponse = {
   id: string;
   isActive: boolean;
   isBatchTracked: boolean;
+  /** Stock-item classification only; does not create a Menu item or alter sales behavior. */
+  isDirectlySellable: boolean;
+  /** Explicit stock-item classification; independent of recipe existence. */
+  isProducedItem: boolean;
+  /** Opaque localized-name object (locale -> name). */
+  names: Record<string, unknown>;
+  recipeUnitId: string | null;
+  shelfLifeDays: number | null;
+  sku: string;
+  /** Cost per base unit as a decimal string of minor units. */
+  standardCost: string | null;
+};
+
+export type InventoryController_updateItemClassificationBody = UpdateStockItemClassificationDto;
+
+/** `PATCH /inventory/items/{itemId}/density` — Set or clear item density for mass↔volume conversion (FR-INV-004). — The updated stock item. */
+export type InventoryController_setItemDensityResponse = {
+  /** Optional future accounting export mapping; no accounting posting semantics are implied. */
+  accountingExportAccountCode: string | null;
+  baseUnitId: string;
+  batchStrategy: "fifo" | "fefo";
+  categoryId: string | null;
+  costingMethod: "weighted_average" | "fifo" | "standard";
+  /** Item density in grams per millilitre; required for mass↔volume conversion. */
+  densityGramsPerMillilitre: string | null;
+  expiryTracked: boolean;
+  id: string;
+  isActive: boolean;
+  isBatchTracked: boolean;
+  /** Stock-item classification only; does not create a Menu item or alter sales behavior. */
+  isDirectlySellable: boolean;
+  /** Explicit stock-item classification; independent of recipe existence. */
+  isProducedItem: boolean;
   /** Opaque localized-name object (locale -> name). */
   names: Record<string, unknown>;
   recipeUnitId: string | null;
@@ -8706,6 +8775,7 @@ export const ROUTES = {
   InventoryController_createItem: { method: "POST", path: "/inventory/items" },
   InventoryController_getItem: { method: "GET", path: "/inventory/items/{itemId}" },
   InventoryController_changeBaseUnit: { method: "POST", path: "/inventory/items/{itemId}/base-unit" },
+  InventoryController_updateItemClassification: { method: "PATCH", path: "/inventory/items/{itemId}/classification" },
   InventoryController_setItemDensity: { method: "PATCH", path: "/inventory/items/{itemId}/density" },
   InventoryController_listMovements: { method: "GET", path: "/inventory/items/{itemId}/movements" },
   InventoryController_listPurchaseUnits: { method: "GET", path: "/inventory/items/{itemId}/purchase-units" },
