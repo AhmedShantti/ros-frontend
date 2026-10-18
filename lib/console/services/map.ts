@@ -919,6 +919,7 @@ export function toStockItem(row: WireStockItem, tenantId: Id, category: Localise
     // gap: storageRequirements is an opaque blob and not returned on reads.
     storage: "ambient",
     shelfLifeDays: row.shelfLifeDays,
+    densityGramsPerMillilitre: row.densityGramsPerMillilitre,
     defaultSupplierId: null, // gap: purchasing is not implemented.
     allergens: [],
     // `standardCost` is already a minor-unit integer string on the wire —

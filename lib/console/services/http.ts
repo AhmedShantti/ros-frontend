@@ -1603,6 +1603,7 @@ const stockItems: CollectionService<StockItem> = {
       isBatchTracked: input.batchTracked,
       expiryTracked: input.expiryTracked,
       shelfLifeDays: input.shelfLifeDays ?? undefined,
+      densityGramsPerMillilitre: input.densityGramsPerMillilitre ?? undefined,
       // `standardCost` is not a StockItem domain field — the page smuggles
       // it through as `standardCost as never` (same idiom as `costingMethod`
       // above). It arrives already the exact minor-unit integer string the
@@ -2017,6 +2018,14 @@ const inventory: InventoryService = {
 
   async recordCount(lineId, countedQuantity) {
     await api.inventory.recordCount(lineId, { countedQuantity });
+  },
+
+  async setItemDensity(itemId, densityGramsPerMillilitre) {
+    const row = await api.inventory.setItemDensity(itemId, {
+      densityGramsPerMillilitre,
+    });
+    invalidateInventory();
+    return map.toStockItem(row, getTenantId() ?? "");
   },
 
   // -- Transfers -------------------------------------------------------------

@@ -627,6 +627,8 @@ export interface StockItem {
   expiryTracked: boolean;
   storage: StorageRequirement;
   shelfLifeDays: number | null;
+  /** FR-INV-004 — density in grams per millilitre; null means mass/volume conversion is unavailable. */
+  densityGramsPerMillilitre?: string | null;
   defaultSupplierId: Id | null;
   allergens: string[];
   unitCost: Money;

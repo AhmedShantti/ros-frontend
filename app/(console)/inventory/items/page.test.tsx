@@ -29,6 +29,7 @@ const listPurchaseUnits = vi.fn();
 const createPurchaseUnit = vi.fn();
 const updatePurchaseUnit = vi.fn();
 const deletePurchaseUnit = vi.fn();
+const setItemDensity = vi.fn();
 
 vi.mock("@/lib/console/services", () => ({
   ServiceError: class ServiceError extends Error {
@@ -53,6 +54,7 @@ vi.mock("@/lib/console/services", () => ({
       createPurchaseUnit: (...args: unknown[]) => createPurchaseUnit(...args),
       updatePurchaseUnit: (...args: unknown[]) => updatePurchaseUnit(...args),
       deletePurchaseUnit: (...args: unknown[]) => deletePurchaseUnit(...args),
+      setItemDensity: (...args: unknown[]) => setItemDensity(...args),
     },
   },
 }));
@@ -115,6 +117,10 @@ beforeEach(() => {
   unitsOfMeasure.mockResolvedValue([UOM_GRAM, UOM_KG]);
   categories.mockResolvedValue([]);
   listPurchaseUnits.mockResolvedValue([]);
+  setItemDensity.mockImplementation(async (_itemId, densityGramsPerMillilitre) => ({
+    ...ITEM_FLOUR,
+    densityGramsPerMillilitre,
+  }));
 });
 
 afterEach(() => {
@@ -188,6 +194,75 @@ describe("Stock items — base unit selection (FR-INV-001)", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getAllByText("kg").length).toBeGreaterThan(0);
     expect(within(dialog).queryByRole("button", { name: /inv\.baseUnit/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("Stock item density editor (FR-INV-004)", () => {
+  it("saves the exact positive decimal string and permits clearing density", async () => {
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await user.click(await screen.findByText("Flour"));
+    const density = await screen.findByRole("textbox", { name: "inv.density" });
+    await user.clear(density);
+    await user.type(density, "0.8123456789");
+    await user.click(screen.getByRole("button", { name: "common.save" }));
+
+    await waitFor(() =>
+      expect(setItemDensity).toHaveBeenCalledWith("item-flour", "0.8123456789"),
+    );
+
+    await user.clear(density);
+    await user.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() => expect(setItemDensity).toHaveBeenLastCalledWith("item-flour", null));
+    expect(density).toHaveValue("");
+  });
+
+  it.each(["0", "-1", "malformed", "1.12345678901"])(
+    "disables save for invalid density %s",
+    async (value) => {
+      const user = userEvent.setup();
+      render(<StockItemsScreen />);
+      await user.click(await screen.findByText("Flour"));
+      const density = await screen.findByRole("textbox", { name: "inv.density" });
+      await user.type(density, value);
+      expect(await screen.findByText("inv.densityInvalid")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "common.save" })).toBeDisabled();
+    },
+  );
+
+  it("accepts the minimum supported positive precision in the edit form", async () => {
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await user.click(await screen.findByText("Flour"));
+    const density = await screen.findByRole("textbox", { name: "inv.density" });
+    await user.type(density, "0.0000000001");
+    expect(screen.queryByText("inv.densityInvalid")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "common.save" })).toBeEnabled();
+  });
+});
+
+describe("Stock item density create validation (FR-INV-004)", () => {
+  it.each(["0", "-1", "malformed", "1.12345678901"])(
+    "blocks creation for invalid density %s",
+    async (value) => {
+      const user = userEvent.setup();
+      render(<StockItemsScreen />);
+      await openNewItemDrawer(user);
+      await user.type(await screen.findByLabelText(/inv\.density/), value);
+      expect(await screen.findByText("inv.densityInvalid")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "common.create" }));
+      expect(itemsCreate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("accepts a valid Decimal(20,10) boundary value without changing its text", async () => {
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+    const density = await screen.findByLabelText(/inv\.density/);
+    await user.type(density, "9999999999.9999999999");
+    expect(screen.queryByText("inv.densityInvalid")).not.toBeInTheDocument();
+    expect(density).toHaveValue("9999999999.9999999999");
   });
 });
 

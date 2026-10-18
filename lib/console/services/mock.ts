@@ -1503,6 +1503,7 @@ const inventory: InventoryService = {
       expiryTracked: input.expiryTracked ?? false,
       storage: input.storage ?? "ambient",
       shelfLifeDays: input.shelfLifeDays ?? null,
+      densityGramsPerMillilitre: input.densityGramsPerMillilitre ?? null,
       defaultSupplierId: input.defaultSupplierId ?? null,
       allergens: input.allergens ?? [],
       unitCost: input.unitCost ?? { amount: 0, currency: "EGP" },
@@ -1772,6 +1773,15 @@ const inventory: InventoryService = {
         return;
       }
       throw new ServiceError("NOT_FOUND", "That count line no longer exists.", 404);
+    });
+  },
+
+  async setItemDensity(itemId, densityGramsPerMillilitre) {
+    return transport(() => {
+      const row = stockItems.find((candidate) => candidate.id === itemId);
+      if (!row) throw new ServiceError("NOT_FOUND", "Stock item not found.", 404);
+      row.densityGramsPerMillilitre = densityGramsPerMillilitre;
+      return row;
     });
   },
 

@@ -1650,6 +1650,9 @@
             ],
             "type": "string"
           },
+          "densityGramsPerMillilitre": {
+            "type": "string"
+          },
           "expiryTracked": {
             "type": "boolean"
           },
@@ -3228,6 +3231,21 @@
           "locationId",
           "reorderPoint",
           "reorderQuantity"
+        ],
+        "type": "object"
+      },
+      "SetStockItemDensityDto": {
+        "properties": {
+          "densityGramsPerMillilitre": {
+            "description": "Explicit null clears the density; omitted is rejected by DTO validation.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "densityGramsPerMillilitre"
         ],
         "type": "object"
       },
@@ -17693,6 +17711,15 @@
                         ],
                         "type": "string"
                       },
+                      "densityGramsPerMillilitre": {
+                        "description": "Item density in grams per millilitre; required for mass↔volume conversion.",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
                       "expiryTracked": {
                         "type": "boolean"
                       },
@@ -17822,6 +17849,15 @@
                         "standard"
                       ],
                       "type": "string"
+                    },
+                    "densityGramsPerMillilitre": {
+                      "description": "Item density in grams per millilitre; required for mass↔volume conversion.",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     },
                     "expiryTracked": {
                       "type": "boolean"
@@ -17975,6 +18011,15 @@
                       ],
                       "type": "string"
                     },
+                    "densityGramsPerMillilitre": {
+                      "description": "Item density in grams per millilitre; required for mass↔volume conversion.",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "expiryTracked": {
                       "type": "boolean"
                     },
@@ -18126,6 +18171,15 @@
                       ],
                       "type": "string"
                     },
+                    "densityGramsPerMillilitre": {
+                      "description": "Item density in grams per millilitre; required for mass↔volume conversion.",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "expiryTracked": {
                       "type": "boolean"
                     },
@@ -18224,6 +18278,177 @@
           }
         ],
         "summary": "FR-INV-002: rejected once any movement exists.",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/items/{itemId}/density": {
+      "patch": {
+        "operationId": "InventoryController_setItemDensity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetStockItemDensityDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "baseUnitId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "batchStrategy": {
+                      "enum": [
+                        "fifo",
+                        "fefo"
+                      ],
+                      "type": "string"
+                    },
+                    "categoryId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "costingMethod": {
+                      "enum": [
+                        "weighted_average",
+                        "fifo",
+                        "standard"
+                      ],
+                      "type": "string"
+                    },
+                    "densityGramsPerMillilitre": {
+                      "description": "Item density in grams per millilitre; required for mass↔volume conversion.",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "expiryTracked": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "isActive": {
+                      "type": "boolean"
+                    },
+                    "isBatchTracked": {
+                      "type": "boolean"
+                    },
+                    "names": {
+                      "description": "Opaque localized-name object (locale -> name).",
+                      "type": "object"
+                    },
+                    "recipeUnitId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "shelfLifeDays": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "sku": {
+                      "type": "string"
+                    },
+                    "standardCost": {
+                      "description": "Cost per base unit as a decimal string of minor units.",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated stock item."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Density must be a positive decimal value or null."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Stock item not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set or clear item density for mass↔volume conversion (FR-INV-004).",
         "tags": [
           "inventory"
         ]

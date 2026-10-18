@@ -42,6 +42,11 @@ import {
 import { RecordDrawer } from "@/components/console/record-drawer";
 import { useAction } from "@/lib/console/actions";
 
+function isValidOptionalDensity(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed === "" || (/^\d{1,10}(\.\d{1,10})?$/.test(trimmed) && /[1-9]/.test(trimmed));
+}
+
 export default function StockItemsPage() {
   return (
     <Gate permissions={["inventory.view"]}>
@@ -301,6 +306,14 @@ export function StockItemsScreen() {
             required: true,
             visibleWhen: (all) => all.costingMethod === "standard",
           },
+          {
+            name: "densityGramsPerMillilitre",
+            label: t("inv.density"),
+            kind: "text",
+            hint: t("inv.densityHint"),
+            validate: (value) =>
+              isValidOptionalDensity(value) ? null : t("inv.densityInvalid"),
+          },
         ]}
         onClose={() => setCreating(false)}
         onSubmit={(values) =>
@@ -310,6 +323,7 @@ export function StockItemsScreen() {
             baseUnitId: values.baseUnitId,
             categoryId: values.categoryId ? values.categoryId : null,
             costingMethod: values.costingMethod as never,
+            densityGramsPerMillilitre: values.densityGramsPerMillilitre?.trim() || undefined,
             // Only sent for standard costing — switching away from Standard
             // never carries a stale cost into the request. `standardCost` is
             // the money field's own minor-unit integer string, passed
@@ -510,6 +524,8 @@ function ItemDrawer({
           </DescRow>
         </DescList>
 
+        <DensityEditor key={item.id} item={item} onMessage={onMessage} />
+
         <PurchaseUnitsSection item={item} onMessage={onMessage} />
 
         {item.allergens.length > 0 ? (
@@ -528,6 +544,59 @@ function ItemDrawer({
         <Callout tone="muted">{t("inv.baseUnitNote")}</Callout>
       </div>
     </Drawer>
+  );
+}
+
+function DensityEditor({
+  item,
+  onMessage,
+}: {
+  item: StockItem;
+  onMessage: (message: string) => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction(onMessage);
+  const [density, setDensity] = useState(item.densityGramsPerMillilitre ?? "");
+  const trimmed = density.trim();
+  const valid = isValidOptionalDensity(trimmed);
+
+  return (
+    <section className="space-y-2">
+      <Field
+        label={t("inv.density")}
+        hint={t("inv.densityHint")}
+        error={valid ? undefined : t("inv.densityInvalid")}
+      >
+        <Input
+          inputMode="decimal"
+          dir="ltr"
+          value={density}
+          disabled={action.pending}
+          onChange={(event) => setDensity(event.target.value)}
+          aria-label={t("inv.density")}
+        />
+      </Field>
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      <Button
+        type="button"
+        size="sm"
+        disabled={!valid || action.pending}
+        loading={action.pending}
+        onClick={() =>
+          void action.run(
+            () => services.inventory.setItemDensity(item.id, trimmed || null),
+            {
+              onSuccess: (updated) => {
+                setDensity(updated.densityGramsPerMillilitre ?? "");
+                onMessage(t("inv.densitySaved"));
+              },
+            },
+          )
+        }
+      >
+        {t("common.save")}
+      </Button>
+    </section>
   );
 }
 

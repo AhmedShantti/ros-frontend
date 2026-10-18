@@ -323,6 +323,10 @@ export const inventory = {
   changeBaseUnit: (itemId: string, body: S.ChangeBaseUnitDto) =>
     http.post<S.InventoryController_changeBaseUnitResponse>("/inventory/items/{itemId}/base-unit", { params: { itemId }, body }),
 
+  /** `PATCH /inventory/items/{itemId}/density` — Set or clear item density for mass↔volume conversion (FR-INV-004). — The updated stock item. */
+  setItemDensity: (itemId: string, body: S.SetStockItemDensityDto) =>
+    http.patch<S.InventoryController_setItemDensityResponse>("/inventory/items/{itemId}/density", { params: { itemId }, body }),
+
   /** `GET /inventory/items/{itemId}/movements` — Cost-bearing read — gated by inventory.cost.view, not inventory.view. — The most recent 200 ledger movements for this item, newest first. */
   listMovements: (itemId: string, options: { locationId?: string } = {}) =>
     http.get<S.InventoryController_listMovementsResponse>("/inventory/items/{itemId}/movements", { params: { itemId }, query: { locationId: options.locationId } }),

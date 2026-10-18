@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 216 paths, 145 request DTOs.
+ * `api/openapi.json`. 217 paths, 146 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -492,6 +492,7 @@ export interface CreateStockItemDto {
   batchStrategy?: "fifo" | "fefo";
   categoryId?: string;
   costingMethod?: "weighted_average" | "fifo" | "standard";
+  densityGramsPerMillilitre?: string;
   expiryTracked?: boolean;
   isBatchTracked?: boolean;
   names: Record<string, unknown>;
@@ -954,6 +955,11 @@ export interface SetReorderConfigDto {
   locationId: string;
   reorderPoint: string;
   reorderQuantity: string;
+}
+
+export interface SetStockItemDensityDto {
+  /** Explicit null clears the density; omitted is rejected by DTO validation. */
+  densityGramsPerMillilitre: string | null;
 }
 
 export interface SetStorageAreaAssignmentDto {
@@ -3164,6 +3170,8 @@ export type InventoryController_listItemsResponse = ({
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
   costingMethod: "weighted_average" | "fifo" | "standard";
+  /** Item density in grams per millilitre; required for mass↔volume conversion. */
+  densityGramsPerMillilitre: string | null;
   expiryTracked: boolean;
   id: string;
   isActive: boolean;
@@ -3183,6 +3191,8 @@ export type InventoryController_createItemResponse = {
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
   costingMethod: "weighted_average" | "fifo" | "standard";
+  /** Item density in grams per millilitre; required for mass↔volume conversion. */
+  densityGramsPerMillilitre: string | null;
   expiryTracked: boolean;
   id: string;
   isActive: boolean;
@@ -3204,6 +3214,8 @@ export type InventoryController_getItemResponse = {
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
   costingMethod: "weighted_average" | "fifo" | "standard";
+  /** Item density in grams per millilitre; required for mass↔volume conversion. */
+  densityGramsPerMillilitre: string | null;
   expiryTracked: boolean;
   id: string;
   isActive: boolean;
@@ -3223,6 +3235,8 @@ export type InventoryController_changeBaseUnitResponse = {
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
   costingMethod: "weighted_average" | "fifo" | "standard";
+  /** Item density in grams per millilitre; required for mass↔volume conversion. */
+  densityGramsPerMillilitre: string | null;
   expiryTracked: boolean;
   id: string;
   isActive: boolean;
@@ -3237,6 +3251,29 @@ export type InventoryController_changeBaseUnitResponse = {
 };
 
 export type InventoryController_changeBaseUnitBody = ChangeBaseUnitDto;
+
+/** `PATCH /inventory/items/{itemId}/density` — Set or clear item density for mass↔volume conversion (FR-INV-004). — The updated stock item. */
+export type InventoryController_setItemDensityResponse = {
+  baseUnitId: string;
+  batchStrategy: "fifo" | "fefo";
+  categoryId: string | null;
+  costingMethod: "weighted_average" | "fifo" | "standard";
+  /** Item density in grams per millilitre; required for mass↔volume conversion. */
+  densityGramsPerMillilitre: string | null;
+  expiryTracked: boolean;
+  id: string;
+  isActive: boolean;
+  isBatchTracked: boolean;
+  /** Opaque localized-name object (locale -> name). */
+  names: Record<string, unknown>;
+  recipeUnitId: string | null;
+  shelfLifeDays: number | null;
+  sku: string;
+  /** Cost per base unit as a decimal string of minor units. */
+  standardCost: string | null;
+};
+
+export type InventoryController_setItemDensityBody = SetStockItemDensityDto;
 
 /** `GET /inventory/items/{itemId}/movements` — Cost-bearing read — gated by inventory.cost.view, not inventory.view. — The most recent 200 ledger movements for this item, newest first. */
 export type InventoryController_listMovementsResponse = ({
@@ -8653,6 +8690,7 @@ export const ROUTES = {
   InventoryController_createItem: { method: "POST", path: "/inventory/items" },
   InventoryController_getItem: { method: "GET", path: "/inventory/items/{itemId}" },
   InventoryController_changeBaseUnit: { method: "POST", path: "/inventory/items/{itemId}/base-unit" },
+  InventoryController_setItemDensity: { method: "PATCH", path: "/inventory/items/{itemId}/density" },
   InventoryController_listMovements: { method: "GET", path: "/inventory/items/{itemId}/movements" },
   InventoryController_listPurchaseUnits: { method: "GET", path: "/inventory/items/{itemId}/purchase-units" },
   InventoryController_createPurchaseUnit: { method: "POST", path: "/inventory/items/{itemId}/purchase-units" },

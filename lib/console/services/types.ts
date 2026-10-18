@@ -741,6 +741,8 @@ export interface InventoryService {
   // -- Units of measure --------------------------------------------------------
   /** FR-INV-001 — the catalogue `baseUnitId` (and `recipeUnitId`) are chosen from. */
   unitsOfMeasure(): Promise<UnitOfMeasure[]>;
+  /** FR-INV-004 — set or clear exact item density in grams per millilitre. */
+  setItemDensity(itemId: Id, densityGramsPerMillilitre: string | null): Promise<StockItem>;
 
   // -- Categories --------------------------------------------------------------
   /** FR-INV-001 — the catalogue a stock item's `categoryId` is chosen from. */
