@@ -1460,7 +1460,12 @@ function locationNameOf(id: Id | undefined): Localised | undefined {
 }
 
 /** Per-item, per-location reorder configuration — FR-INV-065. */
-const demoReorderConfig = new Map<string, { reorderPoint: string; reorderQuantity: string }>();
+const demoReorderConfig = new Map<string, {
+  reorderPoint: string;
+  reorderQuantity: string;
+  minStock: string | null;
+  maxStock: string | null;
+}>();
 
 const nameOfLocation = (locationId: Id): Localised =>
   stockLocations.find((row) => row.id === locationId)?.name ?? { en: locationId, ar: locationId };
@@ -1802,10 +1807,22 @@ const inventory: InventoryService = {
 
   async setReorderConfig(itemId, input) {
     return transport(() => {
-      demoReorderConfig.set(`${itemId}:${input.locationId}`, {
+      const key = `${itemId}:${input.locationId}`;
+      const existing = demoReorderConfig.get(key);
+      const config = {
         reorderPoint: input.reorderPoint,
         reorderQuantity: input.reorderQuantity,
-      });
+        minStock: input.minStock !== undefined ? input.minStock : existing?.minStock ?? null,
+        maxStock: input.maxStock !== undefined ? input.maxStock : existing?.maxStock ?? null,
+      };
+      demoReorderConfig.set(key, config);
+      const level = stockLevels.find(
+        (row) => row.itemId === itemId && row.locationId === input.locationId,
+      );
+      if (level) {
+        level.minStock = config.minStock;
+        level.maxStock = config.maxStock;
+      }
     });
   },
 

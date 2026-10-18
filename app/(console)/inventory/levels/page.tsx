@@ -44,6 +44,14 @@ import {
   cx,
 } from "@/components/console/ui";
 
+function stockLimitMicros(value: string): bigint | null | undefined {
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  if (!/^\d{1,12}(\.\d{1,6})?$/.test(trimmed)) return undefined;
+  const [whole, fraction = ""] = trimmed.split(".");
+  return BigInt(whole!) * 1_000_000n + BigInt(fraction.padEnd(6, "0"));
+}
+
 export default function StockLevelsPage() {
   return (
     <Gate permissions={["inventory.view"]}>
@@ -412,6 +420,8 @@ function ReorderConfigDrawer({
   const action = useAction();
   const [reorderPoint, setPoint] = useState("");
   const [reorderQuantity, setQuantity] = useState("");
+  const [minStock, setMinStock] = useState("");
+  const [maxStock, setMaxStock] = useState("");
 
   // Seeded from the row each time the drawer opens on a different item.
   const key = level ? `${level.itemId}-${level.locationId}` : "";
@@ -420,21 +430,33 @@ function ReorderConfigDrawer({
     setSeededFor(key);
     setPoint(String(level.reorderPoint ?? 0));
     setQuantity(String(level.reorderQuantity ?? 0));
+    setMinStock(level.minStock ?? "");
+    setMaxStock(level.maxStock ?? "");
   }
 
   if (!level) return null;
 
   const valid =
     Number.isFinite(Number(reorderPoint)) && Number.isFinite(Number(reorderQuantity));
+  const minMicros = stockLimitMicros(minStock);
+  const maxMicros = stockLimitMicros(maxStock);
+  const minAboveMax =
+    typeof minMicros === "bigint" &&
+    typeof maxMicros === "bigint" &&
+    minMicros > maxMicros;
+  const limitsValid = minMicros !== undefined && maxMicros !== undefined && !minAboveMax;
+  const canSave = valid && limitsValid;
 
   async function save() {
-    if (!level || !valid) return;
+    if (!level || !canSave) return;
     await action.run(
       () =>
         services.inventory.setReorderConfig(level.itemId, {
           locationId: level.locationId,
           reorderPoint: reorderPoint.trim(),
           reorderQuantity: reorderQuantity.trim(),
+          minStock: minStock.trim() === "" ? null : minStock.trim(),
+          maxStock: maxStock.trim() === "" ? null : maxStock.trim(),
         }),
       { onSuccess: onSaved },
     );
@@ -452,7 +474,7 @@ function ReorderConfigDrawer({
       }
       footer={
         <div className="flex gap-2">
-          <Button variant="primary" loading={action.pending} disabled={!valid} onClick={save}>
+          <Button variant="primary" loading={action.pending} disabled={!canSave} onClick={save}>
             {t("common.save")}
           </Button>
           <Button variant="ghost" onClick={onClose}>
@@ -498,6 +520,40 @@ function ReorderConfigDrawer({
             dir="ltr"
             value={reorderQuantity}
             onChange={(event) => setQuantity(event.target.value)}
+          />
+        </Field>
+
+        <Field
+          label={t("inv.minStock")}
+          hint={`${t("inv.minStockHint")} · ${unitLabel(level.onHand.unit, locale)}`}
+          error={
+            minMicros === undefined
+              ? t("inv.stockLimitInvalid")
+              : minAboveMax
+                ? t("inv.minStockAboveMax")
+                : undefined
+          }
+        >
+          <Input
+            inputMode="decimal"
+            dir="ltr"
+            value={minStock}
+            onChange={(event) => setMinStock(event.target.value)}
+            aria-label={t("inv.minStock")}
+          />
+        </Field>
+
+        <Field
+          label={t("inv.maxStock")}
+          hint={`${t("inv.maxStockHint")} · ${unitLabel(level.onHand.unit, locale)}`}
+          error={maxMicros === undefined ? t("inv.stockLimitInvalid") : undefined}
+        >
+          <Input
+            inputMode="decimal"
+            dir="ltr"
+            value={maxStock}
+            onChange={(event) => setMaxStock(event.target.value)}
+            aria-label={t("inv.maxStock")}
           />
         </Field>
 

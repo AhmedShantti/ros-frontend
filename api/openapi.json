@@ -3220,6 +3220,20 @@
           "locationId": {
             "type": "string"
           },
+          "maxStock": {
+            "description": "Omitted leaves the current limit unchanged; null clears it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "minStock": {
+            "description": "Omitted leaves the current limit unchanged; null clears it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "reorderPoint": {
             "type": "string"
           },
@@ -19029,6 +19043,24 @@
                       "format": "uuid",
                       "type": "string"
                     },
+                    "maxStock": {
+                      "description": "Maximum stock in the stock item base unit.",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "minStock": {
+                      "description": "Minimum stock in the stock item base unit.",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "reorderPoint": {
                       "description": "Decimal quantity as a string (preserves exact precision).",
                       "example": "2.5",
@@ -19232,6 +19264,24 @@
                         "format": "uuid",
                         "type": "string"
                       },
+                      "maxStock": {
+                        "description": "Maximum stock in the stock item base unit.",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "minStock": {
+                        "description": "Minimum stock in the stock item base unit.",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
                       "quantityOnHand": {
                         "description": "Decimal quantity as a string (preserves exact precision).",
                         "example": "2.5",
@@ -19243,6 +19293,24 @@
                         "example": "2.5",
                         "pattern": "^-?\\d+(\\.\\d+)?$",
                         "type": "string"
+                      },
+                      "reorderPoint": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "reorderQuantity": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
                       },
                       "stockItemId": {
                         "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",

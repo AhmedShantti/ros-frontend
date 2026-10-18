@@ -663,6 +663,9 @@ export interface StockLevel {
   onOrder: Quantity;
   reorderPoint: number;
   reorderQuantity: number;
+  /** Nullable base-UoM stock limits returned by the per-location configuration. */
+  minStock?: string | null;
+  maxStock?: string | null;
   parLevel: number;
   unitCost: Money;
   value: Money;

@@ -953,6 +953,10 @@ export interface SetEmployeePinDto {
 
 export interface SetReorderConfigDto {
   locationId: string;
+  /** Omitted leaves the current limit unchanged; null clears it. */
+  maxStock?: string | null;
+  /** Omitted leaves the current limit unchanged; null clears it. */
+  minStock?: string | null;
   reorderPoint: string;
   reorderQuantity: string;
 }
@@ -3332,6 +3336,10 @@ export type InventoryController_deletePurchaseUnitResponse = void;
 export type InventoryController_setReorderConfigResponse = {
   id: string;
   locationId: string;
+  /** Maximum stock in the stock item base unit. */
+  maxStock: string | null;
+  /** Minimum stock in the stock item base unit. */
+  minStock: string | null;
   /** Decimal quantity as a string (preserves exact precision). */
   reorderPoint: string | null;
   /** Decimal quantity as a string (preserves exact precision). */
@@ -3354,10 +3362,18 @@ export type InventoryController_setStorageAreaAssignmentBody = SetStorageAreaAss
 export type InventoryController_levelsResponse = ({
   lastReconciledAt: string | null;
   locationId: string;
+  /** Maximum stock in the stock item base unit. */
+  maxStock: string | null;
+  /** Minimum stock in the stock item base unit. */
+  minStock: string | null;
   /** Decimal quantity as a string (preserves exact precision). */
   quantityOnHand: string;
   /** Decimal quantity as a string (preserves exact precision). */
   quantityReserved: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  reorderPoint: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  reorderQuantity: string | null;
   stockItemId: string;
   /** FR-INV-040 — the current storage area for this item+location pair, if assigned. */
   storageAreaId: string | null;

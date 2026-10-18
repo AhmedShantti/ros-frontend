@@ -2047,6 +2047,8 @@ const inventory: InventoryService = {
       locationId: input.locationId,
       reorderPoint: input.reorderPoint,
       reorderQuantity: input.reorderQuantity,
+      ...(input.minStock !== undefined ? { minStock: input.minStock } : {}),
+      ...(input.maxStock !== undefined ? { maxStock: input.maxStock } : {}),
     });
     invalidateInventory();
   },

@@ -948,7 +948,7 @@ function levelStatus(onHand: number, reorderPoint: number): StockLevel["status"]
 
 export function toStockLevel(row: WireLevel, context: LevelContext = {}): StockLevel {
   const onHand = numberOf(row.quantityOnHand);
-  const reorderPoint = context.reorderPoint ?? 0;
+  const reorderPoint = context.reorderPoint ?? numberOf(row.reorderPoint ?? "0");
   const unitCost = context.item?.unitCost ?? money(0);
 
   return {
@@ -961,7 +961,9 @@ export function toStockLevel(row: WireLevel, context: LevelContext = {}): StockL
     allocated: quantity(row.quantityReserved),
     onOrder: quantity("0"), // gap: purchasing is not implemented.
     reorderPoint,
-    reorderQuantity: context.reorderQuantity ?? 0,
+    reorderQuantity: context.reorderQuantity ?? numberOf(row.reorderQuantity ?? "0"),
+    minStock: row.minStock ?? null,
+    maxStock: row.maxStock ?? null,
     parLevel: 0,
     unitCost,
     value: { amount: Math.round(unitCost.amount * onHand), currency: unitCost.currency },

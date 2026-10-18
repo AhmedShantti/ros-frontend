@@ -727,7 +727,13 @@ export interface InventoryService {
   /** FR-INV-065 — per-location reorder point and quantity for one item. */
   setReorderConfig(
     itemId: Id,
-    input: { locationId: Id; reorderPoint: string; reorderQuantity: string },
+    input: {
+      locationId: Id;
+      reorderPoint: string;
+      reorderQuantity: string;
+      minStock?: string | null;
+      maxStock?: string | null;
+    },
   ): Promise<void>;
 
   // -- Reason codes ----------------------------------------------------------
