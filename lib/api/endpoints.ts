@@ -271,6 +271,10 @@ export const inventory = {
   createCategory: (body: S.CreateStockItemCategoryDto) =>
     http.post<S.InventoryController_createCategoryResponse>("/inventory/categories", { body }),
 
+  /** `POST /inventory/categories/{categoryId}/expiry-horizons` — Configured category horizons; uncategorized items default to 7,3,1. */
+  setCategoryExpiryHorizons: (categoryId: string, body: S.SetCategoryExpiryHorizonsDto) =>
+    http.post<S.InventoryController_setCategoryExpiryHorizonsResponse>("/inventory/categories/{categoryId}/expiry-horizons", { params: { categoryId }, body }),
+
   /** `POST /inventory/count-lines/{lineId}` — Record a counted quantity for one count line. — The updated count line. */
   recordCount: (lineId: string, body: S.RecordCountDto) =>
     http.post<S.InventoryController_recordCountResponse>("/inventory/count-lines/{lineId}", { params: { lineId }, body }),
@@ -306,6 +310,10 @@ export const inventory = {
   /** `GET /inventory/expiring` — FR-INV-024 computation. Alert delivery deferred. — Batches expiring within `days` (default 7) (FR-INV-024). */
   expiring: (options: { days?: string } = {}) =>
     http.get<S.InventoryController_expiringResponse>("/inventory/expiring", { query: { days: options.days } }),
+
+  /** `GET /inventory/expiry-worklist` — Category-horizon expiry worklist at location-local calendar date. Expired quantities are unavailable; actions require lot-safe contracts. */
+  expiryWorklist: () =>
+    http.get<S.InventoryController_expiryWorklistResponse>("/inventory/expiry-worklist"),
 
   /** `GET /inventory/items` — All stock items in the tenant. */
   listItems: () =>
@@ -371,6 +379,10 @@ export const inventory = {
   lowStock: () =>
     http.get<S.InventoryController_lowStockResponse>("/inventory/low-stock"),
 
+  /** `GET /inventory/monitoring` — Inventory monitoring findings and durable job execution status. No human delivery exists. */
+  monitoringStatus: () =>
+    http.get<S.InventoryController_monitoringStatusResponse>("/inventory/monitoring"),
+
   /** `POST /inventory/movements` — Post a standalone movement (opening balance / manual adjustment) to the ledger. — The posted movement, or the pending approval it created. */
   postMovement: (body: S.PostMovementDto) =>
     http.post<S.InventoryController_postMovementResponse>("/inventory/movements", { body, idempotent: true }),
@@ -387,7 +399,7 @@ export const inventory = {
   createReasonCode: (body: S.CreateReasonCodeDto) =>
     http.post<S.InventoryController_createReasonCodeResponse>("/inventory/reason-codes", { body }),
 
-  /** `GET /inventory/reconciliation` — FR-INV-011/051 computation. Scheduling deferred (D-INV-08). — On-demand ledger-vs-projection reconciliation (FR-INV-011/051). Scheduling and alert delivery are deferred (D-INV-08). */
+  /** `GET /inventory/reconciliation` — FR-INV-011/051 computation. Scheduling deferred (D-INV-08). — On-demand reconciliation; daily job uses the opt-in scheduler. Human alert delivery remains unavailable. */
   reconcile: () =>
     http.get<S.InventoryController_reconcileResponse>("/inventory/reconciliation"),
 

@@ -1698,6 +1698,21 @@ const levels: ReadonlyCollectionService<StockLevel> = {
 
 const batches: ReadonlyCollectionService<Batch> = {
   async list(query = {}) {
+    if (query.filters?.expiryWorklist) {
+      const [rows, items, locations] = await Promise.all([api.inventory.expiryWorklist(), stockItemIndex(), locationIndex()]);
+      const mapped = rows.map(row => {
+        const item = items.get(row.stockItemId);
+        const currency = item?.unitCost.currency ?? "EGP";
+        return { ...map.toBatch(row, { item, location: locations.get(row.locationId) }),
+          itemName: map.localised(row.itemName), batchNumber: row.batchNumber ?? row.batchId, productionDate: row.productionDate,
+          quantity: { value: row.quantityRemaining, unit: row.baseUnit as Batch["quantity"]["unit"] },
+          unitCost: map.minorMoney(row.unitCost, currency), value: map.minorMoney(row.value, currency),
+          daysToExpiry: row.daysToExpiry,
+          status: row.status === "expired" ? "expired" as const : row.daysToExpiry <= 1 ? "critical" as const : "expiring" as const,
+        };
+      });
+      return project(mapped, query, { search: row => [row.itemName,row.batchNumber,row.locationName], filters: { status: row => row.status, locationId: row => row.locationId }, sorters: { daysToExpiry: row => row.daysToExpiry } });
+    }
     const days = String(query.filters?.days ?? 90);
     const [rows, itemsById, locationsById] = await Promise.all([
       api.inventory.expiring({ days }),
@@ -2083,6 +2098,9 @@ async function namers() {
 }
 
 const inventory: InventoryService = {
+  monitoring: () => api.inventory.monitoringStatus(),
+  expiryCategories: () => api.inventory.listCategories(),
+  async setCategoryExpiryHorizons(categoryId, horizons) { await api.inventory.setCategoryExpiryHorizons(categoryId, { horizons }); invalidateInventory(); },
   items: stockItems,
   levels,
   batches,
@@ -2363,6 +2381,7 @@ const inventory: InventoryService = {
       locationId: row.locationId,
       locationName: name.location(row.locationId),
       onHand: map.quantityOf(row.quantityOnHand, name.unit(row.stockItemId)),
+      available: map.quantityOf(row.quantityAvailable, name.unit(row.stockItemId)),
       reorderPoint:
         row.reorderPoint === null
           ? null
@@ -2375,7 +2394,12 @@ const inventory: InventoryService = {
 
     // The endpoint is tenant-wide; a branch-scoped console shows its own.
     const branchId = query.scope?.branchId;
-    return branchId ? mapped.filter((row) => row.locationId === branchId) : mapped;
+    if (!branchId) return mapped;
+    const [registry, warehouses, kitchens] = await Promise.all([inventoryLocationsRaw(), warehousesRaw(), centralKitchensRaw()]);
+    const warehouseIds = new Set(warehouses.filter(w => w.branchId === branchId).map(w => w.id));
+    const kitchenIds = new Set(kitchens.filter(k => warehouseIds.has(k.warehouseId)).map(k => k.id));
+    const locationIds = new Set(registry.filter(l => (l.locationType === "branch" && l.refId === branchId) || (l.locationType === "warehouse" && warehouseIds.has(l.refId)) || (l.locationType === "central_kitchen" && kitchenIds.has(l.refId))).map(l => l.id));
+    return mapped.filter(row => locationIds.has(row.locationId));
   },
 
   async negativeStock(query = {}) {
@@ -2390,7 +2414,12 @@ const inventory: InventoryService = {
     }));
 
     const branchId = query.scope?.branchId;
-    return branchId ? mapped.filter((row) => row.locationId === branchId) : mapped;
+    if (!branchId) return mapped;
+    const [registry, warehouses, kitchens] = await Promise.all([inventoryLocationsRaw(), warehousesRaw(), centralKitchensRaw()]);
+    const warehouseIds = new Set(warehouses.filter(w => w.branchId === branchId).map(w => w.id));
+    const kitchenIds = new Set(kitchens.filter(k => warehouseIds.has(k.warehouseId)).map(k => k.id));
+    const locationIds = new Set(registry.filter(l => (l.locationType === "branch" && l.refId === branchId) || (l.locationType === "warehouse" && warehouseIds.has(l.refId)) || (l.locationType === "central_kitchen" && kitchenIds.has(l.refId))).map(l => l.id));
+    return mapped.filter(row => locationIds.has(row.locationId));
   },
 
   async reconciliation() {

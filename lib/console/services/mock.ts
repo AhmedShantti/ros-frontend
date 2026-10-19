@@ -1482,6 +1482,9 @@ const COUNT_SCOPE_TYPE_LABEL: Record<CountScopeType, Localised> = {
 };
 
 const inventory: InventoryService = {
+  async monitoring() { throw new ServiceError("NOT_IMPLEMENTED", "Operational job verification requires the live backend.", 501); },
+  async expiryCategories() { throw new ServiceError("NOT_IMPLEMENTED", "Expiry configuration requires the live backend.", 501); },
+  async setCategoryExpiryHorizons() { throw new ServiceError("NOT_IMPLEMENTED", "Expiry configuration requires the live backend.", 501); },
   items: makeCollection({
     rows: stockItems,
     idOf: (s) => s.id,

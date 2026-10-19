@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const listTransfers = vi.fn();
+const expiryWorklist = vi.fn();
+const legacyExpiring = vi.fn();
+const lowStock = vi.fn();
+const negativeStock = vi.fn();
 const dispatchLines = vi.fn();
 const returnExcess = vi.fn();
 const listItems = vi.fn();
@@ -11,7 +15,7 @@ const listCentralKitchens = vi.fn();
 
 vi.mock("@/lib/api/endpoints", () => ({
   api: {
-    inventory: { dispatchTransferLines: (...args: unknown[]) => dispatchLines(...args), returnTransferExcess: (...args: unknown[]) => returnExcess(...args), listTransfers: (...args: unknown[]) => listTransfers(...args), listItems: (...args: unknown[]) => listItems(...args) },
+    inventory: { expiring: (...args: unknown[]) => legacyExpiring(...args), lowStock: () => lowStock(), negativeStock: () => negativeStock(), listCategories: async () => [], expiryWorklist: () => expiryWorklist(), dispatchTransferLines: (...args: unknown[]) => dispatchLines(...args), returnTransferExcess: (...args: unknown[]) => returnExcess(...args), listTransfers: (...args: unknown[]) => listTransfers(...args), listItems: (...args: unknown[]) => listItems(...args) },
     organisation: {
       listLocations: (...args: unknown[]) => listLocations(...args),
       listBranches: (...args: unknown[]) => listBranches(...args),
@@ -71,4 +75,29 @@ describe("inventory transfer collection mapping", () => {
     expect(returnExcess).toHaveBeenCalledWith("one", expect.objectContaining({ quantity: "0.000001", returnToLocationId: "l1" }));
   });
 
+});
+
+ describe("Inventory expiry worklist mapping", () => {
+  it("preserves backend local dates, batch identity, precise quantities and minor-unit value",async()=>{
+    expiryWorklist.mockResolvedValue([{batchId:"batch",stockItemId:"i1",locationId:"l1",itemName:{en:"Milk"},baseUnit:"kg",batchNumber:"LOT-1",productionDate:null,expiryDate:"2026-10-20T00:00:00Z",quantityRemaining:"1.250000",unitCost:"101",value:"126",daysToExpiry:0,status:"expires_today"}]);
+    const page=await httpServices.inventory.batches.list({filters:{expiryWorklist:"true"}});
+    expect(page.rows[0]).toMatchObject({batchNumber:"LOT-1",itemName:{en:"Milk"},quantity:{value:"1.250000",unit:"kg"},unitCost:{amount:101},value:{amount:126},daysToExpiry:0,status:"critical"});
+  });
+  it("propagates worklist errors without returning a fabricated empty or mock list",async()=>{expiryWorklist.mockRejectedValue(Error("unavailable"));await expect(httpServices.inventory.batches.list({filters:{expiryWorklist:"true"}})).rejects.toThrow("unavailable");});
+ });
+
+ describe("Stock alert mapping and scope",()=>{
+  it("preserves available quantity separately from on-hand",async()=>{lowStock.mockResolvedValue([{stockItemId:"i1",locationId:"l1",quantityOnHand:"10",quantityAvailable:"7",reorderPoint:"8",reorderQuantity:null}]);const rows=await httpServices.inventory.lowStock();expect(rows[0]).toMatchObject({onHand:{value:"10"},available:{value:"7"}});});
+  it("matches branch locations through registry references, never branch id equality",async()=>{listLocations.mockResolvedValue([{id:"registry-location",locationType:"branch",refId:"branch-a"},{id:"elsewhere",locationType:"branch",refId:"branch-b"}]);negativeStock.mockResolvedValue([{stockItemId:"i1",locationId:"registry-location",quantityOnHand:"-1"},{stockItemId:"i1",locationId:"elsewhere",quantityOnHand:"-2"}]);const rows=await httpServices.inventory.negativeStock({scope:{tenantId:"tenant-1",brandId:null,branchId:"branch-a"}});expect(rows.map(r=>r.locationId)).toEqual(["registry-location"]);});
+ });
+
+
+describe("Legacy batch readers", () => {
+  it("retains the legacy expiring API when permanent worklist mode was not requested", async () => {
+    legacyExpiring.mockResolvedValue([]);
+    const result = await httpServices.inventory.batches.list({ filters: { days: "21" } });
+    expect(legacyExpiring).toHaveBeenCalledWith({ days: "21" });
+    expect(expiryWorklist).not.toHaveBeenCalled();
+    expect(result.rows).toEqual([]);
+  });
 });

@@ -45,6 +45,7 @@ vi.mock("@/lib/console/services", () => ({
   ServiceError: class ServiceError extends Error {},
   services: {
     inventory: {
+      monitoring: async () => ({ schedulerEnabled: false, delivery: "unavailable", findings: [], jobs: [] }),
       levels: {
         list: (...args: unknown[]) => levelsList(...args),
       },

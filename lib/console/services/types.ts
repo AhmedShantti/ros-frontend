@@ -616,6 +616,7 @@ export interface CatalogueService {
 
 /** FR-INV-066 — an item at or under its reorder point, per location. */
 export interface LowStockRow {
+  available?: Quantity;
   stockItemId: Id;
   itemName: Localised;
   locationId: Id;
@@ -696,6 +697,9 @@ export interface StorageArea {
 }
 
 export interface InventoryService {
+  monitoring(): Promise<import("@/lib/api/schema").InventoryController_monitoringStatusResponse>;
+  expiryCategories(): Promise<import("@/lib/api/schema").InventoryController_listCategoriesResponse>;
+  setCategoryExpiryHorizons(categoryId: Id, horizons: number[]): Promise<void>;
   items: CollectionService<StockItem>;
   levels: ReadonlyCollectionService<StockLevel>;
   batches: ReadonlyCollectionService<Batch>;

@@ -3371,6 +3371,20 @@
         ],
         "type": "object"
       },
+      "SetCategoryExpiryHorizonsDto": {
+        "properties": {
+          "horizons": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "horizons"
+        ],
+        "type": "object"
+      },
       "SetCompensationDto": {
         "properties": {
           "amountMinorUnits": {
@@ -16553,6 +16567,12 @@
                 "schema": {
                   "items": {
                     "properties": {
+                      "expiryAlertHorizons": {
+                        "items": {
+                          "type": "integer"
+                        },
+                        "type": "array"
+                      },
                       "id": {
                         "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                         "format": "uuid",
@@ -16628,6 +16648,12 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "expiryAlertHorizons": {
+                      "items": {
+                        "type": "integer"
+                      },
+                      "type": "array"
+                    },
                     "id": {
                       "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                       "format": "uuid",
@@ -16680,6 +16706,90 @@
               }
             },
             "description": "Category parent not found."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/categories/{categoryId}/expiry-horizons": {
+      "post": {
+        "operationId": "InventoryController_setCategoryExpiryHorizons",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCategoryExpiryHorizonsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "expiryAlertHorizons": {
+                      "items": {
+                        "type": "integer"
+                      },
+                      "type": "array"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "expiryAlertHorizons"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Configured category horizons; uncategorized items default to 7,3,1."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
           }
         },
         "security": [
@@ -17945,6 +18055,172 @@
           }
         ],
         "summary": "FR-INV-024 computation. Alert delivery deferred.",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/expiry-worklist": {
+      "get": {
+        "operationId": "InventoryController_expiryWorklist",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "actions": {
+                        "additionalProperties": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      },
+                      "baseUnit": {
+                        "type": "string"
+                      },
+                      "batchId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "batchNumber": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "categoryId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "daysToExpiry": {
+                        "type": "integer"
+                      },
+                      "expiryDate": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "horizon": {
+                        "type": "integer"
+                      },
+                      "itemName": {
+                        "additionalProperties": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      },
+                      "locationId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "productionDate": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "quantityRemaining": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "expired",
+                          "expires_today",
+                          "approaching_expiry"
+                        ],
+                        "type": "string"
+                      },
+                      "stockItemId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "timezone": {
+                        "type": "string"
+                      },
+                      "unitCost": {
+                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                        "example": "1250",
+                        "pattern": "^-?\\d+$",
+                        "type": "string"
+                      },
+                      "usable": {
+                        "type": "boolean"
+                      },
+                      "value": {
+                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                        "example": "1250",
+                        "pattern": "^-?\\d+$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "batchId",
+                      "stockItemId",
+                      "locationId",
+                      "categoryId",
+                      "itemName",
+                      "baseUnit",
+                      "batchNumber",
+                      "productionDate",
+                      "expiryDate",
+                      "quantityRemaining",
+                      "unitCost",
+                      "value",
+                      "daysToExpiry",
+                      "horizon",
+                      "timezone",
+                      "status",
+                      "usable",
+                      "actions"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Category-horizon expiry worklist at location-local calendar date. Expired quantities are unavailable; actions require lot-safe contracts."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "tags": [
           "inventory"
         ]
@@ -20152,6 +20428,12 @@
                         "format": "uuid",
                         "type": "string"
                       },
+                      "quantityAvailable": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
                       "quantityOnHand": {
                         "description": "Decimal quantity as a string (preserves exact precision).",
                         "example": "2.5",
@@ -20217,6 +20499,163 @@
           }
         ],
         "summary": "FR-INV-066 computation against per-location reorder points.",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/monitoring": {
+      "get": {
+        "operationId": "InventoryController_monitoringStatus",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "delivery": {
+                      "enum": [
+                        "unavailable"
+                      ],
+                      "type": "string"
+                    },
+                    "findings": {
+                      "items": {
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "detectedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "lastObservedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "resolvedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "enum": [
+                              "active",
+                              "resolved",
+                              "unverified"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "code",
+                          "status",
+                          "detectedAt",
+                          "lastObservedAt",
+                          "resolvedAt",
+                          "detail"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "jobs": {
+                      "items": {
+                        "properties": {
+                          "attempt": {
+                            "type": "integer"
+                          },
+                          "jobType": {
+                            "type": "string"
+                          },
+                          "occurrenceKey": {
+                            "type": "string"
+                          },
+                          "outcomeCode": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "scheduledFor": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "state": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "jobType",
+                          "occurrenceKey",
+                          "state",
+                          "attempt",
+                          "outcomeCode",
+                          "scheduledFor"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "schedulerEnabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "schedulerEnabled",
+                    "delivery",
+                    "findings",
+                    "jobs"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Inventory monitoring findings and durable job execution status. No human delivery exists."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "tags": [
           "inventory"
         ]
@@ -20682,7 +21121,7 @@
                 }
               }
             },
-            "description": "On-demand ledger-vs-projection reconciliation (FR-INV-011/051). Scheduling and alert delivery are deferred (D-INV-08)."
+            "description": "On-demand reconciliation; daily job uses the opt-in scheduler. Human alert delivery remains unavailable."
           },
           "401": {
             "content": {

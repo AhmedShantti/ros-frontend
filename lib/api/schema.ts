@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 225 paths, 155 request DTOs.
+ * `api/openapi.json`. 228 paths, 156 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -989,6 +989,10 @@ export interface SetBranchKdsConfigDto {
 
 export interface SetBranchStatusDto {
   status: "active" | "inactive";
+}
+
+export interface SetCategoryExpiryHorizonsDto {
+  horizons: number[];
 }
 
 export interface SetCompensationDto {
@@ -3086,6 +3090,7 @@ export type InventoryApprovalsController_rejectBody = DecideInventoryApprovalDto
 
 /** `GET /inventory/categories` — List the stock item category catalogue (FR-INV-001). — All stock item categories in the tenant. */
 export type InventoryController_listCategoriesResponse = ({
+  expiryAlertHorizons: number[];
   id: string;
   name: string;
   parentId: string | null;
@@ -3093,12 +3098,21 @@ export type InventoryController_listCategoriesResponse = ({
 
 /** `POST /inventory/categories` — The created stock item category. */
 export type InventoryController_createCategoryResponse = {
+  expiryAlertHorizons: number[];
   id: string;
   name: string;
   parentId: string | null;
 };
 
 export type InventoryController_createCategoryBody = CreateStockItemCategoryDto;
+
+/** `POST /inventory/categories/{categoryId}/expiry-horizons` — Configured category horizons; uncategorized items default to 7,3,1. */
+export type InventoryController_setCategoryExpiryHorizonsResponse = {
+  expiryAlertHorizons: number[];
+  id: string;
+};
+
+export type InventoryController_setCategoryExpiryHorizonsBody = SetCategoryExpiryHorizonsDto;
 
 /** `POST /inventory/count-lines/{lineId}` — Record a counted quantity for one count line. — The updated count line. */
 export type InventoryController_recordCountResponse = {
@@ -3240,6 +3254,31 @@ export type InventoryController_expiringResponse = ({
   /** Decimal quantity as a string (preserves exact precision). */
   quantityRemaining: string;
   stockItemId: string;
+})[];
+
+/** `GET /inventory/expiry-worklist` — Category-horizon expiry worklist at location-local calendar date. Expired quantities are unavailable; actions require lot-safe contracts. */
+export type InventoryController_expiryWorklistResponse = ({
+  actions: Record<string, unknown>;
+  baseUnit: string;
+  batchId: string;
+  batchNumber: string | null;
+  categoryId: string | null;
+  daysToExpiry: number;
+  expiryDate: string;
+  horizon: number;
+  itemName: Record<string, unknown>;
+  locationId: string;
+  productionDate: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityRemaining: string;
+  status: "expired" | "expires_today" | "approaching_expiry";
+  stockItemId: string;
+  timezone: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  unitCost: string;
+  usable: boolean;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  value: string;
 })[];
 
 /** `GET /inventory/items` — All stock items in the tenant. */
@@ -3559,6 +3598,8 @@ export type InventoryController_levelsResponse = ({
 export type InventoryController_lowStockResponse = ({
   locationId: string;
   /** Decimal quantity as a string (preserves exact precision). */
+  quantityAvailable: string;
+  /** Decimal quantity as a string (preserves exact precision). */
   quantityOnHand: string;
   /** Decimal quantity as a string (preserves exact precision). */
   reorderPoint: string | null;
@@ -3566,6 +3607,29 @@ export type InventoryController_lowStockResponse = ({
   reorderQuantity: string | null;
   stockItemId: string;
 })[];
+
+/** `GET /inventory/monitoring` — Inventory monitoring findings and durable job execution status. No human delivery exists. */
+export type InventoryController_monitoringStatusResponse = {
+  delivery: "unavailable";
+  findings: ({
+    code: string;
+    detail: Record<string, unknown>;
+    detectedAt: string;
+    id: string;
+    lastObservedAt: string;
+    resolvedAt: string | null;
+    status: "active" | "resolved" | "unverified";
+  })[];
+  jobs: ({
+    attempt: number;
+    jobType: string;
+    occurrenceKey: string;
+    outcomeCode: string | null;
+    scheduledFor: string;
+    state: string;
+  })[];
+  schedulerEnabled: boolean;
+};
 
 /** `POST /inventory/movements` — Post a standalone movement (opening balance / manual adjustment) to the ledger. — The posted movement, or the pending approval it created. */
 export type InventoryController_postMovementResponse = {
@@ -3620,7 +3684,7 @@ export type InventoryController_createReasonCodeResponse = {
 
 export type InventoryController_createReasonCodeBody = CreateReasonCodeDto;
 
-/** `GET /inventory/reconciliation` — FR-INV-011/051 computation. Scheduling deferred (D-INV-08). — On-demand ledger-vs-projection reconciliation (FR-INV-011/051). Scheduling and alert delivery are deferred (D-INV-08). */
+/** `GET /inventory/reconciliation` — FR-INV-011/051 computation. Scheduling deferred (D-INV-08). — On-demand reconciliation; daily job uses the opt-in scheduler. Human alert delivery remains unavailable. */
 export type InventoryController_reconcileResponse = {
   divergences: ({
     /** The sum of ledger movements. */
@@ -9818,6 +9882,7 @@ export const ROUTES = {
   InventoryApprovalsController_reject: { method: "POST", path: "/inventory/approvals/{approvalRequestId}/reject" },
   InventoryController_listCategories: { method: "GET", path: "/inventory/categories" },
   InventoryController_createCategory: { method: "POST", path: "/inventory/categories" },
+  InventoryController_setCategoryExpiryHorizons: { method: "POST", path: "/inventory/categories/{categoryId}/expiry-horizons" },
   InventoryController_recordCount: { method: "POST", path: "/inventory/count-lines/{lineId}" },
   InventoryController_recordRecount: { method: "POST", path: "/inventory/count-lines/{lineId}/recount" },
   InventoryController_recordVarianceExplanation: { method: "POST", path: "/inventory/count-lines/{lineId}/variance-explanation" },
@@ -9827,6 +9892,7 @@ export const ROUTES = {
   InventoryController_countLines: { method: "GET", path: "/inventory/counts/{sessionId}/lines" },
   InventoryController_postCount: { method: "POST", path: "/inventory/counts/{sessionId}/post" },
   InventoryController_expiring: { method: "GET", path: "/inventory/expiring" },
+  InventoryController_expiryWorklist: { method: "GET", path: "/inventory/expiry-worklist" },
   InventoryController_listItems: { method: "GET", path: "/inventory/items" },
   InventoryController_createItem: { method: "POST", path: "/inventory/items" },
   InventoryController_getItem: { method: "GET", path: "/inventory/items/{itemId}" },
@@ -9843,6 +9909,7 @@ export const ROUTES = {
   InventoryController_setStorageAreaAssignment: { method: "POST", path: "/inventory/items/{itemId}/storage-area" },
   InventoryController_levels: { method: "GET", path: "/inventory/levels" },
   InventoryController_lowStock: { method: "GET", path: "/inventory/low-stock" },
+  InventoryController_monitoringStatus: { method: "GET", path: "/inventory/monitoring" },
   InventoryController_postMovement: { method: "POST", path: "/inventory/movements" },
   InventoryController_negativeStock: { method: "GET", path: "/inventory/negative-stock" },
   InventoryController_listReasonCodes: { method: "GET", path: "/inventory/reason-codes" },

@@ -18,6 +18,7 @@
 import { useMemo, useState } from "react";
 import { PackageSearch, Settings2, TriangleAlert } from "lucide-react";
 import type { StockLevel } from "@/lib/console/types";
+import { InventoryMonitoringPanel } from "@/components/console/inventory-monitoring";
 import { services } from "@/lib/console/services";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
@@ -155,6 +156,7 @@ export function StockLevelsScreen() {
       />
 
       <PageBody>
+        <InventoryMonitoringPanel />
         <TileGrid>
           <MetricTile
             label={t("inv.stockValue")}
@@ -163,12 +165,12 @@ export function StockLevelsScreen() {
           <MetricTile label={t("inv.levelsTitle")} value={formatNumber(collection.total, fmt)} />
           <MetricTile
             label={tx(STOCK_STATUS.low.label)}
-            value={formatNumber(lowStock.data?.length ?? 0, fmt)}
+            value={lowStock.data ? formatNumber(lowStock.data.length, fmt) : "—"}
             spec="FR-INV-066"
           />
           <MetricTile
             label={tx(STOCK_STATUS.negative.label)}
-            value={formatNumber(negative.data?.length ?? 0, fmt)}
+            value={negative.data ? formatNumber(negative.data.length, fmt) : "—"}
             spec="FR-INV-014"
             footer={<span className="text-fg-subtle text-xs">{t("inv.negativeNote")}</span>}
           />
@@ -219,10 +221,10 @@ export function StockLevelsScreen() {
                       render: (row) => tx(row.locationName),
                     },
                     {
-                      key: "onHand",
-                      header: t("inv.onHand"),
+                      key: "available",
+                      header: t("inv.quantityAvailable"),
                       numeric: true,
-                      render: (row) => formatQuantity(row.onHand, fmt),
+                      render: (row) => formatQuantity(row.available ?? row.onHand, fmt),
                     },
                     {
                       key: "point",
