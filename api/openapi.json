@@ -2195,6 +2195,28 @@
         ],
         "type": "object"
       },
+      "DispatchTransferLinesDto": {
+        "properties": {
+          "fromLocationId": {
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/TransferDispatchLineDto"
+            },
+            "type": "array"
+          },
+          "toLocationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fromLocationId",
+          "toLocationId",
+          "lines"
+        ],
+        "type": "object"
+      },
       "ErrorResponse": {
         "description": "Nest's default HttpException envelope, also used verbatim by the single global SalesDomainExceptionFilter (statusCode/message differ, error is the class's HTTP reason phrase or domain error name). error is sometimes absent — a bare `new UnauthorizedException()` with no message omits it.",
         "properties": {
@@ -2350,6 +2372,36 @@
         "required": [
           "lat",
           "lng"
+        ],
+        "type": "object"
+      },
+      "InvestigateTransferDto": {
+        "properties": {
+          "discrepancyReasonCodeId": {
+            "type": "string"
+          },
+          "evidence": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "lotCounts": {
+            "items": {
+              "$ref": "#/components/schemas/TransferLotCountDto"
+            },
+            "type": "array"
+          },
+          "recountedQuantity": {
+            "type": "string"
+          },
+          "toLocationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "toLocationId",
+          "discrepancyReasonCodeId",
+          "evidence"
         ],
         "type": "object"
       },
@@ -2827,6 +2879,20 @@
           "discrepancyReasonCodeId": {
             "type": "string"
           },
+          "evidence": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "isFinal": {
+            "type": "boolean"
+          },
+          "lotCounts": {
+            "items": {
+              "$ref": "#/components/schemas/TransferLotCountDto"
+            },
+            "type": "array"
+          },
           "receivedQuantity": {
             "type": "string"
           },
@@ -2840,7 +2906,8 @@
         "required": [
           "toLocationId",
           "transferReferenceId",
-          "receivedQuantity"
+          "receivedQuantity",
+          "isFinal"
         ],
         "type": "object"
       },
@@ -3148,6 +3215,39 @@
         "required": [
           "token",
           "newPassword"
+        ],
+        "type": "object"
+      },
+      "ReturnTransferExcessDto": {
+        "properties": {
+          "evidence": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "reasonCodeId": {
+            "type": "string"
+          },
+          "returnToLocationId": {
+            "type": "string"
+          },
+          "returnedAt": {
+            "type": "string"
+          },
+          "toLocationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "toLocationId",
+          "returnToLocationId",
+          "quantity",
+          "reasonCodeId",
+          "evidence",
+          "returnedAt"
         ],
         "type": "object"
       },
@@ -3546,6 +3646,36 @@
         },
         "required": [
           "isManual86"
+        ],
+        "type": "object"
+      },
+      "TransferDispatchLineDto": {
+        "properties": {
+          "quantity": {
+            "type": "string"
+          },
+          "stockItemId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stockItemId",
+          "quantity"
+        ],
+        "type": "object"
+      },
+      "TransferLotCountDto": {
+        "properties": {
+          "receivedQuantity": {
+            "type": "string"
+          },
+          "sourceBatchId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sourceBatchId",
+          "receivedQuantity"
         ],
         "type": "object"
       },
@@ -15965,7 +16095,8 @@
                         "enum": [
                           "stock_adjustment",
                           "count_adjustment",
-                          "waste"
+                          "waste",
+                          "transfer_discrepancy"
                         ],
                         "type": "string"
                       },
@@ -20749,9 +20880,669 @@
       }
     },
     "/inventory/transfers": {
+      "get": {
+        "operationId": "InventoryController_listTransfers",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "locationId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "adjustmentMovementId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "adjustmentMovements": {
+                        "items": {
+                          "properties": {
+                            "batchId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "id": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "quantity": {
+                              "description": "Decimal quantity as a string (preserves exact precision).",
+                              "example": "2.5",
+                              "pattern": "^-?\\d+(\\.\\d+)?$",
+                              "type": "string"
+                            },
+                            "totalCost": {
+                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": "string"
+                            },
+                            "unitCost": {
+                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "batchId",
+                            "quantity",
+                            "unitCost",
+                            "totalCost"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "approvalHistory": {
+                        "items": {
+                          "properties": {
+                            "approvalRequestId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "decidedAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "decidedBy": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "decision": {
+                              "enum": [
+                                "approved",
+                                "rejected",
+                                null
+                              ],
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "decisionComment": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "expiresAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "requestedAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "requestedBy": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "status": {
+                              "enum": [
+                                "pending",
+                                "approved",
+                                "rejected",
+                                "expired",
+                                "escalated"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "approvalRequestId",
+                            "status",
+                            "requestedBy",
+                            "requestedAt",
+                            "expiresAt",
+                            "decidedBy",
+                            "decidedAt",
+                            "decision",
+                            "decisionComment"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "approvalRequestId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "availableQuantity": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "batchProvenance": {
+                        "items": {
+                          "properties": {
+                            "batchNumber": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "destinationBatchId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "expiryDate": {
+                              "format": "date",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "productionDate": {
+                              "format": "date",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "quantity": {
+                              "description": "Decimal quantity as a string (preserves exact precision).",
+                              "example": "2.5",
+                              "pattern": "^-?\\d+(\\.\\d+)?$",
+                              "type": "string"
+                            },
+                            "sourceBatchId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "sourceUnitCost": {
+                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "sourceBatchId",
+                            "quantity",
+                            "batchNumber",
+                            "productionDate",
+                            "expiryDate",
+                            "sourceUnitCost"
+                          ],
+                          "type": "object"
+                        },
+                        "type": [
+                          "array",
+                          "null"
+                        ]
+                      },
+                      "createdAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "discrepancy": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "discrepancyEvidence": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "discrepancyReasonCodeId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "dispatchGroupId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "dispatchMovementId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "dispatchOccurredAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "dispatchedBy": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "excessHeldQuantity": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "excessReturnedQuantity": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "excessReturns": {
+                        "items": {
+                          "properties": {
+                            "createdAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "evidence": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "quantity": {
+                              "description": "Decimal quantity as a string (preserves exact precision).",
+                              "example": "2.5",
+                              "pattern": "^-?\\d+(\\.\\d+)?$",
+                              "type": "string"
+                            },
+                            "reasonCodeId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "returnToLocationId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "returnedAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "returnedBy": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "quantity",
+                            "returnToLocationId",
+                            "reasonCodeId",
+                            "evidence",
+                            "returnedBy",
+                            "returnedAt",
+                            "createdAt"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "fromLocationId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "inTransit": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "lotCounts": {
+                        "items": {
+                          "properties": {
+                            "receivedQuantity": {
+                              "description": "Decimal quantity as a string (preserves exact precision).",
+                              "example": "2.5",
+                              "pattern": "^-?\\d+(\\.\\d+)?$",
+                              "type": "string"
+                            },
+                            "sourceBatchId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "sourceBatchId",
+                            "receivedQuantity"
+                          ],
+                          "type": "object"
+                        },
+                        "type": [
+                          "array",
+                          "null"
+                        ]
+                      },
+                      "physicallyHeld": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "physicallyReceived": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "quantityDispatched": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "receipts": {
+                        "items": {
+                          "properties": {
+                            "createdAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "evidence": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "id": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "isFinal": {
+                              "type": "boolean"
+                            },
+                            "isRecount": {
+                              "type": "boolean"
+                            },
+                            "lotCounts": {
+                              "items": {
+                                "properties": {
+                                  "receivedQuantity": {
+                                    "description": "Decimal quantity as a string (preserves exact precision).",
+                                    "example": "2.5",
+                                    "pattern": "^-?\\d+(\\.\\d+)?$",
+                                    "type": "string"
+                                  },
+                                  "sourceBatchId": {
+                                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                    "format": "uuid",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "sourceBatchId",
+                                  "receivedQuantity"
+                                ],
+                                "type": "object"
+                              },
+                              "type": [
+                                "array",
+                                "null"
+                              ]
+                            },
+                            "receivedBy": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "receivedQuantity": {
+                              "description": "Decimal quantity as a string (preserves exact precision).",
+                              "example": "2.5",
+                              "pattern": "^-?\\d+(\\.\\d+)?$",
+                              "type": "string"
+                            },
+                            "recountedQuantity": {
+                              "description": "Decimal quantity as a string (preserves exact precision).",
+                              "example": "2.5",
+                              "pattern": "^-?\\d+(\\.\\d+)?$",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "transferId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "transferId",
+                            "receivedQuantity",
+                            "isFinal",
+                            "isRecount",
+                            "recountedQuantity",
+                            "receivedBy",
+                            "createdAt"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "receiveMovementId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "receiveOccurredAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "receivedBy": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "status": {
+                        "enum": [
+                          "in_transit",
+                          "pending_investigation",
+                          "received",
+                          "excess_held"
+                        ],
+                        "type": "string"
+                      },
+                      "stockItemId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "tenantId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "toLocationId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "transferReferenceId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "unitCost": {
+                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                        "example": "1250",
+                        "pattern": "^-?\\d+$",
+                        "type": "string"
+                      },
+                      "unresolvedQuantity": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "updatedAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "transferReferenceId",
+                      "tenantId",
+                      "stockItemId",
+                      "fromLocationId",
+                      "toLocationId",
+                      "dispatchMovementId",
+                      "receiveMovementId",
+                      "adjustmentMovementId",
+                      "status",
+                      "quantityDispatched",
+                      "physicallyReceived",
+                      "inTransit",
+                      "unresolvedQuantity",
+                      "physicallyHeld",
+                      "excessHeldQuantity",
+                      "availableQuantity",
+                      "discrepancy",
+                      "unitCost",
+                      "dispatchedBy",
+                      "receivedBy",
+                      "dispatchOccurredAt",
+                      "receiveOccurredAt",
+                      "createdAt",
+                      "updatedAt",
+                      "discrepancyReasonCodeId",
+                      "discrepancyEvidence",
+                      "approvalRequestId",
+                      "batchProvenance",
+                      "receipts",
+                      "approvalHistory"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Tenant-scoped transfer lifecycle, custody and approval history."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "inventory"
+        ]
+      },
       "post": {
         "operationId": "InventoryController_dispatch",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -20768,13 +21559,535 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "adjustmentMovementId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "adjustmentMovements": {
+                      "items": {
+                        "properties": {
+                          "batchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "totalCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "unitCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "batchId",
+                          "quantity",
+                          "unitCost",
+                          "totalCost"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "approvalHistory": {
+                      "items": {
+                        "properties": {
+                          "approvalRequestId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "decidedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decidedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decision": {
+                            "enum": [
+                              "approved",
+                              "rejected",
+                              null
+                            ],
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decisionComment": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "expiresAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "requestedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "requestedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "status": {
+                            "enum": [
+                              "pending",
+                              "approved",
+                              "rejected",
+                              "expired",
+                              "escalated"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "approvalRequestId",
+                          "status",
+                          "requestedBy",
+                          "requestedAt",
+                          "expiresAt",
+                          "decidedBy",
+                          "decidedAt",
+                          "decision",
+                          "decisionComment"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "approvalRequestId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "availableQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "batchProvenance": {
+                      "items": {
+                        "properties": {
+                          "batchNumber": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "destinationBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "expiryDate": {
+                            "format": "date",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "productionDate": {
+                            "format": "date",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "sourceBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "sourceUnitCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "sourceBatchId",
+                          "quantity",
+                          "batchNumber",
+                          "productionDate",
+                          "expiryDate",
+                          "sourceUnitCost"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "discrepancy": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "discrepancyEvidence": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "discrepancyReasonCodeId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "dispatchGroupId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "dispatchMovementId": {
                       "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                       "format": "uuid",
                       "type": "string"
                     },
+                    "dispatchOccurredAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "dispatchedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "excessHeldQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "excessReturnedQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "excessReturns": {
+                      "items": {
+                        "properties": {
+                          "createdAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "evidence": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "reasonCodeId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "returnToLocationId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "returnedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "returnedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "quantity",
+                          "returnToLocationId",
+                          "reasonCodeId",
+                          "evidence",
+                          "returnedBy",
+                          "returnedAt",
+                          "createdAt"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "fromLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "inTransit": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "lotCounts": {
+                      "items": {
+                        "properties": {
+                          "receivedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "sourceBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "sourceBatchId",
+                          "receivedQuantity"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "physicallyHeld": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "physicallyReceived": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
                     "quantityDispatched": {
-                      "type": "number"
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "receipts": {
+                      "items": {
+                        "properties": {
+                          "createdAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "evidence": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "isFinal": {
+                            "type": "boolean"
+                          },
+                          "isRecount": {
+                            "type": "boolean"
+                          },
+                          "lotCounts": {
+                            "items": {
+                              "properties": {
+                                "receivedQuantity": {
+                                  "description": "Decimal quantity as a string (preserves exact precision).",
+                                  "example": "2.5",
+                                  "pattern": "^-?\\d+(\\.\\d+)?$",
+                                  "type": "string"
+                                },
+                                "sourceBatchId": {
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                  "format": "uuid",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "sourceBatchId",
+                                "receivedQuantity"
+                              ],
+                              "type": "object"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          },
+                          "receivedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "receivedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "recountedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "transferId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "transferId",
+                          "receivedQuantity",
+                          "isFinal",
+                          "isRecount",
+                          "recountedQuantity",
+                          "receivedBy",
+                          "createdAt"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "receiveMovementId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "receiveOccurredAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "receivedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "enum": [
+                        "in_transit",
+                        "pending_investigation",
+                        "received",
+                        "excess_held"
+                      ],
+                      "type": "string"
+                    },
+                    "stockItemId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "toLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
                     },
                     "transferReferenceId": {
                       "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
@@ -20786,8 +22099,52 @@
                       "example": "1250",
                       "pattern": "^-?\\d+$",
                       "type": "string"
+                    },
+                    "unresolvedQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
                     }
                   },
+                  "required": [
+                    "id",
+                    "transferReferenceId",
+                    "tenantId",
+                    "stockItemId",
+                    "fromLocationId",
+                    "toLocationId",
+                    "dispatchMovementId",
+                    "receiveMovementId",
+                    "adjustmentMovementId",
+                    "status",
+                    "quantityDispatched",
+                    "physicallyReceived",
+                    "inTransit",
+                    "unresolvedQuantity",
+                    "physicallyHeld",
+                    "excessHeldQuantity",
+                    "availableQuantity",
+                    "discrepancy",
+                    "unitCost",
+                    "dispatchedBy",
+                    "receivedBy",
+                    "dispatchOccurredAt",
+                    "receiveOccurredAt",
+                    "createdAt",
+                    "updatedAt",
+                    "discrepancyReasonCodeId",
+                    "discrepancyEvidence",
+                    "approvalRequestId",
+                    "batchProvenance",
+                    "receipts",
+                    "approvalHistory"
+                  ],
                   "type": "object"
                 }
               }
@@ -20840,7 +22197,671 @@
             "bearer": []
           }
         ],
-        "summary": "Dispatch a transfer (writes the transfer_out leg).",
+        "summary": "Dispatch a transfer and create durable transfer history.",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/transfers/dispatch-lines": {
+      "post": {
+        "operationId": "InventoryController_dispatchTransferLines",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable request identity, at most 90 characters.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DispatchTransferLinesDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "adjustmentMovementId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "adjustmentMovements": {
+                        "items": {
+                          "properties": {
+                            "batchId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "id": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "quantity": {
+                              "description": "Decimal quantity as a string (preserves exact precision).",
+                              "example": "2.5",
+                              "pattern": "^-?\\d+(\\.\\d+)?$",
+                              "type": "string"
+                            },
+                            "totalCost": {
+                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": "string"
+                            },
+                            "unitCost": {
+                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "batchId",
+                            "quantity",
+                            "unitCost",
+                            "totalCost"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "approvalHistory": {
+                        "items": {
+                          "properties": {
+                            "approvalRequestId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "decidedAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "decidedBy": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "decision": {
+                              "enum": [
+                                "approved",
+                                "rejected",
+                                null
+                              ],
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "decisionComment": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "expiresAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "requestedAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "requestedBy": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "status": {
+                              "enum": [
+                                "pending",
+                                "approved",
+                                "rejected",
+                                "expired",
+                                "escalated"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "approvalRequestId",
+                            "status",
+                            "requestedBy",
+                            "requestedAt",
+                            "expiresAt",
+                            "decidedBy",
+                            "decidedAt",
+                            "decision",
+                            "decisionComment"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "approvalRequestId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "availableQuantity": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "batchProvenance": {
+                        "items": {
+                          "properties": {
+                            "batchNumber": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "destinationBatchId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "expiryDate": {
+                              "format": "date",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "productionDate": {
+                              "format": "date",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "quantity": {
+                              "description": "Decimal quantity as a string (preserves exact precision).",
+                              "example": "2.5",
+                              "pattern": "^-?\\d+(\\.\\d+)?$",
+                              "type": "string"
+                            },
+                            "sourceBatchId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "sourceUnitCost": {
+                              "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                              "example": "1250",
+                              "pattern": "^-?\\d+$",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "sourceBatchId",
+                            "quantity",
+                            "batchNumber",
+                            "productionDate",
+                            "expiryDate",
+                            "sourceUnitCost"
+                          ],
+                          "type": "object"
+                        },
+                        "type": [
+                          "array",
+                          "null"
+                        ]
+                      },
+                      "createdAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "discrepancy": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "discrepancyEvidence": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "discrepancyReasonCodeId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "dispatchGroupId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "dispatchMovementId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "dispatchOccurredAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "dispatchedBy": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "excessHeldQuantity": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "excessReturnedQuantity": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "excessReturns": {
+                        "items": {
+                          "properties": {
+                            "createdAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "evidence": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "quantity": {
+                              "description": "Decimal quantity as a string (preserves exact precision).",
+                              "example": "2.5",
+                              "pattern": "^-?\\d+(\\.\\d+)?$",
+                              "type": "string"
+                            },
+                            "reasonCodeId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "returnToLocationId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "returnedAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "returnedBy": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "quantity",
+                            "returnToLocationId",
+                            "reasonCodeId",
+                            "evidence",
+                            "returnedBy",
+                            "returnedAt",
+                            "createdAt"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "fromLocationId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "id": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "inTransit": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "lotCounts": {
+                        "items": {
+                          "properties": {
+                            "receivedQuantity": {
+                              "description": "Decimal quantity as a string (preserves exact precision).",
+                              "example": "2.5",
+                              "pattern": "^-?\\d+(\\.\\d+)?$",
+                              "type": "string"
+                            },
+                            "sourceBatchId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "sourceBatchId",
+                            "receivedQuantity"
+                          ],
+                          "type": "object"
+                        },
+                        "type": [
+                          "array",
+                          "null"
+                        ]
+                      },
+                      "physicallyHeld": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "physicallyReceived": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "quantityDispatched": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "receipts": {
+                        "items": {
+                          "properties": {
+                            "createdAt": {
+                              "example": "2026-08-23T14:30:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "evidence": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "id": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "isFinal": {
+                              "type": "boolean"
+                            },
+                            "isRecount": {
+                              "type": "boolean"
+                            },
+                            "lotCounts": {
+                              "items": {
+                                "properties": {
+                                  "receivedQuantity": {
+                                    "description": "Decimal quantity as a string (preserves exact precision).",
+                                    "example": "2.5",
+                                    "pattern": "^-?\\d+(\\.\\d+)?$",
+                                    "type": "string"
+                                  },
+                                  "sourceBatchId": {
+                                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                    "format": "uuid",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "sourceBatchId",
+                                  "receivedQuantity"
+                                ],
+                                "type": "object"
+                              },
+                              "type": [
+                                "array",
+                                "null"
+                              ]
+                            },
+                            "receivedBy": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "receivedQuantity": {
+                              "description": "Decimal quantity as a string (preserves exact precision).",
+                              "example": "2.5",
+                              "pattern": "^-?\\d+(\\.\\d+)?$",
+                              "type": "string"
+                            },
+                            "recountedQuantity": {
+                              "description": "Decimal quantity as a string (preserves exact precision).",
+                              "example": "2.5",
+                              "pattern": "^-?\\d+(\\.\\d+)?$",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "transferId": {
+                              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "format": "uuid",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "transferId",
+                            "receivedQuantity",
+                            "isFinal",
+                            "isRecount",
+                            "recountedQuantity",
+                            "receivedBy",
+                            "createdAt"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "receiveMovementId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "receiveOccurredAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "receivedBy": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "status": {
+                        "enum": [
+                          "in_transit",
+                          "pending_investigation",
+                          "received",
+                          "excess_held"
+                        ],
+                        "type": "string"
+                      },
+                      "stockItemId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "tenantId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "toLocationId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "transferReferenceId": {
+                        "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "unitCost": {
+                        "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                        "example": "1250",
+                        "pattern": "^-?\\d+$",
+                        "type": "string"
+                      },
+                      "unresolvedQuantity": {
+                        "description": "Decimal quantity as a string (preserves exact precision).",
+                        "example": "2.5",
+                        "pattern": "^-?\\d+(\\.\\d+)?$",
+                        "type": "string"
+                      },
+                      "updatedAt": {
+                        "example": "2026-08-23T14:30:00.000Z",
+                        "format": "date-time",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "transferReferenceId",
+                      "tenantId",
+                      "stockItemId",
+                      "fromLocationId",
+                      "toLocationId",
+                      "dispatchMovementId",
+                      "receiveMovementId",
+                      "adjustmentMovementId",
+                      "status",
+                      "quantityDispatched",
+                      "physicallyReceived",
+                      "inTransit",
+                      "unresolvedQuantity",
+                      "physicallyHeld",
+                      "excessHeldQuantity",
+                      "availableQuantity",
+                      "discrepancy",
+                      "unitCost",
+                      "dispatchedBy",
+                      "receivedBy",
+                      "dispatchOccurredAt",
+                      "receiveOccurredAt",
+                      "createdAt",
+                      "updatedAt",
+                      "discrepancyReasonCodeId",
+                      "discrepancyEvidence",
+                      "approvalRequestId",
+                      "batchProvenance",
+                      "receipts",
+                      "approvalHistory"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Atomic dispatch of distinct item lines. Each line keeps its existing independent receipt/approval lifecycle; dispatchGroupId links the document."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "tags": [
           "inventory"
         ]
@@ -20849,7 +22870,24 @@
     "/inventory/transfers/receive": {
       "post": {
         "operationId": "InventoryController_receive",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -20867,7 +22905,6 @@
                 "schema": {
                   "properties": {
                     "adjustmentMovementId": {
-                      "description": "The manual_adjustment movement written for the discrepancy, or null when none was needed.",
                       "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                       "format": "uuid",
                       "type": [
@@ -20875,16 +22912,524 @@
                         "null"
                       ]
                     },
+                    "adjustmentMovements": {
+                      "items": {
+                        "properties": {
+                          "batchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "totalCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "unitCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "batchId",
+                          "quantity",
+                          "unitCost",
+                          "totalCost"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "approvalHistory": {
+                      "items": {
+                        "properties": {
+                          "approvalRequestId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "decidedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decidedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decision": {
+                            "enum": [
+                              "approved",
+                              "rejected",
+                              null
+                            ],
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decisionComment": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "expiresAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "requestedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "requestedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "status": {
+                            "enum": [
+                              "pending",
+                              "approved",
+                              "rejected",
+                              "expired",
+                              "escalated"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "approvalRequestId",
+                          "status",
+                          "requestedBy",
+                          "requestedAt",
+                          "expiresAt",
+                          "decidedBy",
+                          "decidedAt",
+                          "decision",
+                          "decisionComment"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "approvalRequestId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "availableQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "batchProvenance": {
+                      "items": {
+                        "properties": {
+                          "batchNumber": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "destinationBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "expiryDate": {
+                            "format": "date",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "productionDate": {
+                            "format": "date",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "sourceBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "sourceUnitCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "sourceBatchId",
+                          "quantity",
+                          "batchNumber",
+                          "productionDate",
+                          "expiryDate",
+                          "sourceUnitCost"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
                     "discrepancy": {
-                      "type": "number"
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "discrepancyEvidence": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "discrepancyReasonCodeId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "dispatchGroupId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "dispatchMovementId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "dispatchOccurredAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "dispatchedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "excessHeldQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "excessReturnedQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "excessReturns": {
+                      "items": {
+                        "properties": {
+                          "createdAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "evidence": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "reasonCodeId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "returnToLocationId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "returnedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "returnedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "quantity",
+                          "returnToLocationId",
+                          "reasonCodeId",
+                          "evidence",
+                          "returnedBy",
+                          "returnedAt",
+                          "createdAt"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "fromLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "inTransit": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "lotCounts": {
+                      "items": {
+                        "properties": {
+                          "receivedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "sourceBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "sourceBatchId",
+                          "receivedQuantity"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "physicallyHeld": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "physicallyReceived": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
                     },
                     "quantityDispatched": {
-                      "type": "number"
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
                     },
-                    "quantityReceived": {
-                      "type": "number"
+                    "receipts": {
+                      "items": {
+                        "properties": {
+                          "createdAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "evidence": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "isFinal": {
+                            "type": "boolean"
+                          },
+                          "isRecount": {
+                            "type": "boolean"
+                          },
+                          "lotCounts": {
+                            "items": {
+                              "properties": {
+                                "receivedQuantity": {
+                                  "description": "Decimal quantity as a string (preserves exact precision).",
+                                  "example": "2.5",
+                                  "pattern": "^-?\\d+(\\.\\d+)?$",
+                                  "type": "string"
+                                },
+                                "sourceBatchId": {
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                  "format": "uuid",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "sourceBatchId",
+                                "receivedQuantity"
+                              ],
+                              "type": "object"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          },
+                          "receivedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "receivedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "recountedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "transferId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "transferId",
+                          "receivedQuantity",
+                          "isFinal",
+                          "isRecount",
+                          "recountedQuantity",
+                          "receivedBy",
+                          "createdAt"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
                     },
                     "receiveMovementId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "receiveOccurredAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "receivedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "enum": [
+                        "in_transit",
+                        "pending_investigation",
+                        "received",
+                        "excess_held"
+                      ],
+                      "type": "string"
+                    },
+                    "stockItemId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "toLocationId": {
                       "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                       "format": "uuid",
                       "type": "string"
@@ -20893,8 +23438,58 @@
                       "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
                       "format": "uuid",
                       "type": "string"
+                    },
+                    "unitCost": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "unresolvedQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
                     }
                   },
+                  "required": [
+                    "id",
+                    "transferReferenceId",
+                    "tenantId",
+                    "stockItemId",
+                    "fromLocationId",
+                    "toLocationId",
+                    "dispatchMovementId",
+                    "receiveMovementId",
+                    "adjustmentMovementId",
+                    "status",
+                    "quantityDispatched",
+                    "physicallyReceived",
+                    "inTransit",
+                    "unresolvedQuantity",
+                    "physicallyHeld",
+                    "excessHeldQuantity",
+                    "availableQuantity",
+                    "discrepancy",
+                    "unitCost",
+                    "dispatchedBy",
+                    "receivedBy",
+                    "dispatchOccurredAt",
+                    "receiveOccurredAt",
+                    "createdAt",
+                    "updatedAt",
+                    "discrepancyReasonCodeId",
+                    "discrepancyEvidence",
+                    "approvalRequestId",
+                    "batchProvenance",
+                    "receipts",
+                    "approvalHistory"
+                  ],
                   "type": "object"
                 }
               }
@@ -20937,7 +23532,1970 @@
             "bearer": []
           }
         ],
-        "summary": "Receive a dispatched transfer (writes the transfer_in leg, plus a discrepancy adjustment if the received quantity differs).",
+        "summary": "Record physical receipt; discrepancies remain unavailable pending investigation and approval.",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/transfers/{transferId}": {
+      "get": {
+        "operationId": "InventoryController_readTransfer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "transferId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "adjustmentMovementId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "adjustmentMovements": {
+                      "items": {
+                        "properties": {
+                          "batchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "totalCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "unitCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "batchId",
+                          "quantity",
+                          "unitCost",
+                          "totalCost"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "approvalHistory": {
+                      "items": {
+                        "properties": {
+                          "approvalRequestId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "decidedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decidedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decision": {
+                            "enum": [
+                              "approved",
+                              "rejected",
+                              null
+                            ],
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decisionComment": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "expiresAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "requestedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "requestedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "status": {
+                            "enum": [
+                              "pending",
+                              "approved",
+                              "rejected",
+                              "expired",
+                              "escalated"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "approvalRequestId",
+                          "status",
+                          "requestedBy",
+                          "requestedAt",
+                          "expiresAt",
+                          "decidedBy",
+                          "decidedAt",
+                          "decision",
+                          "decisionComment"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "approvalRequestId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "availableQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "batchProvenance": {
+                      "items": {
+                        "properties": {
+                          "batchNumber": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "destinationBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "expiryDate": {
+                            "format": "date",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "productionDate": {
+                            "format": "date",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "sourceBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "sourceUnitCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "sourceBatchId",
+                          "quantity",
+                          "batchNumber",
+                          "productionDate",
+                          "expiryDate",
+                          "sourceUnitCost"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "discrepancy": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "discrepancyEvidence": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "discrepancyReasonCodeId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "dispatchGroupId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "dispatchMovementId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "dispatchOccurredAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "dispatchedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "excessHeldQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "excessReturnedQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "excessReturns": {
+                      "items": {
+                        "properties": {
+                          "createdAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "evidence": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "reasonCodeId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "returnToLocationId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "returnedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "returnedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "quantity",
+                          "returnToLocationId",
+                          "reasonCodeId",
+                          "evidence",
+                          "returnedBy",
+                          "returnedAt",
+                          "createdAt"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "fromLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "inTransit": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "lotCounts": {
+                      "items": {
+                        "properties": {
+                          "receivedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "sourceBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "sourceBatchId",
+                          "receivedQuantity"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "physicallyHeld": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "physicallyReceived": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "quantityDispatched": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "receipts": {
+                      "items": {
+                        "properties": {
+                          "createdAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "evidence": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "isFinal": {
+                            "type": "boolean"
+                          },
+                          "isRecount": {
+                            "type": "boolean"
+                          },
+                          "lotCounts": {
+                            "items": {
+                              "properties": {
+                                "receivedQuantity": {
+                                  "description": "Decimal quantity as a string (preserves exact precision).",
+                                  "example": "2.5",
+                                  "pattern": "^-?\\d+(\\.\\d+)?$",
+                                  "type": "string"
+                                },
+                                "sourceBatchId": {
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                  "format": "uuid",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "sourceBatchId",
+                                "receivedQuantity"
+                              ],
+                              "type": "object"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          },
+                          "receivedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "receivedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "recountedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "transferId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "transferId",
+                          "receivedQuantity",
+                          "isFinal",
+                          "isRecount",
+                          "recountedQuantity",
+                          "receivedBy",
+                          "createdAt"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "receiveMovementId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "receiveOccurredAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "receivedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "enum": [
+                        "in_transit",
+                        "pending_investigation",
+                        "received",
+                        "excess_held"
+                      ],
+                      "type": "string"
+                    },
+                    "stockItemId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "toLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "transferReferenceId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "unitCost": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "unresolvedQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "transferReferenceId",
+                    "tenantId",
+                    "stockItemId",
+                    "fromLocationId",
+                    "toLocationId",
+                    "dispatchMovementId",
+                    "receiveMovementId",
+                    "adjustmentMovementId",
+                    "status",
+                    "quantityDispatched",
+                    "physicallyReceived",
+                    "inTransit",
+                    "unresolvedQuantity",
+                    "physicallyHeld",
+                    "excessHeldQuantity",
+                    "availableQuantity",
+                    "discrepancy",
+                    "unitCost",
+                    "dispatchedBy",
+                    "receivedBy",
+                    "dispatchOccurredAt",
+                    "receiveOccurredAt",
+                    "createdAt",
+                    "updatedAt",
+                    "discrepancyReasonCodeId",
+                    "discrepancyEvidence",
+                    "approvalRequestId",
+                    "batchProvenance",
+                    "receipts",
+                    "approvalHistory"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Tenant-scoped transfer detail, custody and approval history."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/transfers/{transferId}/excess-returns": {
+      "post": {
+        "operationId": "InventoryController_returnTransferExcess",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "transferId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable physical disposition identity.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReturnTransferExcessDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "adjustmentMovementId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "adjustmentMovements": {
+                      "items": {
+                        "properties": {
+                          "batchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "totalCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "unitCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "batchId",
+                          "quantity",
+                          "unitCost",
+                          "totalCost"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "approvalHistory": {
+                      "items": {
+                        "properties": {
+                          "approvalRequestId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "decidedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decidedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decision": {
+                            "enum": [
+                              "approved",
+                              "rejected",
+                              null
+                            ],
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decisionComment": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "expiresAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "requestedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "requestedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "status": {
+                            "enum": [
+                              "pending",
+                              "approved",
+                              "rejected",
+                              "expired",
+                              "escalated"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "approvalRequestId",
+                          "status",
+                          "requestedBy",
+                          "requestedAt",
+                          "expiresAt",
+                          "decidedBy",
+                          "decidedAt",
+                          "decision",
+                          "decisionComment"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "approvalRequestId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "availableQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "batchProvenance": {
+                      "items": {
+                        "properties": {
+                          "batchNumber": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "destinationBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "expiryDate": {
+                            "format": "date",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "productionDate": {
+                            "format": "date",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "sourceBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "sourceUnitCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "sourceBatchId",
+                          "quantity",
+                          "batchNumber",
+                          "productionDate",
+                          "expiryDate",
+                          "sourceUnitCost"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "discrepancy": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "discrepancyEvidence": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "discrepancyReasonCodeId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "dispatchGroupId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "dispatchMovementId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "dispatchOccurredAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "dispatchedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "excessHeldQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "excessReturnedQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "excessReturns": {
+                      "items": {
+                        "properties": {
+                          "createdAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "evidence": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "reasonCodeId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "returnToLocationId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "returnedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "returnedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "quantity",
+                          "returnToLocationId",
+                          "reasonCodeId",
+                          "evidence",
+                          "returnedBy",
+                          "returnedAt",
+                          "createdAt"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "fromLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "inTransit": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "lotCounts": {
+                      "items": {
+                        "properties": {
+                          "receivedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "sourceBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "sourceBatchId",
+                          "receivedQuantity"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "physicallyHeld": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "physicallyReceived": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "quantityDispatched": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "receipts": {
+                      "items": {
+                        "properties": {
+                          "createdAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "evidence": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "isFinal": {
+                            "type": "boolean"
+                          },
+                          "isRecount": {
+                            "type": "boolean"
+                          },
+                          "lotCounts": {
+                            "items": {
+                              "properties": {
+                                "receivedQuantity": {
+                                  "description": "Decimal quantity as a string (preserves exact precision).",
+                                  "example": "2.5",
+                                  "pattern": "^-?\\d+(\\.\\d+)?$",
+                                  "type": "string"
+                                },
+                                "sourceBatchId": {
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                  "format": "uuid",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "sourceBatchId",
+                                "receivedQuantity"
+                              ],
+                              "type": "object"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          },
+                          "receivedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "receivedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "recountedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "transferId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "transferId",
+                          "receivedQuantity",
+                          "isFinal",
+                          "isRecount",
+                          "recountedQuantity",
+                          "receivedBy",
+                          "createdAt"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "receiveMovementId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "receiveOccurredAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "receivedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "enum": [
+                        "in_transit",
+                        "pending_investigation",
+                        "received",
+                        "excess_held"
+                      ],
+                      "type": "string"
+                    },
+                    "stockItemId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "toLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "transferReferenceId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "unitCost": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "unresolvedQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "transferReferenceId",
+                    "tenantId",
+                    "stockItemId",
+                    "fromLocationId",
+                    "toLocationId",
+                    "dispatchMovementId",
+                    "receiveMovementId",
+                    "adjustmentMovementId",
+                    "status",
+                    "quantityDispatched",
+                    "physicallyReceived",
+                    "inTransit",
+                    "unresolvedQuantity",
+                    "physicallyHeld",
+                    "excessHeldQuantity",
+                    "availableQuantity",
+                    "discrepancy",
+                    "unitCost",
+                    "dispatchedBy",
+                    "receivedBy",
+                    "dispatchOccurredAt",
+                    "receiveOccurredAt",
+                    "createdAt",
+                    "updatedAt",
+                    "discrepancyReasonCodeId",
+                    "discrepancyEvidence",
+                    "approvalRequestId",
+                    "batchProvenance",
+                    "receipts",
+                    "approvalHistory"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Append-only physical excess return. No inventory movement or automatic source credit is posted."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/inventory/transfers/{transferId}/investigate": {
+      "post": {
+        "operationId": "InventoryController_investigateTransfer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "transferId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvestigateTransferDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "adjustmentMovementId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "adjustmentMovements": {
+                      "items": {
+                        "properties": {
+                          "batchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "totalCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          },
+                          "unitCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "batchId",
+                          "quantity",
+                          "unitCost",
+                          "totalCost"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "approvalHistory": {
+                      "items": {
+                        "properties": {
+                          "approvalRequestId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "decidedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decidedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decision": {
+                            "enum": [
+                              "approved",
+                              "rejected",
+                              null
+                            ],
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "decisionComment": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "expiresAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "requestedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "requestedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "status": {
+                            "enum": [
+                              "pending",
+                              "approved",
+                              "rejected",
+                              "expired",
+                              "escalated"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "approvalRequestId",
+                          "status",
+                          "requestedBy",
+                          "requestedAt",
+                          "expiresAt",
+                          "decidedBy",
+                          "decidedAt",
+                          "decision",
+                          "decisionComment"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "approvalRequestId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "availableQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "batchProvenance": {
+                      "items": {
+                        "properties": {
+                          "batchNumber": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "destinationBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "expiryDate": {
+                            "format": "date",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "productionDate": {
+                            "format": "date",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "sourceBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "sourceUnitCost": {
+                            "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                            "example": "1250",
+                            "pattern": "^-?\\d+$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "sourceBatchId",
+                          "quantity",
+                          "batchNumber",
+                          "productionDate",
+                          "expiryDate",
+                          "sourceUnitCost"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "discrepancy": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "discrepancyEvidence": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "discrepancyReasonCodeId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "dispatchGroupId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "dispatchMovementId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "dispatchOccurredAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "dispatchedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "excessHeldQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "excessReturnedQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "excessReturns": {
+                      "items": {
+                        "properties": {
+                          "createdAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "evidence": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "reasonCodeId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "returnToLocationId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "returnedAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "returnedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "quantity",
+                          "returnToLocationId",
+                          "reasonCodeId",
+                          "evidence",
+                          "returnedBy",
+                          "returnedAt",
+                          "createdAt"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "fromLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "id": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "inTransit": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "lotCounts": {
+                      "items": {
+                        "properties": {
+                          "receivedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "sourceBatchId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "sourceBatchId",
+                          "receivedQuantity"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "physicallyHeld": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "physicallyReceived": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "quantityDispatched": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "receipts": {
+                      "items": {
+                        "properties": {
+                          "createdAt": {
+                            "example": "2026-08-23T14:30:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "evidence": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "isFinal": {
+                            "type": "boolean"
+                          },
+                          "isRecount": {
+                            "type": "boolean"
+                          },
+                          "lotCounts": {
+                            "items": {
+                              "properties": {
+                                "receivedQuantity": {
+                                  "description": "Decimal quantity as a string (preserves exact precision).",
+                                  "example": "2.5",
+                                  "pattern": "^-?\\d+(\\.\\d+)?$",
+                                  "type": "string"
+                                },
+                                "sourceBatchId": {
+                                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                  "format": "uuid",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "sourceBatchId",
+                                "receivedQuantity"
+                              ],
+                              "type": "object"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          },
+                          "receivedBy": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "receivedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": "string"
+                          },
+                          "recountedQuantity": {
+                            "description": "Decimal quantity as a string (preserves exact precision).",
+                            "example": "2.5",
+                            "pattern": "^-?\\d+(\\.\\d+)?$",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "transferId": {
+                            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "transferId",
+                          "receivedQuantity",
+                          "isFinal",
+                          "isRecount",
+                          "recountedQuantity",
+                          "receivedBy",
+                          "createdAt"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "receiveMovementId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "receiveOccurredAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "receivedBy": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "enum": [
+                        "in_transit",
+                        "pending_investigation",
+                        "received",
+                        "excess_held"
+                      ],
+                      "type": "string"
+                    },
+                    "stockItemId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "toLocationId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "transferReferenceId": {
+                      "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "unitCost": {
+                      "description": "Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss).",
+                      "example": "1250",
+                      "pattern": "^-?\\d+$",
+                      "type": "string"
+                    },
+                    "unresolvedQuantity": {
+                      "description": "Decimal quantity as a string (preserves exact precision).",
+                      "example": "2.5",
+                      "pattern": "^-?\\d+(\\.\\d+)?$",
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "example": "2026-08-23T14:30:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "transferReferenceId",
+                    "tenantId",
+                    "stockItemId",
+                    "fromLocationId",
+                    "toLocationId",
+                    "dispatchMovementId",
+                    "receiveMovementId",
+                    "adjustmentMovementId",
+                    "status",
+                    "quantityDispatched",
+                    "physicallyReceived",
+                    "inTransit",
+                    "unresolvedQuantity",
+                    "physicallyHeld",
+                    "excessHeldQuantity",
+                    "availableQuantity",
+                    "discrepancy",
+                    "unitCost",
+                    "dispatchedBy",
+                    "receivedBy",
+                    "dispatchOccurredAt",
+                    "receiveOccurredAt",
+                    "createdAt",
+                    "updatedAt",
+                    "discrepancyReasonCodeId",
+                    "discrepancyEvidence",
+                    "approvalRequestId",
+                    "batchProvenance",
+                    "receipts",
+                    "approvalHistory"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A rejected discrepancy is resubmitted with new evidence for manager approval."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing/invalid/expired token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No tenant context / insufficient permission."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "tags": [
           "inventory"
         ]

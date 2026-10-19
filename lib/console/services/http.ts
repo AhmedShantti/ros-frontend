@@ -1846,16 +1846,21 @@ const counts: CollectionService<CountSession> = {
 };
 
 const transfers: CollectionService<Transfer> = {
-  /** Dispatch and receive exist; a transfer index does not. */
-  async list() {
-    return emptyPage<Transfer>();
+  async list(query = {}) {
+    const [rows, items, locations] = await Promise.all([
+      api.inventory.listTransfers(), stockItemIndex(), locationIndex(),
+    ]);
+    const mapped = (rows as unknown as Array<Record<string, unknown>>).map((row) => mapTransfer(row, items, locations));
+    return project(mapped, query, { search: (row) => [row.reference, row.fromLocationName, row.toLocationName], filters: { status: (row) => row.status, fromLocationId: (row) => row.fromLocationId, toLocationId: (row) => row.toLocationId }, sorters: { dispatchedAt: (row) => row.dispatchedAt ?? "", totalValue: (row) => row.totalValue.amount } });
   },
 
-  async get() {
-    return null;
+  async get(id) {
+    const [row, items, locations] = await Promise.all([api.inventory.readTransfer(id), stockItemIndex(), locationIndex()]);
+    return mapTransfer(row as unknown as Record<string, unknown>, items, locations);
   },
 
   async create(input) {
+    if (input.lines && input.lines.length !== 1) throw new ServiceError("BAD_REQUEST", "Use grouped dispatch for multiple transfer lines; no line has been sent.", 400);
     const line = input.lines?.[0];
     if (!input.fromLocationId || !input.toLocationId || !line) {
       throw new ServiceError(
@@ -1871,15 +1876,9 @@ const transfers: CollectionService<Transfer> = {
       toLocationId: input.toLocationId,
       quantity: line.dispatched.value,
     });
-
-    const record = row as unknown as Record<string, unknown>;
-    return {
-      ...(input as Transfer),
-      id: String(record.id ?? record.transferId ?? ""),
-      tenantId: getTenantId() ?? "",
-      status: "dispatched",
-      dispatchedAt: new Date().toISOString(),
-    } satisfies Transfer;
+    const [items, locations] = await Promise.all([stockItemIndex(), locationIndex()]);
+    invalidateInventory();
+    return mapTransfer(row as unknown as Record<string, unknown>, items, locations);
   },
 
   async update(_id, patch) {
@@ -1893,6 +1892,63 @@ const transfers: CollectionService<Transfer> = {
     notImplemented("Deleting a transfer");
   },
 };
+
+function mapTransfer(row: Record<string, unknown>, items: Map<Id, StockItem>, locations: Map<Id, StockLocation>): Transfer {
+  const id = String(row.id ?? row.transferReferenceId ?? "");
+  const itemId = String(row.stockItemId ?? "");
+  const item = items.get(itemId);
+  const unit = item?.baseUnit ?? "pc";
+  const dispatched = String(row.quantityDispatched ?? "0");
+  const physicallyReceived = String(row.physicallyReceived ?? "0");
+  const currency = "EGP" as const;
+  const rawStatus = String(row.status ?? "in_transit");
+  const status: Transfer["status"] = rawStatus === "pending_investigation" ? "pending_investigation" : rawStatus === "excess_held" ? "excess_held" : rawStatus === "received" ? "received" : "in_transit";
+  const locationFrom = String(row.fromLocationId ?? "");
+  const locationTo = String(row.toLocationId ?? "");
+  const unitCostMinor = Number(row.unitCost ?? 0);
+  const totalMinor = Number(dispatched) * unitCostMinor;
+  const received = Number(physicallyReceived) > 0 ? { value: physicallyReceived, unit } : null;
+  return {
+    id, tenantId: String(row.tenantId ?? getTenantId() ?? ""), reference: `TRF-${id.slice(0, 8).toUpperCase()}`,
+    fromLocationId: locationFrom, fromLocationName: locations.get(locationFrom)?.name ?? { en: locationFrom, ar: locationFrom },
+    toLocationId: locationTo, toLocationName: locations.get(locationTo)?.name ?? { en: locationTo, ar: locationTo },
+    status, dispatchedAt: String(row.createdAt ?? "") || null, receivedAt: row.receiveMovementId ? String(row.updatedAt ?? "") : null,
+    dispatchGroupId: row.dispatchGroupId == null ? null : String(row.dispatchGroupId),
+    batchProvenance: (row.batchProvenance ?? []) as Transfer["batchProvenance"],
+    lotCounts: (row.lotCounts ?? []) as Transfer["lotCounts"],
+    excessReturnedQuantity: String(row.excessReturnedQuantity ?? "0"),
+    excessReturns: (row.excessReturns ?? []) as Transfer["excessReturns"],
+    approvalRequestId: row.approvalRequestId ? String(row.approvalRequestId) : null,
+    discrepancyReasonCodeId: row.discrepancyReasonCodeId ? String(row.discrepancyReasonCodeId) : null,
+    discrepancyEvidence: row.discrepancyEvidence ? String(row.discrepancyEvidence) : null,
+    requestedBy: { en: String(row.dispatchedBy ?? ""), ar: String(row.dispatchedBy ?? "") },
+    lines: [{ id: `${id}:line`, itemId, itemName: item?.name ?? { en: itemId, ar: itemId }, dispatched: { value: dispatched, unit }, received, discrepancy: Number(row.discrepancy ?? 0), unitCost: map.money(unitCostMinor, currency),
+      physicallyHeld: { value: String(row.physicallyHeld ?? "0"), unit }, inTransit: { value: String(row.inTransit ?? "0"), unit }, available: { value: String(row.availableQuantity ?? "0"), unit }, unresolved: { value: String(row.unresolvedQuantity ?? "0"), unit } }],
+    receipts: (Array.isArray(row.receipts) ? row.receipts as Array<Record<string, unknown>> : []).map((receipt) => ({
+      id: String(receipt.id ?? ""),
+      received: { value: String(receipt.receivedQuantity ?? "0"), unit },
+      isFinal: Boolean(receipt.isFinal),
+      isRecount: Boolean(receipt.isRecount),
+      lotCounts: (receipt.lotCounts ?? []) as { sourceBatchId: Id; receivedQuantity: string }[],
+      recounted: receipt.recountedQuantity == null ? null : { value: String(receipt.recountedQuantity), unit },
+      evidence: receipt.evidence == null ? null : String(receipt.evidence),
+      receivedBy: String(receipt.receivedBy ?? ""),
+      receivedAt: String(receipt.createdAt ?? ""),
+    })),
+    approvalHistory: (Array.isArray(row.approvalHistory) ? row.approvalHistory as Array<Record<string, unknown>> : []).map((approval) => ({
+      approvalRequestId: String(approval.approvalRequestId ?? ""),
+      status: String(approval.status ?? "pending") as Transfer["approvalHistory"][number]["status"],
+      requestedBy: String(approval.requestedBy ?? ""),
+      requestedAt: String(approval.requestedAt ?? ""),
+      expiresAt: String(approval.expiresAt ?? ""),
+      decidedBy: approval.decidedBy == null ? null : String(approval.decidedBy),
+      decidedAt: approval.decidedAt == null ? null : String(approval.decidedAt),
+      decision: approval.decision === "approved" || approval.decision === "rejected" ? approval.decision : null,
+      decisionComment: approval.decisionComment == null ? null : String(approval.decisionComment),
+    })),
+    totalValue: map.money(totalMinor, currency),
+  };
+}
 
 const waste: CollectionService<WasteRecord> = {
   async list(query = {}) {
@@ -2073,7 +2129,28 @@ const inventory: InventoryService = {
       toLocationId: input.toLocationId,
       receivedQuantity: input.receivedQuantity,
       discrepancyReasonCodeId: input.discrepancyReasonCodeId,
+      evidence: input.evidence,
+      isFinal: input.isFinal ?? true,
+      lotCounts: input.lotCounts,
     });
+    invalidateInventory();
+  },
+
+  async dispatchTransferLines(input) {
+    const rows = await api.inventory.dispatchTransferLines(input);
+    const [items, locations] = await Promise.all([stockItemIndex(), locationIndex()]);
+    invalidateInventory();
+    return rows.map(row => mapTransfer(row as unknown as Record<string, unknown>, items, locations));
+  },
+
+  async returnTransferExcess(input) {
+    const { transferId, ...body } = input;
+    await api.inventory.returnTransferExcess(transferId, body);
+    invalidateInventory();
+  },
+
+  async investigateTransfer(input) {
+    await api.inventory.investigateTransfer(input.transferId, { toLocationId: input.toLocationId, discrepancyReasonCodeId: input.discrepancyReasonCodeId, evidence: input.evidence, recountedQuantity: input.recountedQuantity, lotCounts: input.lotCounts });
     invalidateInventory();
   },
 

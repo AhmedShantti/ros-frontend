@@ -445,6 +445,8 @@ export const transfers: Transfer[] = (() => {
       receivedAt: status === "received" || status === "discrepancy" ? hoursAgo(int(rng, 1, 200)) : null,
       requestedBy: pick(rng, STAFF_NAMES),
       lines,
+      receipts: [],
+      approvalHistory: [],
       totalValue: EGP(total),
     });
   }

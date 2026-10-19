@@ -721,7 +721,13 @@ export interface InventoryService {
     toLocationId: Id;
     receivedQuantity: string;
     discrepancyReasonCodeId?: Id;
+    evidence?: string;
+    isFinal?: boolean;
+    lotCounts?: { sourceBatchId: Id; receivedQuantity: string }[];
   }): Promise<void>;
+  investigateTransfer(input: { transferId: Id; toLocationId: Id; discrepancyReasonCodeId: Id; evidence: string; recountedQuantity?: string; lotCounts?: { sourceBatchId: Id; receivedQuantity: string }[] }): Promise<void>;
+  returnTransferExcess(input: { transferId: Id; toLocationId: Id; returnToLocationId: Id; quantity: string; reasonCodeId: Id; evidence: string; returnedAt: string }): Promise<void>;
+  dispatchTransferLines(input: { fromLocationId: Id; toLocationId: Id; lines: { stockItemId: Id; quantity: string }[] }): Promise<Transfer[]>;
 
   // -- Reorder configuration -------------------------------------------------
   /** FR-INV-065 — per-location reorder point and quantity for one item. */

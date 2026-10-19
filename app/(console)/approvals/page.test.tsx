@@ -148,6 +148,16 @@ describe("Approvals — kind labels (18, 19, 20)", () => {
     render(<ApprovalsPage />);
     await waitFor(() => expect(screen.getAllByText("Waste").length).toBeGreaterThan(0));
   });
+
+  it("transfer discrepancy renders in the shared queue and can use the existing PIN decision flow", async () => {
+    approvalsList.mockResolvedValue({ rows: [approvalRow({ kind: "transfer_discrepancy", entityLabel: { en: "Transfer discrepancy", ar: "" } })], total: 1 });
+    decide.mockResolvedValue(approvalRow({ kind: "transfer_discrepancy", status: "approved" }));
+    const user = userEvent.setup();
+    render(<ApprovalsPage />);
+    await waitFor(() => expect(screen.getAllByText("Transfer discrepancy").length).toBeGreaterThan(0));
+    await fillCredentialsAndDecide(user, /common\.approve/);
+    expect(decide).toHaveBeenCalledWith("req-1", "approved", expect.objectContaining({ employeeCode: "EMP1", pin: "4821", approvalBranchId: BRANCH_A.id }));
+  });
 });
 
 describe("Approvals — decide (21, 22, 23, 26)", () => {

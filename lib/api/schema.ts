@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 221 paths, 150 request DTOs.
+ * `api/openapi.json`. 225 paths, 155 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -635,6 +635,12 @@ export interface DispatchTransferDto {
   toLocationId: string;
 }
 
+export interface DispatchTransferLinesDto {
+  fromLocationId: string;
+  lines: TransferDispatchLineDto[];
+  toLocationId: string;
+}
+
 /** Nest's default HttpException envelope, also used verbatim by the single global SalesDomainExceptionFilter (statusCode/message differ, error is the class's HTTP reason phrase or domain error name). error is sometimes absent — a bare `new UnauthorizedException()` with no message omits it. */
 export interface ErrorResponse {
   /** HTTP reason phrase or domain error class name. Not always present. */
@@ -681,6 +687,14 @@ export interface GoodsReceiptLineDto {
 export interface GpsDto {
   lat: number;
   lng: number;
+}
+
+export interface InvestigateTransferDto {
+  discrepancyReasonCodeId: string;
+  evidence: string;
+  lotCounts?: TransferLotCountDto[];
+  recountedQuantity?: string;
+  toLocationId: string;
 }
 
 export interface IssueRecoveryGrantDto {
@@ -838,6 +852,9 @@ export interface ReceiptTemplateOptionsDto {
 
 export interface ReceiveTransferDto {
   discrepancyReasonCodeId?: string;
+  evidence?: string;
+  isFinal: boolean;
+  lotCounts?: TransferLotCountDto[];
   receivedQuantity: string;
   toLocationId: string;
   transferReferenceId: string;
@@ -928,6 +945,15 @@ export interface ReplaceRecipeLinesDto {
 export interface ResetPasswordDto {
   newPassword: string;
   token: string;
+}
+
+export interface ReturnTransferExcessDto {
+  evidence: string;
+  quantity: string;
+  reasonCodeId: string;
+  returnToLocationId: string;
+  returnedAt: string;
+  toLocationId: string;
 }
 
 export interface SelectDineInTableDto {
@@ -1049,6 +1075,16 @@ export interface Toggle86Dto {
   autoReenableAt?: string;
   isManual86: boolean;
   reasonText?: string;
+}
+
+export interface TransferDispatchLineDto {
+  quantity: string;
+  stockItemId: string;
+}
+
+export interface TransferLotCountDto {
+  receivedQuantity: string;
+  sourceBatchId: string;
 }
 
 export interface UpdateAssignmentDto {
@@ -2987,7 +3023,7 @@ export type InventoryApprovalsController_listResponse = ({
   /** For stock_adjustment, the approval request’s own id (no real Inventory entity exists at request time — Design A, no staging table). */
   entityId: string;
   expiresAt: string;
-  kind: "stock_adjustment" | "count_adjustment" | "waste";
+  kind: "stock_adjustment" | "count_adjustment" | "waste" | "transfer_discrepancy";
   requestedAt: string;
   requestedBy: string;
   requiredPermission: string;
@@ -3615,29 +3651,785 @@ export type InventoryController_createStorageAreaResponse = {
 
 export type InventoryController_createStorageAreaBody = CreateStorageAreaDto;
 
-/** `POST /inventory/transfers` — Dispatch a transfer (writes the transfer_out leg). — The dispatched transfer. */
-export type InventoryController_dispatchResponse = {
+/** `GET /inventory/transfers` — Tenant-scoped transfer lifecycle, custody and approval history. */
+export type InventoryController_listTransfersResponse = ({
+  adjustmentMovementId: string | null;
+  adjustmentMovements: ({
+    batchId: string | null;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    totalCost: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitCost: string;
+  })[];
+  approvalHistory: ({
+    approvalRequestId: string;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    decision: "approved" | "rejected" | null | null;
+    decisionComment: string | null;
+    expiresAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    status: "pending" | "approved" | "rejected" | "expired" | "escalated";
+  })[];
+  approvalRequestId: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  availableQuantity: string;
+  batchProvenance: ({
+    batchNumber: string | null;
+    destinationBatchId: string | null;
+    expiryDate: string | null;
+    productionDate: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sourceBatchId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    sourceUnitCost: string;
+  })[] | null;
+  createdAt: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  discrepancy: string;
+  discrepancyEvidence: string | null;
+  discrepancyReasonCodeId: string | null;
+  dispatchGroupId: string | null;
   dispatchMovementId: string;
-  quantityDispatched: number;
+  dispatchOccurredAt: string;
+  dispatchedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessHeldQuantity: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessReturnedQuantity: string;
+  excessReturns: ({
+    createdAt: string;
+    evidence: string;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    reasonCodeId: string;
+    returnToLocationId: string;
+    returnedAt: string;
+    returnedBy: string;
+  })[];
+  fromLocationId: string;
+  id: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  inTransit: string;
+  lotCounts: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    sourceBatchId: string;
+  })[] | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyHeld: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyReceived: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityDispatched: string;
+  receipts: ({
+    createdAt: string;
+    evidence: string | null;
+    id: string;
+    isFinal: boolean;
+    isRecount: boolean;
+    lotCounts: ({
+      /** Decimal quantity as a string (preserves exact precision). */
+      receivedQuantity: string;
+      sourceBatchId: string;
+    })[] | null;
+    receivedBy: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    recountedQuantity: string | null;
+    transferId: string;
+  })[];
+  receiveMovementId: string | null;
+  receiveOccurredAt: string | null;
+  receivedBy: string | null;
+  status: "in_transit" | "pending_investigation" | "received" | "excess_held";
+  stockItemId: string;
+  tenantId: string;
+  toLocationId: string;
   transferReferenceId: string;
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   unitCost: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  unresolvedQuantity: string;
+  updatedAt: string;
+})[];
+
+/** `POST /inventory/transfers` — Dispatch a transfer and create durable transfer history. — The dispatched transfer. */
+export type InventoryController_dispatchResponse = {
+  adjustmentMovementId: string | null;
+  adjustmentMovements: ({
+    batchId: string | null;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    totalCost: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitCost: string;
+  })[];
+  approvalHistory: ({
+    approvalRequestId: string;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    decision: "approved" | "rejected" | null | null;
+    decisionComment: string | null;
+    expiresAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    status: "pending" | "approved" | "rejected" | "expired" | "escalated";
+  })[];
+  approvalRequestId: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  availableQuantity: string;
+  batchProvenance: ({
+    batchNumber: string | null;
+    destinationBatchId: string | null;
+    expiryDate: string | null;
+    productionDate: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sourceBatchId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    sourceUnitCost: string;
+  })[] | null;
+  createdAt: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  discrepancy: string;
+  discrepancyEvidence: string | null;
+  discrepancyReasonCodeId: string | null;
+  dispatchGroupId: string | null;
+  dispatchMovementId: string;
+  dispatchOccurredAt: string;
+  dispatchedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessHeldQuantity: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessReturnedQuantity: string;
+  excessReturns: ({
+    createdAt: string;
+    evidence: string;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    reasonCodeId: string;
+    returnToLocationId: string;
+    returnedAt: string;
+    returnedBy: string;
+  })[];
+  fromLocationId: string;
+  id: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  inTransit: string;
+  lotCounts: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    sourceBatchId: string;
+  })[] | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyHeld: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyReceived: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityDispatched: string;
+  receipts: ({
+    createdAt: string;
+    evidence: string | null;
+    id: string;
+    isFinal: boolean;
+    isRecount: boolean;
+    lotCounts: ({
+      /** Decimal quantity as a string (preserves exact precision). */
+      receivedQuantity: string;
+      sourceBatchId: string;
+    })[] | null;
+    receivedBy: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    recountedQuantity: string | null;
+    transferId: string;
+  })[];
+  receiveMovementId: string | null;
+  receiveOccurredAt: string | null;
+  receivedBy: string | null;
+  status: "in_transit" | "pending_investigation" | "received" | "excess_held";
+  stockItemId: string;
+  tenantId: string;
+  toLocationId: string;
+  transferReferenceId: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  unitCost: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  unresolvedQuantity: string;
+  updatedAt: string;
 };
 
 export type InventoryController_dispatchBody = DispatchTransferDto;
 
-/** `POST /inventory/transfers/receive` — Receive a dispatched transfer (writes the transfer_in leg, plus a discrepancy adjustment if the received quantity differs). — The received transfer. */
-export type InventoryController_receiveResponse = {
-  /** The manual_adjustment movement written for the discrepancy, or null when none was needed. */
+/** `POST /inventory/transfers/dispatch-lines` — Atomic dispatch of distinct item lines. Each line keeps its existing independent receipt/approval lifecycle; dispatchGroupId links the document. */
+export type InventoryController_dispatchTransferLinesResponse = ({
   adjustmentMovementId: string | null;
-  discrepancy: number;
-  quantityDispatched: number;
-  quantityReceived: number;
-  receiveMovementId: string;
+  adjustmentMovements: ({
+    batchId: string | null;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    totalCost: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitCost: string;
+  })[];
+  approvalHistory: ({
+    approvalRequestId: string;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    decision: "approved" | "rejected" | null | null;
+    decisionComment: string | null;
+    expiresAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    status: "pending" | "approved" | "rejected" | "expired" | "escalated";
+  })[];
+  approvalRequestId: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  availableQuantity: string;
+  batchProvenance: ({
+    batchNumber: string | null;
+    destinationBatchId: string | null;
+    expiryDate: string | null;
+    productionDate: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sourceBatchId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    sourceUnitCost: string;
+  })[] | null;
+  createdAt: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  discrepancy: string;
+  discrepancyEvidence: string | null;
+  discrepancyReasonCodeId: string | null;
+  dispatchGroupId: string | null;
+  dispatchMovementId: string;
+  dispatchOccurredAt: string;
+  dispatchedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessHeldQuantity: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessReturnedQuantity: string;
+  excessReturns: ({
+    createdAt: string;
+    evidence: string;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    reasonCodeId: string;
+    returnToLocationId: string;
+    returnedAt: string;
+    returnedBy: string;
+  })[];
+  fromLocationId: string;
+  id: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  inTransit: string;
+  lotCounts: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    sourceBatchId: string;
+  })[] | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyHeld: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyReceived: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityDispatched: string;
+  receipts: ({
+    createdAt: string;
+    evidence: string | null;
+    id: string;
+    isFinal: boolean;
+    isRecount: boolean;
+    lotCounts: ({
+      /** Decimal quantity as a string (preserves exact precision). */
+      receivedQuantity: string;
+      sourceBatchId: string;
+    })[] | null;
+    receivedBy: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    recountedQuantity: string | null;
+    transferId: string;
+  })[];
+  receiveMovementId: string | null;
+  receiveOccurredAt: string | null;
+  receivedBy: string | null;
+  status: "in_transit" | "pending_investigation" | "received" | "excess_held";
+  stockItemId: string;
+  tenantId: string;
+  toLocationId: string;
   transferReferenceId: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  unitCost: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  unresolvedQuantity: string;
+  updatedAt: string;
+})[];
+
+export type InventoryController_dispatchTransferLinesBody = DispatchTransferLinesDto;
+
+/** `POST /inventory/transfers/receive` — Record physical receipt; discrepancies remain unavailable pending investigation and approval. — The received transfer. */
+export type InventoryController_receiveResponse = {
+  adjustmentMovementId: string | null;
+  adjustmentMovements: ({
+    batchId: string | null;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    totalCost: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitCost: string;
+  })[];
+  approvalHistory: ({
+    approvalRequestId: string;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    decision: "approved" | "rejected" | null | null;
+    decisionComment: string | null;
+    expiresAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    status: "pending" | "approved" | "rejected" | "expired" | "escalated";
+  })[];
+  approvalRequestId: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  availableQuantity: string;
+  batchProvenance: ({
+    batchNumber: string | null;
+    destinationBatchId: string | null;
+    expiryDate: string | null;
+    productionDate: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sourceBatchId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    sourceUnitCost: string;
+  })[] | null;
+  createdAt: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  discrepancy: string;
+  discrepancyEvidence: string | null;
+  discrepancyReasonCodeId: string | null;
+  dispatchGroupId: string | null;
+  dispatchMovementId: string;
+  dispatchOccurredAt: string;
+  dispatchedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessHeldQuantity: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessReturnedQuantity: string;
+  excessReturns: ({
+    createdAt: string;
+    evidence: string;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    reasonCodeId: string;
+    returnToLocationId: string;
+    returnedAt: string;
+    returnedBy: string;
+  })[];
+  fromLocationId: string;
+  id: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  inTransit: string;
+  lotCounts: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    sourceBatchId: string;
+  })[] | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyHeld: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyReceived: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityDispatched: string;
+  receipts: ({
+    createdAt: string;
+    evidence: string | null;
+    id: string;
+    isFinal: boolean;
+    isRecount: boolean;
+    lotCounts: ({
+      /** Decimal quantity as a string (preserves exact precision). */
+      receivedQuantity: string;
+      sourceBatchId: string;
+    })[] | null;
+    receivedBy: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    recountedQuantity: string | null;
+    transferId: string;
+  })[];
+  receiveMovementId: string | null;
+  receiveOccurredAt: string | null;
+  receivedBy: string | null;
+  status: "in_transit" | "pending_investigation" | "received" | "excess_held";
+  stockItemId: string;
+  tenantId: string;
+  toLocationId: string;
+  transferReferenceId: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  unitCost: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  unresolvedQuantity: string;
+  updatedAt: string;
 };
 
 export type InventoryController_receiveBody = ReceiveTransferDto;
+
+/** `GET /inventory/transfers/{transferId}` — Tenant-scoped transfer detail, custody and approval history. */
+export type InventoryController_readTransferResponse = {
+  adjustmentMovementId: string | null;
+  adjustmentMovements: ({
+    batchId: string | null;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    totalCost: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitCost: string;
+  })[];
+  approvalHistory: ({
+    approvalRequestId: string;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    decision: "approved" | "rejected" | null | null;
+    decisionComment: string | null;
+    expiresAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    status: "pending" | "approved" | "rejected" | "expired" | "escalated";
+  })[];
+  approvalRequestId: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  availableQuantity: string;
+  batchProvenance: ({
+    batchNumber: string | null;
+    destinationBatchId: string | null;
+    expiryDate: string | null;
+    productionDate: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sourceBatchId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    sourceUnitCost: string;
+  })[] | null;
+  createdAt: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  discrepancy: string;
+  discrepancyEvidence: string | null;
+  discrepancyReasonCodeId: string | null;
+  dispatchGroupId: string | null;
+  dispatchMovementId: string;
+  dispatchOccurredAt: string;
+  dispatchedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessHeldQuantity: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessReturnedQuantity: string;
+  excessReturns: ({
+    createdAt: string;
+    evidence: string;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    reasonCodeId: string;
+    returnToLocationId: string;
+    returnedAt: string;
+    returnedBy: string;
+  })[];
+  fromLocationId: string;
+  id: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  inTransit: string;
+  lotCounts: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    sourceBatchId: string;
+  })[] | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyHeld: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyReceived: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityDispatched: string;
+  receipts: ({
+    createdAt: string;
+    evidence: string | null;
+    id: string;
+    isFinal: boolean;
+    isRecount: boolean;
+    lotCounts: ({
+      /** Decimal quantity as a string (preserves exact precision). */
+      receivedQuantity: string;
+      sourceBatchId: string;
+    })[] | null;
+    receivedBy: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    recountedQuantity: string | null;
+    transferId: string;
+  })[];
+  receiveMovementId: string | null;
+  receiveOccurredAt: string | null;
+  receivedBy: string | null;
+  status: "in_transit" | "pending_investigation" | "received" | "excess_held";
+  stockItemId: string;
+  tenantId: string;
+  toLocationId: string;
+  transferReferenceId: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  unitCost: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  unresolvedQuantity: string;
+  updatedAt: string;
+};
+
+/** `POST /inventory/transfers/{transferId}/excess-returns` — Append-only physical excess return. No inventory movement or automatic source credit is posted. */
+export type InventoryController_returnTransferExcessResponse = {
+  adjustmentMovementId: string | null;
+  adjustmentMovements: ({
+    batchId: string | null;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    totalCost: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitCost: string;
+  })[];
+  approvalHistory: ({
+    approvalRequestId: string;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    decision: "approved" | "rejected" | null | null;
+    decisionComment: string | null;
+    expiresAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    status: "pending" | "approved" | "rejected" | "expired" | "escalated";
+  })[];
+  approvalRequestId: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  availableQuantity: string;
+  batchProvenance: ({
+    batchNumber: string | null;
+    destinationBatchId: string | null;
+    expiryDate: string | null;
+    productionDate: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sourceBatchId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    sourceUnitCost: string;
+  })[] | null;
+  createdAt: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  discrepancy: string;
+  discrepancyEvidence: string | null;
+  discrepancyReasonCodeId: string | null;
+  dispatchGroupId: string | null;
+  dispatchMovementId: string;
+  dispatchOccurredAt: string;
+  dispatchedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessHeldQuantity: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessReturnedQuantity: string;
+  excessReturns: ({
+    createdAt: string;
+    evidence: string;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    reasonCodeId: string;
+    returnToLocationId: string;
+    returnedAt: string;
+    returnedBy: string;
+  })[];
+  fromLocationId: string;
+  id: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  inTransit: string;
+  lotCounts: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    sourceBatchId: string;
+  })[] | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyHeld: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyReceived: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityDispatched: string;
+  receipts: ({
+    createdAt: string;
+    evidence: string | null;
+    id: string;
+    isFinal: boolean;
+    isRecount: boolean;
+    lotCounts: ({
+      /** Decimal quantity as a string (preserves exact precision). */
+      receivedQuantity: string;
+      sourceBatchId: string;
+    })[] | null;
+    receivedBy: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    recountedQuantity: string | null;
+    transferId: string;
+  })[];
+  receiveMovementId: string | null;
+  receiveOccurredAt: string | null;
+  receivedBy: string | null;
+  status: "in_transit" | "pending_investigation" | "received" | "excess_held";
+  stockItemId: string;
+  tenantId: string;
+  toLocationId: string;
+  transferReferenceId: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  unitCost: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  unresolvedQuantity: string;
+  updatedAt: string;
+};
+
+export type InventoryController_returnTransferExcessBody = ReturnTransferExcessDto;
+
+/** `POST /inventory/transfers/{transferId}/investigate` — A rejected discrepancy is resubmitted with new evidence for manager approval. */
+export type InventoryController_investigateTransferResponse = {
+  adjustmentMovementId: string | null;
+  adjustmentMovements: ({
+    batchId: string | null;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    totalCost: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitCost: string;
+  })[];
+  approvalHistory: ({
+    approvalRequestId: string;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    decision: "approved" | "rejected" | null | null;
+    decisionComment: string | null;
+    expiresAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    status: "pending" | "approved" | "rejected" | "expired" | "escalated";
+  })[];
+  approvalRequestId: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  availableQuantity: string;
+  batchProvenance: ({
+    batchNumber: string | null;
+    destinationBatchId: string | null;
+    expiryDate: string | null;
+    productionDate: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sourceBatchId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    sourceUnitCost: string;
+  })[] | null;
+  createdAt: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  discrepancy: string;
+  discrepancyEvidence: string | null;
+  discrepancyReasonCodeId: string | null;
+  dispatchGroupId: string | null;
+  dispatchMovementId: string;
+  dispatchOccurredAt: string;
+  dispatchedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessHeldQuantity: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessReturnedQuantity: string;
+  excessReturns: ({
+    createdAt: string;
+    evidence: string;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    reasonCodeId: string;
+    returnToLocationId: string;
+    returnedAt: string;
+    returnedBy: string;
+  })[];
+  fromLocationId: string;
+  id: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  inTransit: string;
+  lotCounts: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    sourceBatchId: string;
+  })[] | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyHeld: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyReceived: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityDispatched: string;
+  receipts: ({
+    createdAt: string;
+    evidence: string | null;
+    id: string;
+    isFinal: boolean;
+    isRecount: boolean;
+    lotCounts: ({
+      /** Decimal quantity as a string (preserves exact precision). */
+      receivedQuantity: string;
+      sourceBatchId: string;
+    })[] | null;
+    receivedBy: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    recountedQuantity: string | null;
+    transferId: string;
+  })[];
+  receiveMovementId: string | null;
+  receiveOccurredAt: string | null;
+  receivedBy: string | null;
+  status: "in_transit" | "pending_investigation" | "received" | "excess_held";
+  stockItemId: string;
+  tenantId: string;
+  toLocationId: string;
+  transferReferenceId: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  unitCost: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  unresolvedQuantity: string;
+  updatedAt: string;
+};
+
+export type InventoryController_investigateTransferBody = InvestigateTransferDto;
 
 /** `GET /inventory/uoms` — List the unit-of-measure catalogue (FR-INV-001). — Every unit of measure known to the platform. */
 export type InventoryController_listUomsResponse = ({
@@ -9058,8 +9850,13 @@ export const ROUTES = {
   InventoryController_reconcile: { method: "GET", path: "/inventory/reconciliation" },
   InventoryController_listStorageAreas: { method: "GET", path: "/inventory/storage-areas" },
   InventoryController_createStorageArea: { method: "POST", path: "/inventory/storage-areas" },
+  InventoryController_listTransfers: { method: "GET", path: "/inventory/transfers" },
   InventoryController_dispatch: { method: "POST", path: "/inventory/transfers" },
+  InventoryController_dispatchTransferLines: { method: "POST", path: "/inventory/transfers/dispatch-lines" },
   InventoryController_receive: { method: "POST", path: "/inventory/transfers/receive" },
+  InventoryController_readTransfer: { method: "GET", path: "/inventory/transfers/{transferId}" },
+  InventoryController_returnTransferExcess: { method: "POST", path: "/inventory/transfers/{transferId}/excess-returns" },
+  InventoryController_investigateTransfer: { method: "POST", path: "/inventory/transfers/{transferId}/investigate" },
   InventoryController_listUoms: { method: "GET", path: "/inventory/uoms" },
   InventoryController_valuation: { method: "GET", path: "/inventory/valuation" },
   InventoryController_listWaste: { method: "GET", path: "/inventory/waste" },

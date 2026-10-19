@@ -18,12 +18,11 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Plus } from "lucide-react";
 import type { Transfer, TransferLine } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
-import { DATA_MODE } from "@/lib/api/config";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
 import { formatDateTime, formatMoney, formatNumber, formatQuantity } from "@/lib/console/format";
-import { TRANSFER_STATUS, labelOf } from "@/lib/console/labels";
+import { APPROVAL_STATUS, TRANSFER_STATUS, labelOf } from "@/lib/console/labels";
 import {
   CellStack,
   CollectionTable,
@@ -46,6 +45,32 @@ import {
   Select,
   Toast,
 } from "@/components/console/ui";
+
+const QUANTITY_SCALE = 1_000_000n;
+function quantityMicros(value: string): bigint {
+  const match = /^(\d+)(?:\.(\d{0,6}))?$/.exec(value.trim());
+  if (!match) return -1n;
+  return BigInt(match[1]!) * QUANTITY_SCALE + BigInt((match[2] ?? "").padEnd(6, "0") || "0");
+}
+function physicalLotCounts(transfer: Transfer, values: Record<string, string>) {
+  return (transfer.batchProvenance ?? []).map(lot => ({ sourceBatchId: lot.sourceBatchId, receivedQuantity: values[lot.sourceBatchId] ?? lot.quantity }));
+}
+function validLotCounts(transfer: Transfer, values: Record<string, string>, physical: bigint) {
+  const lots = transfer.batchProvenance ?? [];
+  if (lots.length <= 1) return true;
+  const counts = physicalLotCounts(transfer, values);
+  return counts.every((c, i) => quantityMicros(c.receivedQuantity) >= 0n && quantityMicros(c.receivedQuantity) <= quantityMicros(lots[i]!.quantity)) && counts.reduce((sum, c) => sum + quantityMicros(c.receivedQuantity), 0n) === physical;
+}
+function LotCountFields({ transfer, values, onChange }: { transfer: Transfer; values: Record<string, string>; onChange: (values: Record<string, string>) => void }) {
+  const { t } = useI18n();
+  return <div className="space-y-3"><Callout>{t("inv.lotCountHint")}</Callout>{(transfer.batchProvenance ?? []).map(lot => <Field key={lot.sourceBatchId} label={`${t("inv.lotReceived")} · ${lot.batchNumber ?? lot.sourceBatchId}`} required><Input inputMode="decimal" dir="ltr" value={values[lot.sourceBatchId] ?? lot.quantity} onChange={e => onChange({ ...values, [lot.sourceBatchId]: e.target.value })} /></Field>)}</div>;
+}
+
+function quantityFromMicros(value: bigint): string {
+  const whole = value / QUANTITY_SCALE;
+  const fraction = (value % QUANTITY_SCALE).toString().padStart(6, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
 
 export default function TransfersPage() {
   return (
@@ -79,7 +104,7 @@ function TransfersScreen() {
     return {
       inTransit: inTransit.length,
       inTransitValue: inTransit.reduce((sum, row) => sum + row.totalValue.amount, 0),
-      discrepancies: rows.filter((row) => row.status === "discrepancy").length,
+      discrepancies: rows.filter((row) => row.status === "discrepancy" || row.status === "pending_investigation" || row.status === "excess_held").length,
     };
   }, [collection.rows]);
 
@@ -175,10 +200,6 @@ function TransfersScreen() {
       />
 
       <PageBody>
-        {DATA_MODE === "http" ? (
-          <Callout tone="warn">{t("inv.transfersNoIndex")}</Callout>
-        ) : null}
-
         <TileGrid columns={3}>
           <MetricTile label={t("inv.inTransit")} value={formatNumber(totals.inTransit, fmt)} />
           <MetricTile
@@ -237,8 +258,9 @@ function TransfersScreen() {
       <TransferDrawer
         transfer={selected}
         onClose={() => setSelected(null)}
-        onChanged={(note) => {
+        onChanged={(note, updated) => {
           setMessage(note);
+          if (updated) setSelected(updated);
           collection.reload();
         }}
       />
@@ -270,10 +292,11 @@ function TransferDrawer({
 }: {
   transfer: Transfer | null;
   onClose: () => void;
-  onChanged: (message: string) => void;
+  onChanged: (message: string, transfer?: Transfer) => void;
 }) {
   const { t, tx, fmt } = useI18n();
   const canReceive = usePermission("inventory.transfer.receive");
+  const canReturnExcess = usePermission("inventory.approve_adjustment");
   const [receiving, setReceiving] = useState(false);
 
   const columns = useMemo<Column<TransferLine>[]>(
@@ -327,8 +350,13 @@ function TransferDrawer({
 
   if (!transfer) return null;
 
+  const transferId = transfer.id;
   const status = labelOf(TRANSFER_STATUS, transfer.status);
   const hasDiscrepancy = transfer.lines.some((line) => line.discrepancy !== 0);
+  async function refreshTransfer(message: string) {
+    const updated = await services.inventory.transfers.get(transferId);
+    onChanged(message, updated ?? undefined);
+  }
 
   return (
     <Drawer
@@ -356,8 +384,27 @@ function TransferDrawer({
             {t("inv.discrepancyNote")}
           </Callout>
         ) : null}
+        {transfer.status === "pending_investigation" ? (
+          <Callout tone="warn" title={t("inv.pendingInvestigation")}>
+            {t("inv.transferApprovalQueue")}
+          </Callout>
+        ) : null}
+        {transfer.status === "excess_held" ? (
+          <Callout tone="warn" title={t("inv.excessHeld")}>
+            {t("inv.transferExcessHeldNote")}
+          </Callout>
+        ) : null}
+        {transfer.status === "excess_held" && canReturnExcess ? <ExcessReturnForm transfer={transfer} onSubmitted={() => void refreshTransfer(t("inv.excessReturnRecorded"))} /> : null}
+        {(transfer.excessReturns ?? []).map(event => <Callout key={event.id} title={t("inv.excessReturnRecorded")}><p>{event.quantity} · {tx(transfer.fromLocationName)} · {formatDateTime(event.returnedAt, fmt)}</p><p>{event.evidence} · {event.returnedBy}</p></Callout>)}
+        {transfer.discrepancyEvidence ? (
+          <DescRow label={t("inv.investigationEvidence")}>{transfer.discrepancyEvidence}</DescRow>
+        ) : null}
+        {transfer.status === "pending_investigation" && !transfer.approvalRequestId ? (
+          <ReinvestigateTransferForm transfer={transfer} onSubmitted={() => void refreshTransfer(t("inv.transferSubmittedForApproval"))} />
+        ) : null}
 
         <DescList>
+          {transfer.dispatchGroupId ? <DescRow label={t("inv.transferGroup")}>{transfer.dispatchGroupId}</DescRow> : null}
           <DescRow label={t("common.status")}>
             <Badge tone={status.tone} dot>
               {tx(status.label)}
@@ -370,10 +417,51 @@ function TransferDrawer({
           <DescRow label={t("inv.received")}>
             {transfer.receivedAt ? formatDateTime(transfer.receivedAt, fmt) : "—"}
           </DescRow>
+          <DescRow label={t("inv.inTransit")} mono>
+            {formatQuantity(transfer.lines[0]?.inTransit ?? { value: "0", unit: "pc" }, fmt)}
+          </DescRow>
+          <DescRow label={t("inv.physicallyHeld")} mono>
+            {formatQuantity(transfer.lines[0]?.physicallyHeld ?? { value: "0", unit: "pc" }, fmt)}
+          </DescRow>
+          <DescRow label={t("inv.availableAfterReceipt")} mono>
+            {formatQuantity(transfer.lines[0]?.available ?? { value: "0", unit: "pc" }, fmt)}
+          </DescRow>
+          <DescRow label={t("inv.unresolvedQuantity")} mono>
+            {formatQuantity(transfer.lines[0]?.unresolved ?? { value: "0", unit: "pc" }, fmt)}
+          </DescRow>
           <DescRow label={t("common.value")} mono>
             {formatMoney(transfer.totalValue, fmt)}
           </DescRow>
         </DescList>
+
+        {(transfer.receipts.length > 0 || transfer.approvalHistory.length > 0) ? (
+          <section className="space-y-3">
+            <h3 className="text-fg text-sm font-semibold">{t("inv.transferHistory")}</h3>
+            {transfer.receipts.map((receipt) => (
+              <div key={receipt.id} className="rounded-lg border border-border p-3 text-sm">
+                <div className="flex flex-wrap justify-between gap-2">
+                  <span>{receipt.isRecount ? `${t("inv.recount")} · ${formatQuantity(receipt.recounted ?? receipt.received, fmt)}` : `${t("inv.received")} · ${formatQuantity(receipt.received, fmt)}${receipt.isFinal ? ` · ${t("inv.finalTransferReceipt")}` : ` · ${t("inv.partialTransferReceipt")}`}`}</span>
+                  <span className="text-fg-subtle">{formatDateTime(receipt.receivedAt, fmt)}</span>
+                </div>
+                {receipt.evidence ? <p className="text-fg-subtle mt-1">{receipt.evidence}</p> : null}
+                {(receipt.lotCounts ?? []).map(count => <p className="text-fg-subtle mt-1" key={count.sourceBatchId}>{transfer.batchProvenance?.find(lot => lot.sourceBatchId === count.sourceBatchId)?.batchNumber ?? count.sourceBatchId}: {count.receivedQuantity}</p>)}
+              </div>
+            ))}
+            {transfer.approvalHistory.map((approval) => {
+              const decision = labelOf(APPROVAL_STATUS, approval.status);
+              return (
+                <div key={approval.approvalRequestId} className="rounded-lg border border-border p-3 text-sm">
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <Badge tone={decision.tone} dot>{tx(decision.label)}</Badge>
+                    <span className="text-fg-subtle">{formatDateTime(approval.requestedAt, fmt)}</span>
+                  </div>
+                  {approval.decidedAt ? <p className="text-fg-subtle mt-1">{t("inv.managerDecision")}: {approval.decidedBy ?? "—"} · {formatDateTime(approval.decidedAt, fmt)}</p> : null}
+                  {approval.decisionComment ? <p className="text-fg-subtle mt-1">{approval.decisionComment}</p> : null}
+                </div>
+              );
+            })}
+          </section>
+        ) : null}
 
         <section>
           <h3 className="text-fg mb-2 text-sm font-semibold">{t("recipes.components")}</h3>
@@ -392,11 +480,70 @@ function TransferDrawer({
           onClose={() => setReceiving(false)}
           onReceived={() => {
             setReceiving(false);
-            onChanged(t("inv.transferReceived"));
+            void refreshTransfer(t("inv.transferReceived"));
           }}
         />
       </div>
     </Drawer>
+  );
+}
+
+function ExcessReturnForm({ transfer, onSubmitted }: { transfer: Transfer; onSubmitted: () => void }) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const reasons = useAsync(() => services.inventory.reasonCodes(), []);
+  const [quantity, setQuantity] = useState(transfer.lines[0]?.physicallyHeld?.value ?? "");
+  const [reason, setReason] = useState("");
+  const [evidence, setEvidence] = useState("");
+  const [returnedAt, setReturnedAt] = useState(() => { const now = new Date(); return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0,23); });
+  const valid = quantityMicros(quantity) > 0n && quantityMicros(quantity) <= quantityMicros(transfer.lines[0]?.physicallyHeld?.value ?? "0") && !!reason && !!evidence.trim() && Number.isFinite(new Date(returnedAt).getTime());
+  return <section className="space-y-3 rounded-lg border border-border p-3">
+    <h3 className="text-sm font-semibold">{t("inv.returnExcess")}</h3>
+    <Callout>{t("inv.excessReturnHint")} · {tx(transfer.fromLocationName)}</Callout>
+    <Field label={t("inv.returnQuantity")} required><Input inputMode="decimal" value={quantity} onChange={e => setQuantity(e.target.value)} /></Field>
+    <Field label={t("inv.returnedAt")} required><Input type="datetime-local" step="0.001" value={returnedAt} onChange={e => setReturnedAt(e.target.value)} /></Field>
+    <AsyncPanel state={reasons} isEmpty={rows => rows.length === 0}>{rows => <Field label={t("inv.reason")} required><Select value={reason} onChange={e => setReason(e.target.value)}><option value="">—</option>{rows.map(row => <option key={row.id} value={row.id}>{tx(row.label)}</option>)}</Select></Field>}</AsyncPanel>
+    <Field label={t("inv.investigationEvidence")} required><Input maxLength={1000} value={evidence} onChange={e => setEvidence(e.target.value)} /></Field>
+    {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+    <Button variant="primary" loading={action.pending} disabled={!valid} onClick={() => action.run(() => services.inventory.returnTransferExcess({ transferId: transfer.id, toLocationId: transfer.toLocationId, returnToLocationId: transfer.fromLocationId, quantity: quantity.trim(), reasonCodeId: reason, evidence: evidence.trim(), returnedAt: new Date(returnedAt).toISOString() }), { onSuccess: onSubmitted })}>{t("inv.recordPhysicalReturn")}</Button>
+  </section>;
+}
+
+function ReinvestigateTransferForm({ transfer, onSubmitted }: { transfer: Transfer; onSubmitted: () => void }) {
+  const { t, tx } = useI18n();
+  const action = useAction();
+  const reasons = useAsync(() => services.inventory.reasonCodes(), []);
+  const [reasonId, setReasonId] = useState(transfer.discrepancyReasonCodeId ?? "");
+  const [evidence, setEvidence] = useState(transfer.discrepancyEvidence ?? "");
+  const [recountedQuantity, setRecountedQuantity] = useState(transfer.lines[0]?.received?.value ?? "");
+  const [lotCounts, setLotCounts] = useState<Record<string, string>>(Object.fromEntries((transfer.lotCounts ?? []).map(c => [c.sourceBatchId, c.receivedQuantity])));
+  const counted = quantityMicros(recountedQuantity || transfer.lines[0]?.received?.value || "0");
+  const batchShortage = counted < quantityMicros(transfer.lines[0]?.dispatched.value ?? "0") && (transfer.batchProvenance?.length ?? 0) > 1;
+  return (
+    <section className="space-y-3 rounded-lg border border-border p-3">
+      <h3 className="text-sm font-semibold">{t("inv.pendingInvestigation")}</h3>
+      <AsyncPanel state={reasons} isEmpty={(rows) => rows.length === 0}>
+        {(rows) => (
+          <Field label={t("inv.reason")} required>
+            <Select value={reasonId} onChange={(event) => setReasonId(event.target.value)}>
+              <option value="">—</option>
+              {rows.map((reason) => <option key={reason.id} value={reason.id}>{tx(reason.label)}</option>)}
+            </Select>
+          </Field>
+        )}
+      </AsyncPanel>
+      <Field label={t("inv.investigationEvidence")} required>
+        <Input value={evidence} onChange={(event) => setEvidence(event.target.value)} maxLength={1000} />
+      </Field>
+      <Field label={t("inv.recountedQuantity")}>
+        <Input inputMode="decimal" dir="ltr" value={recountedQuantity} onChange={(event) => setRecountedQuantity(event.target.value)} />
+      </Field>
+      {batchShortage ? <LotCountFields transfer={transfer} values={lotCounts} onChange={setLotCounts} /> : null}
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      <Button variant="primary" loading={action.pending} disabled={!reasonId || !evidence.trim() || (batchShortage && !validLotCounts(transfer, lotCounts, counted))} onClick={() => action.run(() => services.inventory.investigateTransfer({ transferId: transfer.id, toLocationId: transfer.toLocationId, discrepancyReasonCodeId: reasonId, evidence: evidence.trim(), ...(recountedQuantity.trim() ? { recountedQuantity: recountedQuantity.trim() } : {}), ...(batchShortage ? { lotCounts: physicalLotCounts(transfer, lotCounts) } : {}) }), { onSuccess: onSubmitted })}>
+        {t("inv.transferSubmitInvestigation")}
+      </Button>
+    </section>
   );
 }
 
@@ -405,10 +552,8 @@ function TransferDrawer({
 /**
  * FR-INV-032 — receive a dispatched transfer.
  *
- * The received quantity is entered rather than assumed. When it differs from
- * what was dispatched the server writes a discrepancy adjustment alongside
- * the `transfer_in` leg, and that adjustment needs a reason code — so the
- * field appears exactly when the numbers disagree.
+ * The received quantity is entered rather than assumed. A final mismatch
+ * requires reason/evidence and remains held pending Governance approval.
  */
 function ReceiveTransferDrawer({
   transfer,
@@ -427,17 +572,32 @@ function ReceiveTransferDrawer({
   const line = transfer.lines[0];
   const [received, setReceived] = useState(line?.dispatched.value ?? "");
   const [reasonCodeId, setReasonCodeId] = useState("");
+  const [evidence, setEvidence] = useState("");
+  const [isFinal, setIsFinal] = useState(true);
+  const [lotCounts, setLotCounts] = useState<Record<string, string>>({});
 
   const reasons = useAsync(() => services.inventory.reasonCodes(), []);
 
   useEffect(() => {
-    if (open && line) setReceived(line.dispatched.value);
+    if (open && line) {
+      const outstanding = quantityMicros(line.dispatched.value) - quantityMicros(line.received?.value ?? "0");
+      setReceived(quantityFromMicros(outstanding > 0n ? outstanding : 0n));
+      setIsFinal(true);
+      setLotCounts({});
+      setEvidence("");
+      setReasonCodeId("");
+    }
   }, [open, line]);
 
   if (!open || !line) return null;
 
-  const short = Number(received) !== Number(line.dispatched.value);
-  const valid = received.trim() !== "" && Number.isFinite(Number(received));
+  const prior = quantityMicros(line.received?.value ?? "0");
+  const entered = quantityMicros(received);
+  const dispatched = quantityMicros(line.dispatched.value);
+  const total = prior + entered;
+  const discrepancy = isFinal && (entered < 0n || total !== dispatched);
+  const batchShortage = isFinal && total < dispatched && (transfer.batchProvenance?.length ?? 0) > 1;
+  const valid = received.trim() !== "" && (isFinal ? entered >= 0n : entered > 0n) && (!batchShortage || validLotCounts(transfer, lotCounts, total));
 
   async function receive() {
     if (!valid) return;
@@ -447,7 +607,10 @@ function ReceiveTransferDrawer({
           transferReferenceId: transfer.id,
           toLocationId: transfer.toLocationId,
           receivedQuantity: received.trim(),
-          discrepancyReasonCodeId: short ? reasonCodeId || undefined : undefined,
+          isFinal,
+          lotCounts: batchShortage ? physicalLotCounts(transfer, lotCounts) : undefined,
+          evidence: discrepancy ? evidence.trim() : undefined,
+          discrepancyReasonCodeId: discrepancy ? reasonCodeId || undefined : undefined,
         }),
       { onSuccess: onReceived },
     );
@@ -468,7 +631,7 @@ function ReceiveTransferDrawer({
           <Button
             variant="primary"
             loading={action.pending}
-            disabled={!valid || (short && !reasonCodeId)}
+            disabled={!valid || (discrepancy && (!reasonCodeId || evidence.trim().length === 0))}
             onClick={receive}
           >
             {t("inv.receiveTransfer")}
@@ -500,7 +663,13 @@ function ReceiveTransferDrawer({
           />
         </Field>
 
-        {short ? (
+        <label className="flex items-center gap-2 text-sm text-fg">
+          <input type="checkbox" checked={isFinal} onChange={(event) => setIsFinal(event.target.checked)} />
+          {t("inv.finalTransferReceipt")}
+        </label>
+
+        {batchShortage ? <LotCountFields transfer={transfer} values={lotCounts} onChange={setLotCounts} /> : null}
+        {discrepancy ? (
           <>
             <Callout tone="warn">{t("inv.discrepancyNote")}</Callout>
 
@@ -521,6 +690,9 @@ function ReceiveTransferDrawer({
                 </Field>
               )}
             </AsyncPanel>
+            <Field label={t("inv.investigationEvidence")} required>
+              <Input value={evidence} onChange={(event) => setEvidence(event.target.value)} maxLength={1000} />
+            </Field>
           </>
         ) : null}
       </div>
@@ -552,6 +724,7 @@ function DispatchTransferDrawer({
   const [toLocationId, setTo] = useState("");
   const [itemId, setItemId] = useState("");
   const [quantity, setQuantity] = useState("");
+  const [additionalLines, setAdditionalLines] = useState<{ itemId: string; quantity: string }[]>([]);
 
   const locations = useAsync(() => services.organisation.locations(), []);
   const items = useAsync(() => services.inventory.items.list({ limit: 500 }), []);
@@ -571,13 +744,19 @@ function DispatchTransferDrawer({
     fromLocationId !== toLocationId &&
     itemId !== "" &&
     quantity.trim() !== "" &&
-    Number.isFinite(Number(quantity));
+    quantityMicros(quantity) > 0n &&
+    additionalLines.every(line => line.itemId && quantityMicros(line.quantity) > 0n) &&
+    new Set([itemId, ...additionalLines.map(line => line.itemId)]).size === additionalLines.length + 1;
 
   async function dispatch() {
     if (!valid) return;
     await action.run(
       () =>
-        services.inventory.transfers.create({
+        (additionalLines.length ? services.inventory.dispatchTransferLines({
+          fromLocationId,
+          toLocationId,
+          lines: [{ stockItemId: itemId, quantity: quantity.trim() }, ...additionalLines.map(line => ({ stockItemId: line.itemId, quantity: line.quantity.trim() }))],
+        }).then(rows => rows[0]!) : services.inventory.transfers.create({
           fromLocationId,
           toLocationId,
           lines: [
@@ -591,7 +770,7 @@ function DispatchTransferDrawer({
               unitCost: { amount: 0, currency: "EGP" },
             },
           ],
-        }),
+        })),
       { onSuccess: onDispatched },
     );
   }
@@ -664,7 +843,7 @@ function DispatchTransferDrawer({
           )}
         </AsyncPanel>
 
-        <Field label={t("inv.quantity")} required>
+        <Field label={t("inv.quantity")} hint={`${t("inv.baseUnit")}: ${items.data?.rows.find(item => item.id === itemId)?.baseUnit ?? "—"}`} required>
           <Input
             inputMode="decimal"
             dir="ltr"
@@ -672,6 +851,12 @@ function DispatchTransferDrawer({
             onChange={(event) => setQuantity(event.target.value)}
           />
         </Field>
+        {additionalLines.map((line, index) => <section key={index} className="space-y-3 rounded-lg border border-border p-3">
+          <Field label={`${t("inv.item")} ${index + 2}`} required><Select value={line.itemId} onChange={event => setAdditionalLines(rows => rows.map((row, i) => i === index ? { ...row, itemId: event.target.value } : row))}><option value="">—</option>{(items.data?.rows ?? []).map(item => <option key={item.id} value={item.id}>{tx(item.name)}</option>)}</Select></Field>
+          <Field label={`${t("inv.quantity")} ${index + 2}`} hint={`${t("inv.baseUnit")}: ${items.data?.rows.find(item => item.id === line.itemId)?.baseUnit ?? "—"}`} required><Input inputMode="decimal" dir="ltr" value={line.quantity} onChange={event => setAdditionalLines(rows => rows.map((row, i) => i === index ? { ...row, quantity: event.target.value } : row))} /></Field>
+          <Button variant="ghost" onClick={() => setAdditionalLines(rows => rows.filter((_, i) => i !== index))}>{t("common.remove")}</Button>
+        </section>)}
+        <Button variant="ghost" disabled={additionalLines.length >= 49} onClick={() => setAdditionalLines(rows => [...rows, { itemId: "", quantity: "" }])}>{t("inv.addTransferLine")}</Button>
       </div>
     </Drawer>
   );

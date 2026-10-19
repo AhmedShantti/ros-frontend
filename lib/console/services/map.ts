@@ -1214,6 +1214,7 @@ const INVENTORY_APPROVAL_KIND_LABEL: Record<WireInventoryApproval["kind"], Local
   stock_adjustment: { en: "Stock adjustment", ar: "تسوية مخزون" },
   count_adjustment: { en: "Count adjustment", ar: "تسوية جرد" },
   waste: { en: "Waste", ar: "هدر" },
+  transfer_discrepancy: { en: "Transfer discrepancy", ar: "فارق تحويل" },
 };
 
 const INVENTORY_APPROVAL_REASON: Record<WireInventoryApproval["kind"], Localised> = {
@@ -1228,6 +1229,10 @@ const INVENTORY_APPROVAL_REASON: Record<WireInventoryApproval["kind"], Localised
   waste: {
     en: "Above the branch's waste approval threshold.",
     ar: "أعلى من حد اعتماد الهدر للفرع.",
+  },
+  transfer_discrepancy: {
+    en: "Physical transfer quantity differs from the dispatched quantity; resolution requires an independent manager decision.",
+    ar: "تختلف الكمية الفعلية للتحويل عن الكمية المرسلة؛ ويتطلب الحل قرارًا مستقلًا من المدير.",
   },
 };
 

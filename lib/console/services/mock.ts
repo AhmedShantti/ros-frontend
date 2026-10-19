@@ -1644,6 +1644,8 @@ const inventory: InventoryService = {
         receivedAt: null,
         requestedBy: employees[0]!.name,
         lines,
+        receipts: [],
+        approvalHistory: [],
         totalValue: { amount: totalValue, currency: "EGP" },
       };
     },
@@ -1824,6 +1826,22 @@ const inventory: InventoryService = {
       }
       transfer.status = "received";
       transfer.receivedAt = new Date().toISOString();
+    });
+  },
+
+  async returnTransferExcess() {
+    throw new ServiceError("NOT_IMPLEMENTED", "Physical excess returns require the live Inventory backend.", 501);
+  },
+  async dispatchTransferLines() {
+    throw new ServiceError("NOT_IMPLEMENTED", "Grouped dispatch requires the live Inventory backend.", 501);
+  },
+  async investigateTransfer(input) {
+    return transport(() => {
+      const transfer = transfers.find((row) => row.id === input.transferId);
+      if (!transfer || transfer.status !== "pending_investigation") throw new ServiceError("NOT_FOUND", "That transfer is not open for investigation.", 404);
+      transfer.discrepancyEvidence = input.evidence;
+      transfer.discrepancyReasonCodeId = input.discrepancyReasonCodeId;
+      transfer.approvalRequestId = `mock-approval-${Date.now()}`;
     });
   },
 

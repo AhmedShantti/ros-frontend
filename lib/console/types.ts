@@ -817,6 +817,8 @@ export type TransferStatus =
   | "in_transit"
   | "received"
   | "discrepancy"
+  | "pending_investigation"
+  | "excess_held"
   | "cancelled";
 
 export interface TransferLine {
@@ -827,8 +829,52 @@ export interface TransferLine {
   received: Quantity | null;
   discrepancy: number;
   unitCost: Money;
+  physicallyHeld?: Quantity;
+  inTransit?: Quantity;
+  available?: Quantity;
+  unresolved?: Quantity;
 }
 
+export interface TransferReceiptHistory {
+  lotCounts?: { sourceBatchId: Id; receivedQuantity: string }[];
+  id: Id;
+  received: Quantity;
+  isFinal: boolean;
+  isRecount: boolean;
+  recounted: Quantity | null;
+  evidence: string | null;
+  receivedBy: Id;
+  receivedAt: IsoDateTime;
+}
+
+export interface TransferApprovalHistory {
+  approvalRequestId: Id;
+  status: ApprovalStatus;
+  requestedBy: Id;
+  requestedAt: IsoDateTime;
+  expiresAt: IsoDateTime;
+  decidedBy: Id | null;
+  decidedAt: IsoDateTime | null;
+  decision: "approved" | "rejected" | null;
+  decisionComment: string | null;
+}
+
+export interface TransferLot {
+  sourceBatchId: Id;
+  destinationBatchId?: Id | null;
+  quantity: string;
+  batchNumber: string | null;
+}
+export interface TransferExcessReturn {
+  id: Id;
+  quantity: string;
+  returnToLocationId: Id;
+  reasonCodeId: Id;
+  evidence: string;
+  returnedBy: Id;
+  returnedAt: IsoDateTime;
+  createdAt: IsoDateTime;
+}
 export interface Transfer {
   id: Id;
   tenantId: Id;
@@ -840,8 +886,18 @@ export interface Transfer {
   status: TransferStatus;
   dispatchedAt: IsoDateTime | null;
   receivedAt: IsoDateTime | null;
+  approvalRequestId?: Id | null;
+  discrepancyReasonCodeId?: Id | null;
+  discrepancyEvidence?: string | null;
   requestedBy: Localised;
   lines: TransferLine[];
+  dispatchGroupId?: Id | null;
+  batchProvenance?: TransferLot[];
+  lotCounts?: { sourceBatchId: Id; receivedQuantity: string }[];
+  excessReturnedQuantity?: string;
+  excessReturns?: TransferExcessReturn[];
+  receipts: TransferReceiptHistory[];
+  approvalHistory: TransferApprovalHistory[];
   totalValue: Money;
 }
 
@@ -1940,7 +1996,8 @@ export type ApprovalKind =
   | "expense"
   | "price_change"
   | "overtime"
-  | "stock_adjustment";
+  | "stock_adjustment"
+  | "transfer_discrepancy";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired" | "escalated";
 

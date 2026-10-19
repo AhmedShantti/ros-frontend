@@ -399,13 +399,33 @@ export const inventory = {
   createStorageArea: (body: S.CreateStorageAreaDto) =>
     http.post<S.InventoryController_createStorageAreaResponse>("/inventory/storage-areas", { body }),
 
-  /** `POST /inventory/transfers` — Dispatch a transfer (writes the transfer_out leg). — The dispatched transfer. */
-  dispatch: (body: S.DispatchTransferDto) =>
-    http.post<S.InventoryController_dispatchResponse>("/inventory/transfers", { body }),
+  /** `GET /inventory/transfers` — Tenant-scoped transfer lifecycle, custody and approval history. */
+  listTransfers: (options: { locationId?: string } = {}) =>
+    http.get<S.InventoryController_listTransfersResponse>("/inventory/transfers", { query: { locationId: options.locationId } }),
 
-  /** `POST /inventory/transfers/receive` — Receive a dispatched transfer (writes the transfer_in leg, plus a discrepancy adjustment if the received quantity differs). — The received transfer. */
+  /** `POST /inventory/transfers` — Dispatch a transfer and create durable transfer history. — The dispatched transfer. */
+  dispatch: (body: S.DispatchTransferDto) =>
+    http.post<S.InventoryController_dispatchResponse>("/inventory/transfers", { body, idempotent: true }),
+
+  /** `POST /inventory/transfers/dispatch-lines` — Atomic dispatch of distinct item lines. Each line keeps its existing independent receipt/approval lifecycle; dispatchGroupId links the document. */
+  dispatchTransferLines: (body: S.DispatchTransferLinesDto) =>
+    http.post<S.InventoryController_dispatchTransferLinesResponse>("/inventory/transfers/dispatch-lines", { body, idempotent: true }),
+
+  /** `POST /inventory/transfers/receive` — Record physical receipt; discrepancies remain unavailable pending investigation and approval. — The received transfer. */
   receive: (body: S.ReceiveTransferDto) =>
-    http.post<S.InventoryController_receiveResponse>("/inventory/transfers/receive", { body }),
+    http.post<S.InventoryController_receiveResponse>("/inventory/transfers/receive", { body, idempotent: true }),
+
+  /** `GET /inventory/transfers/{transferId}` — Tenant-scoped transfer detail, custody and approval history. */
+  readTransfer: (transferId: string) =>
+    http.get<S.InventoryController_readTransferResponse>("/inventory/transfers/{transferId}", { params: { transferId } }),
+
+  /** `POST /inventory/transfers/{transferId}/excess-returns` — Append-only physical excess return. No inventory movement or automatic source credit is posted. */
+  returnTransferExcess: (transferId: string, body: S.ReturnTransferExcessDto) =>
+    http.post<S.InventoryController_returnTransferExcessResponse>("/inventory/transfers/{transferId}/excess-returns", { params: { transferId }, body, idempotent: true }),
+
+  /** `POST /inventory/transfers/{transferId}/investigate` — A rejected discrepancy is resubmitted with new evidence for manager approval. */
+  investigateTransfer: (transferId: string, body: S.InvestigateTransferDto) =>
+    http.post<S.InventoryController_investigateTransferResponse>("/inventory/transfers/{transferId}/investigate", { params: { transferId }, body }),
 
   /** `GET /inventory/uoms` — List the unit-of-measure catalogue (FR-INV-001). — Every unit of measure known to the platform. */
   listUoms: () =>
