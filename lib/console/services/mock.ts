@@ -8,6 +8,7 @@
  */
 
 import type {
+  GoodsReceipt,
   Branch,
   Brand,
   CentralKitchen,
@@ -65,6 +66,7 @@ import type {
   ServiceRegistry,
   UnitOfMeasure,
   WorkforceService,
+  NewGoodsReceiptInput,
 } from "./types";
 import { ServiceError } from "./types";
 import { crmService } from "./crm";
@@ -1460,7 +1462,12 @@ function locationNameOf(id: Id | undefined): Localised | undefined {
 }
 
 /** Per-item, per-location reorder configuration — FR-INV-065. */
-const demoReorderConfig = new Map<string, { reorderPoint: string; reorderQuantity: string }>();
+const demoReorderConfig = new Map<string, {
+  reorderPoint: string;
+  reorderQuantity: string;
+  minStock: string | null;
+  maxStock: string | null;
+}>();
 
 const nameOfLocation = (locationId: Id): Localised =>
   stockLocations.find((row) => row.id === locationId)?.name ?? { en: locationId, ar: locationId };
@@ -1475,6 +1482,9 @@ const COUNT_SCOPE_TYPE_LABEL: Record<CountScopeType, Localised> = {
 };
 
 const inventory: InventoryService = {
+  async monitoring() { throw new ServiceError("NOT_IMPLEMENTED", "Operational job verification requires the live backend.", 501); },
+  async expiryCategories() { throw new ServiceError("NOT_IMPLEMENTED", "Expiry configuration requires the live backend.", 501); },
+  async setCategoryExpiryHorizons() { throw new ServiceError("NOT_IMPLEMENTED", "Expiry configuration requires the live backend.", 501); },
   items: makeCollection({
     rows: stockItems,
     idOf: (s) => s.id,
@@ -1501,10 +1511,17 @@ const inventory: InventoryService = {
       costingMethod: input.costingMethod ?? "weighted_average",
       batchTracked: input.batchTracked ?? false,
       expiryTracked: input.expiryTracked ?? false,
+      isDirectlySellable: input.isDirectlySellable ?? false,
+      isProducedItem: input.isProducedItem ?? false,
+      accountingExportAccountCode: input.accountingExportAccountCode?.trim() || null,
       storage: input.storage ?? "ambient",
       shelfLifeDays: input.shelfLifeDays ?? null,
+      densityGramsPerMillilitre: input.densityGramsPerMillilitre ?? null,
       defaultSupplierId: input.defaultSupplierId ?? null,
-      allergens: input.allergens ?? [],
+      allergens: [...new Map((input.allergens ?? []).map((value) => {
+        const label = value.trim();
+        return [label.toLocaleLowerCase("en"), label] as const;
+      }).filter(([key, label]) => Boolean(key && label))).values()],
       unitCost: input.unitCost ?? { amount: 0, currency: "EGP" },
       active: true,
     }),
@@ -1630,6 +1647,8 @@ const inventory: InventoryService = {
         receivedAt: null,
         requestedBy: employees[0]!.name,
         lines,
+        receipts: [],
+        approvalHistory: [],
         totalValue: { amount: totalValue, currency: "EGP" },
       };
     },
@@ -1775,6 +1794,31 @@ const inventory: InventoryService = {
     });
   },
 
+  async setItemDensity(itemId, densityGramsPerMillilitre) {
+    return transport(() => {
+      const row = stockItems.find((candidate) => candidate.id === itemId);
+      if (!row) throw new ServiceError("NOT_FOUND", "Stock item not found.", 404);
+      row.densityGramsPerMillilitre = densityGramsPerMillilitre;
+      return row;
+    });
+  },
+
+  async setItemAllergens(itemId, allergens) {
+    return transport(() => {
+      const row = stockItems.find((candidate) => candidate.id === itemId);
+      if (!row) throw new ServiceError("NOT_FOUND", "Stock item not found.", 404);
+      const seen = new Set<string>();
+      row.allergens = allergens.flatMap((value) => {
+        const label = value.trim();
+        const key = label.toLocaleLowerCase("en");
+        if (!label || seen.has(key)) return [];
+        seen.add(key);
+        return [label];
+      });
+      return row;
+    });
+  },
+
   // -- Transfers -------------------------------------------------------------
 
   async receiveTransfer(input) {
@@ -1788,14 +1832,42 @@ const inventory: InventoryService = {
     });
   },
 
+  async returnTransferExcess() {
+    throw new ServiceError("NOT_IMPLEMENTED", "Physical excess returns require the live Inventory backend.", 501);
+  },
+  async dispatchTransferLines() {
+    throw new ServiceError("NOT_IMPLEMENTED", "Grouped dispatch requires the live Inventory backend.", 501);
+  },
+  async investigateTransfer(input) {
+    return transport(() => {
+      const transfer = transfers.find((row) => row.id === input.transferId);
+      if (!transfer || transfer.status !== "pending_investigation") throw new ServiceError("NOT_FOUND", "That transfer is not open for investigation.", 404);
+      transfer.discrepancyEvidence = input.evidence;
+      transfer.discrepancyReasonCodeId = input.discrepancyReasonCodeId;
+      transfer.approvalRequestId = `mock-approval-${Date.now()}`;
+    });
+  },
+
   // -- Reorder configuration -------------------------------------------------
 
   async setReorderConfig(itemId, input) {
     return transport(() => {
-      demoReorderConfig.set(`${itemId}:${input.locationId}`, {
+      const key = `${itemId}:${input.locationId}`;
+      const existing = demoReorderConfig.get(key);
+      const config = {
         reorderPoint: input.reorderPoint,
         reorderQuantity: input.reorderQuantity,
-      });
+        minStock: input.minStock !== undefined ? input.minStock : existing?.minStock ?? null,
+        maxStock: input.maxStock !== undefined ? input.maxStock : existing?.maxStock ?? null,
+      };
+      demoReorderConfig.set(key, config);
+      const level = stockLevels.find(
+        (row) => row.itemId === itemId && row.locationId === input.locationId,
+      );
+      if (level) {
+        level.minStock = config.minStock;
+        level.maxStock = config.maxStock;
+      }
     });
   },
 
@@ -2171,6 +2243,27 @@ const purchaseOrdersCollection: CollectionService<PurchaseOrder> = makeCollectio
   }),
 });
 
+const mockGoodsReceiptCollection = makeCollection({
+  rows: goodsReceipts,
+  idOf: (g) => g.id,
+  search: (g) => [g.reference, g.supplierName, g.locationName, g.purchaseOrderRef],
+  branchOf: (g) => locationBranch(g.locationId),
+  filters: { status: (g) => g.status, supplierId: (g) => g.supplierId, temperatureOk: (g) => g.temperatureOk },
+  sorters: { receivedAt: (g) => g.receivedAt, total: (g) => g.total.amount },
+  factory: (input, id) => ({
+    id, tenantId: tenants[0]!.id, reference: `GRN-${Math.floor(Math.random() * 9000) + 1000}`,
+    purchaseOrderId: input.purchaseOrderId ?? null, purchaseOrderRef: input.purchaseOrderRef ?? null,
+    supplierId: input.supplierId ?? suppliers[0]!.id,
+    supplierName: (input.supplierName as Localised) ?? suppliers[0]!.tradingName,
+    locationId: input.locationId ?? branches[0]!.id,
+    locationName: (input.locationName as Localised) ?? branches[0]!.name,
+    status: input.status ?? "posted", receivedAt: input.receivedAt ?? new Date().toISOString(),
+    receivedBy: employees[0]!.name, temperatureC: input.temperatureC ?? null, temperatureOk: input.temperatureOk ?? true,
+    lines: input.lines ?? [],
+    total: input.total ?? { amount: 0, currency: "EGP" },
+  }),
+});
+
 const purchasing: PurchasingService = {
   suppliers: makeCollection({
     rows: suppliers,
@@ -2245,41 +2338,42 @@ const purchasing: PurchasingService = {
     }),
   }),
   orders: purchaseOrdersCollection,
-  receipts: makeCollection({
-    rows: goodsReceipts,
-    idOf: (g) => g.id,
-    search: (g) => [g.reference, g.supplierName, g.locationName, g.purchaseOrderRef],
-    branchOf: (g) => locationBranch(g.locationId),
-    filters: { status: (g) => g.status, supplierId: (g) => g.supplierId, temperatureOk: (g) => g.temperatureOk },
-    sorters: { receivedAt: (g) => g.receivedAt, total: (g) => g.total.amount },
-    factory: (input, id) => ({
-      id,
-      tenantId: tenants[0]!.id,
-      reference: `GRN-${Math.floor(Math.random() * 9000) + 1000}`,
-      purchaseOrderId: input.purchaseOrderId ?? null,
-      purchaseOrderRef: input.purchaseOrderRef ?? null,
-      supplierId: input.supplierId ?? suppliers[0]!.id,
-      supplierName: (input.supplierName as Localised) ?? suppliers[0]!.tradingName,
-      locationId: input.locationId ?? branches[0]!.id,
-      locationName: (input.locationName as Localised) ?? branches[0]!.name,
-      status: input.status ?? "posted",
-      receivedAt: input.receivedAt ?? new Date().toISOString(),
-      receivedBy: employees[0]!.name,
-      temperatureC: input.temperatureC ?? null,
-      temperatureOk: input.temperatureOk ?? true,
-      lines: input.lines ?? [],
-      total:
-        input.total ??
-        {
-          amount: (input.lines ?? []).reduce(
-            (sum, line) =>
-              sum + Math.round(Number(line.received.value || 0) * line.unitPrice.amount),
-            0,
-          ),
-          currency: "EGP",
-        },
-    }),
-  }),
+  receipts: {
+    list: (query) => mockGoodsReceiptCollection.list(query),
+    get: (id) => mockGoodsReceiptCollection.get(id),
+    async create(input: NewGoodsReceiptInput) {
+      const po = input.purchaseOrderId ? purchaseOrders.find((entry) => entry.id === input.purchaseOrderId) : undefined;
+      const supplier = suppliers.find((entry) => entry.id === input.supplierId) ?? suppliers[0]!;
+      const location = stockLocations.find((entry) => entry.id === input.locationId) ?? branches[0]!;
+      const lines = input.lines.map((line, index) => {
+        const item = stockItems.find((entry) => entry.id === line.stockItemId);
+        const poLine = po?.lines.find((entry) => entry.id === line.purchaseOrderLineId);
+        const unit = item?.baseUnit ?? "pc";
+        return {
+          id: `mock-grl-${Date.now()}-${index}`, itemId: line.stockItemId,
+          itemName: item?.name ?? { en: line.stockItemId, ar: line.stockItemId },
+          purchaseOrderLineId: line.purchaseOrderLineId ?? null, purchaseUnitId: line.purchaseUnitId,
+          purchaseUnitLabel: poLine?.quantity.unit ?? unit,
+          ordered: poLine?.quantity ?? { value: "0", unit },
+          received: { value: line.receivedQuantity, unit },
+          rejected: { value: line.rejectedQuantity, unit },
+          rejectionReason: line.rejectionReason ?? null, batchNumber: line.batchNumber ?? null,
+          productionDate: line.productionDate ?? null, expiryDate: line.expiryDate ?? null,
+          unitPrice: { amount: Number(line.unitPrice ?? 0), currency: supplier.currency },
+          priceVariancePercent: 0,
+        };
+      });
+      return mockGoodsReceiptCollection.create({
+        purchaseOrderId: input.purchaseOrderId ?? null, purchaseOrderRef: po?.reference ?? null,
+        supplierId: input.supplierId, supplierName: supplier.tradingName, locationId: input.locationId,
+        locationName: location.name, status: "posted", temperatureC: input.temperatureC ? Number(input.temperatureC) : null,
+        temperatureOk: input.temperatureOk ?? true, lines,
+        total: { amount: lines.reduce((sum, line) => sum + Number(line.received.value) * line.unitPrice.amount, 0), currency: supplier.currency },
+      });
+    },
+    update: (id, patch) => mockGoodsReceiptCollection.update(id, patch),
+    remove: (id) => mockGoodsReceiptCollection.remove(id),
+  },
   invoices: makeCollection({
     rows: supplierInvoices,
     idOf: (i) => i.id,

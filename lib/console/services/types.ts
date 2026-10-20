@@ -616,6 +616,7 @@ export interface CatalogueService {
 
 /** FR-INV-066 — an item at or under its reorder point, per location. */
 export interface LowStockRow {
+  available?: Quantity;
   stockItemId: Id;
   itemName: Localised;
   locationId: Id;
@@ -696,6 +697,9 @@ export interface StorageArea {
 }
 
 export interface InventoryService {
+  monitoring(): Promise<import("@/lib/api/schema").InventoryController_monitoringStatusResponse>;
+  expiryCategories(): Promise<import("@/lib/api/schema").InventoryController_listCategoriesResponse>;
+  setCategoryExpiryHorizons(categoryId: Id, horizons: number[]): Promise<void>;
   items: CollectionService<StockItem>;
   levels: ReadonlyCollectionService<StockLevel>;
   batches: ReadonlyCollectionService<Batch>;
@@ -721,13 +725,25 @@ export interface InventoryService {
     toLocationId: Id;
     receivedQuantity: string;
     discrepancyReasonCodeId?: Id;
+    evidence?: string;
+    isFinal?: boolean;
+    lotCounts?: { sourceBatchId: Id; receivedQuantity: string }[];
   }): Promise<void>;
+  investigateTransfer(input: { transferId: Id; toLocationId: Id; discrepancyReasonCodeId: Id; evidence: string; recountedQuantity?: string; lotCounts?: { sourceBatchId: Id; receivedQuantity: string }[] }): Promise<void>;
+  returnTransferExcess(input: { transferId: Id; toLocationId: Id; returnToLocationId: Id; quantity: string; reasonCodeId: Id; evidence: string; returnedAt: string }): Promise<void>;
+  dispatchTransferLines(input: { fromLocationId: Id; toLocationId: Id; lines: { stockItemId: Id; quantity: string }[] }): Promise<Transfer[]>;
 
   // -- Reorder configuration -------------------------------------------------
   /** FR-INV-065 — per-location reorder point and quantity for one item. */
   setReorderConfig(
     itemId: Id,
-    input: { locationId: Id; reorderPoint: string; reorderQuantity: string },
+    input: {
+      locationId: Id;
+      reorderPoint: string;
+      reorderQuantity: string;
+      minStock?: string | null;
+      maxStock?: string | null;
+    },
   ): Promise<void>;
 
   // -- Reason codes ----------------------------------------------------------
@@ -741,6 +757,10 @@ export interface InventoryService {
   // -- Units of measure --------------------------------------------------------
   /** FR-INV-001 — the catalogue `baseUnitId` (and `recipeUnitId`) are chosen from. */
   unitsOfMeasure(): Promise<UnitOfMeasure[]>;
+  /** FR-INV-004 — set or clear exact item density in grams per millilitre. */
+  setItemDensity(itemId: Id, densityGramsPerMillilitre: string | null): Promise<StockItem>;
+  /** FR-INV-001 — set/replace declared stock-item allergens; [] clears the list. */
+  setItemAllergens(itemId: Id, allergens: string[]): Promise<StockItem>;
 
   // -- Categories --------------------------------------------------------------
   /** FR-INV-001 — the catalogue a stock item's `categoryId` is chosen from. */
@@ -848,10 +868,32 @@ export interface PurchasingService {
   suppliers: CollectionService<Supplier>;
   requisitions: CollectionService<Requisition>;
   orders: CollectionService<PurchaseOrder>;
-  receipts: CollectionService<GoodsReceipt>;
+  receipts: Omit<CollectionService<GoodsReceipt>, "create"> & {
+    create(input: NewGoodsReceiptInput): Promise<GoodsReceipt>;
+  };
   invoices: CollectionService<SupplierInvoice>;
   /** Mock action — POST /v1/purchase-orders/{id}/approve. */
   approveOrder(id: Id): Promise<PurchaseOrder>;
+}
+
+export interface NewGoodsReceiptInput {
+  purchaseOrderId?: Id;
+  supplierId: Id;
+  locationId: Id;
+  temperatureC?: string;
+  temperatureOk?: boolean;
+  lines: Array<{
+    purchaseOrderLineId?: Id;
+    stockItemId: Id;
+    purchaseUnitId: Id;
+    receivedQuantity: string;
+    rejectedQuantity: string;
+    unitPrice?: string;
+    batchNumber?: string;
+    productionDate?: string;
+    expiryDate?: string;
+    rejectionReason?: string;
+  }>;
 }
 
 export interface WorkforceService {

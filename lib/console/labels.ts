@@ -287,6 +287,8 @@ export const TRANSFER_STATUS: Record<TransferStatus, Entry> = {
   in_transit: e("In transit", "في الطريق", "accent"),
   received: e("Received", "مستلم", "good"),
   discrepancy: e("Discrepancy", "فارق", "bad"),
+  pending_investigation: e("Pending investigation", "بانتظار التحقيق", "warn"),
+  excess_held: e("Excess held", "كمية زائدة محجوزة", "warn"),
   cancelled: e("Cancelled", "ملغى", "muted"),
 };
 
@@ -426,6 +428,7 @@ export const APPROVAL_KIND: Record<ApprovalKind, Entry> = {
   price_change: e("Price change", "تغيير سعر"),
   overtime: e("Overtime", "عمل إضافي"),
   stock_adjustment: e("Stock adjustment", "تسوية مخزون"),
+  transfer_discrepancy: e("Transfer discrepancy", "فارق تحويل"),
 };
 
 export const APPROVAL_STATUS: Record<ApprovalStatus, Entry> = {

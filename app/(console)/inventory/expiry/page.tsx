@@ -20,6 +20,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import type { Batch } from "@/lib/console/types";
+import { CategoryExpiryHorizons, InventoryMonitoringPanel } from "@/components/console/inventory-monitoring";
 import { services } from "@/lib/console/services";
 import { useAction } from "@/lib/console/actions";
 import { useAsync, useCollection, useTransientMessage } from "@/lib/console/hooks";
@@ -81,9 +82,9 @@ export default function ExpiryPage() {
 function ExpiryScreen() {
   const { t, tx, fmt } = useI18n();
   const { scope } = useSession();
-  const canRecordWaste = usePermission("inventory.waste.record");
-  const canTransfer = usePermission("inventory.transfer.create");
-  const canMarkdown = usePermission("menu.price.change");
+  const canRecordWaste = false;
+  const canTransfer = false;
+  const canMarkdown = false;
   const [message, setMessage] = useTransientMessage();
   const [writingOff, setWritingOff] = useState<Batch | null>(null);
   const [transferring, setTransferring] = useState<Batch | null>(null);
@@ -96,7 +97,11 @@ function ExpiryScreen() {
   // Nearest expiry first — the list is a queue, so the order is the whole
   // point and is not offered as a sortable preference.
   const collection = useCollection<Batch>(
-    (query) => services.inventory.batches.list(query),
+    // Worklist mode belongs to this screen, not to user-clearable filters.
+    (query) => services.inventory.batches.list({
+      ...query,
+      filters: { ...query.filters, expiryWorklist: "true" },
+    }),
     { scope, initialSort: "daysToExpiry", pageSize: 50 },
   );
 
@@ -258,6 +263,9 @@ function ExpiryScreen() {
       />
 
       <PageBody>
+        <InventoryMonitoringPanel />
+        <CategoryExpiryHorizons onSaved={() => collection.reload()} />
+        <Callout tone="warn">{t("inv.expiryActionsUnavailable")}</Callout>
         {urgent > 0 ? (
           <Callout tone="bad" icon={<AlertTriangle size={14} />} title={t("inv.expiryUrgent")}>
             {t("inv.expiryUrgentBody")}
@@ -267,37 +275,37 @@ function ExpiryScreen() {
         <TileGrid columns={4}>
           <MetricTile
             label={tx(BATCH_STATUS.expired.label)}
-            value={money(buckets.value.expired)}
+            value={collection.loading || collection.error ? "—" : money(buckets.value.expired)}
             footer={
               <span>
-                {formatNumber(buckets.count.expired, fmt)} {t("inv.batchesLower")}
+                {collection.loading || collection.error ? "—" : formatNumber(buckets.count.expired, fmt)} {t("inv.batchesLower")}
               </span>
             }
           />
           <MetricTile
             label={t("inv.expiringToday")}
-            value={money(buckets.value.today)}
+            value={collection.loading || collection.error ? "—" : money(buckets.value.today)}
             footer={
               <span>
-                {formatNumber(buckets.count.today, fmt)} {t("inv.batchesLower")}
+                {collection.loading || collection.error ? "—" : formatNumber(buckets.count.today, fmt)} {t("inv.batchesLower")}
               </span>
             }
           />
           <MetricTile
             label={t("inv.expiringSoon")}
-            value={money(buckets.value.soon)}
+            value={collection.loading || collection.error ? "—" : money(buckets.value.soon)}
             footer={
               <span>
-                {formatNumber(buckets.count.soon, fmt)} {t("inv.batchesLower")}
+                {collection.loading || collection.error ? "—" : formatNumber(buckets.count.soon, fmt)} {t("inv.batchesLower")}
               </span>
             }
           />
           <MetricTile
             label={t("inv.expiringLater")}
-            value={money(buckets.value.later)}
+            value={collection.loading || collection.error ? "—" : money(buckets.value.later)}
             footer={
               <span>
-                {formatNumber(buckets.count.later, fmt)} {t("inv.batchesLower")}
+                {collection.loading || collection.error ? "—" : formatNumber(buckets.count.later, fmt)} {t("inv.batchesLower")}
               </span>
             }
           />

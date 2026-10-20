@@ -46,6 +46,7 @@ import type {
   CentralKitchen,
   CountSession,
   DayClose,
+  GoodsReceipt,
   HourlySalesPoint,
   Id,
   IsoDate,
@@ -57,6 +58,7 @@ import type {
   ModifierGroup,
   OperationalAlert,
   Order,
+  PurchaseOrder,
   Recipe,
   Role,
   StockAdjustment,
@@ -64,6 +66,7 @@ import type {
   StockLevel,
   StockLocation,
   StockMovement,
+  Supplier,
   Station,
   Tenant,
   Terminal,
@@ -76,6 +79,7 @@ import type {
   CatalogueService,
   CollectionService,
   DashboardService,
+  PurchasingService,
   DiscountInput,
   FinanceService,
   GovernanceService,
@@ -91,6 +95,7 @@ import type {
   ScopedQuery,
   SecurityService,
   ServiceRegistry,
+  NewGoodsReceiptInput,
 } from "./types";
 import { ServiceError } from "./types";
 import { crmService } from "./crm";
@@ -1602,7 +1607,12 @@ const stockItems: CollectionService<StockItem> = {
       costingMethod: input.costingMethod,
       isBatchTracked: input.batchTracked,
       expiryTracked: input.expiryTracked,
+      isDirectlySellable: input.isDirectlySellable,
+      isProducedItem: input.isProducedItem,
+      accountingExportAccountCode: input.accountingExportAccountCode,
+      allergens: input.allergens,
       shelfLifeDays: input.shelfLifeDays ?? undefined,
+      densityGramsPerMillilitre: input.densityGramsPerMillilitre ?? undefined,
       // `standardCost` is not a StockItem domain field — the page smuggles
       // it through as `standardCost as never` (same idiom as `costingMethod`
       // above). It arrives already the exact minor-unit integer string the
@@ -1616,11 +1626,32 @@ const stockItems: CollectionService<StockItem> = {
   },
 
   async update(id, patch) {
-    // The API exposes targeted mutations, not a general PATCH. `baseUnitId`
-    // (the real UUID) — same reasoning as `create` above; no UI currently
-    // triggers this specific patch, but it must stay correct regardless.
+    // Targeted mutation routes preserve independent domains: base-unit changes
+    // retain the FR-INV-002 movement guard; classification changes never
+    // trigger Menu, Production, POS, or Accounting workflows.
     if (patch.baseUnitId) {
       await api.inventory.changeBaseUnit(id, { baseUnitId: patch.baseUnitId });
+    }
+    if (
+      patch.isDirectlySellable !== undefined ||
+      patch.isProducedItem !== undefined ||
+      patch.accountingExportAccountCode !== undefined
+    ) {
+      await api.inventory.updateItemClassification(id, {
+        ...(patch.isDirectlySellable !== undefined
+          ? { isDirectlySellable: patch.isDirectlySellable }
+          : {}),
+        ...(patch.isProducedItem !== undefined
+          ? { isProducedItem: patch.isProducedItem }
+          : {}),
+        ...(patch.accountingExportAccountCode !== undefined
+          ? { accountingExportAccountCode: patch.accountingExportAccountCode }
+          : {}),
+      });
+    }
+    if (patch.allergens !== undefined) {
+      await api.inventory.setItemAllergens(id, { allergens: patch.allergens });
+      invalidateCatalogue();
     }
     invalidateInventory();
     const row = await api.inventory.getItem(id);
@@ -1667,6 +1698,21 @@ const levels: ReadonlyCollectionService<StockLevel> = {
 
 const batches: ReadonlyCollectionService<Batch> = {
   async list(query = {}) {
+    if (query.filters?.expiryWorklist) {
+      const [rows, items, locations] = await Promise.all([api.inventory.expiryWorklist(), stockItemIndex(), locationIndex()]);
+      const mapped = rows.map(row => {
+        const item = items.get(row.stockItemId);
+        const currency = item?.unitCost.currency ?? "EGP";
+        return { ...map.toBatch(row, { item, location: locations.get(row.locationId) }),
+          itemName: map.localised(row.itemName), batchNumber: row.batchNumber ?? row.batchId, productionDate: row.productionDate,
+          quantity: { value: row.quantityRemaining, unit: row.baseUnit as Batch["quantity"]["unit"] },
+          unitCost: map.minorMoney(row.unitCost, currency), value: map.minorMoney(row.value, currency),
+          daysToExpiry: row.daysToExpiry,
+          status: row.status === "expired" ? "expired" as const : row.daysToExpiry <= 1 ? "critical" as const : "expiring" as const,
+        };
+      });
+      return project(mapped, query, { search: row => [row.itemName,row.batchNumber,row.locationName], filters: { status: row => row.status, locationId: row => row.locationId }, sorters: { daysToExpiry: row => row.daysToExpiry } });
+    }
     const days = String(query.filters?.days ?? 90);
     const [rows, itemsById, locationsById] = await Promise.all([
       api.inventory.expiring({ days }),
@@ -1815,16 +1861,21 @@ const counts: CollectionService<CountSession> = {
 };
 
 const transfers: CollectionService<Transfer> = {
-  /** Dispatch and receive exist; a transfer index does not. */
-  async list() {
-    return emptyPage<Transfer>();
+  async list(query = {}) {
+    const [rows, items, locations] = await Promise.all([
+      api.inventory.listTransfers(), stockItemIndex(), locationIndex(),
+    ]);
+    const mapped = (rows as unknown as Array<Record<string, unknown>>).map((row) => mapTransfer(row, items, locations));
+    return project(mapped, query, { search: (row) => [row.reference, row.fromLocationName, row.toLocationName], filters: { status: (row) => row.status, fromLocationId: (row) => row.fromLocationId, toLocationId: (row) => row.toLocationId }, sorters: { dispatchedAt: (row) => row.dispatchedAt ?? "", totalValue: (row) => row.totalValue.amount } });
   },
 
-  async get() {
-    return null;
+  async get(id) {
+    const [row, items, locations] = await Promise.all([api.inventory.readTransfer(id), stockItemIndex(), locationIndex()]);
+    return mapTransfer(row as unknown as Record<string, unknown>, items, locations);
   },
 
   async create(input) {
+    if (input.lines && input.lines.length !== 1) throw new ServiceError("BAD_REQUEST", "Use grouped dispatch for multiple transfer lines; no line has been sent.", 400);
     const line = input.lines?.[0];
     if (!input.fromLocationId || !input.toLocationId || !line) {
       throw new ServiceError(
@@ -1840,15 +1891,9 @@ const transfers: CollectionService<Transfer> = {
       toLocationId: input.toLocationId,
       quantity: line.dispatched.value,
     });
-
-    const record = row as unknown as Record<string, unknown>;
-    return {
-      ...(input as Transfer),
-      id: String(record.id ?? record.transferId ?? ""),
-      tenantId: getTenantId() ?? "",
-      status: "dispatched",
-      dispatchedAt: new Date().toISOString(),
-    } satisfies Transfer;
+    const [items, locations] = await Promise.all([stockItemIndex(), locationIndex()]);
+    invalidateInventory();
+    return mapTransfer(row as unknown as Record<string, unknown>, items, locations);
   },
 
   async update(_id, patch) {
@@ -1862,6 +1907,63 @@ const transfers: CollectionService<Transfer> = {
     notImplemented("Deleting a transfer");
   },
 };
+
+function mapTransfer(row: Record<string, unknown>, items: Map<Id, StockItem>, locations: Map<Id, StockLocation>): Transfer {
+  const id = String(row.id ?? row.transferReferenceId ?? "");
+  const itemId = String(row.stockItemId ?? "");
+  const item = items.get(itemId);
+  const unit = item?.baseUnit ?? "pc";
+  const dispatched = String(row.quantityDispatched ?? "0");
+  const physicallyReceived = String(row.physicallyReceived ?? "0");
+  const currency = "EGP" as const;
+  const rawStatus = String(row.status ?? "in_transit");
+  const status: Transfer["status"] = rawStatus === "pending_investigation" ? "pending_investigation" : rawStatus === "excess_held" ? "excess_held" : rawStatus === "received" ? "received" : "in_transit";
+  const locationFrom = String(row.fromLocationId ?? "");
+  const locationTo = String(row.toLocationId ?? "");
+  const unitCostMinor = Number(row.unitCost ?? 0);
+  const totalMinor = Number(dispatched) * unitCostMinor;
+  const received = Number(physicallyReceived) > 0 ? { value: physicallyReceived, unit } : null;
+  return {
+    id, tenantId: String(row.tenantId ?? getTenantId() ?? ""), reference: `TRF-${id.slice(0, 8).toUpperCase()}`,
+    fromLocationId: locationFrom, fromLocationName: locations.get(locationFrom)?.name ?? { en: locationFrom, ar: locationFrom },
+    toLocationId: locationTo, toLocationName: locations.get(locationTo)?.name ?? { en: locationTo, ar: locationTo },
+    status, dispatchedAt: String(row.createdAt ?? "") || null, receivedAt: row.receiveMovementId ? String(row.updatedAt ?? "") : null,
+    dispatchGroupId: row.dispatchGroupId == null ? null : String(row.dispatchGroupId),
+    batchProvenance: (row.batchProvenance ?? []) as Transfer["batchProvenance"],
+    lotCounts: (row.lotCounts ?? []) as Transfer["lotCounts"],
+    excessReturnedQuantity: String(row.excessReturnedQuantity ?? "0"),
+    excessReturns: (row.excessReturns ?? []) as Transfer["excessReturns"],
+    approvalRequestId: row.approvalRequestId ? String(row.approvalRequestId) : null,
+    discrepancyReasonCodeId: row.discrepancyReasonCodeId ? String(row.discrepancyReasonCodeId) : null,
+    discrepancyEvidence: row.discrepancyEvidence ? String(row.discrepancyEvidence) : null,
+    requestedBy: { en: String(row.dispatchedBy ?? ""), ar: String(row.dispatchedBy ?? "") },
+    lines: [{ id: `${id}:line`, itemId, itemName: item?.name ?? { en: itemId, ar: itemId }, dispatched: { value: dispatched, unit }, received, discrepancy: Number(row.discrepancy ?? 0), unitCost: map.money(unitCostMinor, currency),
+      physicallyHeld: { value: String(row.physicallyHeld ?? "0"), unit }, inTransit: { value: String(row.inTransit ?? "0"), unit }, available: { value: String(row.availableQuantity ?? "0"), unit }, unresolved: { value: String(row.unresolvedQuantity ?? "0"), unit } }],
+    receipts: (Array.isArray(row.receipts) ? row.receipts as Array<Record<string, unknown>> : []).map((receipt) => ({
+      id: String(receipt.id ?? ""),
+      received: { value: String(receipt.receivedQuantity ?? "0"), unit },
+      isFinal: Boolean(receipt.isFinal),
+      isRecount: Boolean(receipt.isRecount),
+      lotCounts: (receipt.lotCounts ?? []) as { sourceBatchId: Id; receivedQuantity: string }[],
+      recounted: receipt.recountedQuantity == null ? null : { value: String(receipt.recountedQuantity), unit },
+      evidence: receipt.evidence == null ? null : String(receipt.evidence),
+      receivedBy: String(receipt.receivedBy ?? ""),
+      receivedAt: String(receipt.createdAt ?? ""),
+    })),
+    approvalHistory: (Array.isArray(row.approvalHistory) ? row.approvalHistory as Array<Record<string, unknown>> : []).map((approval) => ({
+      approvalRequestId: String(approval.approvalRequestId ?? ""),
+      status: String(approval.status ?? "pending") as Transfer["approvalHistory"][number]["status"],
+      requestedBy: String(approval.requestedBy ?? ""),
+      requestedAt: String(approval.requestedAt ?? ""),
+      expiresAt: String(approval.expiresAt ?? ""),
+      decidedBy: approval.decidedBy == null ? null : String(approval.decidedBy),
+      decidedAt: approval.decidedAt == null ? null : String(approval.decidedAt),
+      decision: approval.decision === "approved" || approval.decision === "rejected" ? approval.decision : null,
+      decisionComment: approval.decisionComment == null ? null : String(approval.decisionComment),
+    })),
+    totalValue: map.money(totalMinor, currency),
+  };
+}
 
 const waste: CollectionService<WasteRecord> = {
   async list(query = {}) {
@@ -1996,6 +2098,9 @@ async function namers() {
 }
 
 const inventory: InventoryService = {
+  monitoring: () => api.inventory.monitoringStatus(),
+  expiryCategories: () => api.inventory.listCategories(),
+  async setCategoryExpiryHorizons(categoryId, horizons) { await api.inventory.setCategoryExpiryHorizons(categoryId, { horizons }); invalidateInventory(); },
   items: stockItems,
   levels,
   batches,
@@ -2019,6 +2124,21 @@ const inventory: InventoryService = {
     await api.inventory.recordCount(lineId, { countedQuantity });
   },
 
+  async setItemDensity(itemId, densityGramsPerMillilitre) {
+    const row = await api.inventory.setItemDensity(itemId, {
+      densityGramsPerMillilitre,
+    });
+    invalidateInventory();
+    return map.toStockItem(row, getTenantId() ?? "");
+  },
+
+  async setItemAllergens(itemId, allergens) {
+    const row = await api.inventory.setItemAllergens(itemId, { allergens });
+    invalidateInventory();
+    invalidateCatalogue();
+    return map.toStockItem(row, getTenantId() ?? "");
+  },
+
   // -- Transfers -------------------------------------------------------------
 
   async receiveTransfer(input) {
@@ -2027,7 +2147,28 @@ const inventory: InventoryService = {
       toLocationId: input.toLocationId,
       receivedQuantity: input.receivedQuantity,
       discrepancyReasonCodeId: input.discrepancyReasonCodeId,
+      evidence: input.evidence,
+      isFinal: input.isFinal ?? true,
+      lotCounts: input.lotCounts,
     });
+    invalidateInventory();
+  },
+
+  async dispatchTransferLines(input) {
+    const rows = await api.inventory.dispatchTransferLines(input);
+    const [items, locations] = await Promise.all([stockItemIndex(), locationIndex()]);
+    invalidateInventory();
+    return rows.map(row => mapTransfer(row as unknown as Record<string, unknown>, items, locations));
+  },
+
+  async returnTransferExcess(input) {
+    const { transferId, ...body } = input;
+    await api.inventory.returnTransferExcess(transferId, body);
+    invalidateInventory();
+  },
+
+  async investigateTransfer(input) {
+    await api.inventory.investigateTransfer(input.transferId, { toLocationId: input.toLocationId, discrepancyReasonCodeId: input.discrepancyReasonCodeId, evidence: input.evidence, recountedQuantity: input.recountedQuantity, lotCounts: input.lotCounts });
     invalidateInventory();
   },
 
@@ -2038,6 +2179,8 @@ const inventory: InventoryService = {
       locationId: input.locationId,
       reorderPoint: input.reorderPoint,
       reorderQuantity: input.reorderQuantity,
+      ...(input.minStock !== undefined ? { minStock: input.minStock } : {}),
+      ...(input.maxStock !== undefined ? { maxStock: input.maxStock } : {}),
     });
     invalidateInventory();
   },
@@ -2238,6 +2381,7 @@ const inventory: InventoryService = {
       locationId: row.locationId,
       locationName: name.location(row.locationId),
       onHand: map.quantityOf(row.quantityOnHand, name.unit(row.stockItemId)),
+      available: map.quantityOf(row.quantityAvailable, name.unit(row.stockItemId)),
       reorderPoint:
         row.reorderPoint === null
           ? null
@@ -2250,7 +2394,12 @@ const inventory: InventoryService = {
 
     // The endpoint is tenant-wide; a branch-scoped console shows its own.
     const branchId = query.scope?.branchId;
-    return branchId ? mapped.filter((row) => row.locationId === branchId) : mapped;
+    if (!branchId) return mapped;
+    const [registry, warehouses, kitchens] = await Promise.all([inventoryLocationsRaw(), warehousesRaw(), centralKitchensRaw()]);
+    const warehouseIds = new Set(warehouses.filter(w => w.branchId === branchId).map(w => w.id));
+    const kitchenIds = new Set(kitchens.filter(k => warehouseIds.has(k.warehouseId)).map(k => k.id));
+    const locationIds = new Set(registry.filter(l => (l.locationType === "branch" && l.refId === branchId) || (l.locationType === "warehouse" && warehouseIds.has(l.refId)) || (l.locationType === "central_kitchen" && kitchenIds.has(l.refId))).map(l => l.id));
+    return mapped.filter(row => locationIds.has(row.locationId));
   },
 
   async negativeStock(query = {}) {
@@ -2265,7 +2414,12 @@ const inventory: InventoryService = {
     }));
 
     const branchId = query.scope?.branchId;
-    return branchId ? mapped.filter((row) => row.locationId === branchId) : mapped;
+    if (!branchId) return mapped;
+    const [registry, warehouses, kitchens] = await Promise.all([inventoryLocationsRaw(), warehousesRaw(), centralKitchensRaw()]);
+    const warehouseIds = new Set(warehouses.filter(w => w.branchId === branchId).map(w => w.id));
+    const kitchenIds = new Set(kitchens.filter(k => warehouseIds.has(k.warehouseId)).map(k => k.id));
+    const locationIds = new Set(registry.filter(l => (l.locationType === "branch" && l.refId === branchId) || (l.locationType === "warehouse" && warehouseIds.has(l.refId)) || (l.locationType === "central_kitchen" && kitchenIds.has(l.refId))).map(l => l.id));
+    return mapped.filter(row => locationIds.has(row.locationId));
   },
 
   async reconciliation() {
@@ -4396,6 +4550,170 @@ const governance: GovernanceService = {
 // The registry
 // ---------------------------------------------------------------------------
 
+function decimalMicros(value: string): bigint {
+  if (!/^\d{1,12}(\.\d{1,6})?$/.test(value)) return 0n;
+  const [whole, fraction = ""] = value.split(".");
+  return BigInt(whole!) * 1_000_000n + BigInt(fraction.padEnd(6, "0") || "0");
+}
+
+function microsDecimal(value: bigint): string {
+  const whole = value / 1_000_000n;
+  const fraction = (value % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
+function divideMicros(numerator: bigint, denominator: bigint): bigint {
+  if (denominator <= 0n) return 0n;
+  const scaled = numerator * 1_000_000n;
+  const quotient = scaled / denominator;
+  const remainder = scaled % denominator;
+  return remainder * 2n >= denominator ? quotient + 1n : quotient;
+}
+
+const receiving: PurchasingService = {
+  suppliers: {
+    list: async (query = {}) => {
+      const rows = await api.procurement.listSuppliers({ status: "active" });
+      const mapped: Supplier[] = rows.map((row) => {
+        const contact = row.contacts[0] ?? {};
+        const label = row.tradingName ?? row.legalName;
+        return {
+          id: row.id,
+          tenantId: getTenantId() ?? "",
+          code: row.code,
+          legalName: { en: row.legalName, ar: row.legalName },
+          tradingName: { en: label, ar: label },
+          taxRegistration: row.taxRegistrationNumber ?? "",
+          contactName: String(contact.name ?? ""),
+          phone: String(contact.phone ?? ""),
+          email: String(contact.email ?? ""),
+          paymentTermsDays: row.paymentTermsNetDays,
+          currency: map.currencyOf(row.currency),
+          leadTimeDays: row.deliveryLeadTimeDays,
+          minimumOrderValue: map.money(Number(row.minimumOrderValue), map.currencyOf(row.currency)),
+          deliveryDays: row.deliveryDays.map(String),
+          active: row.status === "active",
+          scorecard: { onTimeDeliveryRate: 0, fillRate: 0, priceStability: 0, qualityRejectionRate: 0, invoiceAccuracy: 0, averageLeadTimeDays: 0 },
+          outstandingBalance: map.money(0, map.currencyOf(row.currency)),
+        };
+      });
+      return project(mapped, query, { search: (row) => [row.code, row.legalName, row.tradingName] });
+    },
+    get: async (id) => (await receiving.suppliers.list()).rows.find((row) => row.id === id) ?? null,
+    create: async () => notImplemented("Creating a supplier"),
+    update: async () => notImplemented("Updating a supplier"),
+    remove: async () => notImplemented("Deleting a supplier"),
+  },
+  requisitions: unsupportedPurchasing.requisitions,
+  orders: {
+    list: async (query = {}) => {
+      const [orders, suppliers, itemIndex, locIndex] = await Promise.all([
+        api.procurement.listPurchaseOrders({ status: "approved" }),
+        receiving.suppliers.list(),
+        stockItemIndex(),
+        locationIndex(),
+      ]);
+      const supplierById = new Map(suppliers.rows.map((supplier) => [supplier.id, supplier]));
+      const mapped: PurchaseOrder[] = orders.map((po) => {
+        const supplier = supplierById.get(po.supplierId);
+        const location = locIndex.get(po.deliveryLocationId);
+        const lines = (po.lines as Array<Record<string, unknown>>).map((line) => {
+          const itemId = String(line.stockItemId);
+          const unit = String(line.purchaseUnitLabel);
+          const orderedPurchase = decimalMicros(String(line.quantity));
+          const conversionFactor = decimalMicros(String(line.purchaseUnitConversionFactor));
+          const remainingBase = decimalMicros(String(line.remainingBaseQuantity ?? "0"));
+          const remainingPurchase = divideMicros(remainingBase, conversionFactor);
+          const acceptedPurchase = orderedPurchase > remainingPurchase ? orderedPurchase - remainingPurchase : 0n;
+          return {
+            id: String(line.id), itemId, itemName: itemIndex.get(itemId)?.name ?? { en: itemId, ar: itemId },
+            purchaseUnitId: String(line.purchaseUnitId), purchaseUnitLabel: unit,
+            quantity: { value: String(line.quantity), unit: itemIndex.get(itemId)?.baseUnit ?? "pc" }, receivedQuantity: { value: microsDecimal(acceptedPurchase), unit: itemIndex.get(itemId)?.baseUnit ?? "pc" },
+            unitPrice: map.money(Number(line.unitPrice), map.currencyOf(po.currency)), taxRate: 0,
+            lineTotal: map.money(Number(line.lineTotal), map.currencyOf(po.currency)),
+          };
+        }).filter((line) => decimalMicros(line.quantity.value) > decimalMicros(line.receivedQuantity.value));
+        const supplierLabel = supplier?.tradingName ?? { en: "", ar: "" };
+        return {
+          id: po.id, tenantId: getTenantId() ?? "", reference: `PO-${po.id.slice(0, 8).toUpperCase()}`,
+          supplierId: po.supplierId, supplierName: supplierLabel, deliveryLocationId: po.deliveryLocationId,
+          deliveryLocationName: location?.name ?? { en: po.deliveryLocationId, ar: po.deliveryLocationId },
+          status: "approved" as const, approvalTier: (po.approvalBand === "tier_1" ? 1 : po.approvalBand === "tier_2" ? 2 : po.approvalBand === "tier_3" ? 3 : 0) as 0 | 1 | 2 | 3,
+          createdBy: { en: po.requestedBy, ar: po.requestedBy }, createdAt: po.expectedDeliveryDate,
+          expectedDelivery: po.expectedDeliveryDate.slice(0, 10), approvedBy: null, approvedAt: null, lines,
+          subtotal: map.money(Number(po.subtotal), map.currencyOf(po.currency)), taxTotal: map.money(Number(po.taxTotal), map.currencyOf(po.currency)),
+          total: map.money(Number(po.grandTotal), map.currencyOf(po.currency)),
+        };
+      }).filter((po) => po.lines.some((line) => decimalMicros(line.quantity.value) > decimalMicros(line.receivedQuantity.value)));
+      return project(mapped, query, { search: (row) => [row.reference, row.supplierName] });
+    },
+    get: async (id) => (await receiving.orders.list()).rows.find((row) => row.id === id) ?? null,
+    create: async () => notImplemented("Creating a purchase order"),
+    update: async () => notImplemented("Updating a purchase order"),
+    remove: async () => notImplemented("Deleting a purchase order"),
+  },
+  receipts: {
+    list: async (query = {}) => {
+      const rows = await api.procurement.listGoodsReceipts();
+      const [items, locs] = await Promise.all([stockItemIndex(), locationIndex()]);
+      const mapped: GoodsReceipt[] = rows.map((row) => {
+        const supplierName = typeof row.supplierName === "string" ? { en: row.supplierName, ar: row.supplierName } : { en: row.supplierId, ar: row.supplierId };
+        const currency = map.currencyOf(row.currency);
+        const lines = row.lines.map((line) => ({
+          id: line.id, itemId: line.stockItemId, itemName: items.get(line.stockItemId)?.name ?? { en: line.stockItemId, ar: line.stockItemId },
+          purchaseOrderLineId: line.purchaseOrderLineId, purchaseUnitId: line.purchaseUnitId,
+          ordered: { value: line.orderedQuantity ?? "0", unit: items.get(line.stockItemId)?.baseUnit ?? "pc" },
+          received: { value: line.receivedQuantity, unit: items.get(line.stockItemId)?.baseUnit ?? "pc" },
+          rejected: { value: line.rejectedQuantity, unit: items.get(line.stockItemId)?.baseUnit ?? "pc" },
+          purchaseUnitLabel: line.purchaseUnitLabel,
+          rejectionReason: line.rejectionReason, batchNumber: line.batchNumber,
+          productionDate: line.productionDate?.slice(0, 10) ?? null, expiryDate: line.expiryDate?.slice(0, 10) ?? null,
+          unitPrice: map.money(Number(line.unitPrice), currency), priceVariancePercent: 0,
+        }));
+        const amount = lines.reduce((sum, line) => sum + Number(line.received.value) * line.unitPrice.amount, 0);
+        const loc = locs.get(row.locationId);
+        return {
+          id: row.id, tenantId: getTenantId() ?? "", reference: row.reference,
+          purchaseOrderId: row.purchaseOrderId, purchaseOrderRef: row.purchaseOrderReference,
+          supplierId: row.supplierId, supplierName, locationId: row.locationId,
+          locationName: loc?.name ?? { en: row.locationId, ar: row.locationId }, status: "posted",
+          receivedAt: row.receivedAt, receivedBy: { en: row.receivedBy, ar: row.receivedBy },
+          temperatureC: row.temperatureC === null ? null : Number(row.temperatureC), temperatureOk: row.temperatureOk,
+          lines, total: map.money(Math.round(amount), currency), currency,
+        };
+      });
+      return project(mapped, query, { search: (row) => [row.reference, row.supplierName, row.locationName, row.purchaseOrderRef] });
+    },
+    get: async (id) => (await receiving.receipts.list()).rows.find((row) => row.id === id) ?? null,
+    create: async (input: NewGoodsReceiptInput) => {
+      const row = await api.procurement.postGoodsReceipts({
+        ...(input.purchaseOrderId ? { purchaseOrderId: input.purchaseOrderId } : {}),
+        supplierId: input.supplierId, locationId: input.locationId,
+        ...(input.temperatureC === undefined ? {} : { temperatureC: input.temperatureC }),
+        ...(input.temperatureOk === undefined ? {} : { temperatureOk: input.temperatureOk }),
+        lines: input.lines.map((line) => ({
+          ...(line.purchaseOrderLineId ? { purchaseOrderLineId: line.purchaseOrderLineId } : {}),
+          stockItemId: line.stockItemId, purchaseUnitId: line.purchaseUnitId,
+          receivedQuantity: line.receivedQuantity, rejectedQuantity: line.rejectedQuantity,
+          ...(line.unitPrice === undefined ? {} : { unitPrice: line.unitPrice }),
+          ...(line.batchNumber ? { batchNumber: line.batchNumber } : {}),
+          ...(line.productionDate ? { productionDate: line.productionDate } : {}),
+          ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
+          ...(line.rejectionReason ? { rejectionReason: line.rejectionReason } : {}),
+        })),
+      });
+      return (await receiving.receipts.list()).rows.find((receipt) => receipt.id === row.id)!;
+    },
+    update: async () => notImplemented("Editing a posted goods receipt"),
+    remove: async () => notImplemented("Deleting a posted goods receipt"),
+  },
+  invoices: unsupportedPurchasing.invoices,
+  approveOrder: async (id) => {
+    const row = await api.procurement.getByIdPurchaseOrders(id);
+    return (await receiving.orders.list()).rows.find((order) => order.id === row.id)!;
+  },
+};
+
 export const httpServices: ServiceRegistry = {
   /*
    * Customers, loyalty and promotions have no endpoints in the document, so
@@ -4423,7 +4741,7 @@ export const httpServices: ServiceRegistry = {
 
   // No endpoint exists anywhere in the document for these. They fail with
   // NOT_IMPLEMENTED rather than serving invented rows. See API_COVERAGE.
-  purchasing: unsupportedPurchasing,
+  purchasing: receiving,
   costing: unsupportedCosting,
   workforce,
   platform,

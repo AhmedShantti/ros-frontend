@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 216 paths, 145 request DTOs.
+ * `api/openapi.json`. 235 paths, 159 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -266,6 +266,15 @@ export interface CreateEmployeeDto {
   userId?: string;
 }
 
+export interface CreateGoodsReceiptDto {
+  lines: GoodsReceiptLineDto[];
+  locationId?: string;
+  purchaseOrderId?: string;
+  supplierId?: string;
+  temperatureC?: string;
+  temperatureOk?: boolean;
+}
+
 export interface CreateInventoryApprovalPolicyDto {
   adjustmentValueThresholdMinor: string | null;
   /** See `countRecountVarianceValueThresholdMinor`'s own doc comment for the omitted/null/value rule. Basis points — deliberately uncapped (may exceed 10000). */
@@ -488,12 +497,18 @@ export interface CreateStockItemCategoryDto {
 }
 
 export interface CreateStockItemDto {
+  accountingExportAccountCode?: string | null;
+  /** FR-INV-001 — declared stock-item allergen labels. */
+  allergens?: string[];
   baseUnitId: string;
   batchStrategy?: "fifo" | "fefo";
   categoryId?: string;
   costingMethod?: "weighted_average" | "fifo" | "standard";
+  densityGramsPerMillilitre?: string;
   expiryTracked?: boolean;
   isBatchTracked?: boolean;
+  isDirectlySellable?: boolean;
+  isProducedItem?: boolean;
   names: Record<string, unknown>;
   recipeUnitId?: string;
   shelfLifeDays?: number;
@@ -620,6 +635,12 @@ export interface DispatchTransferDto {
   toLocationId: string;
 }
 
+export interface DispatchTransferLinesDto {
+  fromLocationId: string;
+  lines: TransferDispatchLineDto[];
+  toLocationId: string;
+}
+
 /** Nest's default HttpException envelope, also used verbatim by the single global SalesDomainExceptionFilter (statusCode/message differ, error is the class's HTTP reason phrase or domain error name). error is sometimes absent — a bare `new UnauthorizedException()` with no message omits it. */
 export interface ErrorResponse {
   /** HTTP reason phrase or domain error class name. Not always present. */
@@ -646,13 +667,45 @@ export interface FinalizeCashSessionCloseDto {
   reason: string;
 }
 
+export interface FiscalCandidatePreparationBody {
+  buyer: Record<string, unknown>;
+  configurationVersion: string;
+  deviceId: string;
+  reason: string;
+}
+
+export interface FiscalRemediationBody {
+  reason: string;
+}
+
 export interface ForgotPasswordDto {
   email: string;
+}
+
+export interface GoodsReceiptLineDto {
+  batchNumber?: string;
+  expiryDate?: string;
+  productionDate?: string;
+  purchaseOrderLineId?: string;
+  purchaseUnitId: string;
+  receivedQuantity: string;
+  rejectedQuantity?: string;
+  rejectionReason?: string;
+  stockItemId: string;
+  unitPrice?: string;
 }
 
 export interface GpsDto {
   lat: number;
   lng: number;
+}
+
+export interface InvestigateTransferDto {
+  discrepancyReasonCodeId: string;
+  evidence: string;
+  lotCounts?: TransferLotCountDto[];
+  recountedQuantity?: string;
+  toLocationId: string;
 }
 
 export interface IssueRecoveryGrantDto {
@@ -669,6 +722,7 @@ export interface IssueRefundDto {
   approvalRequestId?: string;
   /** REQUIRED for a `cash` refund; refused for `manual_external_card`. */
   cashSessionId?: string;
+  fiscalLines?: RefundFiscalLineDto[];
   id?: string;
   /** REFUND-INV-1 (FR-POS-070) — OPTIONAL; absent means no inventory effect. */
   inventoryDisposition?: unknown;
@@ -810,6 +864,9 @@ export interface ReceiptTemplateOptionsDto {
 
 export interface ReceiveTransferDto {
   discrepancyReasonCodeId?: string;
+  evidence?: string;
+  isFinal: boolean;
+  lotCounts?: TransferLotCountDto[];
   receivedQuantity: string;
   toLocationId: string;
   transferReferenceId: string;
@@ -858,6 +915,11 @@ export interface RefreshDto {
   refreshToken: string;
 }
 
+export interface RefundFiscalLineDto {
+  orderLineId: string;
+  quantity: string;
+}
+
 export interface RefundInventoryDispositionDto {
   /** The order lines this disposition decision covers. */
   orderLineIds: string[];
@@ -902,6 +964,15 @@ export interface ResetPasswordDto {
   token: string;
 }
 
+export interface ReturnTransferExcessDto {
+  evidence: string;
+  quantity: string;
+  reasonCodeId: string;
+  returnToLocationId: string;
+  returnedAt: string;
+  toLocationId: string;
+}
+
 export interface SelectDineInTableDto {
   channel?: "pos" | "kiosk" | "qr" | "aggregator" | "phone" | "api";
   guestCount?: number;
@@ -937,6 +1008,10 @@ export interface SetBranchStatusDto {
   status: "active" | "inactive";
 }
 
+export interface SetCategoryExpiryHorizonsDto {
+  horizons: number[];
+}
+
 export interface SetCompensationDto {
   /** Exact non-negative integer minor units, as a string (never a float). */
   amountMinorUnits: string;
@@ -952,8 +1027,21 @@ export interface SetEmployeePinDto {
 
 export interface SetReorderConfigDto {
   locationId: string;
+  /** Omitted leaves the current limit unchanged; null clears it. */
+  maxStock?: string | null;
+  /** Omitted leaves the current limit unchanged; null clears it. */
+  minStock?: string | null;
   reorderPoint: string;
   reorderQuantity: string;
+}
+
+export interface SetStockItemAllergensDto {
+  allergens: string[];
+}
+
+export interface SetStockItemDensityDto {
+  /** Explicit null clears the density; omitted is rejected by DTO validation. */
+  densityGramsPerMillilitre: string | null;
 }
 
 export interface SetStorageAreaAssignmentDto {
@@ -1008,6 +1096,16 @@ export interface Toggle86Dto {
   autoReenableAt?: string;
   isManual86: boolean;
   reasonText?: string;
+}
+
+export interface TransferDispatchLineDto {
+  quantity: string;
+  stockItemId: string;
+}
+
+export interface TransferLotCountDto {
+  receivedQuantity: string;
+  sourceBatchId: string;
 }
 
 export interface UpdateAssignmentDto {
@@ -1139,6 +1237,13 @@ export interface UpdateStationDto {
 
 export interface UpdateStationRoutingRuleDto {
   stationId: string;
+}
+
+export interface UpdateStockItemClassificationDto {
+  /** Omitted preserves the mapping; null explicitly clears it. */
+  accountingExportAccountCode?: string | null;
+  isDirectlySellable?: boolean;
+  isProducedItem?: boolean;
 }
 
 export interface UpdateSupplierDto {
@@ -2855,6 +2960,147 @@ export type CatalogueController_setVariantActiveResponse = {
 
 export type CatalogueController_setVariantActiveBody = SetActiveDto;
 
+/** `GET /fiscal/branches/{branchId}/documents` */
+export type FiscalController_listResponse = ({
+  branchId: string;
+  businessDay: string;
+  countryPackCode: string;
+  countryPackVersion: string;
+  createdAt: string;
+  deviceId: string | null;
+  futureSubmissionIntents: (Record<string, unknown>)[];
+  id: string;
+  issuanceAllowed: false;
+  monetarySnapshot: Record<string, unknown>;
+  orderId: string;
+  originalDocumentId: string | null;
+  originalPaymentId: string | null;
+  refundId: string | null;
+  revisions: ({
+    actorId: string;
+    blockers: string[];
+    configurationSnapshot: Record<string, unknown>;
+    createdAt: string;
+    documentType: string | null;
+    documentVersion: string | null;
+    family: "unclassified" | "b2c_receipt" | "b2b_invoice";
+    id: string;
+    payloadHash: string | null;
+    payloadJson: string | null;
+    reason: string;
+    receiptUuid: string | null;
+    state: string;
+    version: number;
+  })[];
+  role: "sale" | "refund";
+  sourceEventId: string;
+  sourceKey: string;
+  state: "obligation_recorded" | "awaiting_configuration" | "prepared_not_issued" | "unsigned_not_issued";
+  submissionAttempts: (Record<string, unknown>)[];
+  tenantId: string;
+  updatedAt: string;
+})[];
+
+/** `GET /fiscal/branches/{branchId}/documents/readiness` */
+export type FiscalController_configurationReadinessResponse = Record<string, unknown>;
+
+/** `POST /fiscal/branches/{branchId}/documents/readiness/configurations` */
+export type FiscalController_registerConfigurationResponse = Record<string, unknown>;
+
+export type FiscalController_registerConfigurationBody = FiscalRemediationBody;
+
+/** `GET /fiscal/branches/{branchId}/documents/{id}` */
+export type FiscalController_detailResponse = {
+  branchId: string;
+  businessDay: string;
+  countryPackCode: string;
+  countryPackVersion: string;
+  createdAt: string;
+  deviceId: string | null;
+  futureSubmissionIntents: (Record<string, unknown>)[];
+  id: string;
+  issuanceAllowed: false;
+  monetarySnapshot: Record<string, unknown>;
+  orderId: string;
+  originalDocumentId: string | null;
+  originalPaymentId: string | null;
+  refundId: string | null;
+  revisions: ({
+    actorId: string;
+    blockers: string[];
+    configurationSnapshot: Record<string, unknown>;
+    createdAt: string;
+    documentType: string | null;
+    documentVersion: string | null;
+    family: "unclassified" | "b2c_receipt" | "b2b_invoice";
+    id: string;
+    payloadHash: string | null;
+    payloadJson: string | null;
+    reason: string;
+    receiptUuid: string | null;
+    state: string;
+    version: number;
+  })[];
+  role: "sale" | "refund";
+  sourceEventId: string;
+  sourceKey: string;
+  state: "obligation_recorded" | "awaiting_configuration" | "prepared_not_issued" | "unsigned_not_issued";
+  submissionAttempts: (Record<string, unknown>)[];
+  tenantId: string;
+  updatedAt: string;
+};
+
+/** `GET /fiscal/branches/{branchId}/documents/{id}/eligibility` */
+export type FiscalController_eligibilityResponse = Record<string, unknown>;
+
+/** `POST /fiscal/branches/{branchId}/documents/{id}/prepare` */
+export type FiscalController_prepareCandidateResponse = Record<string, unknown>;
+
+export type FiscalController_prepareCandidateBody = FiscalCandidatePreparationBody;
+
+/** `POST /fiscal/branches/{branchId}/documents/{id}/reevaluate` */
+export type FiscalController_reevaluateResponse = {
+  branchId: string;
+  businessDay: string;
+  countryPackCode: string;
+  countryPackVersion: string;
+  createdAt: string;
+  deviceId: string | null;
+  futureSubmissionIntents: (Record<string, unknown>)[];
+  id: string;
+  issuanceAllowed: false;
+  monetarySnapshot: Record<string, unknown>;
+  orderId: string;
+  originalDocumentId: string | null;
+  originalPaymentId: string | null;
+  refundId: string | null;
+  revisions: ({
+    actorId: string;
+    blockers: string[];
+    configurationSnapshot: Record<string, unknown>;
+    createdAt: string;
+    documentType: string | null;
+    documentVersion: string | null;
+    family: "unclassified" | "b2c_receipt" | "b2b_invoice";
+    id: string;
+    payloadHash: string | null;
+    payloadJson: string | null;
+    reason: string;
+    receiptUuid: string | null;
+    state: string;
+    version: number;
+  })[];
+  role: "sale" | "refund";
+  sourceEventId: string;
+  sourceKey: string;
+  state: "obligation_recorded" | "awaiting_configuration" | "prepared_not_issued" | "unsigned_not_issued";
+  submissionAttempts: (Record<string, unknown>)[];
+  tenantId: string;
+  updatedAt: string;
+};
+
+export type FiscalController_reevaluateBody = FiscalRemediationBody;
+
 /** `GET /governance/audit/entries` — Search/filter the tenant audit log (FR-AUD-008). Requires audit.view. — A page of audit entries, most recent first. */
 export type AuditQueryController_searchResponse = {
   entries: ({
@@ -2939,7 +3185,7 @@ export type InventoryApprovalsController_listResponse = ({
   /** For stock_adjustment, the approval request’s own id (no real Inventory entity exists at request time — Design A, no staging table). */
   entityId: string;
   expiresAt: string;
-  kind: "stock_adjustment" | "count_adjustment" | "waste";
+  kind: "stock_adjustment" | "count_adjustment" | "waste" | "transfer_discrepancy";
   requestedAt: string;
   requestedBy: string;
   requiredPermission: string;
@@ -3002,6 +3248,7 @@ export type InventoryApprovalsController_rejectBody = DecideInventoryApprovalDto
 
 /** `GET /inventory/categories` — List the stock item category catalogue (FR-INV-001). — All stock item categories in the tenant. */
 export type InventoryController_listCategoriesResponse = ({
+  expiryAlertHorizons: number[];
   id: string;
   name: string;
   parentId: string | null;
@@ -3009,12 +3256,21 @@ export type InventoryController_listCategoriesResponse = ({
 
 /** `POST /inventory/categories` — The created stock item category. */
 export type InventoryController_createCategoryResponse = {
+  expiryAlertHorizons: number[];
   id: string;
   name: string;
   parentId: string | null;
 };
 
 export type InventoryController_createCategoryBody = CreateStockItemCategoryDto;
+
+/** `POST /inventory/categories/{categoryId}/expiry-horizons` — Configured category horizons; uncategorized items default to 7,3,1. */
+export type InventoryController_setCategoryExpiryHorizonsResponse = {
+  expiryAlertHorizons: number[];
+  id: string;
+};
+
+export type InventoryController_setCategoryExpiryHorizonsBody = SetCategoryExpiryHorizonsDto;
 
 /** `POST /inventory/count-lines/{lineId}` — Record a counted quantity for one count line. — The updated count line. */
 export type InventoryController_recordCountResponse = {
@@ -3158,16 +3414,51 @@ export type InventoryController_expiringResponse = ({
   stockItemId: string;
 })[];
 
+/** `GET /inventory/expiry-worklist` — Category-horizon expiry worklist at location-local calendar date. Expired quantities are unavailable; actions require lot-safe contracts. */
+export type InventoryController_expiryWorklistResponse = ({
+  actions: Record<string, unknown>;
+  baseUnit: string;
+  batchId: string;
+  batchNumber: string | null;
+  categoryId: string | null;
+  daysToExpiry: number;
+  expiryDate: string;
+  horizon: number;
+  itemName: Record<string, unknown>;
+  locationId: string;
+  productionDate: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityRemaining: string;
+  status: "expired" | "expires_today" | "approaching_expiry";
+  stockItemId: string;
+  timezone: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  unitCost: string;
+  usable: boolean;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  value: string;
+})[];
+
 /** `GET /inventory/items` — All stock items in the tenant. */
 export type InventoryController_listItemsResponse = ({
+  /** Optional future accounting export mapping; no accounting posting semantics are implied. */
+  accountingExportAccountCode: string | null;
+  /** Declared allergen labels; an empty array clears the declarations. */
+  allergens: string[];
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
   costingMethod: "weighted_average" | "fifo" | "standard";
+  /** Item density in grams per millilitre; required for mass↔volume conversion. */
+  densityGramsPerMillilitre: string | null;
   expiryTracked: boolean;
   id: string;
   isActive: boolean;
   isBatchTracked: boolean;
+  /** Stock-item classification only; does not create a Menu item or alter sales behavior. */
+  isDirectlySellable: boolean;
+  /** Explicit stock-item classification; independent of recipe existence. */
+  isProducedItem: boolean;
   /** Opaque localized-name object (locale -> name). */
   names: Record<string, unknown>;
   recipeUnitId: string | null;
@@ -3179,14 +3470,24 @@ export type InventoryController_listItemsResponse = ({
 
 /** `POST /inventory/items` — Create a stock item (FR-INV-001). — The created stock item. */
 export type InventoryController_createItemResponse = {
+  /** Optional future accounting export mapping; no accounting posting semantics are implied. */
+  accountingExportAccountCode: string | null;
+  /** Declared allergen labels; an empty array clears the declarations. */
+  allergens: string[];
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
   costingMethod: "weighted_average" | "fifo" | "standard";
+  /** Item density in grams per millilitre; required for mass↔volume conversion. */
+  densityGramsPerMillilitre: string | null;
   expiryTracked: boolean;
   id: string;
   isActive: boolean;
   isBatchTracked: boolean;
+  /** Stock-item classification only; does not create a Menu item or alter sales behavior. */
+  isDirectlySellable: boolean;
+  /** Explicit stock-item classification; independent of recipe existence. */
+  isProducedItem: boolean;
   /** Opaque localized-name object (locale -> name). */
   names: Record<string, unknown>;
   recipeUnitId: string | null;
@@ -3200,14 +3501,24 @@ export type InventoryController_createItemBody = CreateStockItemDto;
 
 /** `GET /inventory/items/{itemId}` — The stock item. */
 export type InventoryController_getItemResponse = {
+  /** Optional future accounting export mapping; no accounting posting semantics are implied. */
+  accountingExportAccountCode: string | null;
+  /** Declared allergen labels; an empty array clears the declarations. */
+  allergens: string[];
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
   costingMethod: "weighted_average" | "fifo" | "standard";
+  /** Item density in grams per millilitre; required for mass↔volume conversion. */
+  densityGramsPerMillilitre: string | null;
   expiryTracked: boolean;
   id: string;
   isActive: boolean;
   isBatchTracked: boolean;
+  /** Stock-item classification only; does not create a Menu item or alter sales behavior. */
+  isDirectlySellable: boolean;
+  /** Explicit stock-item classification; independent of recipe existence. */
+  isProducedItem: boolean;
   /** Opaque localized-name object (locale -> name). */
   names: Record<string, unknown>;
   recipeUnitId: string | null;
@@ -3217,16 +3528,57 @@ export type InventoryController_getItemResponse = {
   standardCost: string | null;
 };
 
-/** `POST /inventory/items/{itemId}/base-unit` — FR-INV-002: rejected once any movement exists. — The updated stock item. */
-export type InventoryController_changeBaseUnitResponse = {
+/** `PATCH /inventory/items/{itemId}/allergens` — Set or clear stock-item allergen declarations (FR-INV-001). — The updated stock item. */
+export type InventoryController_setItemAllergensResponse = {
+  /** Optional future accounting export mapping; no accounting posting semantics are implied. */
+  accountingExportAccountCode: string | null;
+  /** Declared allergen labels; an empty array clears the declarations. */
+  allergens: string[];
   baseUnitId: string;
   batchStrategy: "fifo" | "fefo";
   categoryId: string | null;
   costingMethod: "weighted_average" | "fifo" | "standard";
+  /** Item density in grams per millilitre; required for mass↔volume conversion. */
+  densityGramsPerMillilitre: string | null;
   expiryTracked: boolean;
   id: string;
   isActive: boolean;
   isBatchTracked: boolean;
+  /** Stock-item classification only; does not create a Menu item or alter sales behavior. */
+  isDirectlySellable: boolean;
+  /** Explicit stock-item classification; independent of recipe existence. */
+  isProducedItem: boolean;
+  /** Opaque localized-name object (locale -> name). */
+  names: Record<string, unknown>;
+  recipeUnitId: string | null;
+  shelfLifeDays: number | null;
+  sku: string;
+  /** Cost per base unit as a decimal string of minor units. */
+  standardCost: string | null;
+};
+
+export type InventoryController_setItemAllergensBody = SetStockItemAllergensDto;
+
+/** `POST /inventory/items/{itemId}/base-unit` — FR-INV-002: rejected once any movement exists. — The updated stock item. */
+export type InventoryController_changeBaseUnitResponse = {
+  /** Optional future accounting export mapping; no accounting posting semantics are implied. */
+  accountingExportAccountCode: string | null;
+  /** Declared allergen labels; an empty array clears the declarations. */
+  allergens: string[];
+  baseUnitId: string;
+  batchStrategy: "fifo" | "fefo";
+  categoryId: string | null;
+  costingMethod: "weighted_average" | "fifo" | "standard";
+  /** Item density in grams per millilitre; required for mass↔volume conversion. */
+  densityGramsPerMillilitre: string | null;
+  expiryTracked: boolean;
+  id: string;
+  isActive: boolean;
+  isBatchTracked: boolean;
+  /** Stock-item classification only; does not create a Menu item or alter sales behavior. */
+  isDirectlySellable: boolean;
+  /** Explicit stock-item classification; independent of recipe existence. */
+  isProducedItem: boolean;
   /** Opaque localized-name object (locale -> name). */
   names: Record<string, unknown>;
   recipeUnitId: string | null;
@@ -3237,6 +3589,68 @@ export type InventoryController_changeBaseUnitResponse = {
 };
 
 export type InventoryController_changeBaseUnitBody = ChangeBaseUnitDto;
+
+/** `PATCH /inventory/items/{itemId}/classification` — Update stock-item classification and export mapping (FR-INV-001). — The updated stock item. */
+export type InventoryController_updateItemClassificationResponse = {
+  /** Optional future accounting export mapping; no accounting posting semantics are implied. */
+  accountingExportAccountCode: string | null;
+  /** Declared allergen labels; an empty array clears the declarations. */
+  allergens: string[];
+  baseUnitId: string;
+  batchStrategy: "fifo" | "fefo";
+  categoryId: string | null;
+  costingMethod: "weighted_average" | "fifo" | "standard";
+  /** Item density in grams per millilitre; required for mass↔volume conversion. */
+  densityGramsPerMillilitre: string | null;
+  expiryTracked: boolean;
+  id: string;
+  isActive: boolean;
+  isBatchTracked: boolean;
+  /** Stock-item classification only; does not create a Menu item or alter sales behavior. */
+  isDirectlySellable: boolean;
+  /** Explicit stock-item classification; independent of recipe existence. */
+  isProducedItem: boolean;
+  /** Opaque localized-name object (locale -> name). */
+  names: Record<string, unknown>;
+  recipeUnitId: string | null;
+  shelfLifeDays: number | null;
+  sku: string;
+  /** Cost per base unit as a decimal string of minor units. */
+  standardCost: string | null;
+};
+
+export type InventoryController_updateItemClassificationBody = UpdateStockItemClassificationDto;
+
+/** `PATCH /inventory/items/{itemId}/density` — Set or clear item density for mass↔volume conversion (FR-INV-004). — The updated stock item. */
+export type InventoryController_setItemDensityResponse = {
+  /** Optional future accounting export mapping; no accounting posting semantics are implied. */
+  accountingExportAccountCode: string | null;
+  /** Declared allergen labels; an empty array clears the declarations. */
+  allergens: string[];
+  baseUnitId: string;
+  batchStrategy: "fifo" | "fefo";
+  categoryId: string | null;
+  costingMethod: "weighted_average" | "fifo" | "standard";
+  /** Item density in grams per millilitre; required for mass↔volume conversion. */
+  densityGramsPerMillilitre: string | null;
+  expiryTracked: boolean;
+  id: string;
+  isActive: boolean;
+  isBatchTracked: boolean;
+  /** Stock-item classification only; does not create a Menu item or alter sales behavior. */
+  isDirectlySellable: boolean;
+  /** Explicit stock-item classification; independent of recipe existence. */
+  isProducedItem: boolean;
+  /** Opaque localized-name object (locale -> name). */
+  names: Record<string, unknown>;
+  recipeUnitId: string | null;
+  shelfLifeDays: number | null;
+  sku: string;
+  /** Cost per base unit as a decimal string of minor units. */
+  standardCost: string | null;
+};
+
+export type InventoryController_setItemDensityBody = SetStockItemDensityDto;
 
 /** `GET /inventory/items/{itemId}/movements` — Cost-bearing read — gated by inventory.cost.view, not inventory.view. — The most recent 200 ledger movements for this item, newest first. */
 export type InventoryController_listMovementsResponse = ({
@@ -3295,6 +3709,10 @@ export type InventoryController_deletePurchaseUnitResponse = void;
 export type InventoryController_setReorderConfigResponse = {
   id: string;
   locationId: string;
+  /** Maximum stock in the stock item base unit. */
+  maxStock: string | null;
+  /** Minimum stock in the stock item base unit. */
+  minStock: string | null;
   /** Decimal quantity as a string (preserves exact precision). */
   reorderPoint: string | null;
   /** Decimal quantity as a string (preserves exact precision). */
@@ -3317,10 +3735,18 @@ export type InventoryController_setStorageAreaAssignmentBody = SetStorageAreaAss
 export type InventoryController_levelsResponse = ({
   lastReconciledAt: string | null;
   locationId: string;
+  /** Maximum stock in the stock item base unit. */
+  maxStock: string | null;
+  /** Minimum stock in the stock item base unit. */
+  minStock: string | null;
   /** Decimal quantity as a string (preserves exact precision). */
   quantityOnHand: string;
   /** Decimal quantity as a string (preserves exact precision). */
   quantityReserved: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  reorderPoint: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  reorderQuantity: string | null;
   stockItemId: string;
   /** FR-INV-040 — the current storage area for this item+location pair, if assigned. */
   storageAreaId: string | null;
@@ -3330,6 +3756,8 @@ export type InventoryController_levelsResponse = ({
 export type InventoryController_lowStockResponse = ({
   locationId: string;
   /** Decimal quantity as a string (preserves exact precision). */
+  quantityAvailable: string;
+  /** Decimal quantity as a string (preserves exact precision). */
   quantityOnHand: string;
   /** Decimal quantity as a string (preserves exact precision). */
   reorderPoint: string | null;
@@ -3337,6 +3765,29 @@ export type InventoryController_lowStockResponse = ({
   reorderQuantity: string | null;
   stockItemId: string;
 })[];
+
+/** `GET /inventory/monitoring` — Inventory monitoring findings and durable job execution status. No human delivery exists. */
+export type InventoryController_monitoringStatusResponse = {
+  delivery: "unavailable";
+  findings: ({
+    code: string;
+    detail: Record<string, unknown>;
+    detectedAt: string;
+    id: string;
+    lastObservedAt: string;
+    resolvedAt: string | null;
+    status: "active" | "resolved" | "unverified";
+  })[];
+  jobs: ({
+    attempt: number;
+    jobType: string;
+    occurrenceKey: string;
+    outcomeCode: string | null;
+    scheduledFor: string;
+    state: string;
+  })[];
+  schedulerEnabled: boolean;
+};
 
 /** `POST /inventory/movements` — Post a standalone movement (opening balance / manual adjustment) to the ledger. — The posted movement, or the pending approval it created. */
 export type InventoryController_postMovementResponse = {
@@ -3391,7 +3842,7 @@ export type InventoryController_createReasonCodeResponse = {
 
 export type InventoryController_createReasonCodeBody = CreateReasonCodeDto;
 
-/** `GET /inventory/reconciliation` — FR-INV-011/051 computation. Scheduling deferred (D-INV-08). — On-demand ledger-vs-projection reconciliation (FR-INV-011/051). Scheduling and alert delivery are deferred (D-INV-08). */
+/** `GET /inventory/reconciliation` — FR-INV-011/051 computation. Scheduling deferred (D-INV-08). — On-demand reconciliation; daily job uses the opt-in scheduler. Human alert delivery remains unavailable. */
 export type InventoryController_reconcileResponse = {
   divergences: ({
     /** The sum of ledger movements. */
@@ -3422,29 +3873,785 @@ export type InventoryController_createStorageAreaResponse = {
 
 export type InventoryController_createStorageAreaBody = CreateStorageAreaDto;
 
-/** `POST /inventory/transfers` — Dispatch a transfer (writes the transfer_out leg). — The dispatched transfer. */
-export type InventoryController_dispatchResponse = {
+/** `GET /inventory/transfers` — Tenant-scoped transfer lifecycle, custody and approval history. */
+export type InventoryController_listTransfersResponse = ({
+  adjustmentMovementId: string | null;
+  adjustmentMovements: ({
+    batchId: string | null;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    totalCost: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitCost: string;
+  })[];
+  approvalHistory: ({
+    approvalRequestId: string;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    decision: "approved" | "rejected" | null | null;
+    decisionComment: string | null;
+    expiresAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    status: "pending" | "approved" | "rejected" | "expired" | "escalated";
+  })[];
+  approvalRequestId: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  availableQuantity: string;
+  batchProvenance: ({
+    batchNumber: string | null;
+    destinationBatchId: string | null;
+    expiryDate: string | null;
+    productionDate: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sourceBatchId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    sourceUnitCost: string;
+  })[] | null;
+  createdAt: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  discrepancy: string;
+  discrepancyEvidence: string | null;
+  discrepancyReasonCodeId: string | null;
+  dispatchGroupId: string | null;
   dispatchMovementId: string;
-  quantityDispatched: number;
+  dispatchOccurredAt: string;
+  dispatchedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessHeldQuantity: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessReturnedQuantity: string;
+  excessReturns: ({
+    createdAt: string;
+    evidence: string;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    reasonCodeId: string;
+    returnToLocationId: string;
+    returnedAt: string;
+    returnedBy: string;
+  })[];
+  fromLocationId: string;
+  id: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  inTransit: string;
+  lotCounts: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    sourceBatchId: string;
+  })[] | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyHeld: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyReceived: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityDispatched: string;
+  receipts: ({
+    createdAt: string;
+    evidence: string | null;
+    id: string;
+    isFinal: boolean;
+    isRecount: boolean;
+    lotCounts: ({
+      /** Decimal quantity as a string (preserves exact precision). */
+      receivedQuantity: string;
+      sourceBatchId: string;
+    })[] | null;
+    receivedBy: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    recountedQuantity: string | null;
+    transferId: string;
+  })[];
+  receiveMovementId: string | null;
+  receiveOccurredAt: string | null;
+  receivedBy: string | null;
+  status: "in_transit" | "pending_investigation" | "received" | "excess_held";
+  stockItemId: string;
+  tenantId: string;
+  toLocationId: string;
   transferReferenceId: string;
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   unitCost: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  unresolvedQuantity: string;
+  updatedAt: string;
+})[];
+
+/** `POST /inventory/transfers` — Dispatch a transfer and create durable transfer history. — The dispatched transfer. */
+export type InventoryController_dispatchResponse = {
+  adjustmentMovementId: string | null;
+  adjustmentMovements: ({
+    batchId: string | null;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    totalCost: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitCost: string;
+  })[];
+  approvalHistory: ({
+    approvalRequestId: string;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    decision: "approved" | "rejected" | null | null;
+    decisionComment: string | null;
+    expiresAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    status: "pending" | "approved" | "rejected" | "expired" | "escalated";
+  })[];
+  approvalRequestId: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  availableQuantity: string;
+  batchProvenance: ({
+    batchNumber: string | null;
+    destinationBatchId: string | null;
+    expiryDate: string | null;
+    productionDate: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sourceBatchId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    sourceUnitCost: string;
+  })[] | null;
+  createdAt: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  discrepancy: string;
+  discrepancyEvidence: string | null;
+  discrepancyReasonCodeId: string | null;
+  dispatchGroupId: string | null;
+  dispatchMovementId: string;
+  dispatchOccurredAt: string;
+  dispatchedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessHeldQuantity: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessReturnedQuantity: string;
+  excessReturns: ({
+    createdAt: string;
+    evidence: string;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    reasonCodeId: string;
+    returnToLocationId: string;
+    returnedAt: string;
+    returnedBy: string;
+  })[];
+  fromLocationId: string;
+  id: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  inTransit: string;
+  lotCounts: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    sourceBatchId: string;
+  })[] | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyHeld: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyReceived: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityDispatched: string;
+  receipts: ({
+    createdAt: string;
+    evidence: string | null;
+    id: string;
+    isFinal: boolean;
+    isRecount: boolean;
+    lotCounts: ({
+      /** Decimal quantity as a string (preserves exact precision). */
+      receivedQuantity: string;
+      sourceBatchId: string;
+    })[] | null;
+    receivedBy: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    recountedQuantity: string | null;
+    transferId: string;
+  })[];
+  receiveMovementId: string | null;
+  receiveOccurredAt: string | null;
+  receivedBy: string | null;
+  status: "in_transit" | "pending_investigation" | "received" | "excess_held";
+  stockItemId: string;
+  tenantId: string;
+  toLocationId: string;
+  transferReferenceId: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  unitCost: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  unresolvedQuantity: string;
+  updatedAt: string;
 };
 
 export type InventoryController_dispatchBody = DispatchTransferDto;
 
-/** `POST /inventory/transfers/receive` — Receive a dispatched transfer (writes the transfer_in leg, plus a discrepancy adjustment if the received quantity differs). — The received transfer. */
-export type InventoryController_receiveResponse = {
-  /** The manual_adjustment movement written for the discrepancy, or null when none was needed. */
+/** `POST /inventory/transfers/dispatch-lines` — Atomic dispatch of distinct item lines. Each line keeps its existing independent receipt/approval lifecycle; dispatchGroupId links the document. */
+export type InventoryController_dispatchTransferLinesResponse = ({
   adjustmentMovementId: string | null;
-  discrepancy: number;
-  quantityDispatched: number;
-  quantityReceived: number;
-  receiveMovementId: string;
+  adjustmentMovements: ({
+    batchId: string | null;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    totalCost: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitCost: string;
+  })[];
+  approvalHistory: ({
+    approvalRequestId: string;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    decision: "approved" | "rejected" | null | null;
+    decisionComment: string | null;
+    expiresAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    status: "pending" | "approved" | "rejected" | "expired" | "escalated";
+  })[];
+  approvalRequestId: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  availableQuantity: string;
+  batchProvenance: ({
+    batchNumber: string | null;
+    destinationBatchId: string | null;
+    expiryDate: string | null;
+    productionDate: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sourceBatchId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    sourceUnitCost: string;
+  })[] | null;
+  createdAt: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  discrepancy: string;
+  discrepancyEvidence: string | null;
+  discrepancyReasonCodeId: string | null;
+  dispatchGroupId: string | null;
+  dispatchMovementId: string;
+  dispatchOccurredAt: string;
+  dispatchedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessHeldQuantity: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessReturnedQuantity: string;
+  excessReturns: ({
+    createdAt: string;
+    evidence: string;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    reasonCodeId: string;
+    returnToLocationId: string;
+    returnedAt: string;
+    returnedBy: string;
+  })[];
+  fromLocationId: string;
+  id: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  inTransit: string;
+  lotCounts: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    sourceBatchId: string;
+  })[] | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyHeld: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyReceived: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityDispatched: string;
+  receipts: ({
+    createdAt: string;
+    evidence: string | null;
+    id: string;
+    isFinal: boolean;
+    isRecount: boolean;
+    lotCounts: ({
+      /** Decimal quantity as a string (preserves exact precision). */
+      receivedQuantity: string;
+      sourceBatchId: string;
+    })[] | null;
+    receivedBy: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    recountedQuantity: string | null;
+    transferId: string;
+  })[];
+  receiveMovementId: string | null;
+  receiveOccurredAt: string | null;
+  receivedBy: string | null;
+  status: "in_transit" | "pending_investigation" | "received" | "excess_held";
+  stockItemId: string;
+  tenantId: string;
+  toLocationId: string;
   transferReferenceId: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  unitCost: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  unresolvedQuantity: string;
+  updatedAt: string;
+})[];
+
+export type InventoryController_dispatchTransferLinesBody = DispatchTransferLinesDto;
+
+/** `POST /inventory/transfers/receive` — Record physical receipt; discrepancies remain unavailable pending investigation and approval. — The received transfer. */
+export type InventoryController_receiveResponse = {
+  adjustmentMovementId: string | null;
+  adjustmentMovements: ({
+    batchId: string | null;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    totalCost: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitCost: string;
+  })[];
+  approvalHistory: ({
+    approvalRequestId: string;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    decision: "approved" | "rejected" | null | null;
+    decisionComment: string | null;
+    expiresAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    status: "pending" | "approved" | "rejected" | "expired" | "escalated";
+  })[];
+  approvalRequestId: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  availableQuantity: string;
+  batchProvenance: ({
+    batchNumber: string | null;
+    destinationBatchId: string | null;
+    expiryDate: string | null;
+    productionDate: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sourceBatchId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    sourceUnitCost: string;
+  })[] | null;
+  createdAt: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  discrepancy: string;
+  discrepancyEvidence: string | null;
+  discrepancyReasonCodeId: string | null;
+  dispatchGroupId: string | null;
+  dispatchMovementId: string;
+  dispatchOccurredAt: string;
+  dispatchedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessHeldQuantity: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessReturnedQuantity: string;
+  excessReturns: ({
+    createdAt: string;
+    evidence: string;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    reasonCodeId: string;
+    returnToLocationId: string;
+    returnedAt: string;
+    returnedBy: string;
+  })[];
+  fromLocationId: string;
+  id: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  inTransit: string;
+  lotCounts: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    sourceBatchId: string;
+  })[] | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyHeld: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyReceived: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityDispatched: string;
+  receipts: ({
+    createdAt: string;
+    evidence: string | null;
+    id: string;
+    isFinal: boolean;
+    isRecount: boolean;
+    lotCounts: ({
+      /** Decimal quantity as a string (preserves exact precision). */
+      receivedQuantity: string;
+      sourceBatchId: string;
+    })[] | null;
+    receivedBy: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    recountedQuantity: string | null;
+    transferId: string;
+  })[];
+  receiveMovementId: string | null;
+  receiveOccurredAt: string | null;
+  receivedBy: string | null;
+  status: "in_transit" | "pending_investigation" | "received" | "excess_held";
+  stockItemId: string;
+  tenantId: string;
+  toLocationId: string;
+  transferReferenceId: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  unitCost: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  unresolvedQuantity: string;
+  updatedAt: string;
 };
 
 export type InventoryController_receiveBody = ReceiveTransferDto;
+
+/** `GET /inventory/transfers/{transferId}` — Tenant-scoped transfer detail, custody and approval history. */
+export type InventoryController_readTransferResponse = {
+  adjustmentMovementId: string | null;
+  adjustmentMovements: ({
+    batchId: string | null;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    totalCost: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitCost: string;
+  })[];
+  approvalHistory: ({
+    approvalRequestId: string;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    decision: "approved" | "rejected" | null | null;
+    decisionComment: string | null;
+    expiresAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    status: "pending" | "approved" | "rejected" | "expired" | "escalated";
+  })[];
+  approvalRequestId: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  availableQuantity: string;
+  batchProvenance: ({
+    batchNumber: string | null;
+    destinationBatchId: string | null;
+    expiryDate: string | null;
+    productionDate: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sourceBatchId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    sourceUnitCost: string;
+  })[] | null;
+  createdAt: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  discrepancy: string;
+  discrepancyEvidence: string | null;
+  discrepancyReasonCodeId: string | null;
+  dispatchGroupId: string | null;
+  dispatchMovementId: string;
+  dispatchOccurredAt: string;
+  dispatchedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessHeldQuantity: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessReturnedQuantity: string;
+  excessReturns: ({
+    createdAt: string;
+    evidence: string;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    reasonCodeId: string;
+    returnToLocationId: string;
+    returnedAt: string;
+    returnedBy: string;
+  })[];
+  fromLocationId: string;
+  id: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  inTransit: string;
+  lotCounts: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    sourceBatchId: string;
+  })[] | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyHeld: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyReceived: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityDispatched: string;
+  receipts: ({
+    createdAt: string;
+    evidence: string | null;
+    id: string;
+    isFinal: boolean;
+    isRecount: boolean;
+    lotCounts: ({
+      /** Decimal quantity as a string (preserves exact precision). */
+      receivedQuantity: string;
+      sourceBatchId: string;
+    })[] | null;
+    receivedBy: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    recountedQuantity: string | null;
+    transferId: string;
+  })[];
+  receiveMovementId: string | null;
+  receiveOccurredAt: string | null;
+  receivedBy: string | null;
+  status: "in_transit" | "pending_investigation" | "received" | "excess_held";
+  stockItemId: string;
+  tenantId: string;
+  toLocationId: string;
+  transferReferenceId: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  unitCost: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  unresolvedQuantity: string;
+  updatedAt: string;
+};
+
+/** `POST /inventory/transfers/{transferId}/excess-returns` — Append-only physical excess return. No inventory movement or automatic source credit is posted. */
+export type InventoryController_returnTransferExcessResponse = {
+  adjustmentMovementId: string | null;
+  adjustmentMovements: ({
+    batchId: string | null;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    totalCost: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitCost: string;
+  })[];
+  approvalHistory: ({
+    approvalRequestId: string;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    decision: "approved" | "rejected" | null | null;
+    decisionComment: string | null;
+    expiresAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    status: "pending" | "approved" | "rejected" | "expired" | "escalated";
+  })[];
+  approvalRequestId: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  availableQuantity: string;
+  batchProvenance: ({
+    batchNumber: string | null;
+    destinationBatchId: string | null;
+    expiryDate: string | null;
+    productionDate: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sourceBatchId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    sourceUnitCost: string;
+  })[] | null;
+  createdAt: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  discrepancy: string;
+  discrepancyEvidence: string | null;
+  discrepancyReasonCodeId: string | null;
+  dispatchGroupId: string | null;
+  dispatchMovementId: string;
+  dispatchOccurredAt: string;
+  dispatchedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessHeldQuantity: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessReturnedQuantity: string;
+  excessReturns: ({
+    createdAt: string;
+    evidence: string;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    reasonCodeId: string;
+    returnToLocationId: string;
+    returnedAt: string;
+    returnedBy: string;
+  })[];
+  fromLocationId: string;
+  id: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  inTransit: string;
+  lotCounts: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    sourceBatchId: string;
+  })[] | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyHeld: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyReceived: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityDispatched: string;
+  receipts: ({
+    createdAt: string;
+    evidence: string | null;
+    id: string;
+    isFinal: boolean;
+    isRecount: boolean;
+    lotCounts: ({
+      /** Decimal quantity as a string (preserves exact precision). */
+      receivedQuantity: string;
+      sourceBatchId: string;
+    })[] | null;
+    receivedBy: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    recountedQuantity: string | null;
+    transferId: string;
+  })[];
+  receiveMovementId: string | null;
+  receiveOccurredAt: string | null;
+  receivedBy: string | null;
+  status: "in_transit" | "pending_investigation" | "received" | "excess_held";
+  stockItemId: string;
+  tenantId: string;
+  toLocationId: string;
+  transferReferenceId: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  unitCost: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  unresolvedQuantity: string;
+  updatedAt: string;
+};
+
+export type InventoryController_returnTransferExcessBody = ReturnTransferExcessDto;
+
+/** `POST /inventory/transfers/{transferId}/investigate` — A rejected discrepancy is resubmitted with new evidence for manager approval. */
+export type InventoryController_investigateTransferResponse = {
+  adjustmentMovementId: string | null;
+  adjustmentMovements: ({
+    batchId: string | null;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    totalCost: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    unitCost: string;
+  })[];
+  approvalHistory: ({
+    approvalRequestId: string;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    decision: "approved" | "rejected" | null | null;
+    decisionComment: string | null;
+    expiresAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    status: "pending" | "approved" | "rejected" | "expired" | "escalated";
+  })[];
+  approvalRequestId: string | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  availableQuantity: string;
+  batchProvenance: ({
+    batchNumber: string | null;
+    destinationBatchId: string | null;
+    expiryDate: string | null;
+    productionDate: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    sourceBatchId: string;
+    /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+    sourceUnitCost: string;
+  })[] | null;
+  createdAt: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  discrepancy: string;
+  discrepancyEvidence: string | null;
+  discrepancyReasonCodeId: string | null;
+  dispatchGroupId: string | null;
+  dispatchMovementId: string;
+  dispatchOccurredAt: string;
+  dispatchedBy: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessHeldQuantity: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  excessReturnedQuantity: string;
+  excessReturns: ({
+    createdAt: string;
+    evidence: string;
+    id: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    quantity: string;
+    reasonCodeId: string;
+    returnToLocationId: string;
+    returnedAt: string;
+    returnedBy: string;
+  })[];
+  fromLocationId: string;
+  id: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  inTransit: string;
+  lotCounts: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    sourceBatchId: string;
+  })[] | null;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyHeld: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  physicallyReceived: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  quantityDispatched: string;
+  receipts: ({
+    createdAt: string;
+    evidence: string | null;
+    id: string;
+    isFinal: boolean;
+    isRecount: boolean;
+    lotCounts: ({
+      /** Decimal quantity as a string (preserves exact precision). */
+      receivedQuantity: string;
+      sourceBatchId: string;
+    })[] | null;
+    receivedBy: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    recountedQuantity: string | null;
+    transferId: string;
+  })[];
+  receiveMovementId: string | null;
+  receiveOccurredAt: string | null;
+  receivedBy: string | null;
+  status: "in_transit" | "pending_investigation" | "received" | "excess_held";
+  stockItemId: string;
+  tenantId: string;
+  toLocationId: string;
+  transferReferenceId: string;
+  /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
+  unitCost: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  unresolvedQuantity: string;
+  updatedAt: string;
+};
+
+export type InventoryController_investigateTransferBody = InvestigateTransferDto;
 
 /** `GET /inventory/uoms` — List the unit-of-measure catalogue (FR-INV-001). — Every unit of measure known to the platform. */
 export type InventoryController_listUomsResponse = ({
@@ -6660,6 +7867,143 @@ export type ProcurementController_comparativePricingResponse = ({
   volumeTiers: (Record<string, unknown>)[] | null;
 })[];
 
+/** `GET /procurement/goods-receipts` */
+export type GoodsReceiptsController_listResponse = ({
+  currency: string;
+  id: string;
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedQuantity: string;
+    batchId: string | null;
+    batchNumber: string | null;
+    expiryDate: string | null;
+    id: string;
+    movementId: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedQuantity: string;
+    productionDate: string | null;
+    purchaseOrderLineId: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    purchaseUnitConversionFactor: string;
+    purchaseUnitId: string;
+    purchaseUnitLabel: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    rejectedQuantity: string;
+    rejectionReason: string | null;
+    stockItemId: string;
+    unitCostMinor: string;
+    unitPrice: string;
+  })[];
+  locationId: string;
+  purchaseOrderId: string | null;
+  purchaseOrderReference: string | null;
+  receivedAt: string;
+  receivedBy: string;
+  reference: string;
+  status: "posted";
+  supplierId: string;
+  supplierName: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  temperatureC: string | null;
+  temperatureOk: boolean;
+})[];
+
+/** `POST /procurement/goods-receipts` */
+export type GoodsReceiptsController_postResponse = {
+  currency: string;
+  id: string;
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedQuantity: string;
+    batchId: string | null;
+    batchNumber: string | null;
+    expiryDate: string | null;
+    id: string;
+    movementId: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedQuantity: string;
+    productionDate: string | null;
+    purchaseOrderLineId: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    purchaseUnitConversionFactor: string;
+    purchaseUnitId: string;
+    purchaseUnitLabel: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    rejectedQuantity: string;
+    rejectionReason: string | null;
+    stockItemId: string;
+    unitCostMinor: string;
+    unitPrice: string;
+  })[];
+  locationId: string;
+  purchaseOrderId: string | null;
+  purchaseOrderReference: string | null;
+  receivedAt: string;
+  receivedBy: string;
+  reference: string;
+  status: "posted";
+  supplierId: string;
+  supplierName: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  temperatureC: string | null;
+  temperatureOk: boolean;
+};
+
+export type GoodsReceiptsController_postBody = CreateGoodsReceiptDto;
+
+/** `GET /procurement/goods-receipts/{id}` */
+export type GoodsReceiptsController_getResponse = {
+  currency: string;
+  id: string;
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedQuantity: string;
+    batchId: string | null;
+    batchNumber: string | null;
+    expiryDate: string | null;
+    id: string;
+    movementId: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedQuantity: string;
+    productionDate: string | null;
+    purchaseOrderLineId: string | null;
+    /** Decimal quantity as a string (preserves exact precision). */
+    purchaseUnitConversionFactor: string;
+    purchaseUnitId: string;
+    purchaseUnitLabel: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    receivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    rejectedQuantity: string;
+    rejectionReason: string | null;
+    stockItemId: string;
+    unitCostMinor: string;
+    unitPrice: string;
+  })[];
+  locationId: string;
+  purchaseOrderId: string | null;
+  purchaseOrderReference: string | null;
+  receivedAt: string;
+  receivedBy: string;
+  reference: string;
+  status: "posted";
+  supplierId: string;
+  supplierName: string;
+  /** Decimal quantity as a string (preserves exact precision). */
+  temperatureC: string | null;
+  temperatureOk: boolean;
+};
+
 /** `GET /procurement/purchase-orders` */
 export type PurchaseOrdersController_listResponse = ({
   approvalBand: "auto" | "tier_1" | "tier_2" | "tier_3" | null | null;
@@ -6671,7 +8015,14 @@ export type PurchaseOrdersController_listResponse = ({
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -6693,7 +8044,14 @@ export type PurchaseOrdersController_createResponse = {
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -6717,7 +8075,14 @@ export type PurchaseOrdersController_getByIdResponse = {
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -6739,7 +8104,14 @@ export type PurchaseOrdersController_updateResponse = {
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -6763,7 +8135,14 @@ export type PurchaseOrdersController_amendResponse = {
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -6790,7 +8169,14 @@ export type PurchaseOrdersController_approveResponse = {
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -6814,7 +8200,14 @@ export type PurchaseOrdersController_rejectResponse = {
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -6838,7 +8231,14 @@ export type PurchaseOrdersController_submitResponse = {
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
   grandTotal: string;
   id: string;
-  lines: (Record<string, unknown>)[];
+  lines: ({
+    /** Decimal quantity as a string (preserves exact precision). */
+    acceptedBaseReceivedQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    orderedBaseQuantity: string;
+    /** Decimal quantity as a string (preserves exact precision). */
+    remainingBaseQuantity: string;
+  })[];
   requestedBy: string;
   status: "draft" | "pending_approval" | "approved" | "rejected";
   /** Minor-unit money amount as a decimal string (never a JSON number, to avoid IEEE-754 precision loss). */
@@ -8632,6 +10032,13 @@ export const ROUTES = {
   CatalogueController_getPosMenu: { method: "GET", path: "/catalogue/pos-menu" },
   CatalogueController_updateVariantPrice: { method: "PATCH", path: "/catalogue/variants/{variantId}/price" },
   CatalogueController_setVariantActive: { method: "POST", path: "/catalogue/variants/{variantId}/status" },
+  FiscalController_list: { method: "GET", path: "/fiscal/branches/{branchId}/documents" },
+  FiscalController_configurationReadiness: { method: "GET", path: "/fiscal/branches/{branchId}/documents/readiness" },
+  FiscalController_registerConfiguration: { method: "POST", path: "/fiscal/branches/{branchId}/documents/readiness/configurations" },
+  FiscalController_detail: { method: "GET", path: "/fiscal/branches/{branchId}/documents/{id}" },
+  FiscalController_eligibility: { method: "GET", path: "/fiscal/branches/{branchId}/documents/{id}/eligibility" },
+  FiscalController_prepareCandidate: { method: "POST", path: "/fiscal/branches/{branchId}/documents/{id}/prepare" },
+  FiscalController_reevaluate: { method: "POST", path: "/fiscal/branches/{branchId}/documents/{id}/reevaluate" },
   AuditQueryController_search: { method: "GET", path: "/governance/audit/entries" },
   AuditQueryController_exportEntries: { method: "GET", path: "/governance/audit/entries/export" },
   HealthController_check: { method: "GET", path: "/health" },
@@ -8640,6 +10047,7 @@ export const ROUTES = {
   InventoryApprovalsController_reject: { method: "POST", path: "/inventory/approvals/{approvalRequestId}/reject" },
   InventoryController_listCategories: { method: "GET", path: "/inventory/categories" },
   InventoryController_createCategory: { method: "POST", path: "/inventory/categories" },
+  InventoryController_setCategoryExpiryHorizons: { method: "POST", path: "/inventory/categories/{categoryId}/expiry-horizons" },
   InventoryController_recordCount: { method: "POST", path: "/inventory/count-lines/{lineId}" },
   InventoryController_recordRecount: { method: "POST", path: "/inventory/count-lines/{lineId}/recount" },
   InventoryController_recordVarianceExplanation: { method: "POST", path: "/inventory/count-lines/{lineId}/variance-explanation" },
@@ -8649,10 +10057,14 @@ export const ROUTES = {
   InventoryController_countLines: { method: "GET", path: "/inventory/counts/{sessionId}/lines" },
   InventoryController_postCount: { method: "POST", path: "/inventory/counts/{sessionId}/post" },
   InventoryController_expiring: { method: "GET", path: "/inventory/expiring" },
+  InventoryController_expiryWorklist: { method: "GET", path: "/inventory/expiry-worklist" },
   InventoryController_listItems: { method: "GET", path: "/inventory/items" },
   InventoryController_createItem: { method: "POST", path: "/inventory/items" },
   InventoryController_getItem: { method: "GET", path: "/inventory/items/{itemId}" },
+  InventoryController_setItemAllergens: { method: "PATCH", path: "/inventory/items/{itemId}/allergens" },
   InventoryController_changeBaseUnit: { method: "POST", path: "/inventory/items/{itemId}/base-unit" },
+  InventoryController_updateItemClassification: { method: "PATCH", path: "/inventory/items/{itemId}/classification" },
+  InventoryController_setItemDensity: { method: "PATCH", path: "/inventory/items/{itemId}/density" },
   InventoryController_listMovements: { method: "GET", path: "/inventory/items/{itemId}/movements" },
   InventoryController_listPurchaseUnits: { method: "GET", path: "/inventory/items/{itemId}/purchase-units" },
   InventoryController_createPurchaseUnit: { method: "POST", path: "/inventory/items/{itemId}/purchase-units" },
@@ -8662,6 +10074,7 @@ export const ROUTES = {
   InventoryController_setStorageAreaAssignment: { method: "POST", path: "/inventory/items/{itemId}/storage-area" },
   InventoryController_levels: { method: "GET", path: "/inventory/levels" },
   InventoryController_lowStock: { method: "GET", path: "/inventory/low-stock" },
+  InventoryController_monitoringStatus: { method: "GET", path: "/inventory/monitoring" },
   InventoryController_postMovement: { method: "POST", path: "/inventory/movements" },
   InventoryController_negativeStock: { method: "GET", path: "/inventory/negative-stock" },
   InventoryController_listReasonCodes: { method: "GET", path: "/inventory/reason-codes" },
@@ -8669,8 +10082,13 @@ export const ROUTES = {
   InventoryController_reconcile: { method: "GET", path: "/inventory/reconciliation" },
   InventoryController_listStorageAreas: { method: "GET", path: "/inventory/storage-areas" },
   InventoryController_createStorageArea: { method: "POST", path: "/inventory/storage-areas" },
+  InventoryController_listTransfers: { method: "GET", path: "/inventory/transfers" },
   InventoryController_dispatch: { method: "POST", path: "/inventory/transfers" },
+  InventoryController_dispatchTransferLines: { method: "POST", path: "/inventory/transfers/dispatch-lines" },
   InventoryController_receive: { method: "POST", path: "/inventory/transfers/receive" },
+  InventoryController_readTransfer: { method: "GET", path: "/inventory/transfers/{transferId}" },
+  InventoryController_returnTransferExcess: { method: "POST", path: "/inventory/transfers/{transferId}/excess-returns" },
+  InventoryController_investigateTransfer: { method: "POST", path: "/inventory/transfers/{transferId}/investigate" },
   InventoryController_listUoms: { method: "GET", path: "/inventory/uoms" },
   InventoryController_valuation: { method: "GET", path: "/inventory/valuation" },
   InventoryController_listWaste: { method: "GET", path: "/inventory/waste" },
@@ -8758,6 +10176,9 @@ export const ROUTES = {
   PlatformSettingsController_upsertTerminal: { method: "PUT", path: "/platform/settings/terminal/{terminalId}/{settingKey}" },
   PlatformSettingsController_unsetTerminal: { method: "DELETE", path: "/platform/settings/terminal/{terminalId}/{settingKey}" },
   ProcurementController_comparativePricing: { method: "GET", path: "/procurement/comparative-pricing" },
+  GoodsReceiptsController_list: { method: "GET", path: "/procurement/goods-receipts" },
+  GoodsReceiptsController_post: { method: "POST", path: "/procurement/goods-receipts" },
+  GoodsReceiptsController_get: { method: "GET", path: "/procurement/goods-receipts/{id}" },
   PurchaseOrdersController_list: { method: "GET", path: "/procurement/purchase-orders" },
   PurchaseOrdersController_create: { method: "POST", path: "/procurement/purchase-orders" },
   PurchaseOrdersController_getById: { method: "GET", path: "/procurement/purchase-orders/{id}" },

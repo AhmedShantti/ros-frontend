@@ -37,10 +37,31 @@ import {
   Field,
   Input,
   Select,
+  Textarea,
   Toast,
+  Toggle,
 } from "@/components/console/ui";
 import { RecordDrawer } from "@/components/console/record-drawer";
 import { useAction } from "@/lib/console/actions";
+
+function isValidOptionalDensity(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed === "" || (/^\d{1,10}(\.\d{1,10})?$/.test(trimmed) && /[1-9]/.test(trimmed));
+}
+
+function parseAllergenLabels(value: string): string[] {
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of value.split("\n")) {
+    const label = raw.trim();
+    if (!label) continue;
+    const key = label.toLocaleLowerCase("en");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    labels.push(label);
+  }
+  return labels;
+}
 
 export default function StockItemsPage() {
   return (
@@ -254,6 +275,7 @@ export function StockItemsScreen() {
         categoryNameById={categoryNameById}
         onClose={() => setSelected(null)}
         onMessage={setMessage}
+        onUpdated={() => void collection.reload()}
       />
       <RecordDrawer
         open={creating}
@@ -301,6 +323,40 @@ export function StockItemsScreen() {
             required: true,
             visibleWhen: (all) => all.costingMethod === "standard",
           },
+          {
+            name: "densityGramsPerMillilitre",
+            label: t("inv.density"),
+            kind: "text",
+            hint: t("inv.densityHint"),
+            validate: (value) =>
+              isValidOptionalDensity(value) ? null : t("inv.densityInvalid"),
+          },
+          {
+            name: "isDirectlySellable",
+            label: t("inv.directlySellable"),
+            kind: "toggle",
+            hint: t("inv.directlySellableHint"),
+          },
+          {
+            name: "isProducedItem",
+            label: t("inv.producedItem"),
+            kind: "toggle",
+            hint: t("inv.producedItemHint"),
+          },
+          {
+            name: "accountingExportAccountCode",
+            label: t("inv.accountingExportAccountCode"),
+            kind: "text",
+            maxLength: 32,
+            ltr: true,
+            hint: t("inv.accountingExportAccountCodeHint"),
+          },
+          {
+            name: "allergens",
+            label: t("inv.allergens"),
+            kind: "textarea",
+            hint: t("inv.allergensHint"),
+          },
         ]}
         onClose={() => setCreating(false)}
         onSubmit={(values) =>
@@ -310,6 +366,12 @@ export function StockItemsScreen() {
             baseUnitId: values.baseUnitId,
             categoryId: values.categoryId ? values.categoryId : null,
             costingMethod: values.costingMethod as never,
+            densityGramsPerMillilitre: values.densityGramsPerMillilitre?.trim() || undefined,
+            isDirectlySellable: values.isDirectlySellable === "true",
+            isProducedItem: values.isProducedItem === "true",
+            accountingExportAccountCode:
+              values.accountingExportAccountCode.trim() || null,
+            allergens: parseAllergenLabels(values.allergens),
             // Only sent for standard costing — switching away from Standard
             // never carries a stale cost into the request. `standardCost` is
             // the money field's own minor-unit integer string, passed
@@ -428,11 +490,13 @@ function ItemDrawer({
   categoryNameById,
   onClose,
   onMessage,
+  onUpdated,
 }: {
   item: StockItem | null;
   categoryNameById: Map<string, string>;
   onClose: () => void;
   onMessage: (message: string) => void;
+  onUpdated: () => void;
 }) {
   const { t, tx, fmt } = useI18n();
   if (!item) return null;
@@ -510,24 +574,212 @@ function ItemDrawer({
           </DescRow>
         </DescList>
 
+        <DensityEditor key={item.id} item={item} onMessage={onMessage} />
+
+        <StockItemClassificationEditor
+          key={`${item.id}-classification`}
+          item={item}
+          onMessage={onMessage}
+          onUpdated={onUpdated}
+        />
+
         <PurchaseUnitsSection item={item} onMessage={onMessage} />
 
-        {item.allergens.length > 0 ? (
-          <section>
-            <h3 className="text-fg mb-2 text-sm font-semibold">{t("menu.allergens")}</h3>
-            <div className="flex flex-wrap gap-1.5">
-              {item.allergens.map((allergen) => (
-                <Badge key={allergen} tone="warn">
-                  {allergen}
-                </Badge>
-              ))}
-            </div>
-          </section>
-        ) : null}
+        <StockItemAllergenEditor
+          key={`${item.id}-allergens`}
+          item={item}
+          onMessage={onMessage}
+          onUpdated={onUpdated}
+        />
 
         <Callout tone="muted">{t("inv.baseUnitNote")}</Callout>
       </div>
     </Drawer>
+  );
+}
+
+function StockItemAllergenEditor({
+  item,
+  onMessage,
+  onUpdated,
+}: {
+  item: StockItem;
+  onMessage: (message: string) => void;
+  onUpdated: () => void;
+}) {
+  const { t } = useI18n();
+  const session = useSession();
+  const canMutate = session.canAny(["inventory.adjust"]);
+  const action = useAction(onMessage);
+  const [allergens, setAllergens] = useState(item.allergens.join("\n"));
+
+  async function save() {
+    const values = parseAllergenLabels(allergens);
+    await action.run(() => services.inventory.setItemAllergens(item.id, values), {
+      onSuccess: (updated) => {
+        setAllergens(updated.allergens.join("\n"));
+        onUpdated();
+        onMessage(t("inv.allergensSaved"));
+      },
+    });
+  }
+
+  return (
+    <section className="space-y-2">
+      <Field label={t("inv.allergens")} hint={t("inv.allergensHint")}>
+        <Textarea
+          value={allergens}
+          rows={3}
+          disabled={!canMutate || action.pending}
+          aria-label={t("inv.allergens")}
+          onChange={(event) => setAllergens(event.target.value)}
+        />
+      </Field>
+      <p className="text-fg-subtle text-xs">{t("inv.allergensSafetyNote")}</p>
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      {canMutate ? (
+        <Button type="button" size="sm" loading={action.pending} onClick={() => void save()}>
+          {t("inv.saveAllergens")}
+        </Button>
+      ) : null}
+      {item.allergens.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5" aria-label={t("inv.allergensDeclared")}>
+          {item.allergens.map((allergen) => (
+            <Badge key={allergen} tone="warn">{allergen}</Badge>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function StockItemClassificationEditor({
+  item,
+  onMessage,
+  onUpdated,
+}: {
+  item: StockItem;
+  onMessage: (message: string) => void;
+  onUpdated: () => void;
+}) {
+  const { t } = useI18n();
+  const session = useSession();
+  const canMutate = session.canAny(["inventory.adjust"]);
+  const action = useAction(onMessage);
+  const [isDirectlySellable, setIsDirectlySellable] = useState(item.isDirectlySellable);
+  const [isProducedItem, setIsProducedItem] = useState(item.isProducedItem);
+  const [accountCode, setAccountCode] = useState(item.accountingExportAccountCode ?? "");
+
+  async function save() {
+    await action.run(
+      () =>
+        services.inventory.items.update(item.id, {
+          isDirectlySellable,
+          isProducedItem,
+          accountingExportAccountCode: accountCode.trim() || null,
+        }),
+      {
+        onSuccess: (updated) => {
+          setIsDirectlySellable(updated.isDirectlySellable);
+          setIsProducedItem(updated.isProducedItem);
+          setAccountCode(updated.accountingExportAccountCode ?? "");
+          onUpdated();
+          onMessage(t("inv.classificationSaved"));
+        },
+      },
+    );
+  }
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-fg text-sm font-semibold">{t("inv.stockItemClassification")}</h3>
+      <Toggle
+        checked={isDirectlySellable}
+        onChange={setIsDirectlySellable}
+        label={t("inv.directlySellable")}
+        hint={t("inv.directlySellableHint")}
+        disabled={!canMutate || action.pending}
+      />
+      <Toggle
+        checked={isProducedItem}
+        onChange={setIsProducedItem}
+        label={t("inv.producedItem")}
+        hint={t("inv.producedItemHint")}
+        disabled={!canMutate || action.pending}
+      />
+      <Field
+        label={t("inv.accountingExportAccountCode")}
+        hint={t("inv.accountingExportAccountCodeHint")}
+      >
+        <Input
+          value={accountCode}
+          maxLength={32}
+          dir="ltr"
+          aria-label={t("inv.accountingExportAccountCode")}
+          disabled={!canMutate || action.pending}
+          onChange={(event) => setAccountCode(event.target.value)}
+        />
+      </Field>
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      {canMutate ? (
+        <Button type="button" size="sm" loading={action.pending} onClick={() => void save()}>
+          {t("inv.saveClassification")}
+        </Button>
+      ) : null}
+    </section>
+  );
+}
+
+function DensityEditor({
+  item,
+  onMessage,
+}: {
+  item: StockItem;
+  onMessage: (message: string) => void;
+}) {
+  const { t } = useI18n();
+  const action = useAction(onMessage);
+  const [density, setDensity] = useState(item.densityGramsPerMillilitre ?? "");
+  const trimmed = density.trim();
+  const valid = isValidOptionalDensity(trimmed);
+
+  return (
+    <section className="space-y-2">
+      <Field
+        label={t("inv.density")}
+        hint={t("inv.densityHint")}
+        error={valid ? undefined : t("inv.densityInvalid")}
+      >
+        <Input
+          inputMode="decimal"
+          dir="ltr"
+          value={density}
+          disabled={action.pending}
+          onChange={(event) => setDensity(event.target.value)}
+          aria-label={t("inv.density")}
+        />
+      </Field>
+      {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+      <Button
+        type="button"
+        size="sm"
+        disabled={!valid || action.pending}
+        loading={action.pending}
+        onClick={() =>
+          void action.run(
+            () => services.inventory.setItemDensity(item.id, trimmed || null),
+            {
+              onSuccess: (updated) => {
+                setDensity(updated.densityGramsPerMillilitre ?? "");
+                onMessage(t("inv.densitySaved"));
+              },
+            },
+          )
+        }
+      >
+        {t("common.save")}
+      </Button>
+    </section>
   );
 }
 

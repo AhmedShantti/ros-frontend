@@ -23,10 +23,9 @@ import { AlertTriangle, Check, Thermometer, X } from "lucide-react";
 
 import type {
   GoodsReceipt,
-  GoodsReceiptLine,
   Id,
   PurchaseOrder,
-  Quantity,
+  PurchaseUnit,
   Requisition,
   StockItem,
   StockLocation,
@@ -38,7 +37,7 @@ import { services } from "@/lib/console/services";
 import { useAsync, useBranches } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
 import { useI18n, useSession } from "@/lib/console/providers";
-import { formatMoney, formatQuantity, money } from "@/lib/console/format";
+import { formatMoney, money } from "@/lib/console/format";
 import { EMPTY_LOCALISED, LocalisedField, MoneyInput, PercentInput, QuantityInput } from "@/components/console/fields";
 import {
   DocumentLineEditor,
@@ -704,21 +703,36 @@ interface ReceiptLineDraft {
   key: string;
   itemId: Id;
   itemName: { en: string; ar: string };
-  ordered: Quantity;
+  purchaseOrderLineId: Id | null;
+  purchaseUnitId: Id;
+  purchaseUnitLabel: string;
+  purchaseUnits: PurchaseUnit[];
+  ordered: { value: string; unit: string };
   received: string;
   rejected: string;
   rejectionReason: string;
   batchNumber: string;
+  productionDate: string;
   expiryDate: string;
   unitPrice: number;
   agreedPrice: number;
   batchTracked: boolean;
 }
 
-/** FR-PRC-033 — how far over the ordered quantity may be received untouched. */
-const OVER_RECEIPT_TOLERANCE = 0.02;
 /** FR-PRC-008 — price drift beyond this is flagged at the door. */
 const PRICE_VARIANCE_TOLERANCE = 2;
+
+function decimalMicros(value: string): bigint | null {
+  if (!/^\d{1,12}(\.\d{1,6})?$/.test(value)) return null;
+  const [whole, fraction = ""] = value.split(".");
+  return BigInt(whole!) * 1_000_000n + BigInt(fraction.padEnd(6, "0") || "0");
+}
+
+function microsDecimal(value: bigint): string {
+  const whole = value / 1_000_000n;
+  const fraction = (value % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
 
 export function ReceivingDrawer({
   open,
@@ -739,11 +753,7 @@ export function ReceivingDrawer({
     () =>
       services.purchasing.orders
         .list({ limit: 100 })
-        .then((page) =>
-          page.rows.filter((row) =>
-            ["approved", "sent", "partially_received"].includes(row.status),
-          ),
-        )
+        .then((page) => page.rows.filter((row) => row.status === "approved"))
         .catch(() => [] as PurchaseOrder[]),
     [open],
   );
@@ -783,11 +793,16 @@ export function ReceivingDrawer({
           key: `po_${index}`,
           itemId: line.itemId,
           itemName: line.itemName,
-          ordered: line.quantity,
-          received: line.quantity.value,
+          purchaseOrderLineId: line.id,
+          purchaseUnitId: line.purchaseUnitId ?? "",
+          purchaseUnitLabel: line.purchaseUnitLabel ?? line.quantity.unit,
+          purchaseUnits: [],
+          ordered: { ...line.quantity, value: microsDecimal((decimalMicros(line.quantity.value) ?? 0n) - (decimalMicros(line.receivedQuantity.value) ?? 0n)) },
+          received: microsDecimal((decimalMicros(line.quantity.value) ?? 0n) - (decimalMicros(line.receivedQuantity.value) ?? 0n)),
           rejected: "0",
           rejectionReason: "",
           batchNumber: "",
+          productionDate: "",
           expiryDate: "",
           unitPrice: line.unitPrice.amount,
           agreedPrice: line.unitPrice.amount,
@@ -812,20 +827,27 @@ export function ReceivingDrawer({
     );
   }
 
-  function addAdHocLine(itemId: Id) {
+  async function addAdHocLine(itemId: Id) {
     const item = itemsById.get(itemId);
     if (!item) return;
+    const purchaseUnits = await services.inventory.listPurchaseUnits(itemId);
+    const baseUnit = purchaseUnits.find((unit) => unit.id === item.baseUnitId);
     setLines((current) => [
       ...current,
       {
         key: `adhoc_${current.length}`,
         itemId,
         itemName: item.name,
+        purchaseOrderLineId: null,
+        purchaseUnitId: baseUnit?.id ?? item.baseUnitId ?? "",
+        purchaseUnitLabel: baseUnit?.name ?? item.baseUnit,
+        purchaseUnits,
         ordered: { value: "0", unit: item.baseUnit },
         received: "",
         rejected: "0",
         rejectionReason: "",
         batchNumber: "",
+        productionDate: "",
         expiryDate: "",
         unitPrice: item.unitCost?.amount ?? 0,
         agreedPrice: item.unitCost?.amount ?? 0,
@@ -841,14 +863,40 @@ export function ReceivingDrawer({
     if (lines.length === 0) list.push(t("pur.needReceiptLines"));
     if (needsTemperature && temperature === "") list.push(t("pur.needTemperature"));
     for (const line of lines) {
-      if (Number(line.rejected || 0) > 0 && !line.rejectionReason.trim()) {
+      if (!line.purchaseUnitId) {
+        list.push(t("inv.purchaseUnit"));
+        break;
+      }
+      const receivedMicros = decimalMicros(line.received);
+      if (receivedMicros === null || receivedMicros <= 0n) {
+        list.push(t("pur.invalidReceiptQuantity"));
+        break;
+      }
+      const rejectedMicros = decimalMicros(line.rejected || "0");
+      if (rejectedMicros === null || receivedMicros === null || rejectedMicros > receivedMicros) {
+        list.push(t("pur.invalidRejectedQuantity"));
+        break;
+      }
+      const remainingMicros = decimalMicros(line.ordered.value);
+      if (line.purchaseOrderLineId && remainingMicros !== null && receivedMicros > remainingMicros) {
+        list.push(t("pur.overReceipt"));
+        break;
+      }
+      if (rejectedMicros > 0n && !line.rejectionReason.trim()) {
         list.push(t("pur.needRejectionReason"));
         break;
       }
     }
     for (const line of lines) {
-      if (line.batchTracked && Number(line.received || 0) > 0 && !line.batchNumber.trim()) {
+      const receivedMicros = decimalMicros(line.received) ?? 0n;
+      const rejectedMicros = decimalMicros(line.rejected || "0") ?? 0n;
+      if (line.batchTracked && receivedMicros > rejectedMicros && !line.batchNumber.trim()) {
         list.push(t("pur.needBatch"));
+        break;
+      }
+      const item = itemsById.get(line.itemId);
+      if (item?.expiryTracked && receivedMicros > rejectedMicros && !line.expiryDate && !(line.productionDate && item.shelfLifeDays !== null)) {
+        list.push(t("pur.needExpiry"));
         break;
       }
     }
@@ -862,40 +910,26 @@ export function ReceivingDrawer({
 
   async function post() {
     if (problems.length > 0) return;
-    const supplier = suppliers.find((entry) => entry.id === supplierId);
-    const location = locations.find((entry) => entry.id === locationId);
-
-    const receiptLines: GoodsReceiptLine[] = lines.map((line, index) => ({
-      id: `grl_${index + 1}`,
-      itemId: line.itemId,
-      itemName: line.itemName,
-      ordered: line.ordered,
-      received: { value: line.received || "0", unit: line.ordered.unit },
-      rejected: { value: line.rejected || "0", unit: line.ordered.unit },
-      rejectionReason: line.rejectionReason.trim() || null,
-      batchNumber: line.batchNumber.trim() || null,
-      expiryDate: line.expiryDate || null,
-      unitPrice: money(line.unitPrice, CURRENCY),
-      priceVariancePercent:
-        line.agreedPrice > 0
-          ? ((line.unitPrice - line.agreedPrice) / line.agreedPrice) * 100
-          : 0,
-    }));
-
     await action.run(
       () =>
         services.purchasing.receipts.create({
-          purchaseOrderId: order?.id ?? null,
-          purchaseOrderRef: order?.reference ?? null,
+          ...(order ? { purchaseOrderId: order.id } : {}),
           supplierId,
-          supplierName: supplier?.tradingName,
           locationId,
-          locationName: location?.name,
-          status: "posted",
-          temperatureC: temperatureValue,
+          ...(temperatureValue === null ? {} : { temperatureC: String(temperatureValue) }),
           temperatureOk,
-          lines: receiptLines,
-          total: money(total, CURRENCY),
+          lines: lines.map((line) => ({
+            ...(line.purchaseOrderLineId ? { purchaseOrderLineId: line.purchaseOrderLineId } : {}),
+            stockItemId: line.itemId,
+            purchaseUnitId: line.purchaseUnitId,
+            receivedQuantity: line.received,
+            rejectedQuantity: line.rejected || "0",
+            unitPrice: String(line.unitPrice),
+            ...(line.batchNumber.trim() ? { batchNumber: line.batchNumber.trim() } : {}),
+            ...(line.productionDate ? { productionDate: line.productionDate } : {}),
+            ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
+            ...(line.rejectionReason.trim() ? { rejectionReason: line.rejectionReason.trim() } : {}),
+          })),
         }),
       { onSuccess: () => onSaved(t("pur.receiptPosted")) },
     );
@@ -1014,8 +1048,9 @@ export function ReceivingDrawer({
               {lines.map((line) => {
                 const received = Number(line.received || 0);
                 const ordered = Number(line.ordered.value || 0);
-                const overReceipt =
-                  ordered > 0 && received > ordered * (1 + OVER_RECEIPT_TOLERANCE);
+                const enteredMicros = decimalMicros(line.received);
+                const remainingMicros = decimalMicros(line.ordered.value);
+                const overReceipt = remainingMicros !== null && remainingMicros > 0n && enteredMicros !== null && enteredMicros > remainingMicros;
                 const variance =
                   line.agreedPrice > 0
                     ? ((line.unitPrice - line.agreedPrice) / line.agreedPrice) * 100
@@ -1026,12 +1061,28 @@ export function ReceivingDrawer({
                   <li key={line.key} className="border-line rounded-lg border p-3">
                     <p className="text-fg mb-2 text-sm font-medium">{tx(line.itemName)}</p>
 
+                    {line.purchaseOrderLineId ? (
+                      <Field label={t("inv.purchaseUnit")}>
+                        <Input readOnly value={line.purchaseUnitLabel} />
+                      </Field>
+                    ) : (
+                      <Field label={t("inv.purchaseUnit")} required>
+                        <Select value={line.purchaseUnitId} onChange={(event) => {
+                          const unit = line.purchaseUnits.find((candidate) => candidate.id === event.target.value);
+                          patchLine(line.key, { purchaseUnitId: event.target.value, purchaseUnitLabel: unit?.name ?? "" });
+                        }}>
+                          <option value="">—</option>
+                          {line.purchaseUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+                        </Select>
+                      </Field>
+                    )}
+
                     <div className="grid gap-3 sm:grid-cols-3">
                       <Field
                         label={t("pur.received")}
                         hint={
                           ordered > 0
-                            ? `${t("pur.ordered")} ${formatQuantity(line.ordered, fmt)}`
+                            ? `${t("pur.ordered")} ${line.ordered.value} ${line.purchaseUnitLabel || line.ordered.unit}`
                             : undefined
                         }
                         error={overReceipt ? t("pur.overReceipt") : undefined}
@@ -1082,7 +1133,7 @@ export function ReceivingDrawer({
                     ) : null}
 
                     {line.batchTracked ? (
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div className="mt-3 grid gap-3 sm:grid-cols-3">
                         <Field label={t("inv.batchNumber")} required>
                           <Input
                             dir="ltr"
@@ -1092,6 +1143,9 @@ export function ReceivingDrawer({
                             }
                             className="font-mono"
                           />
+                        </Field>
+                        <Field label={t("inv.productionDate")}>
+                          <Input type="date" dir="ltr" value={line.productionDate} onChange={(event) => patchLine(line.key, { productionDate: event.target.value })} />
                         </Field>
                         <Field label={t("inv.expiryDate")} hint={t("pur.expiryHint")}>
                           <Input

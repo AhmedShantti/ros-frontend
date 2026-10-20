@@ -916,11 +916,15 @@ export function toStockItem(row: WireStockItem, tenantId: Id, category: Localise
     costingMethod: row.costingMethod,
     batchTracked: row.isBatchTracked,
     expiryTracked: row.expiryTracked,
+    isDirectlySellable: row.isDirectlySellable,
+    isProducedItem: row.isProducedItem,
+    accountingExportAccountCode: row.accountingExportAccountCode,
     // gap: storageRequirements is an opaque blob and not returned on reads.
     storage: "ambient",
     shelfLifeDays: row.shelfLifeDays,
+    densityGramsPerMillilitre: row.densityGramsPerMillilitre,
     defaultSupplierId: null, // gap: purchasing is not implemented.
-    allergens: [],
+    allergens: row.allergens,
     // `standardCost` is already a minor-unit integer string on the wire —
     // `minorMoney`, not `money` (which reads a *decimal* string and would
     // scale an already-minor-unit "1234" up by another 100x).
@@ -947,7 +951,7 @@ function levelStatus(onHand: number, reorderPoint: number): StockLevel["status"]
 
 export function toStockLevel(row: WireLevel, context: LevelContext = {}): StockLevel {
   const onHand = numberOf(row.quantityOnHand);
-  const reorderPoint = context.reorderPoint ?? 0;
+  const reorderPoint = context.reorderPoint ?? numberOf(row.reorderPoint ?? "0");
   const unitCost = context.item?.unitCost ?? money(0);
 
   return {
@@ -960,7 +964,9 @@ export function toStockLevel(row: WireLevel, context: LevelContext = {}): StockL
     allocated: quantity(row.quantityReserved),
     onOrder: quantity("0"), // gap: purchasing is not implemented.
     reorderPoint,
-    reorderQuantity: context.reorderQuantity ?? 0,
+    reorderQuantity: context.reorderQuantity ?? numberOf(row.reorderQuantity ?? "0"),
+    minStock: row.minStock ?? null,
+    maxStock: row.maxStock ?? null,
     parLevel: 0,
     unitCost,
     value: { amount: Math.round(unitCost.amount * onHand), currency: unitCost.currency },
@@ -1208,6 +1214,7 @@ const INVENTORY_APPROVAL_KIND_LABEL: Record<WireInventoryApproval["kind"], Local
   stock_adjustment: { en: "Stock adjustment", ar: "تسوية مخزون" },
   count_adjustment: { en: "Count adjustment", ar: "تسوية جرد" },
   waste: { en: "Waste", ar: "هدر" },
+  transfer_discrepancy: { en: "Transfer discrepancy", ar: "فارق تحويل" },
 };
 
 const INVENTORY_APPROVAL_REASON: Record<WireInventoryApproval["kind"], Localised> = {
@@ -1222,6 +1229,10 @@ const INVENTORY_APPROVAL_REASON: Record<WireInventoryApproval["kind"], Localised
   waste: {
     en: "Above the branch's waste approval threshold.",
     ar: "أعلى من حد اعتماد الهدر للفرع.",
+  },
+  transfer_discrepancy: {
+    en: "Physical transfer quantity differs from the dispatched quantity; resolution requires an independent manager decision.",
+    ar: "تختلف الكمية الفعلية للتحويل عن الكمية المرسلة؛ ويتطلب الحل قرارًا مستقلًا من المدير.",
   },
 };
 

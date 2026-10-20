@@ -271,6 +271,10 @@ export const inventory = {
   createCategory: (body: S.CreateStockItemCategoryDto) =>
     http.post<S.InventoryController_createCategoryResponse>("/inventory/categories", { body }),
 
+  /** `POST /inventory/categories/{categoryId}/expiry-horizons` — Configured category horizons; uncategorized items default to 7,3,1. */
+  setCategoryExpiryHorizons: (categoryId: string, body: S.SetCategoryExpiryHorizonsDto) =>
+    http.post<S.InventoryController_setCategoryExpiryHorizonsResponse>("/inventory/categories/{categoryId}/expiry-horizons", { params: { categoryId }, body }),
+
   /** `POST /inventory/count-lines/{lineId}` — Record a counted quantity for one count line. — The updated count line. */
   recordCount: (lineId: string, body: S.RecordCountDto) =>
     http.post<S.InventoryController_recordCountResponse>("/inventory/count-lines/{lineId}", { params: { lineId }, body }),
@@ -307,6 +311,10 @@ export const inventory = {
   expiring: (options: { days?: string } = {}) =>
     http.get<S.InventoryController_expiringResponse>("/inventory/expiring", { query: { days: options.days } }),
 
+  /** `GET /inventory/expiry-worklist` — Category-horizon expiry worklist at location-local calendar date. Expired quantities are unavailable; actions require lot-safe contracts. */
+  expiryWorklist: () =>
+    http.get<S.InventoryController_expiryWorklistResponse>("/inventory/expiry-worklist"),
+
   /** `GET /inventory/items` — All stock items in the tenant. */
   listItems: () =>
     http.get<S.InventoryController_listItemsResponse>("/inventory/items"),
@@ -319,9 +327,21 @@ export const inventory = {
   getItem: (itemId: string) =>
     http.get<S.InventoryController_getItemResponse>("/inventory/items/{itemId}", { params: { itemId } }),
 
+  /** `PATCH /inventory/items/{itemId}/allergens` — Set or clear stock-item allergen declarations (FR-INV-001). — The updated stock item. */
+  setItemAllergens: (itemId: string, body: S.SetStockItemAllergensDto) =>
+    http.patch<S.InventoryController_setItemAllergensResponse>("/inventory/items/{itemId}/allergens", { params: { itemId }, body }),
+
   /** `POST /inventory/items/{itemId}/base-unit` — FR-INV-002: rejected once any movement exists. — The updated stock item. */
   changeBaseUnit: (itemId: string, body: S.ChangeBaseUnitDto) =>
     http.post<S.InventoryController_changeBaseUnitResponse>("/inventory/items/{itemId}/base-unit", { params: { itemId }, body }),
+
+  /** `PATCH /inventory/items/{itemId}/classification` — Update stock-item classification and export mapping (FR-INV-001). — The updated stock item. */
+  updateItemClassification: (itemId: string, body: S.UpdateStockItemClassificationDto) =>
+    http.patch<S.InventoryController_updateItemClassificationResponse>("/inventory/items/{itemId}/classification", { params: { itemId }, body }),
+
+  /** `PATCH /inventory/items/{itemId}/density` — Set or clear item density for mass↔volume conversion (FR-INV-004). — The updated stock item. */
+  setItemDensity: (itemId: string, body: S.SetStockItemDensityDto) =>
+    http.patch<S.InventoryController_setItemDensityResponse>("/inventory/items/{itemId}/density", { params: { itemId }, body }),
 
   /** `GET /inventory/items/{itemId}/movements` — Cost-bearing read — gated by inventory.cost.view, not inventory.view. — The most recent 200 ledger movements for this item, newest first. */
   listMovements: (itemId: string, options: { locationId?: string } = {}) =>
@@ -359,6 +379,10 @@ export const inventory = {
   lowStock: () =>
     http.get<S.InventoryController_lowStockResponse>("/inventory/low-stock"),
 
+  /** `GET /inventory/monitoring` — Inventory monitoring findings and durable job execution status. No human delivery exists. */
+  monitoringStatus: () =>
+    http.get<S.InventoryController_monitoringStatusResponse>("/inventory/monitoring"),
+
   /** `POST /inventory/movements` — Post a standalone movement (opening balance / manual adjustment) to the ledger. — The posted movement, or the pending approval it created. */
   postMovement: (body: S.PostMovementDto) =>
     http.post<S.InventoryController_postMovementResponse>("/inventory/movements", { body, idempotent: true }),
@@ -375,7 +399,7 @@ export const inventory = {
   createReasonCode: (body: S.CreateReasonCodeDto) =>
     http.post<S.InventoryController_createReasonCodeResponse>("/inventory/reason-codes", { body }),
 
-  /** `GET /inventory/reconciliation` — FR-INV-011/051 computation. Scheduling deferred (D-INV-08). — On-demand ledger-vs-projection reconciliation (FR-INV-011/051). Scheduling and alert delivery are deferred (D-INV-08). */
+  /** `GET /inventory/reconciliation` — FR-INV-011/051 computation. Scheduling deferred (D-INV-08). — On-demand reconciliation; daily job uses the opt-in scheduler. Human alert delivery remains unavailable. */
   reconcile: () =>
     http.get<S.InventoryController_reconcileResponse>("/inventory/reconciliation"),
 
@@ -387,13 +411,33 @@ export const inventory = {
   createStorageArea: (body: S.CreateStorageAreaDto) =>
     http.post<S.InventoryController_createStorageAreaResponse>("/inventory/storage-areas", { body }),
 
-  /** `POST /inventory/transfers` — Dispatch a transfer (writes the transfer_out leg). — The dispatched transfer. */
-  dispatch: (body: S.DispatchTransferDto) =>
-    http.post<S.InventoryController_dispatchResponse>("/inventory/transfers", { body }),
+  /** `GET /inventory/transfers` — Tenant-scoped transfer lifecycle, custody and approval history. */
+  listTransfers: (options: { locationId?: string } = {}) =>
+    http.get<S.InventoryController_listTransfersResponse>("/inventory/transfers", { query: { locationId: options.locationId } }),
 
-  /** `POST /inventory/transfers/receive` — Receive a dispatched transfer (writes the transfer_in leg, plus a discrepancy adjustment if the received quantity differs). — The received transfer. */
+  /** `POST /inventory/transfers` — Dispatch a transfer and create durable transfer history. — The dispatched transfer. */
+  dispatch: (body: S.DispatchTransferDto) =>
+    http.post<S.InventoryController_dispatchResponse>("/inventory/transfers", { body, idempotent: true }),
+
+  /** `POST /inventory/transfers/dispatch-lines` — Atomic dispatch of distinct item lines. Each line keeps its existing independent receipt/approval lifecycle; dispatchGroupId links the document. */
+  dispatchTransferLines: (body: S.DispatchTransferLinesDto) =>
+    http.post<S.InventoryController_dispatchTransferLinesResponse>("/inventory/transfers/dispatch-lines", { body, idempotent: true }),
+
+  /** `POST /inventory/transfers/receive` — Record physical receipt; discrepancies remain unavailable pending investigation and approval. — The received transfer. */
   receive: (body: S.ReceiveTransferDto) =>
-    http.post<S.InventoryController_receiveResponse>("/inventory/transfers/receive", { body }),
+    http.post<S.InventoryController_receiveResponse>("/inventory/transfers/receive", { body, idempotent: true }),
+
+  /** `GET /inventory/transfers/{transferId}` — Tenant-scoped transfer detail, custody and approval history. */
+  readTransfer: (transferId: string) =>
+    http.get<S.InventoryController_readTransferResponse>("/inventory/transfers/{transferId}", { params: { transferId } }),
+
+  /** `POST /inventory/transfers/{transferId}/excess-returns` — Append-only physical excess return. No inventory movement or automatic source credit is posted. */
+  returnTransferExcess: (transferId: string, body: S.ReturnTransferExcessDto) =>
+    http.post<S.InventoryController_returnTransferExcessResponse>("/inventory/transfers/{transferId}/excess-returns", { params: { transferId }, body, idempotent: true }),
+
+  /** `POST /inventory/transfers/{transferId}/investigate` — A rejected discrepancy is resubmitted with new evidence for manager approval. */
+  investigateTransfer: (transferId: string, body: S.InvestigateTransferDto) =>
+    http.post<S.InventoryController_investigateTransferResponse>("/inventory/transfers/{transferId}/investigate", { params: { transferId }, body }),
 
   /** `GET /inventory/uoms` — List the unit-of-measure catalogue (FR-INV-001). — Every unit of measure known to the platform. */
   listUoms: () =>
@@ -565,6 +609,41 @@ export const catalogue = {
   /** `POST /catalogue/variants/{variantId}/status` — Activate/deactivate a variant (C-09 explicit, audited lifecycle). — The updated variant. */
   setVariantActive: (variantId: string, body: S.SetActiveDto) =>
     http.post<S.CatalogueController_setVariantActiveResponse>("/catalogue/variants/{variantId}/status", { params: { variantId }, body }),
+
+};
+
+// ---------------------------------------------------------------------------
+// fiscal
+// ---------------------------------------------------------------------------
+
+export const fiscal = {
+  /** `GET /fiscal/branches/{branchId}/documents` */
+  list: (branchId: string, options: { limit?: number } = {}) =>
+    http.get<S.FiscalController_listResponse>("/fiscal/branches/{branchId}/documents", { params: { branchId }, query: { limit: options.limit } }),
+
+  /** `GET /fiscal/branches/{branchId}/documents/readiness` */
+  configurationReadiness: (branchId: string) =>
+    http.get<S.FiscalController_configurationReadinessResponse>("/fiscal/branches/{branchId}/documents/readiness", { params: { branchId } }),
+
+  /** `POST /fiscal/branches/{branchId}/documents/readiness/configurations` */
+  registerConfiguration: (branchId: string, body: S.FiscalRemediationBody) =>
+    http.post<S.FiscalController_registerConfigurationResponse>("/fiscal/branches/{branchId}/documents/readiness/configurations", { params: { branchId }, body }),
+
+  /** `GET /fiscal/branches/{branchId}/documents/{id}` */
+  detail: (branchId: string, id: string) =>
+    http.get<S.FiscalController_detailResponse>("/fiscal/branches/{branchId}/documents/{id}", { params: { branchId, id } }),
+
+  /** `GET /fiscal/branches/{branchId}/documents/{id}/eligibility` */
+  eligibility: (branchId: string, id: string) =>
+    http.get<S.FiscalController_eligibilityResponse>("/fiscal/branches/{branchId}/documents/{id}/eligibility", { params: { branchId, id } }),
+
+  /** `POST /fiscal/branches/{branchId}/documents/{id}/prepare` */
+  prepareCandidate: (branchId: string, id: string, body: S.FiscalCandidatePreparationBody) =>
+    http.post<S.FiscalController_prepareCandidateResponse>("/fiscal/branches/{branchId}/documents/{id}/prepare", { params: { branchId, id }, body }),
+
+  /** `POST /fiscal/branches/{branchId}/documents/{id}/reevaluate` */
+  reevaluate: (branchId: string, id: string, body: S.FiscalRemediationBody) =>
+    http.post<S.FiscalController_reevaluateResponse>("/fiscal/branches/{branchId}/documents/{id}/reevaluate", { params: { branchId, id }, body }),
 
 };
 
@@ -1054,6 +1133,18 @@ export const procurement = {
   comparativePricing: (options: { stockItemId?: string; at?: string; quantity?: string } = {}) =>
     http.get<S.ProcurementController_comparativePricingResponse>("/procurement/comparative-pricing", { query: { stockItemId: options.stockItemId, at: options.at, quantity: options.quantity } }),
 
+  /** `GET /procurement/goods-receipts` */
+  listGoodsReceipts: () =>
+    http.get<S.GoodsReceiptsController_listResponse>("/procurement/goods-receipts"),
+
+  /** `POST /procurement/goods-receipts` */
+  postGoodsReceipts: (body: S.CreateGoodsReceiptDto) =>
+    http.post<S.GoodsReceiptsController_postResponse>("/procurement/goods-receipts", { body, idempotent: true }),
+
+  /** `GET /procurement/goods-receipts/{id}` */
+  getGoodsReceipts: (id: string) =>
+    http.get<S.GoodsReceiptsController_getResponse>("/procurement/goods-receipts/{id}", { params: { id } }),
+
   /** `GET /procurement/purchase-orders` */
   listPurchaseOrders: (options: { status?: "draft" | "pending_approval" | "approved" | "rejected"; supplierId?: string } = {}) =>
     http.get<S.PurchaseOrdersController_listResponse>("/procurement/purchase-orders", { query: { status: options.status, supplierId: options.supplierId } }),
@@ -1296,4 +1387,4 @@ export const workforceSchedules = {
 };
 
 /** Every group, for the diagnostics screen and for `api.catalogue.listItems()` style calls. */
-export const api = { auth, rbac, password, tenants, terminals, treasury, inventory, catalogue, governance, health, kitchen, production, sales, organisation, platformSettings, procurement, reporting, sync, workforceAttendance, workforceEmployees, workforceSchedules };
+export const api = { auth, rbac, password, tenants, terminals, treasury, inventory, catalogue, fiscal, governance, health, kitchen, production, sales, organisation, platformSettings, procurement, reporting, sync, workforceAttendance, workforceEmployees, workforceSchedules };

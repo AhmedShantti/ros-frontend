@@ -45,6 +45,7 @@ vi.mock("@/lib/console/services", () => ({
   ServiceError: class ServiceError extends Error {},
   services: {
     inventory: {
+      monitoring: async () => ({ schedulerEnabled: false, delivery: "unavailable", findings: [], jobs: [] }),
       levels: {
         list: (...args: unknown[]) => levelsList(...args),
       },
@@ -90,6 +91,8 @@ const LEVEL_ROW = {
   onOrder: { value: "0", unit: "kg" },
   reorderPoint: 20,
   reorderQuantity: 50,
+  minStock: "5.125000",
+  maxStock: "240.500000",
   parLevel: 100,
   unitCost: { amount: 10, currency: "EGP" },
   value: { amount: 1200, currency: "EGP" },
@@ -287,5 +290,60 @@ describe("Stock levels — storage area assignment (FR-INV-040)", () => {
     await user.click(within(dialog).getByRole("button", { name: "inv.addStorageArea" }));
 
     expect(within(dialog).queryByLabelText(/^common\.location$/)).not.toBeInTheDocument();
+  });
+});
+
+describe("Stock levels — per-location minimum and maximum stock (FR-INV-001)", () => {
+  it("shows base-unit limits, saves exact decimals, and clears either limit independently", async () => {
+    const user = userEvent.setup();
+    render(<StockLevelsScreen />);
+    const dialog = await openDrawer(user);
+    const min = within(dialog).getByRole("textbox", { name: "inv.minStock" });
+    const max = within(dialog).getByRole("textbox", { name: "inv.maxStock" });
+
+    expect(min).toHaveValue("5.125000");
+    expect(max).toHaveValue("240.500000");
+    expect(within(dialog).getAllByText(/kg/).length).toBeGreaterThan(0);
+
+    await user.clear(min);
+    await user.type(min, "12.000001");
+    await user.clear(max);
+    await user.click(within(dialog).getByRole("button", { name: "common.save" }));
+
+    await waitFor(() =>
+      expect(setReorderConfig).toHaveBeenCalledWith("item-flour", {
+        locationId: LOCATION_A_ID,
+        reorderPoint: "20",
+        reorderQuantity: "50",
+        minStock: "12.000001",
+        maxStock: null,
+      }),
+    );
+  });
+
+  it.each(["-0.1", "1.1234567", "abc"])("blocks invalid limit precision/value %s", async (value) => {
+    const user = userEvent.setup();
+    render(<StockLevelsScreen />);
+    const dialog = await openDrawer(user);
+    const min = within(dialog).getByRole("textbox", { name: "inv.minStock" });
+    await user.clear(min);
+    await user.type(min, value);
+
+    expect(within(dialog).getByText("inv.stockLimitInvalid")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "common.save" })).toBeDisabled();
+  });
+
+  it("rejects minimum stock above maximum stock without floating-point comparison", async () => {
+    const user = userEvent.setup();
+    render(<StockLevelsScreen />);
+    const dialog = await openDrawer(user);
+    const min = within(dialog).getByRole("textbox", { name: "inv.minStock" });
+    const max = within(dialog).getByRole("textbox", { name: "inv.maxStock" });
+    await user.clear(min);
+    await user.type(min, "240.500001");
+
+    expect(within(dialog).getByText("inv.minStockAboveMax")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "common.save" })).toBeDisabled();
+    expect(max).toHaveValue("240.500000");
   });
 });

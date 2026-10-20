@@ -279,7 +279,7 @@ function OrderDrawer({
         key: "quantity",
         header: t("pur.ordered"),
         numeric: true,
-        render: (row) => formatQuantity(row.quantity, fmt),
+        render: (row) => `${row.quantity.value} ${row.purchaseUnitLabel ?? row.quantity.unit}`,
       },
       {
         key: "receivedQuantity",
@@ -290,7 +290,7 @@ function OrderDrawer({
           const received = Number(row.receivedQuantity.value);
           return (
             <span className="min-w-24 inline-block">
-              <span className="block">{formatQuantity(row.receivedQuantity, fmt)}</span>
+              <span className="block">{row.receivedQuantity.value} {row.purchaseUnitLabel ?? row.receivedQuantity.unit}</span>
               {ordered > 0 ? (
                 <Meter
                   className="mt-1"

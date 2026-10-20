@@ -22,6 +22,7 @@ import userEvent from "@testing-library/user-event";
 
 const itemsList = vi.fn();
 const itemsCreate = vi.fn();
+const itemsUpdate = vi.fn();
 const unitsOfMeasure = vi.fn();
 const categories = vi.fn();
 const createCategory = vi.fn();
@@ -29,6 +30,8 @@ const listPurchaseUnits = vi.fn();
 const createPurchaseUnit = vi.fn();
 const updatePurchaseUnit = vi.fn();
 const deletePurchaseUnit = vi.fn();
+const setItemDensity = vi.fn();
+const setItemAllergens = vi.fn();
 
 vi.mock("@/lib/console/services", () => ({
   ServiceError: class ServiceError extends Error {
@@ -45,6 +48,7 @@ vi.mock("@/lib/console/services", () => ({
       items: {
         list: (...args: unknown[]) => itemsList(...args),
         create: (...args: unknown[]) => itemsCreate(...args),
+        update: (...args: unknown[]) => itemsUpdate(...args),
       },
       unitsOfMeasure: (...args: unknown[]) => unitsOfMeasure(...args),
       categories: (...args: unknown[]) => categories(...args),
@@ -53,6 +57,8 @@ vi.mock("@/lib/console/services", () => ({
       createPurchaseUnit: (...args: unknown[]) => createPurchaseUnit(...args),
       updatePurchaseUnit: (...args: unknown[]) => updatePurchaseUnit(...args),
       deletePurchaseUnit: (...args: unknown[]) => deletePurchaseUnit(...args),
+      setItemDensity: (...args: unknown[]) => setItemDensity(...args),
+      setItemAllergens: (...args: unknown[]) => setItemAllergens(...args),
     },
   },
 }));
@@ -93,10 +99,13 @@ const ITEM_FLOUR = {
   costingMethod: "weighted_average",
   batchTracked: false,
   expiryTracked: false,
+  isDirectlySellable: true,
+  isProducedItem: false,
+  accountingExportAccountCode: "INV-500",
   storage: "ambient",
   shelfLifeDays: null,
   defaultSupplierId: null,
-  allergens: [],
+  allergens: ["Milk"],
   unitCost: { amount: 0, currency: "EGP" },
   active: true,
 };
@@ -112,9 +121,18 @@ beforeEach(() => {
   vi.clearAllMocks();
   granted = new Set(["inventory.view", "inventory.adjust"]);
   itemsList.mockResolvedValue({ rows: [ITEM_FLOUR], total: 1 });
+  itemsUpdate.mockImplementation(async (_id, patch) => ({ ...ITEM_FLOUR, ...patch }));
   unitsOfMeasure.mockResolvedValue([UOM_GRAM, UOM_KG]);
   categories.mockResolvedValue([]);
   listPurchaseUnits.mockResolvedValue([]);
+  setItemDensity.mockImplementation(async (_itemId, densityGramsPerMillilitre) => ({
+    ...ITEM_FLOUR,
+    densityGramsPerMillilitre,
+  }));
+  setItemAllergens.mockImplementation(async (_itemId, allergens) => ({
+    ...ITEM_FLOUR,
+    allergens,
+  }));
 });
 
 afterEach(() => {
@@ -158,6 +176,11 @@ describe("Stock items — base unit selection (FR-INV-001)", () => {
         expect.objectContaining({ baseUnitId: UOM_KG.id }),
       ),
     );
+    expect(itemsCreate.mock.calls[0]![0]).toMatchObject({
+      isDirectlySellable: false,
+      isProducedItem: false,
+      accountingExportAccountCode: null,
+    });
   });
 
   it("blocks stock item creation while no unit catalogue is available (empty)", async () => {
@@ -188,6 +211,176 @@ describe("Stock items — base unit selection (FR-INV-001)", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getAllByText("kg").length).toBeGreaterThan(0);
     expect(within(dialog).queryByRole("button", { name: /inv\.baseUnit/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("Stock items — classification and accounting export mapping (FR-INV-001)", () => {
+  it("creates both explicit classifications independently of the account mapping", async () => {
+    itemsCreate.mockResolvedValue({ ...ITEM_FLOUR, id: "item-new" });
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    await user.type(await screen.findByLabelText(/common\.name/), "Bottled water");
+    await user.type(screen.getByLabelText(/inv\.sku/), "WTR-001");
+    const unit = screen.getByLabelText(/inv\.baseUnit/);
+    await user.click(unit);
+    await user.click(screen.getByRole("option", { name: "Gram" }));
+    await user.click(screen.getByRole("switch", { name: "inv.directlySellable" }));
+    await user.click(screen.getByRole("switch", { name: "inv.producedItem" }));
+    await user.type(screen.getByLabelText(/inv\.accountingExportAccountCode/), "  REV-UNASSUMED  ");
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+
+    await waitFor(() =>
+      expect(itemsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          isDirectlySellable: true,
+          isProducedItem: true,
+          accountingExportAccountCode: "REV-UNASSUMED",
+        }),
+      ),
+    );
+    const [payload] = itemsCreate.mock.calls[0]!;
+    expect(payload).not.toHaveProperty("revenueAccountCode");
+  });
+
+  it("renders persisted values, toggles both flags, and clears the mapping on update", async () => {
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await user.click(await screen.findByText("Flour"));
+    const dialog = await screen.findByRole("dialog");
+    const heading = within(dialog).getByRole("heading", { name: "inv.stockItemClassification" });
+    const section = heading.closest("section")!;
+    const directlySellable = within(section).getByRole("switch", { name: "inv.directlySellable" });
+    const produced = within(section).getByRole("switch", { name: "inv.producedItem" });
+    const accountCode = within(section).getByRole("textbox", { name: "inv.accountingExportAccountCode" });
+
+    expect(directlySellable).toHaveAttribute("aria-checked", "true");
+    expect(produced).toHaveAttribute("aria-checked", "false");
+    expect(accountCode).toHaveValue("INV-500");
+    await user.click(directlySellable);
+    await user.click(produced);
+    await user.clear(accountCode);
+    await user.click(within(section).getByRole("button", { name: "inv.saveClassification" }));
+
+    await waitFor(() =>
+      expect(itemsUpdate).toHaveBeenCalledWith("item-flour", {
+        isDirectlySellable: false,
+        isProducedItem: true,
+        accountingExportAccountCode: null,
+      }),
+    );
+  });
+});
+
+describe("Stock item allergen declarations (FR-INV-001)", () => {
+  it("creates normalized allergen labels and shows the safety note", async () => {
+    itemsCreate.mockResolvedValue({ ...ITEM_FLOUR, id: "item-new" });
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+
+    await user.type(await screen.findByLabelText(/common\.name/), "Peanut sauce");
+    await user.type(screen.getByLabelText(/inv\.sku/), "PNT-001");
+    const unit = screen.getByLabelText(/inv\.baseUnit/);
+    await user.click(unit);
+    await user.click(screen.getByRole("option", { name: "Gram" }));
+    await user.type(screen.getByLabelText(/inv\.allergens/), "Peanut\n sesame \nPEANUT");
+    await user.click(screen.getByRole("button", { name: "common.create" }));
+
+    await waitFor(() =>
+      expect(itemsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ allergens: ["Peanut", "sesame"] }),
+      ),
+    );
+  });
+
+  it("loads existing declarations and supports replacement and clearing", async () => {
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await user.click(await screen.findByText("Flour"));
+    const dialog = await screen.findByRole("dialog");
+    const allergenInput = within(dialog).getByRole("textbox", { name: "inv.allergens" });
+    expect(allergenInput).toHaveValue("Milk");
+
+    await user.clear(allergenInput);
+    await user.type(allergenInput, "Egg\nFish");
+    await user.click(within(dialog).getByRole("button", { name: "inv.saveAllergens" }));
+    await waitFor(() => expect(setItemAllergens).toHaveBeenCalledWith("item-flour", ["Egg", "Fish"]));
+
+    await user.clear(allergenInput);
+    await user.click(within(dialog).getByRole("button", { name: "inv.saveAllergens" }));
+    await waitFor(() => expect(setItemAllergens).toHaveBeenLastCalledWith("item-flour", []));
+    expect(within(dialog).getByText("inv.allergensSafetyNote")).toBeInTheDocument();
+  });
+});
+
+describe("Stock item density editor (FR-INV-004)", () => {
+  it("saves the exact positive decimal string and permits clearing density", async () => {
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await user.click(await screen.findByText("Flour"));
+    const density = await screen.findByRole("textbox", { name: "inv.density" });
+    await user.clear(density);
+    await user.type(density, "0.8123456789");
+    await user.click(screen.getByRole("button", { name: "common.save" }));
+
+    await waitFor(() =>
+      expect(setItemDensity).toHaveBeenCalledWith("item-flour", "0.8123456789"),
+    );
+
+    await user.clear(density);
+    await user.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() => expect(setItemDensity).toHaveBeenLastCalledWith("item-flour", null));
+    expect(density).toHaveValue("");
+  });
+
+  it.each(["0", "-1", "malformed", "1.12345678901"])(
+    "disables save for invalid density %s",
+    async (value) => {
+      const user = userEvent.setup();
+      render(<StockItemsScreen />);
+      await user.click(await screen.findByText("Flour"));
+      const density = await screen.findByRole("textbox", { name: "inv.density" });
+      await user.type(density, value);
+      expect(await screen.findByText("inv.densityInvalid")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "common.save" })).toBeDisabled();
+    },
+  );
+
+  it("accepts the minimum supported positive precision in the edit form", async () => {
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await user.click(await screen.findByText("Flour"));
+    const density = await screen.findByRole("textbox", { name: "inv.density" });
+    await user.type(density, "0.0000000001");
+    expect(screen.queryByText("inv.densityInvalid")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "common.save" })).toBeEnabled();
+  });
+});
+
+describe("Stock item density create validation (FR-INV-004)", () => {
+  it.each(["0", "-1", "malformed", "1.12345678901"])(
+    "blocks creation for invalid density %s",
+    async (value) => {
+      const user = userEvent.setup();
+      render(<StockItemsScreen />);
+      await openNewItemDrawer(user);
+      await user.type(await screen.findByLabelText(/inv\.density/), value);
+      expect(await screen.findByText("inv.densityInvalid")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "common.create" }));
+      expect(itemsCreate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("accepts a valid Decimal(20,10) boundary value without changing its text", async () => {
+    const user = userEvent.setup();
+    render(<StockItemsScreen />);
+    await openNewItemDrawer(user);
+    const density = await screen.findByLabelText(/inv\.density/);
+    await user.type(density, "9999999999.9999999999");
+    expect(screen.queryByText("inv.densityInvalid")).not.toBeInTheDocument();
+    expect(density).toHaveValue("9999999999.9999999999");
   });
 });
 

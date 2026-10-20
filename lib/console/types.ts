@@ -627,6 +627,13 @@ export interface StockItem {
   expiryTracked: boolean;
   storage: StorageRequirement;
   shelfLifeDays: number | null;
+  /** FR-INV-004 — density in grams per millilitre; null means mass/volume conversion is unavailable. */
+  densityGramsPerMillilitre?: string | null;
+  /** FR-INV-001 — explicit item classification, independent of Menu/Production records. */
+  isDirectlySellable: boolean;
+  isProducedItem: boolean;
+  /** Future accounting export mapping; not a posting or revenue account field. */
+  accountingExportAccountCode: string | null;
   defaultSupplierId: Id | null;
   allergens: string[];
   unitCost: Money;
@@ -661,6 +668,9 @@ export interface StockLevel {
   onOrder: Quantity;
   reorderPoint: number;
   reorderQuantity: number;
+  /** Nullable base-UoM stock limits returned by the per-location configuration. */
+  minStock?: string | null;
+  maxStock?: string | null;
   parLevel: number;
   unitCost: Money;
   value: Money;
@@ -807,6 +817,8 @@ export type TransferStatus =
   | "in_transit"
   | "received"
   | "discrepancy"
+  | "pending_investigation"
+  | "excess_held"
   | "cancelled";
 
 export interface TransferLine {
@@ -817,8 +829,52 @@ export interface TransferLine {
   received: Quantity | null;
   discrepancy: number;
   unitCost: Money;
+  physicallyHeld?: Quantity;
+  inTransit?: Quantity;
+  available?: Quantity;
+  unresolved?: Quantity;
 }
 
+export interface TransferReceiptHistory {
+  lotCounts?: { sourceBatchId: Id; receivedQuantity: string }[];
+  id: Id;
+  received: Quantity;
+  isFinal: boolean;
+  isRecount: boolean;
+  recounted: Quantity | null;
+  evidence: string | null;
+  receivedBy: Id;
+  receivedAt: IsoDateTime;
+}
+
+export interface TransferApprovalHistory {
+  approvalRequestId: Id;
+  status: ApprovalStatus;
+  requestedBy: Id;
+  requestedAt: IsoDateTime;
+  expiresAt: IsoDateTime;
+  decidedBy: Id | null;
+  decidedAt: IsoDateTime | null;
+  decision: "approved" | "rejected" | null;
+  decisionComment: string | null;
+}
+
+export interface TransferLot {
+  sourceBatchId: Id;
+  destinationBatchId?: Id | null;
+  quantity: string;
+  batchNumber: string | null;
+}
+export interface TransferExcessReturn {
+  id: Id;
+  quantity: string;
+  returnToLocationId: Id;
+  reasonCodeId: Id;
+  evidence: string;
+  returnedBy: Id;
+  returnedAt: IsoDateTime;
+  createdAt: IsoDateTime;
+}
 export interface Transfer {
   id: Id;
   tenantId: Id;
@@ -830,8 +886,18 @@ export interface Transfer {
   status: TransferStatus;
   dispatchedAt: IsoDateTime | null;
   receivedAt: IsoDateTime | null;
+  approvalRequestId?: Id | null;
+  discrepancyReasonCodeId?: Id | null;
+  discrepancyEvidence?: string | null;
   requestedBy: Localised;
   lines: TransferLine[];
+  dispatchGroupId?: Id | null;
+  batchProvenance?: TransferLot[];
+  lotCounts?: { sourceBatchId: Id; receivedQuantity: string }[];
+  excessReturnedQuantity?: string;
+  excessReturns?: TransferExcessReturn[];
+  receipts: TransferReceiptHistory[];
+  approvalHistory: TransferApprovalHistory[];
   totalValue: Money;
 }
 
@@ -1199,6 +1265,8 @@ export interface PurchaseOrderLine {
   id: Id;
   itemId: Id;
   itemName: Localised;
+  purchaseUnitId?: Id;
+  purchaseUnitLabel?: string;
   quantity: Quantity;
   receivedQuantity: Quantity;
   unitPrice: Money;
@@ -1234,6 +1302,10 @@ export interface GoodsReceiptLine {
   id: Id;
   itemId: Id;
   itemName: Localised;
+  purchaseOrderLineId?: Id | null;
+  purchaseUnitId?: Id;
+  purchaseUnitLabel?: string;
+  productionDate?: IsoDate | null;
   ordered: Quantity;
   received: Quantity;
   rejected: Quantity;
@@ -1255,6 +1327,7 @@ export interface GoodsReceipt {
   supplierName: Localised;
   locationId: Id;
   locationName: Localised;
+  currency?: Currency;
   status: ReceiptStatus;
   receivedAt: IsoDateTime;
   receivedBy: Localised;
@@ -1923,7 +1996,8 @@ export type ApprovalKind =
   | "expense"
   | "price_change"
   | "overtime"
-  | "stock_adjustment";
+  | "stock_adjustment"
+  | "transfer_discrepancy";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired" | "escalated";
 
