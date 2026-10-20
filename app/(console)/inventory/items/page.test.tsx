@@ -183,6 +183,16 @@ describe("Stock items — base unit selection (FR-INV-001)", () => {
     });
   });
 
+  it("keeps creation disabled while units load, then enables it when the real catalogue arrives", async () => {
+    let resolveUnits!: (units: typeof UOM_GRAM[]) => void;
+    unitsOfMeasure.mockReturnValue(new Promise<typeof UOM_GRAM[]>((resolve) => { resolveUnits = resolve; }));
+    render(<StockItemsScreen />);
+    await screen.findByText("Flour");
+    expect(screen.getByRole("button", { name: /common\.new/ })).toBeDisabled();
+    resolveUnits([UOM_GRAM, UOM_KG]);
+    await waitFor(() => expect(screen.getByRole("button", { name: /common\.new/ })).toBeEnabled());
+  });
+
   it("blocks stock item creation while no unit catalogue is available (empty)", async () => {
     unitsOfMeasure.mockResolvedValue([]);
     render(<StockItemsScreen />);

@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 235 paths, 159 request DTOs.
+ * `api/openapi.json`. 236 paths, 159 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -4653,7 +4653,27 @@ export type InventoryController_investigateTransferResponse = {
 
 export type InventoryController_investigateTransferBody = InvestigateTransferDto;
 
-/** `GET /inventory/uoms` — List the unit-of-measure catalogue (FR-INV-001). — Every unit of measure known to the platform. */
+/** `GET /inventory/uoms` — Units of measure and the conversions between them. — Every unit a stock item, recipe line or yield may reference, plus generic conversions and those specific to this tenant's stock items. */
+export type InventoryController_listUnitsResponse = {
+  conversions: ({
+    /** Multiply a quantity in fromUnit by this to get toUnit. */
+    factor: string;
+    fromUnitId: string;
+    /** Null for a generic conversion; else item-specific. */
+    stockItemId: string | null;
+    toUnitId: string;
+  })[];
+  units: ({
+    baseUnitOfDimension: boolean;
+    code: string;
+    /** e.g. mass, volume, count. */
+    dimension: string;
+    id: string;
+    name: string;
+  })[];
+};
+
+/** `GET /inventory/uoms/units` — List the unit-of-measure catalogue (FR-INV-001). — Every unit of measure known to the platform. */
 export type InventoryController_listUomsResponse = ({
   code: string;
   dimension: string;
@@ -10089,7 +10109,8 @@ export const ROUTES = {
   InventoryController_readTransfer: { method: "GET", path: "/inventory/transfers/{transferId}" },
   InventoryController_returnTransferExcess: { method: "POST", path: "/inventory/transfers/{transferId}/excess-returns" },
   InventoryController_investigateTransfer: { method: "POST", path: "/inventory/transfers/{transferId}/investigate" },
-  InventoryController_listUoms: { method: "GET", path: "/inventory/uoms" },
+  InventoryController_listUnits: { method: "GET", path: "/inventory/uoms" },
+  InventoryController_listUoms: { method: "GET", path: "/inventory/uoms/units" },
   InventoryController_valuation: { method: "GET", path: "/inventory/valuation" },
   InventoryController_listWaste: { method: "GET", path: "/inventory/waste" },
   InventoryController_recordWaste: { method: "POST", path: "/inventory/waste" },
