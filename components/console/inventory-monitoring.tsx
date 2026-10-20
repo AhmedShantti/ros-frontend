@@ -36,12 +36,17 @@ function MonitoringData() {
   return (
     <section className="space-y-2" aria-label={t("inv.monitoringTitle")}>
       <Callout tone="warn">{t("inv.monitoringDelivery")}</Callout>
+      <p className="text-xs">{t("inv.monitoringTenantScope")}</p>
       {!data.schedulerEnabled ? (
         <Callout tone="warn">{t("inv.monitoringDisabled")}</Callout>
       ) : null}
       {!verified ? (
         <Callout tone="warn">{t("inv.monitoringUnverified")}</Callout>
       ) : null}
+      {["inventory.stock_monitoring", "inventory.daily_reconciliation"].map(type => {
+        const latest = data.jobs.find(job => job.jobType === type);
+        return <p key={type} className="text-xs">{type === "inventory.stock_monitoring" ? t("inv.monitoringExpiry") : t("inv.monitoringReconciliation")}: {latest ? `${t(("inv.job." + latest.state) as never)} · ${latest.scheduledFor}` : t("inv.job.notRun")}</p>;
+      })}
       <p className="text-sm">
         {t("inv.monitoringActive")}: {active.length} ·{" "}
         {t("inv.monitoringResolved")}: {resolved.length}

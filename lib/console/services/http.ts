@@ -1,3 +1,4 @@
+import { mapSupplier, createSupplier, updateSupplier } from "./supplier-master";
 /**
  * The `ServiceRegistry`, implemented against the ROS backend.
  *
@@ -1711,7 +1712,17 @@ const batches: ReadonlyCollectionService<Batch> = {
           status: row.status === "expired" ? "expired" as const : row.daysToExpiry <= 1 ? "critical" as const : "expiring" as const,
         };
       });
-      return project(mapped, query, { search: row => [row.itemName,row.batchNumber,row.locationName], filters: { status: row => row.status, locationId: row => row.locationId }, sorters: { daysToExpiry: row => row.daysToExpiry } });
+      // Same registry/warehouse/kitchen ownership resolution used by lowStock and negativeStock.
+      let scoped = mapped;
+      if (query.scope?.branchId || query.scope?.brandId) {
+        const [registry, warehouses, kitchens, branches] = await Promise.all([inventoryLocationsRaw(), warehousesRaw(), centralKitchensRaw(), branchesRaw()]);
+        const branchIds = new Set(query.scope.branchId ? [query.scope.branchId] : branches.filter(b => b.brandId === query.scope?.brandId).map(b => b.id));
+        const warehouseIds = new Set(warehouses.filter(w => w.branchId && branchIds.has(w.branchId)).map(w => w.id));
+        const kitchenIds = new Set(kitchens.filter(k => warehouseIds.has(k.warehouseId)).map(k => k.id));
+        const locationIds = new Set(registry.filter(l => (l.locationType === "branch" && branchIds.has(l.refId)) || (l.locationType === "warehouse" && warehouseIds.has(l.refId)) || (l.locationType === "central_kitchen" && kitchenIds.has(l.refId))).map(l => l.id));
+        scoped = mapped.filter(row => locationIds.has(row.locationId));
+      }
+      return project(scoped, query, { search: row => [row.itemName,row.batchNumber,row.locationName], filters: { status: row => row.status, locationId: row => row.locationId }, sorters: { daysToExpiry: row => row.daysToExpiry } });
     }
     const days = String(query.filters?.days ?? 90);
     const [rows, itemsById, locationsById] = await Promise.all([
@@ -4573,35 +4584,16 @@ function divideMicros(numerator: bigint, denominator: bigint): bigint {
 const receiving: PurchasingService = {
   suppliers: {
     list: async (query = {}) => {
-      const rows = await api.procurement.listSuppliers({ status: "active" });
-      const mapped: Supplier[] = rows.map((row) => {
-        const contact = row.contacts[0] ?? {};
-        const label = row.tradingName ?? row.legalName;
-        return {
-          id: row.id,
-          tenantId: getTenantId() ?? "",
-          code: row.code,
-          legalName: { en: row.legalName, ar: row.legalName },
-          tradingName: { en: label, ar: label },
-          taxRegistration: row.taxRegistrationNumber ?? "",
-          contactName: String(contact.name ?? ""),
-          phone: String(contact.phone ?? ""),
-          email: String(contact.email ?? ""),
-          paymentTermsDays: row.paymentTermsNetDays,
-          currency: map.currencyOf(row.currency),
-          leadTimeDays: row.deliveryLeadTimeDays,
-          minimumOrderValue: map.money(Number(row.minimumOrderValue), map.currencyOf(row.currency)),
-          deliveryDays: row.deliveryDays.map(String),
-          active: row.status === "active",
-          scorecard: { onTimeDeliveryRate: 0, fillRate: 0, priceStability: 0, qualityRejectionRate: 0, invoiceAccuracy: 0, averageLeadTimeDays: 0 },
-          outstandingBalance: map.money(0, map.currencyOf(row.currency)),
-        };
+      const mapped = (await api.procurement.listSuppliers()).map(mapSupplier);
+      return project(mapped, query, {
+        search: (row) => [row.code, row.legalName, row.tradingName, row.contactName, row.email],
+        filters: { active: row => row.active, currency: row => row.currencyCode ?? row.currency },
+        sorters: { name: row => row.tradingName.en, leadTimeDays: row => row.leadTimeDays },
       });
-      return project(mapped, query, { search: (row) => [row.code, row.legalName, row.tradingName] });
     },
-    get: async (id) => (await receiving.suppliers.list()).rows.find((row) => row.id === id) ?? null,
-    create: async () => notImplemented("Creating a supplier"),
-    update: async () => notImplemented("Updating a supplier"),
+    get: async (id) => mapSupplier(await api.procurement.getSupplier(id)),
+    create: createSupplier,
+    update: updateSupplier,
     remove: async () => notImplemented("Deleting a supplier"),
   },
   requisitions: unsupportedPurchasing.requisitions,

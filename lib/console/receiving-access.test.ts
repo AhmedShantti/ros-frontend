@@ -21,4 +21,11 @@ describe("Receiving authorization presentation", () => {
     const { receivingPermissions } = await import("./receiving-access");
     expect(receivingPermissions()).toEqual(["purchase.view"]);
   });
+  it("uses registered Supplier read permissions, without granting mutations", async()=>{
+    vi.stubEnv("NEXT_PUBLIC_API_MODE","http");
+    const {supplierPermissions}=await import("./receiving-access");
+    expect(supplierPermissions()).toEqual(["supplier.manage","purchase.order.create"]);
+    expect(supplierPermissions()).not.toContain("inventory.view");
+  });
+
 });

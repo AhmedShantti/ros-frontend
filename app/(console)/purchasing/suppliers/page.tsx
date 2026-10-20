@@ -20,6 +20,9 @@
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import type { Supplier } from "@/lib/console/types";
+import { supplierPermissions } from "@/lib/console/receiving-access";
+import { DATA_MODE } from "@/lib/api/config";
+import { supplierMajor } from "@/components/console/supplier-form";
 import { services } from "@/lib/console/services";
 import { useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, usePermission, useSession } from "@/lib/console/providers";
@@ -30,6 +33,7 @@ import { MetricTile } from "@/components/console/charts";
 import { Gate } from "@/components/console/states";
 import { SupplierDrawer as SupplierFormDrawer } from "@/components/console/purchasing-forms";
 import {
+  Callout,
   Badge,
   Button,
   DescList,
@@ -54,7 +58,7 @@ function rateTone(value: number, good: number, warn: number, invert = false) {
 
 export default function SuppliersPage() {
   return (
-    <Gate permissions={["purchase.view"]}>
+    <Gate permissions={supplierPermissions()}>
       <SuppliersScreen />
     </Gate>
   );
@@ -138,6 +142,7 @@ function SuppliersScreen() {
         sortable: true,
         numeric: true,
         render: (row) => {
+          if (row.scorecardVerified === false) return "—";
           const rate = row.scorecard.onTimeDeliveryRate;
           const tone = rateTone(rate, 95, 88);
           return (
@@ -158,14 +163,14 @@ function SuppliersScreen() {
         header: t("pur.priceStability"),
         numeric: true,
         secondary: true,
-        render: (row) => formatPercent(row.scorecard.priceStability, fmt, 1),
+        render: (row) => row.scorecardVerified === false ? "—" : formatPercent(row.scorecard.priceStability, fmt, 1),
       },
       {
         key: "outstanding",
         header: t("pur.outstanding"),
         sortable: true,
         numeric: true,
-        render: (row) => formatMoney(row.outstandingBalance, fmt),
+        render: (row) => row.scorecardVerified === false ? "—" : formatMoney(row.outstandingBalance, fmt),
       },
       {
         key: "active",
@@ -186,7 +191,7 @@ function SuppliersScreen() {
         title={t("pur.suppliersTitle")}
         subtitle={t("pur.suppliersSubtitle")}
         spec="FR-PRC-009"
-        actions={
+        actions={canManage ? (
           <Button
             variant="primary"
             icon={<Plus size={14} />}
@@ -194,22 +199,23 @@ function SuppliersScreen() {
           >
             {t("common.new")}
           </Button>
-        }
+        ) : undefined}
       />
 
       <PageBody>
+        {DATA_MODE === "http" ? <Callout tone="warn">{t("pur.supplierUnverified")}</Callout> : null}
         <TileGrid columns={3}>
           <MetricTile
             label={t("pur.outstanding")}
-            value={formatMoney({ amount: totals.outstanding, currency }, fmt, true)}
+            value={DATA_MODE === "http" ? "—" : formatMoney({ amount: totals.outstanding, currency }, fmt, true)}
           />
           <MetricTile
             label={t("pur.onTime")}
-            value={formatPercent(totals.averageOnTime, fmt, 1)}
+            value={DATA_MODE === "http" ? "—" : formatPercent(totals.averageOnTime, fmt, 1)}
           />
           <MetricTile
             label={t("pur.underperforming")}
-            value={formatNumber(totals.underperforming, fmt)}
+            value={DATA_MODE === "http" ? "—" : formatNumber(totals.underperforming, fmt)}
             hint={t("pur.underperformingHint")}
           />
         </TileGrid>
@@ -328,10 +334,10 @@ function SupplierDrawer({
             {formatNumber(supplier.leadTimeDays, fmt)} {t("inv.days")}
           </DescRow>
           <DescRow label={t("pur.minOrder")} mono>
-            {formatMoney(supplier.minimumOrderValue, fmt)}
+            {supplier.minimumOrderValueMinor ? `${supplierMajor(supplier.minimumOrderValueMinor, supplier.currencyCode ?? supplier.currency)} ${supplier.currencyCode ?? supplier.currency}` : formatMoney(supplier.minimumOrderValue, fmt)}
           </DescRow>
           <DescRow label={t("pur.outstanding")} mono>
-            {formatMoney(supplier.outstandingBalance, fmt)}
+            {supplier.scorecardVerified === false ? "—" : formatMoney(supplier.outstandingBalance, fmt)}
           </DescRow>
         </DescList>
 
@@ -348,7 +354,7 @@ function SupplierDrawer({
           </section>
         ) : null}
 
-        <section>
+        {supplier.scorecardVerified !== false ? <section>
           <h3 className="text-fg mb-3 text-sm font-semibold">{t("pur.scorecard")}</h3>
           <div className="space-y-3">
             <ScoreRow
@@ -384,7 +390,10 @@ function SupplierDrawer({
               {formatNumber(card.averageLeadTimeDays, fmt, 1)} {t("inv.days")}
             </DescRow>
           </DescList>
-        </section>
+        </section> : <Callout>{t("pur.supplierUnverified")}</Callout>}
+        <DescList><DescRow label={t("pur.taxRegistration")}>{supplier.taxRegistration || "—"}</DescRow><DescRow label={t("common.currency")}>{supplier.currencyCode ?? supplier.currency}</DescRow><DescRow label={t("common.status")}>{t(supplier.active ? "common.active" : "common.inactive")}</DescRow></DescList>
+        <section><h3>{t("pur.addresses")}</h3>{supplier.addresses?.map((a,i)=><p key={i}>{[a.line1,a.line2,a.city,a.state,a.postalCode,a.countryCode].filter(Boolean).join(", ")}</p>)}</section>
+        <section><h3>{t("pur.contacts")}</h3>{supplier.contacts?.map((c,i)=><p key={i}>{[c.name,c.role,c.phone,c.email].filter(Boolean).join(" · ")}</p>)}</section>
       </div>
     </Drawer>
   );

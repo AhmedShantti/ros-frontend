@@ -4288,12 +4288,18 @@
           "taxRegistrationNumber": {
             "maxLength": 64,
             "minLength": 1,
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "tradingName": {
             "maxLength": 255,
             "minLength": 1,
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "type": "object"
