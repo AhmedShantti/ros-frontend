@@ -621,9 +621,25 @@ export const fiscal = {
   list: (branchId: string, options: { limit?: number } = {}) =>
     http.get<S.FiscalController_listResponse>("/fiscal/branches/{branchId}/documents", { params: { branchId }, query: { limit: options.limit } }),
 
+  /** `GET /fiscal/branches/{branchId}/documents/readiness` */
+  configurationReadiness: (branchId: string) =>
+    http.get<S.FiscalController_configurationReadinessResponse>("/fiscal/branches/{branchId}/documents/readiness", { params: { branchId } }),
+
+  /** `POST /fiscal/branches/{branchId}/documents/readiness/configurations` */
+  registerConfiguration: (branchId: string, body: S.FiscalRemediationBody) =>
+    http.post<S.FiscalController_registerConfigurationResponse>("/fiscal/branches/{branchId}/documents/readiness/configurations", { params: { branchId }, body }),
+
   /** `GET /fiscal/branches/{branchId}/documents/{id}` */
   detail: (branchId: string, id: string) =>
     http.get<S.FiscalController_detailResponse>("/fiscal/branches/{branchId}/documents/{id}", { params: { branchId, id } }),
+
+  /** `GET /fiscal/branches/{branchId}/documents/{id}/eligibility` */
+  eligibility: (branchId: string, id: string) =>
+    http.get<S.FiscalController_eligibilityResponse>("/fiscal/branches/{branchId}/documents/{id}/eligibility", { params: { branchId, id } }),
+
+  /** `POST /fiscal/branches/{branchId}/documents/{id}/prepare` */
+  prepareCandidate: (branchId: string, id: string, body: S.FiscalCandidatePreparationBody) =>
+    http.post<S.FiscalController_prepareCandidateResponse>("/fiscal/branches/{branchId}/documents/{id}/prepare", { params: { branchId, id }, body }),
 
   /** `POST /fiscal/branches/{branchId}/documents/{id}/reevaluate` */
   reevaluate: (branchId: string, id: string, body: S.FiscalRemediationBody) =>

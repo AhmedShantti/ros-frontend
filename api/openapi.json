@@ -2300,6 +2300,32 @@
         ],
         "type": "object"
       },
+      "FiscalCandidatePreparationBody": {
+        "properties": {
+          "buyer": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "configurationVersion": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "configurationVersion",
+          "deviceId",
+          "buyer",
+          "reason"
+        ],
+        "type": "object"
+      },
       "FiscalRemediationBody": {
         "properties": {
           "reason": {
@@ -2457,6 +2483,13 @@
           "cashSessionId": {
             "description": "REQUIRED for a `cash` refund; refused for `manual_external_card`.",
             "type": "string"
+          },
+          "fiscalLines": {
+            "items": {
+              "$ref": "#/components/schemas/RefundFiscalLineDto"
+            },
+            "maxItems": 300,
+            "type": "array"
           },
           "id": {
             "type": "string"
@@ -3060,6 +3093,22 @@
         },
         "required": [
           "refreshToken"
+        ],
+        "type": "object"
+      },
+      "RefundFiscalLineDto": {
+        "properties": {
+          "orderLineId": {
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^\\d{1,9}(\\.\\d{1,3})?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "orderLineId",
+          "quantity"
         ],
         "type": "object"
       },
@@ -15695,6 +15744,92 @@
         ]
       }
     },
+    "/fiscal/branches/{branchId}/documents/readiness": {
+      "get": {
+        "operationId": "FiscalController_configurationReadiness",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "fiscal"
+        ]
+      }
+    },
+    "/fiscal/branches/{branchId}/documents/readiness/configurations": {
+      "post": {
+        "operationId": "FiscalController_registerConfiguration",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FiscalRemediationBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "fiscal"
+        ]
+      }
+    },
     "/fiscal/branches/{branchId}/documents/{id}": {
       "get": {
         "operationId": "FiscalController_detail",
@@ -15926,6 +16061,112 @@
                     "revisions",
                     "issuanceAllowed"
                   ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "fiscal"
+        ]
+      }
+    },
+    "/fiscal/branches/{branchId}/documents/{id}/eligibility": {
+      "get": {
+        "operationId": "FiscalController_eligibility",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "fiscal"
+        ]
+      }
+    },
+    "/fiscal/branches/{branchId}/documents/{id}/prepare": {
+      "post": {
+        "operationId": "FiscalController_prepareCandidate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FiscalCandidatePreparationBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
                   "type": "object"
                 }
               }

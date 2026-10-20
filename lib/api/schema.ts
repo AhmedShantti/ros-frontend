@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 231 paths, 157 request DTOs.
+ * `api/openapi.json`. 235 paths, 159 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -667,6 +667,13 @@ export interface FinalizeCashSessionCloseDto {
   reason: string;
 }
 
+export interface FiscalCandidatePreparationBody {
+  buyer: Record<string, unknown>;
+  configurationVersion: string;
+  deviceId: string;
+  reason: string;
+}
+
 export interface FiscalRemediationBody {
   reason: string;
 }
@@ -715,6 +722,7 @@ export interface IssueRefundDto {
   approvalRequestId?: string;
   /** REQUIRED for a `cash` refund; refused for `manual_external_card`. */
   cashSessionId?: string;
+  fiscalLines?: RefundFiscalLineDto[];
   id?: string;
   /** REFUND-INV-1 (FR-POS-070) — OPTIONAL; absent means no inventory effect. */
   inventoryDisposition?: unknown;
@@ -905,6 +913,11 @@ export interface RecountCashSessionCloseDto {
 
 export interface RefreshDto {
   refreshToken: string;
+}
+
+export interface RefundFiscalLineDto {
+  orderLineId: string;
+  quantity: string;
 }
 
 export interface RefundInventoryDispositionDto {
@@ -2988,6 +3001,14 @@ export type FiscalController_listResponse = ({
   updatedAt: string;
 })[];
 
+/** `GET /fiscal/branches/{branchId}/documents/readiness` */
+export type FiscalController_configurationReadinessResponse = Record<string, unknown>;
+
+/** `POST /fiscal/branches/{branchId}/documents/readiness/configurations` */
+export type FiscalController_registerConfigurationResponse = Record<string, unknown>;
+
+export type FiscalController_registerConfigurationBody = FiscalRemediationBody;
+
 /** `GET /fiscal/branches/{branchId}/documents/{id}` */
 export type FiscalController_detailResponse = {
   branchId: string;
@@ -3028,6 +3049,14 @@ export type FiscalController_detailResponse = {
   tenantId: string;
   updatedAt: string;
 };
+
+/** `GET /fiscal/branches/{branchId}/documents/{id}/eligibility` */
+export type FiscalController_eligibilityResponse = Record<string, unknown>;
+
+/** `POST /fiscal/branches/{branchId}/documents/{id}/prepare` */
+export type FiscalController_prepareCandidateResponse = Record<string, unknown>;
+
+export type FiscalController_prepareCandidateBody = FiscalCandidatePreparationBody;
 
 /** `POST /fiscal/branches/{branchId}/documents/{id}/reevaluate` */
 export type FiscalController_reevaluateResponse = {
@@ -10004,7 +10033,11 @@ export const ROUTES = {
   CatalogueController_updateVariantPrice: { method: "PATCH", path: "/catalogue/variants/{variantId}/price" },
   CatalogueController_setVariantActive: { method: "POST", path: "/catalogue/variants/{variantId}/status" },
   FiscalController_list: { method: "GET", path: "/fiscal/branches/{branchId}/documents" },
+  FiscalController_configurationReadiness: { method: "GET", path: "/fiscal/branches/{branchId}/documents/readiness" },
+  FiscalController_registerConfiguration: { method: "POST", path: "/fiscal/branches/{branchId}/documents/readiness/configurations" },
   FiscalController_detail: { method: "GET", path: "/fiscal/branches/{branchId}/documents/{id}" },
+  FiscalController_eligibility: { method: "GET", path: "/fiscal/branches/{branchId}/documents/{id}/eligibility" },
+  FiscalController_prepareCandidate: { method: "POST", path: "/fiscal/branches/{branchId}/documents/{id}/prepare" },
   FiscalController_reevaluate: { method: "POST", path: "/fiscal/branches/{branchId}/documents/{id}/reevaluate" },
   AuditQueryController_search: { method: "GET", path: "/governance/audit/entries" },
   AuditQueryController_exportEntries: { method: "GET", path: "/governance/audit/entries/export" },
