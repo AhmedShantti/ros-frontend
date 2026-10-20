@@ -613,6 +613,25 @@ export const catalogue = {
 };
 
 // ---------------------------------------------------------------------------
+// fiscal
+// ---------------------------------------------------------------------------
+
+export const fiscal = {
+  /** `GET /fiscal/branches/{branchId}/documents` */
+  list: (branchId: string, options: { limit?: number } = {}) =>
+    http.get<S.FiscalController_listResponse>("/fiscal/branches/{branchId}/documents", { params: { branchId }, query: { limit: options.limit } }),
+
+  /** `GET /fiscal/branches/{branchId}/documents/{id}` */
+  detail: (branchId: string, id: string) =>
+    http.get<S.FiscalController_detailResponse>("/fiscal/branches/{branchId}/documents/{id}", { params: { branchId, id } }),
+
+  /** `POST /fiscal/branches/{branchId}/documents/{id}/reevaluate` */
+  reevaluate: (branchId: string, id: string, body: S.FiscalRemediationBody) =>
+    http.post<S.FiscalController_reevaluateResponse>("/fiscal/branches/{branchId}/documents/{id}/reevaluate", { params: { branchId, id }, body }),
+
+};
+
+// ---------------------------------------------------------------------------
 // governance
 // ---------------------------------------------------------------------------
 
@@ -1352,4 +1371,4 @@ export const workforceSchedules = {
 };
 
 /** Every group, for the diagnostics screen and for `api.catalogue.listItems()` style calls. */
-export const api = { auth, rbac, password, tenants, terminals, treasury, inventory, catalogue, governance, health, kitchen, production, sales, organisation, platformSettings, procurement, reporting, sync, workforceAttendance, workforceEmployees, workforceSchedules };
+export const api = { auth, rbac, password, tenants, terminals, treasury, inventory, catalogue, fiscal, governance, health, kitchen, production, sales, organisation, platformSettings, procurement, reporting, sync, workforceAttendance, workforceEmployees, workforceSchedules };

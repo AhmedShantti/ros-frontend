@@ -2,7 +2,7 @@
  * Wire types for ROS Backend API v0.0.1.
  *
  * GENERATED — do not edit. Run `npm run api:types` after replacing
- * `api/openapi.json`. 228 paths, 156 request DTOs.
+ * `api/openapi.json`. 231 paths, 157 request DTOs.
  *
  * These are the shapes the backend actually sends and accepts. They are NOT
  * the console's domain model — see `lib/console/services/map.ts` for the
@@ -664,6 +664,10 @@ export interface FinalizeCashSessionCloseDto {
   /** FR-SEC-020: 4-8 digits. Never logged, never echoed. */
   managerPin: string;
   /** FR-FIN-006 [M] — mandatory above tolerance. Non-blank. */
+  reason: string;
+}
+
+export interface FiscalRemediationBody {
   reason: string;
 }
 
@@ -2942,6 +2946,131 @@ export type CatalogueController_setVariantActiveResponse = {
 };
 
 export type CatalogueController_setVariantActiveBody = SetActiveDto;
+
+/** `GET /fiscal/branches/{branchId}/documents` */
+export type FiscalController_listResponse = ({
+  branchId: string;
+  businessDay: string;
+  countryPackCode: string;
+  countryPackVersion: string;
+  createdAt: string;
+  deviceId: string | null;
+  futureSubmissionIntents: (Record<string, unknown>)[];
+  id: string;
+  issuanceAllowed: false;
+  monetarySnapshot: Record<string, unknown>;
+  orderId: string;
+  originalDocumentId: string | null;
+  originalPaymentId: string | null;
+  refundId: string | null;
+  revisions: ({
+    actorId: string;
+    blockers: string[];
+    configurationSnapshot: Record<string, unknown>;
+    createdAt: string;
+    documentType: string | null;
+    documentVersion: string | null;
+    family: "unclassified" | "b2c_receipt" | "b2b_invoice";
+    id: string;
+    payloadHash: string | null;
+    payloadJson: string | null;
+    reason: string;
+    receiptUuid: string | null;
+    state: string;
+    version: number;
+  })[];
+  role: "sale" | "refund";
+  sourceEventId: string;
+  sourceKey: string;
+  state: "obligation_recorded" | "awaiting_configuration" | "prepared_not_issued" | "unsigned_not_issued";
+  submissionAttempts: (Record<string, unknown>)[];
+  tenantId: string;
+  updatedAt: string;
+})[];
+
+/** `GET /fiscal/branches/{branchId}/documents/{id}` */
+export type FiscalController_detailResponse = {
+  branchId: string;
+  businessDay: string;
+  countryPackCode: string;
+  countryPackVersion: string;
+  createdAt: string;
+  deviceId: string | null;
+  futureSubmissionIntents: (Record<string, unknown>)[];
+  id: string;
+  issuanceAllowed: false;
+  monetarySnapshot: Record<string, unknown>;
+  orderId: string;
+  originalDocumentId: string | null;
+  originalPaymentId: string | null;
+  refundId: string | null;
+  revisions: ({
+    actorId: string;
+    blockers: string[];
+    configurationSnapshot: Record<string, unknown>;
+    createdAt: string;
+    documentType: string | null;
+    documentVersion: string | null;
+    family: "unclassified" | "b2c_receipt" | "b2b_invoice";
+    id: string;
+    payloadHash: string | null;
+    payloadJson: string | null;
+    reason: string;
+    receiptUuid: string | null;
+    state: string;
+    version: number;
+  })[];
+  role: "sale" | "refund";
+  sourceEventId: string;
+  sourceKey: string;
+  state: "obligation_recorded" | "awaiting_configuration" | "prepared_not_issued" | "unsigned_not_issued";
+  submissionAttempts: (Record<string, unknown>)[];
+  tenantId: string;
+  updatedAt: string;
+};
+
+/** `POST /fiscal/branches/{branchId}/documents/{id}/reevaluate` */
+export type FiscalController_reevaluateResponse = {
+  branchId: string;
+  businessDay: string;
+  countryPackCode: string;
+  countryPackVersion: string;
+  createdAt: string;
+  deviceId: string | null;
+  futureSubmissionIntents: (Record<string, unknown>)[];
+  id: string;
+  issuanceAllowed: false;
+  monetarySnapshot: Record<string, unknown>;
+  orderId: string;
+  originalDocumentId: string | null;
+  originalPaymentId: string | null;
+  refundId: string | null;
+  revisions: ({
+    actorId: string;
+    blockers: string[];
+    configurationSnapshot: Record<string, unknown>;
+    createdAt: string;
+    documentType: string | null;
+    documentVersion: string | null;
+    family: "unclassified" | "b2c_receipt" | "b2b_invoice";
+    id: string;
+    payloadHash: string | null;
+    payloadJson: string | null;
+    reason: string;
+    receiptUuid: string | null;
+    state: string;
+    version: number;
+  })[];
+  role: "sale" | "refund";
+  sourceEventId: string;
+  sourceKey: string;
+  state: "obligation_recorded" | "awaiting_configuration" | "prepared_not_issued" | "unsigned_not_issued";
+  submissionAttempts: (Record<string, unknown>)[];
+  tenantId: string;
+  updatedAt: string;
+};
+
+export type FiscalController_reevaluateBody = FiscalRemediationBody;
 
 /** `GET /governance/audit/entries` — Search/filter the tenant audit log (FR-AUD-008). Requires audit.view. — A page of audit entries, most recent first. */
 export type AuditQueryController_searchResponse = {
@@ -9874,6 +10003,9 @@ export const ROUTES = {
   CatalogueController_getPosMenu: { method: "GET", path: "/catalogue/pos-menu" },
   CatalogueController_updateVariantPrice: { method: "PATCH", path: "/catalogue/variants/{variantId}/price" },
   CatalogueController_setVariantActive: { method: "POST", path: "/catalogue/variants/{variantId}/status" },
+  FiscalController_list: { method: "GET", path: "/fiscal/branches/{branchId}/documents" },
+  FiscalController_detail: { method: "GET", path: "/fiscal/branches/{branchId}/documents/{id}" },
+  FiscalController_reevaluate: { method: "POST", path: "/fiscal/branches/{branchId}/documents/{id}/reevaluate" },
   AuditQueryController_search: { method: "GET", path: "/governance/audit/entries" },
   AuditQueryController_exportEntries: { method: "GET", path: "/governance/audit/entries/export" },
   HealthController_check: { method: "GET", path: "/health" },

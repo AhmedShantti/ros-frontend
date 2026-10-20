@@ -2300,6 +2300,19 @@
         ],
         "type": "object"
       },
+      "FiscalRemediationBody": {
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
       "ForgotPasswordDto": {
         "properties": {
           "email": {
@@ -15427,6 +15440,764 @@
         "summary": "Activate/deactivate a variant (C-09 explicit, audited lifecycle).",
         "tags": [
           "catalogue"
+        ]
+      }
+    },
+    "/fiscal/branches/{branchId}/documents": {
+      "get": {
+        "operationId": "FiscalController_list",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "properties": {
+                      "branchId": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "businessDay": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "countryPackCode": {
+                        "type": "string"
+                      },
+                      "countryPackVersion": {
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "deviceId": {
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "futureSubmissionIntents": {
+                        "items": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "id": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "issuanceAllowed": {
+                        "enum": [
+                          false
+                        ],
+                        "type": "boolean"
+                      },
+                      "monetarySnapshot": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "orderId": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "originalDocumentId": {
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "originalPaymentId": {
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "refundId": {
+                        "format": "uuid",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "revisions": {
+                        "items": {
+                          "properties": {
+                            "actorId": {
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "blockers": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "configurationSnapshot": {
+                              "additionalProperties": true,
+                              "type": "object"
+                            },
+                            "createdAt": {
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "documentType": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "documentVersion": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "family": {
+                              "enum": [
+                                "unclassified",
+                                "b2c_receipt",
+                                "b2b_invoice"
+                              ],
+                              "type": "string"
+                            },
+                            "id": {
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "payloadHash": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "payloadJson": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "receiptUuid": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "state": {
+                              "type": "string"
+                            },
+                            "version": {
+                              "type": "integer"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "role": {
+                        "enum": [
+                          "sale",
+                          "refund"
+                        ],
+                        "type": "string"
+                      },
+                      "sourceEventId": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "sourceKey": {
+                        "type": "string"
+                      },
+                      "state": {
+                        "enum": [
+                          "obligation_recorded",
+                          "awaiting_configuration",
+                          "prepared_not_issued",
+                          "unsigned_not_issued"
+                        ],
+                        "type": "string"
+                      },
+                      "submissionAttempts": {
+                        "items": {
+                          "type": "object"
+                        },
+                        "maxItems": 0,
+                        "type": "array"
+                      },
+                      "tenantId": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "updatedAt": {
+                        "format": "date-time",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "tenantId",
+                      "branchId",
+                      "orderId",
+                      "role",
+                      "state",
+                      "countryPackVersion",
+                      "monetarySnapshot",
+                      "revisions",
+                      "issuanceAllowed"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "fiscal"
+        ]
+      }
+    },
+    "/fiscal/branches/{branchId}/documents/{id}": {
+      "get": {
+        "operationId": "FiscalController_detail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "properties": {
+                    "branchId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "businessDay": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "countryPackCode": {
+                      "type": "string"
+                    },
+                    "countryPackVersion": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "deviceId": {
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "futureSubmissionIntents": {
+                      "items": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "issuanceAllowed": {
+                      "enum": [
+                        false
+                      ],
+                      "type": "boolean"
+                    },
+                    "monetarySnapshot": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "orderId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "originalDocumentId": {
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "originalPaymentId": {
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refundId": {
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "revisions": {
+                      "items": {
+                        "properties": {
+                          "actorId": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "blockers": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "configurationSnapshot": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "createdAt": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "documentType": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "documentVersion": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "family": {
+                            "enum": [
+                              "unclassified",
+                              "b2c_receipt",
+                              "b2b_invoice"
+                            ],
+                            "type": "string"
+                          },
+                          "id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "payloadHash": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "payloadJson": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "receiptUuid": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "state": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "integer"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "role": {
+                      "enum": [
+                        "sale",
+                        "refund"
+                      ],
+                      "type": "string"
+                    },
+                    "sourceEventId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "sourceKey": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "enum": [
+                        "obligation_recorded",
+                        "awaiting_configuration",
+                        "prepared_not_issued",
+                        "unsigned_not_issued"
+                      ],
+                      "type": "string"
+                    },
+                    "submissionAttempts": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "maxItems": 0,
+                      "type": "array"
+                    },
+                    "tenantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "tenantId",
+                    "branchId",
+                    "orderId",
+                    "role",
+                    "state",
+                    "countryPackVersion",
+                    "monetarySnapshot",
+                    "revisions",
+                    "issuanceAllowed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "fiscal"
+        ]
+      }
+    },
+    "/fiscal/branches/{branchId}/documents/{id}/reevaluate": {
+      "post": {
+        "operationId": "FiscalController_reevaluate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FiscalRemediationBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "properties": {
+                    "branchId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "businessDay": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "countryPackCode": {
+                      "type": "string"
+                    },
+                    "countryPackVersion": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "deviceId": {
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "futureSubmissionIntents": {
+                      "items": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "issuanceAllowed": {
+                      "enum": [
+                        false
+                      ],
+                      "type": "boolean"
+                    },
+                    "monetarySnapshot": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "orderId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "originalDocumentId": {
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "originalPaymentId": {
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refundId": {
+                      "format": "uuid",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "revisions": {
+                      "items": {
+                        "properties": {
+                          "actorId": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "blockers": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "configurationSnapshot": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "createdAt": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "documentType": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "documentVersion": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "family": {
+                            "enum": [
+                              "unclassified",
+                              "b2c_receipt",
+                              "b2b_invoice"
+                            ],
+                            "type": "string"
+                          },
+                          "id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "payloadHash": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "payloadJson": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "receiptUuid": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "state": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "integer"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "role": {
+                      "enum": [
+                        "sale",
+                        "refund"
+                      ],
+                      "type": "string"
+                    },
+                    "sourceEventId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "sourceKey": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "enum": [
+                        "obligation_recorded",
+                        "awaiting_configuration",
+                        "prepared_not_issued",
+                        "unsigned_not_issued"
+                      ],
+                      "type": "string"
+                    },
+                    "submissionAttempts": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "maxItems": 0,
+                      "type": "array"
+                    },
+                    "tenantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "tenantId",
+                    "branchId",
+                    "orderId",
+                    "role",
+                    "state",
+                    "countryPackVersion",
+                    "monetarySnapshot",
+                    "revisions",
+                    "issuanceAllowed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "fiscal"
         ]
       }
     },
