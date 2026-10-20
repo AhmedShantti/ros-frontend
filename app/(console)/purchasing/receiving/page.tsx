@@ -23,6 +23,7 @@ import { Plus, Thermometer } from "lucide-react";
 import type { GoodsReceipt, GoodsReceiptLine } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
 import { DATA_MODE } from "@/lib/api/config";
+import { receivingPermissions } from "@/lib/console/receiving-access";
 import { useCollection, useTransientMessage } from "@/lib/console/hooks";
 import { useI18n, useSession } from "@/lib/console/providers";
 import {
@@ -57,7 +58,7 @@ import {
 
 export default function ReceivingPage() {
   return (
-    <Gate permissions={["purchase.view"]}>
+    <Gate permissions={receivingPermissions()}>
       <ReceivingScreen />
     </Gate>
   );

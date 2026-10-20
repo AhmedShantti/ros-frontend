@@ -249,3 +249,19 @@ describe("Sidebar — Orders / Open Orders visibility from REAL live-granted per
     expect(linkVisible("/operations/open-orders")).toBe(false);
   });
 });
+
+
+describe("Receiving sidebar uses real server grants", () => {
+  for (const grant of ["purchase.order.create", "inventory.adjust"]) {
+    it(`shows Receiving with ${grant} and no synthetic purchase.view grant`, async () => {
+      simulatedGrantedCodes = [grant]; seedConsoleSession("owner"); installFetchMock();
+      await mountConsole(); await screen.findByTestId("dashboard-content");
+      expect(linkVisible("/purchasing/receiving")).toBe(true);
+    });
+  }
+  it("does not grant Receiving to inventory viewers", async () => {
+    simulatedGrantedCodes = ["inventory.view"]; seedConsoleSession("owner"); installFetchMock();
+    await mountConsole(); await screen.findByTestId("dashboard-content");
+    expect(linkVisible("/purchasing/receiving")).toBe(false);
+  });
+});

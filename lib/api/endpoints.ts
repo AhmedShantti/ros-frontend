@@ -439,9 +439,13 @@ export const inventory = {
   investigateTransfer: (transferId: string, body: S.InvestigateTransferDto) =>
     http.post<S.InventoryController_investigateTransferResponse>("/inventory/transfers/{transferId}/investigate", { params: { transferId }, body }),
 
-  /** `GET /inventory/uoms` — List the unit-of-measure catalogue (FR-INV-001). — Every unit of measure known to the platform. */
+  /** `GET /inventory/uoms` — Units of measure and the conversions between them. — Every unit a stock item, recipe line or yield may reference, plus generic conversions and those specific to this tenant's stock items. */
+  listUnits: () =>
+    http.get<S.InventoryController_listUnitsResponse>("/inventory/uoms"),
+
+  /** `GET /inventory/uoms/units` — List the unit-of-measure catalogue (FR-INV-001). — Every unit of measure known to the platform. */
   listUoms: () =>
-    http.get<S.InventoryController_listUomsResponse>("/inventory/uoms"),
+    http.get<S.InventoryController_listUomsResponse>("/inventory/uoms/units"),
 
   /** `GET /inventory/valuation` — Historical inventory value by location, category or item (FR-INV-015). — Total inventory value as of `asOf` (defaults to now), grouped by the requested dimension. */
   valuation: (options: { asOf?: string; groupBy?: string; locationId?: string; categoryId?: string; stockItemId?: string } = {}) =>
