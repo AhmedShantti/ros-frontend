@@ -1191,6 +1191,13 @@ export interface Coupon {
 // Purchasing — SRS ch.12
 // ---------------------------------------------------------------------------
 
+export interface SupplierAddress {
+  line1: string; line2?: string; city?: string; state?: string;
+  postalCode?: string; countryCode?: string; isPrimary?: boolean;
+}
+export interface SupplierContact {
+  name: string; role?: string; phone?: string; email?: string; isPrimary?: boolean;
+}
 export interface Supplier {
   id: Id;
   tenantId: Id;
@@ -1207,6 +1214,13 @@ export interface Supplier {
   minimumOrderValue: Money;
   deliveryDays: string[];
   active: boolean;
+  addresses?: SupplierAddress[];
+  contacts?: SupplierContact[];
+  /** Exact backend amount and currency; never round-trip through Number. */
+  minimumOrderValueMinor?: string;
+  currencyCode?: string;
+  tradingNameValue?: string | null;
+  scorecardVerified?: boolean;
   /** FR-PRC-009 — supplier scorecard. */
   scorecard: SupplierScorecard;
   outstandingBalance: Money;

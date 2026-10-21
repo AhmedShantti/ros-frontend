@@ -9,3 +9,8 @@ export function receivingPermissions(): PermissionKey[] {
     ? ["purchase.order.create", "inventory.adjust"]
     : ["purchase.view"];
 }
+
+/** Supplier reads are tenant-wide; mutations still require supplier.manage. */
+export function supplierPermissions(): PermissionKey[] {
+  return DATA_MODE === "http" ? ["supplier.manage", "purchase.order.create"] : ["purchase.view", "supplier.manage"];
+}

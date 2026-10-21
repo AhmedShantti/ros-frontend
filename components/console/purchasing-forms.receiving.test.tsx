@@ -3,6 +3,9 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 
 const createReceipt = vi.fn();
+const createSupplier = vi.fn();
+let manageSuppliers = true;
+let supplierRows: any[] = [];
 const listPurchaseUnits = vi.fn();
 let orderRows: any[] = [];
 const item = {
@@ -10,13 +13,13 @@ const item = {
   baseUnit: "pc", baseUnitId: "unit-base", costingMethod: "weighted_average", batchTracked: false,
   expiryTracked: false, storage: "ambient", shelfLifeDays: null, unitCost: { amount: 100, currency: "EGP" }, active: true,
 };
-const supplier = { id: "supplier-1", tradingName: { en: "Supplier", ar: "مورد" } };
+const supplier = { active: true, id: "supplier-1", tradingName: { en: "Supplier", ar: "مورد" } };
 const location = { id: "location-1", name: { en: "Main", ar: "الرئيسي" } };
 
 vi.mock("@/lib/console/services", () => ({
   services: {
     purchasing: {
-      suppliers: { list: async () => ({ rows: [supplier] }) },
+      suppliers: { list: async () => ({ rows: supplierRows }), create: (...args: unknown[]) => createSupplier(...args) },
       orders: { list: async () => ({ rows: orderRows }) },
       receipts: { create: (...args: unknown[]) => createReceipt(...args) },
     },
@@ -33,13 +36,15 @@ vi.mock("@/lib/console/hooks", async (importOriginal) => {
 });
 vi.mock("@/lib/console/providers", () => ({
   useI18n: () => ({ t: (key: string) => key, tx: (value: any) => typeof value === "string" ? value : value?.en ?? "", fmt: { locale: "en", arabicIndicNumerals: false }, locale: "en", dir: "ltr" }),
+  usePermission: () => manageSuppliers,
   useSession: () => ({ scope: { tenantId: "tenant-1" } }),
 }));
-vi.mock("@/lib/console/actions", () => ({ useAction: () => ({ pending: false, error: null, run: async (fn: () => Promise<unknown>, opts?: { onSuccess?: () => void }) => { await fn(); opts?.onSuccess?.(); } }) }));
+vi.mock("@/lib/console/actions", () => ({ useAction: () => ({ pending: false, error: null, run: async (fn: () => Promise<unknown>, opts?: { onSuccess?: (result: unknown) => void }) => { const result = await fn(); opts?.onSuccess?.(result); } }) }));
 
 import { ReceivingDrawer } from "./purchasing-forms";
 
 beforeEach(() => {
+  manageSuppliers = true; supplierRows = [supplier];
   cleanup(); vi.clearAllMocks(); orderRows = [];
   createReceipt.mockResolvedValue({ id: "receipt-1" });
   listPurchaseUnits.mockResolvedValue([{ id: "unit-base", stockItemId: "item-1", name: "pc", conversionFactorToBase: "1", supplierId: null }, { id: "unit-case", stockItemId: "item-1", name: "Case 12", conversionFactorToBase: "12", supplierId: null }]);
@@ -93,4 +98,31 @@ describe("Goods receipt entry", () => {
     expect(screen.getByRole("button", { name: "pur.postReceipt" })).toHaveProperty("disabled", true);
     expect(createReceipt).not.toHaveBeenCalled();
   });
+  it("creates a supplier inside Receiving, selects it and preserves entered receipt lines", async () => {
+    const created = { ...supplier, id: "supplier-new", tradingName: { en: "New supplier", ar: "" } };
+    createSupplier.mockImplementation(async () => { supplierRows = [supplier, created]; return created; });
+    render(<ReceivingDrawer open onClose={vi.fn()} onSaved={vi.fn()} />);
+    await selectCustom("pur.addUnorderedItem", "Water");
+    await userEvent.type(screen.getByLabelText("pur.received"), "2.5");
+    await userEvent.click(screen.getByRole("button", { name: "pur.addSupplier" }));
+    await userEvent.type(screen.getByLabelText("common.code"), "SYNTH");
+    await userEvent.type(screen.getByLabelText("pur.legalName"), "New supplier");
+    await userEvent.click(screen.getByRole("button", { name: "common.create" }));
+    await waitFor(() => expect(createSupplier).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByLabelText("common.code")).not.toBeInTheDocument());
+    expect(screen.getByLabelText("pur.received")).toHaveValue("2.5");
+    await waitFor(() => expect(screen.getByLabelText(/pur.supplier/)).toHaveTextContent("New supplier"));
+  });
+  it("does not offer Add supplier without supplier.manage", async () => {
+    manageSuppliers = false;
+    render(<ReceivingDrawer open onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "pur.addSupplier" })).not.toBeInTheDocument();
+  });
+  it("excludes inactive suppliers from new receipts", async () => {
+    supplierRows = [{ ...supplier, active: false, tradingName: { en: "Inactive supplier" } }];
+    render(<ReceivingDrawer open onClose={vi.fn()} onSaved={vi.fn()} />);
+    await userEvent.click(screen.getByLabelText(/pur.supplier/));
+    expect(screen.queryByRole("option", { name: "Inactive supplier" })).not.toBeInTheDocument();
+  });
+
 });

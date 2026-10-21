@@ -222,3 +222,13 @@ describe("Unchanged shared collection behavior", () => {
     expect(result.current.filtered).toBe(false);
   });
 });
+
+
+describe("Expiry day labels",()=>{
+  it("does not label tomorrow's batch as expiring today",async()=>{
+    const initial=await list();
+    list.mockResolvedValue({...initial,rows:[{...initial.rows[0],id:"tomorrow",batchNumber:"TOMORROW",daysToExpiry:1,status:"critical"}]});
+    render(<ExpiryPage/>);
+    expect(await screen.findByText("inv.expiringTomorrow")).toBeInTheDocument();
+  });
+});

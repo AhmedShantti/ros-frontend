@@ -186,7 +186,7 @@ function ExpiryScreen() {
           const horizon = horizonOf(row.daysToExpiry);
           return (
             <Badge tone={HORIZON_TONE[horizon] === "neutral" ? status.tone : HORIZON_TONE[horizon]} dot>
-              {tx(status.label)}
+              {row.daysToExpiry === 1 ? t("inv.expiringTomorrow") : tx(status.label)}
             </Badge>
           );
         },
@@ -264,6 +264,7 @@ function ExpiryScreen() {
 
       <PageBody>
         <InventoryMonitoringPanel />
+        <Callout tone="warn">{t("inv.expiryReadinessNote")}</Callout>
         <CategoryExpiryHorizons onSaved={() => collection.reload()} />
         <Callout tone="warn">{t("inv.expiryActionsUnavailable")}</Callout>
         {urgent > 0 ? (

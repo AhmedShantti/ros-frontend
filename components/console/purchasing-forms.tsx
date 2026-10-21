@@ -34,9 +34,10 @@ import type {
   UnitCode,
 } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
+import { SupplierDrawer as SupplierForm } from "./supplier-form";
 import { useAsync, useBranches } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
-import { useI18n, useSession } from "@/lib/console/providers";
+import { useI18n, useSession, usePermission } from "@/lib/console/providers";
 import { formatMoney, money } from "@/lib/console/format";
 import { EMPTY_LOCALISED, LocalisedField, MoneyInput, PercentInput, QuantityInput } from "@/components/console/fields";
 import {
@@ -73,7 +74,7 @@ function useStockItems(): StockItem[] {
 
 function useSuppliers(): Supplier[] {
   const state = useAsync(
-    () => services.purchasing.suppliers.list({ limit: 300 }).then((page) => page.rows).catch(() => []),
+    () => services.purchasing.suppliers.list({ limit: 300, filters: { active: "true" } }).then((page) => page.rows.filter(s => s.active)).catch(() => []),
     [],
   );
   return state.data ?? [];
@@ -88,243 +89,7 @@ function useLocations(): StockLocation[] {
 // Supplier — FR-PRC-005
 // ---------------------------------------------------------------------------
 
-const DELIVERY_DAYS = ["sat", "sun", "mon", "tue", "wed", "thu", "fri"];
-
-export function SupplierDrawer({
-  supplier,
-  open,
-  onClose,
-  onSaved,
-}: {
-  supplier: Supplier | null;
-  open: boolean;
-  onClose: () => void;
-  onSaved: (message: string) => void;
-}) {
-  const { t } = useI18n();
-  const action = useAction();
-
-  const [draft, setDraft] = useState(() => seedSupplier(supplier));
-  useEffect(() => setDraft(seedSupplier(supplier)), [supplier?.id, open]);
-
-  function patch(part: Partial<ReturnType<typeof seedSupplier>>) {
-    setDraft((current) => ({ ...current, ...part }));
-  }
-
-  const problems = useMemo(() => {
-    const list: string[] = [];
-    if (!draft.tradingName.en.trim() && !draft.tradingName.ar.trim()) list.push(t("pur.needName"));
-    if (!draft.code.trim()) list.push(t("pur.needCode"));
-    if (draft.leadTimeDays < 0) list.push(t("pur.badLeadTime"));
-    return list;
-  }, [draft, t]);
-
-  async function save() {
-    if (problems.length > 0) return;
-    const payload: Partial<Supplier> = {
-      code: draft.code.trim(),
-      legalName: draft.legalName,
-      tradingName: draft.tradingName,
-      taxRegistration: draft.taxRegistration.trim(),
-      contactName: draft.contactName.trim(),
-      phone: draft.phone.trim(),
-      email: draft.email.trim(),
-      paymentTermsDays: draft.paymentTermsDays,
-      currency: draft.currency as Supplier["currency"],
-      leadTimeDays: draft.leadTimeDays,
-      minimumOrderValue: money(draft.minimumOrderMinor, CURRENCY),
-      deliveryDays: draft.deliveryDays,
-      active: draft.active,
-    };
-
-    await action.run(
-      () =>
-        supplier
-          ? services.purchasing.suppliers.update(supplier.id, payload)
-          : services.purchasing.suppliers.create(payload),
-      { onSuccess: () => onSaved(supplier ? t("pur.supplierSaved") : t("pur.supplierCreated")) },
-    );
-  }
-
-  if (!open) return null;
-
-  return (
-    <Drawer
-      open
-      onClose={onClose}
-      title={supplier ? t("pur.editSupplier") : t("pur.newSupplier")}
-      subtitle="FR-PRC-005"
-      footer={
-        <div className="flex gap-2">
-          <Button
-            variant="primary"
-            loading={action.pending}
-            disabled={problems.length > 0}
-            onClick={save}
-          >
-            {supplier ? t("common.save") : t("common.create")}
-          </Button>
-          <Button variant="ghost" onClick={onClose}>
-            {t("common.cancel")}
-          </Button>
-        </div>
-      }
-    >
-      <div className="space-y-4">
-        {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
-
-        <LocalisedField
-          label={t("pur.tradingName")}
-          hint={t("pur.tradingNameHint")}
-          required
-          value={draft.tradingName}
-          onChange={(tradingName) => patch({ tradingName })}
-        />
-        <LocalisedField
-          label={t("pur.legalName")}
-          value={draft.legalName}
-          onChange={(legalName) => patch({ legalName })}
-        />
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label={t("common.code")} required>
-            <Input
-              dir="ltr"
-              value={draft.code}
-              onChange={(event) => patch({ code: event.target.value })}
-              className="font-mono"
-            />
-          </Field>
-          <Field label={t("pur.taxRegistration")}>
-            <Input
-              dir="ltr"
-              value={draft.taxRegistration}
-              onChange={(event) => patch({ taxRegistration: event.target.value })}
-              className="font-mono"
-            />
-          </Field>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Field label={t("pur.contactName")}>
-            <Input
-              value={draft.contactName}
-              onChange={(event) => patch({ contactName: event.target.value })}
-            />
-          </Field>
-          <Field label={t("onb.phone")}>
-            <Input
-              dir="ltr"
-              inputMode="tel"
-              value={draft.phone}
-              onChange={(event) => patch({ phone: event.target.value })}
-            />
-          </Field>
-          <Field label={t("onb.email")}>
-            <Input
-              dir="ltr"
-              inputMode="email"
-              value={draft.email}
-              onChange={(event) => patch({ email: event.target.value })}
-            />
-          </Field>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Field label={t("pur.paymentTerms")} hint={t("pur.paymentTermsHint")}>
-            <Input
-              dir="ltr"
-              inputMode="numeric"
-              value={String(draft.paymentTermsDays)}
-              onChange={(event) => patch({ paymentTermsDays: Number(event.target.value) || 0 })}
-              className="text-end font-mono tabular-nums"
-            />
-          </Field>
-          <Field label={t("pur.leadTime")} hint={t("pur.leadTimeHint")}>
-            <Input
-              dir="ltr"
-              inputMode="numeric"
-              value={String(draft.leadTimeDays)}
-              onChange={(event) => patch({ leadTimeDays: Number(event.target.value) || 0 })}
-              className="text-end font-mono tabular-nums"
-            />
-          </Field>
-          <Field label={t("pur.minimumOrder")}>
-            <MoneyInput
-              value={draft.minimumOrderMinor}
-              currency={CURRENCY}
-              onChange={(minor) => patch({ minimumOrderMinor: minor ?? 0 })}
-              aria-label={t("pur.minimumOrder")}
-            />
-          </Field>
-        </div>
-
-        <Field label={t("pur.deliveryDays")} hint={t("pur.deliveryDaysHint")}>
-          <div className="flex flex-wrap gap-1.5">
-            {DELIVERY_DAYS.map((day) => {
-              const on = draft.deliveryDays.includes(day);
-              return (
-                <button
-                  key={day}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() =>
-                    patch({
-                      deliveryDays: on
-                        ? draft.deliveryDays.filter((entry) => entry !== day)
-                        : [...draft.deliveryDays, day],
-                    })
-                  }
-                  className={cx(
-                    "rounded-lg border px-2.5 py-1.5 text-xs",
-                    on
-                      ? "border-accent bg-accent-soft text-accent font-medium"
-                      : "border-line bg-raised text-fg-muted",
-                  )}
-                >
-                  {t(`pur.day.${day}` as never)}
-                </button>
-              );
-            })}
-          </div>
-        </Field>
-
-        <Toggle
-          checked={draft.active}
-          onChange={(active) => patch({ active })}
-          label={t("pur.activeSupplier")}
-          hint={t("pur.activeSupplierHint")}
-        />
-
-        {problems.length > 0 ? (
-          <ul className="text-bad space-y-0.5 text-xs">
-            {problems.map((problem) => (
-              <li key={problem}>• {problem}</li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-    </Drawer>
-  );
-}
-
-function seedSupplier(supplier: Supplier | null) {
-  return {
-    code: supplier?.code ?? "",
-    legalName: supplier?.legalName ?? { ...EMPTY_LOCALISED },
-    tradingName: supplier?.tradingName ?? { ...EMPTY_LOCALISED },
-    taxRegistration: supplier?.taxRegistration ?? "",
-    contactName: supplier?.contactName ?? "",
-    phone: supplier?.phone ?? "",
-    email: supplier?.email ?? "",
-    paymentTermsDays: supplier?.paymentTermsDays ?? 30,
-    currency: supplier?.currency ?? CURRENCY,
-    leadTimeDays: supplier?.leadTimeDays ?? 2,
-    minimumOrderMinor: supplier?.minimumOrderValue.amount ?? 0,
-    deliveryDays: supplier?.deliveryDays ?? [],
-    active: supplier?.active ?? true,
-  };
-}
+export { SupplierDrawer } from "./supplier-form";
 
 // ---------------------------------------------------------------------------
 // Requisition — FR-PRC-015
@@ -746,7 +511,12 @@ export function ReceivingDrawer({
   const { t, tx, fmt } = useI18n();
   const action = useAction();
   const items = useStockItems();
-  const suppliers = useSuppliers();
+  const supplierState = useAsync(
+    () => services.purchasing.suppliers.list({ limit: 10000, filters: { active: "true" } }).then(page => page.rows.filter(s => s.active)), [open],
+  );
+  const suppliers = supplierState.data ?? [];
+  const canManageSuppliers = usePermission("supplier.manage");
+  const [addingSupplier, setAddingSupplier] = useState(false);
   const locations = useLocations();
 
   const orders = useAsync(
@@ -775,11 +545,13 @@ export function ReceivingDrawer({
   useEffect(() => {
     if (!open) return;
     setOrderId("");
-    setSupplierId(suppliers[0]?.id ?? "");
-    setLocationId(locations[0]?.id ?? "");
+    setSupplierId("");
+    setLocationId("");
     setTemperature("");
     setLines([]);
-  }, [open, suppliers.length, locations.length]);
+  }, [open]);
+  useEffect(() => { if (open && !supplierId && suppliers.length) setSupplierId(suppliers[0]!.id); }, [open, supplierId, suppliers]);
+  useEffect(() => { if (open && !locationId && locations.length) setLocationId(locations[0]!.id); }, [open, locationId, locations]);
 
   /** Picking a PO pre-fills the sheet with what was ordered. */
   useEffect(() => {
@@ -992,6 +764,10 @@ export function ReceivingDrawer({
               ))}
             </Select>
           </Field>
+          {canManageSuppliers ? <Button onClick={() => setAddingSupplier(true)} disabled={Boolean(orderId)}>{t("pur.addSupplier")}</Button> : null}
+          {supplierState.error ? <Callout tone="bad">{supplierState.error.message}</Callout> : null}
+          <SupplierForm supplier={null} open={addingSupplier} onClose={() => setAddingSupplier(false)}
+            onSaved={(_message, created) => { setAddingSupplier(false); supplierState.reload(); if (created?.active && !orderId) setSupplierId(created.id); }} />
           <Field label={t("common.location")} required>
             <Select value={locationId} onChange={(event) => setLocationId(event.target.value)}>
               <option value="">—</option>

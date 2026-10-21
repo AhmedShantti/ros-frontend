@@ -1256,8 +1256,8 @@ export interface UpdateSupplierDto {
   legalName?: string;
   minimumOrderValue?: string;
   paymentTermsNetDays?: number;
-  taxRegistrationNumber?: string;
-  tradingName?: string;
+  taxRegistrationNumber?: string | null;
+  tradingName?: string | null;
 }
 
 export interface UpdateSupplierItemLinkDto {

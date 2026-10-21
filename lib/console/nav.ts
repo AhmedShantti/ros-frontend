@@ -1,4 +1,4 @@
-import { receivingPermissions } from "./receiving-access";
+import { receivingPermissions, supplierPermissions } from "./receiving-access";
 /**
  * Navigation model.
  *
@@ -221,7 +221,7 @@ export const NAV_SECTIONS: NavSection[] = [
     labelKey: "nav.purchasing",
     icon: ShoppingCart,
     items: [
-      { href: "/purchasing/suppliers", labelKey: "nav.suppliers", icon: Truck, permissions: ["purchase.view"], matchPrefix: true },
+      { href: "/purchasing/suppliers", labelKey: "nav.suppliers", icon: Truck, permissions: supplierPermissions(), matchPrefix: true },
       { href: "/purchasing/requisitions", labelKey: "nav.requisitions", icon: ClipboardList, permissions: ["purchase.view"] },
       { href: "/purchasing/orders", labelKey: "nav.purchaseOrders", icon: ShoppingCart, permissions: ["purchase.view"], matchPrefix: true },
       { href: "/purchasing/receiving", labelKey: "nav.receiving", icon: Package, permissions: receivingPermissions() },
