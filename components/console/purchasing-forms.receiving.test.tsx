@@ -5,6 +5,10 @@ import userEvent from "@testing-library/user-event";
 const createReceipt = vi.fn();
 const createSupplier = vi.fn();
 let manageSuppliers = true;
+let manageUnits = true;
+const createPurchaseUnit = vi.fn();
+const updatePurchaseUnit = vi.fn();
+const deletePurchaseUnit = vi.fn();
 let supplierRows: any[] = [];
 const listPurchaseUnits = vi.fn();
 let orderRows: any[] = [];
@@ -16,7 +20,8 @@ const item = {
 const supplier = { active: true, id: "supplier-1", tradingName: { en: "Supplier", ar: "مورد" } };
 const location = { id: "location-1", name: { en: "Main", ar: "الرئيسي" } };
 
-vi.mock("@/lib/console/services", () => ({
+vi.mock("@/lib/console/services", async () => ({
+  ServiceError: (await import("@/lib/console/services/types")).ServiceError,
   services: {
     purchasing: {
       suppliers: { list: async () => ({ rows: supplierRows }), create: (...args: unknown[]) => createSupplier(...args) },
@@ -26,7 +31,11 @@ vi.mock("@/lib/console/services", () => ({
     organisation: { locations: async () => [location] },
     inventory: {
       items: { list: async () => ({ rows: [item] }) },
+      unitsOfMeasure: async () => [{id: "unit-base", code: "pc", name: "Piece", dimension: "count"}],
       listPurchaseUnits: (...args: unknown[]) => listPurchaseUnits(...args),
+      createPurchaseUnit: (...args: unknown[]) => createPurchaseUnit(...args),
+      updatePurchaseUnit: (...args: unknown[]) => updatePurchaseUnit(...args),
+      deletePurchaseUnit: (...args: unknown[]) => deletePurchaseUnit(...args),
     },
   },
 }));
@@ -36,18 +45,17 @@ vi.mock("@/lib/console/hooks", async (importOriginal) => {
 });
 vi.mock("@/lib/console/providers", () => ({
   useI18n: () => ({ t: (key: string) => key, tx: (value: any) => typeof value === "string" ? value : value?.en ?? "", fmt: { locale: "en", arabicIndicNumerals: false }, locale: "en", dir: "ltr" }),
-  usePermission: () => manageSuppliers,
-  useSession: () => ({ scope: { tenantId: "tenant-1" } }),
+  usePermission: (permission: string) => permission === "inventory.adjust" ? manageUnits : manageSuppliers,
+  useSession: () => ({ scope: { tenantId: "tenant-1" }, canAny: (permissions: string[]) => permissions.includes("inventory.adjust") && manageUnits }),
 }));
-vi.mock("@/lib/console/actions", () => ({ useAction: () => ({ pending: false, error: null, run: async (fn: () => Promise<unknown>, opts?: { onSuccess?: (result: unknown) => void }) => { const result = await fn(); opts?.onSuccess?.(result); } }) }));
 
 import { ReceivingDrawer } from "./purchasing-forms";
 
 beforeEach(() => {
-  manageSuppliers = true; supplierRows = [supplier];
+  manageUnits = true; manageSuppliers = true; supplierRows = [supplier];
   cleanup(); vi.clearAllMocks(); orderRows = [];
   createReceipt.mockResolvedValue({ id: "receipt-1" });
-  listPurchaseUnits.mockResolvedValue([{ id: "unit-base", stockItemId: "item-1", name: "pc", conversionFactorToBase: "1", supplierId: null }, { id: "unit-case", stockItemId: "item-1", name: "Case 12", conversionFactorToBase: "12", supplierId: null }]);
+  listPurchaseUnits.mockResolvedValue([{ id: "unit-case", stockItemId: "item-1", name: "Case 12", conversionFactorToBase: "12", supplierId: null }]);
 });
 
 async function selectCustom(label: string, option: string) {
@@ -125,4 +133,100 @@ describe("Goods receipt entry", () => {
     expect(screen.queryByRole("option", { name: "Inactive supplier" })).not.toBeInTheDocument();
   });
 
+});
+
+describe("Receiving purchase-unit configuration", () => {
+  it("keeps selection explicit and displays real packaging conversion", async () => {
+    render(<ReceivingDrawer open onClose={vi.fn()} onSaved={vi.fn()} />);
+    await selectCustom("pur.addUnorderedItem", "Water");
+    await userEvent.type(screen.getByLabelText("pur.received"), "2");
+    expect(screen.getByRole("button", { name: "pur.postReceipt" })).toBeDisabled();
+    await selectCustom("inv.purchaseUnit", "Case 12");
+    expect(screen.getByText("1 Case 12 = 12 pc")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "pur.postReceipt" })).toBeEnabled();
+  });
+
+  it("offers the genuine base unit explicitly even when packaging is empty", async () => {
+    listPurchaseUnits.mockResolvedValue([]);
+    render(<ReceivingDrawer open onClose={vi.fn()} onSaved={vi.fn()} />);
+    await selectCustom("pur.addUnorderedItem", "Water");
+    expect(screen.getByText("pur.purchaseUnitsEmpty")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("pur.received"), "2.5");
+    expect(screen.getByRole("button", { name: "pur.postReceipt" })).toBeDisabled();
+    await selectCustom("inv.purchaseUnit", "pc — inv.baseUnit");
+    await userEvent.click(screen.getByRole("button", { name: "pur.postReceipt" }));
+    await waitFor(() => expect(createReceipt).toHaveBeenCalledWith(expect.objectContaining({lines: [expect.objectContaining({purchaseUnitId: "unit-base", receivedQuantity: "2.5"})]})));
+  });
+
+  it("configures packaging from Receiving, reloads options, and preserves receipt entry", async () => {
+    listPurchaseUnits.mockResolvedValue([]);
+    const unit = {id:"new-pack",stockItemId:item.id,name:"Box 12.5",conversionFactorToBase:"12.5",supplierId:null};
+    createPurchaseUnit.mockImplementation(async () => { listPurchaseUnits.mockResolvedValue([unit]); return unit; });
+    render(<ReceivingDrawer open onClose={vi.fn()} onSaved={vi.fn()} />);
+    await selectCustom("pur.addUnorderedItem", "Water");
+    await userEvent.type(screen.getByLabelText("pur.received"), "2.500001");
+    await userEvent.click(screen.getByRole("button", {name:"pur.managePurchaseUnits"}));
+    await userEvent.click(screen.getByRole("button", {name:"inv.addPurchaseUnit"}));
+    const form = screen.getByRole("dialog", {name:"inv.addPurchaseUnit"});
+    await userEvent.type(within(form).getByLabelText(/common.name/), "Box 12.5");
+    await userEvent.type(within(form).getByLabelText(/inv.purchaseUnitConversion/), "12.5");
+    await userEvent.click(within(form).getByRole("button", {name:"common.create"}));
+    await waitFor(() => expect(createPurchaseUnit).toHaveBeenCalledWith(item.id, {name:"Box 12.5", conversionFactorToBase:"12.5"}));
+    await waitFor(() => expect(screen.queryByRole("dialog", {name:"inv.addPurchaseUnit"})).not.toBeInTheDocument());
+    const manager = screen.getByRole("dialog", {name:"inv.purchaseUnits · Water"});
+    await waitFor(() => expect(within(manager).getByText("Box 12.5")).toBeInTheDocument());
+    await userEvent.click(within(manager).getByRole("button", {name:"common.close"}));
+    expect(screen.getByLabelText("pur.received")).toHaveValue("2.500001");
+    await selectCustom("inv.purchaseUnit", "Box 12.5");
+    expect(screen.getByText("1 Box 12.5 = 12.5 pc")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", {name:"pur.postReceipt"}));
+    await waitFor(() => expect(createReceipt).toHaveBeenCalledWith(expect.objectContaining({supplierId:"supplier-1",locationId:"location-1",lines:[expect.objectContaining({purchaseUnitId:"new-pack",receivedQuantity:"2.500001"})]})));
+  });
+
+  it("does not offer unit mutations without inventory.adjust", async () => {
+    manageUnits = false; listPurchaseUnits.mockResolvedValue([]);
+    render(<ReceivingDrawer open onClose={vi.fn()} onSaved={vi.fn()} />);
+    await selectCustom("pur.addUnorderedItem", "Water");
+    expect(screen.queryByRole("button", {name:"pur.managePurchaseUnits"})).not.toBeInTheDocument();
+    expect(screen.getByText("pur.purchaseUnitsPermission")).toBeInTheDocument();
+    expect(createPurchaseUnit).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a failed unit lookup instead of fabricating a base-unit selection", async () => {
+    listPurchaseUnits.mockRejectedValue(new Error("Purchase-unit lookup unavailable"));
+    render(<ReceivingDrawer open onClose={vi.fn()} onSaved={vi.fn()} />);
+    await selectCustom("pur.addUnorderedItem", "Water");
+    expect(await screen.findByText("Purchase-unit lookup unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("button", {name:"pur.postReceipt"})).toBeDisabled();
+    expect(createReceipt).not.toHaveBeenCalled();
+  });
+});
+
+describe("Receiving purchase-unit edits", () => {
+  it("clears a deleted selection without resetting the receipt quantity", async () => {
+    deletePurchaseUnit.mockImplementation(async () => {listPurchaseUnits.mockResolvedValue([]);});
+    render(<ReceivingDrawer open onClose={vi.fn()} onSaved={vi.fn()} />);
+    await selectCustom("pur.addUnorderedItem", "Water");
+    await selectCustom("inv.purchaseUnit", "Case 12");
+    await userEvent.type(screen.getByLabelText("pur.received"), "2");
+    await userEvent.click(screen.getByRole("button", {name:"pur.managePurchaseUnits"}));
+    await userEvent.click(await screen.findByRole("button", {name:"common.delete"}));
+    await waitFor(() => expect(deletePurchaseUnit).toHaveBeenCalledWith(item.id,"unit-case"));
+    const manager=screen.getByRole("dialog", {name:"inv.purchaseUnits · Water"});
+    await userEvent.click(within(manager).getByRole("button", {name:"common.close"}));
+    expect(screen.getByLabelText("pur.received")).toHaveValue("2");
+    await waitFor(() => expect(screen.getByRole("button", {name:"pur.postReceipt"})).toBeDisabled());
+  });
+
+  it.each(["0", "-1", "1.1234567", "100000000000000", "bad"])("rejects invalid purchase-unit factor %s before sending", async factor => {
+    render(<ReceivingDrawer open onClose={vi.fn()} onSaved={vi.fn()} />);
+    await selectCustom("pur.addUnorderedItem", "Water");
+    await userEvent.click(screen.getByRole("button", {name:"pur.managePurchaseUnits"}));
+    await userEvent.click(screen.getByRole("button", {name:"inv.addPurchaseUnit"}));
+    const form=screen.getByRole("dialog", {name:"inv.addPurchaseUnit"});
+    await userEvent.type(within(form).getByLabelText(/common.name/),"Box");
+    await userEvent.type(within(form).getByLabelText(/inv.purchaseUnitConversion/),factor);
+    expect(within(form).getByRole("button", {name:"common.create"})).toBeDisabled();
+    expect(createPurchaseUnit).not.toHaveBeenCalled();
+  });
 });

@@ -8,6 +8,7 @@ import {
   minorFromInput,
   signedMinorFromInput,
   toMajorUnits,
+  unitLabel,
 } from "./format";
 import type { Currency } from "./types";
 
@@ -191,5 +192,15 @@ describe("compareMinorUnits — exact signed-magnitude order, never Number(a) - 
 
   it("treats a leading-zero string the same as its normalized form", () => {
     expect(compareMinorUnits("007", "7")).toBe(0);
+  });
+});
+
+
+describe("Catalogue unit labels", () => {
+  it("keeps untranslated real catalogue codes visible instead of inventing pieces", () => {
+    expect(unitLabel("g", "en")).toBe("g");
+    expect(unitLabel("pc", "ar")).toBe("قطعة");
+    expect(unitLabel("mg" as never, "en")).toBe("mg");
+    expect(unitLabel("mm" as never, "ar")).toBe("mm");
   });
 });

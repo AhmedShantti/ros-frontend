@@ -2353,6 +2353,9 @@ const inventory: InventoryService = {
 
   async unitsOfMeasure() {
     const rows = await uomsRaw();
+    // Resolve real UoM UUIDs before item/quantity mapping; never label grams
+    // as pieces just because another screen has not populated the registry.
+    map.registerUnits(Object.fromEntries(rows.map(row => [row.id, row.code as StockItem["baseUnit"]])));
     return rows.map((row) => ({
       id: row.id,
       code: row.code,

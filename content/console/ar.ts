@@ -3950,4 +3950,7 @@ export const consoleAr: ConsoleCopy = {
   "inv.job.cancelled": "ملغى",
   "inv.monitoringTenantScope": "ملخص المراقبة على مستوى المستأجر، بينما تتبع صفوف القائمة النطاق والمرشحات المختارة.",
   "inv.expiringTomorrow": "ينتهي غدًا",
+  "pur.managePurchaseUnits": "إدارة وحدات الشراء",
+  "pur.purchaseUnitsEmpty": "لا توجد وحدات شراء مهيأة. اختر الوحدة الأساسية صراحةً أو أضف وحدات التعبئة ومعاملات التحويل هنا.",
+  "pur.purchaseUnitsPermission": "اطلب من مسؤول المخزون تهيئة وحدات الشراء من أصناف المخزون ← تفاصيل الصنف ← وحدات الشراء.",
 };

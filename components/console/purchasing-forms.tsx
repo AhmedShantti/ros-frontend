@@ -34,6 +34,7 @@ import type {
   UnitCode,
 } from "@/lib/console/types";
 import { services } from "@/lib/console/services";
+import { PurchaseUnitsSection } from "./purchase-units";
 import { SupplierDrawer as SupplierForm } from "./supplier-form";
 import { useAsync, useBranches } from "@/lib/console/hooks";
 import { useAction } from "@/lib/console/actions";
@@ -66,7 +67,10 @@ const CURRENCY = "EGP";
 /** Shared: the stock catalogue every line editor picks from. */
 function useStockItems(): StockItem[] {
   const state = useAsync(
-    () => services.inventory.items.list({ limit: 500 }).then((page) => page.rows),
+    async () => {
+      await services.inventory.unitsOfMeasure();
+      return (await services.inventory.items.list({ limit: 500 })).rows;
+    },
     [],
   );
   return state.data ?? [];
@@ -516,6 +520,9 @@ export function ReceivingDrawer({
   );
   const suppliers = supplierState.data ?? [];
   const canManageSuppliers = usePermission("supplier.manage");
+  const canManagePurchaseUnits = usePermission("inventory.adjust");
+  const [unitItem, setUnitItem] = useState<StockItem | null>(null);
+  const [unitMessage, setUnitMessage] = useState("");
   const [addingSupplier, setAddingSupplier] = useState(false);
   const locations = useLocations();
 
@@ -549,6 +556,8 @@ export function ReceivingDrawer({
     setLocationId("");
     setTemperature("");
     setLines([]);
+    setUnitItem(null);
+    setUnitMessage("");
   }, [open]);
   useEffect(() => { if (open && !supplierId && suppliers.length) setSupplierId(suppliers[0]!.id); }, [open, supplierId, suppliers]);
   useEffect(() => { if (open && !locationId && locations.length) setLocationId(locations[0]!.id); }, [open, locationId, locations]);
@@ -602,30 +611,45 @@ export function ReceivingDrawer({
   async function addAdHocLine(itemId: Id) {
     const item = itemsById.get(itemId);
     if (!item) return;
-    const purchaseUnits = await services.inventory.listPurchaseUnits(itemId);
-    const baseUnit = purchaseUnits.find((unit) => unit.id === item.baseUnitId);
-    setLines((current) => [
-      ...current,
-      {
-        key: `adhoc_${current.length}`,
-        itemId,
-        itemName: item.name,
-        purchaseOrderLineId: null,
-        purchaseUnitId: baseUnit?.id ?? item.baseUnitId ?? "",
-        purchaseUnitLabel: baseUnit?.name ?? item.baseUnit,
-        purchaseUnits,
-        ordered: { value: "0", unit: item.baseUnit },
-        received: "",
-        rejected: "0",
-        rejectionReason: "",
-        batchNumber: "",
-        productionDate: "",
-        expiryDate: "",
-        unitPrice: item.unitCost?.amount ?? 0,
-        agreedPrice: item.unitCost?.amount ?? 0,
-        batchTracked: item.batchTracked ?? false,
-      },
-    ]);
+    await action.run(async () => {
+      const purchaseUnits = await services.inventory.listPurchaseUnits(itemId);
+      setLines((current) => [
+        ...current,
+        {
+          key: `adhoc_${current.length}`,
+          itemId,
+          itemName: item.name,
+          purchaseOrderLineId: null,
+          purchaseUnitId: "",
+          purchaseUnitLabel: "",
+          purchaseUnits,
+          ordered: { value: "0", unit: item.baseUnit },
+          received: "",
+          rejected: "0",
+          rejectionReason: "",
+          batchNumber: "",
+          productionDate: "",
+          expiryDate: "",
+          unitPrice: item.unitCost?.amount ?? 0,
+          agreedPrice: item.unitCost?.amount ?? 0,
+          batchTracked: item.batchTracked ?? false,
+        },
+      ]);
+    });
+  }
+
+  async function refreshPurchaseUnits(item: StockItem) {
+    await action.run(async () => {
+      const units = await services.inventory.listPurchaseUnits(item.id);
+      setLines(current => current.map(line => {
+        if (line.itemId !== item.id || line.purchaseOrderLineId) return line;
+        const selected = units.find(unit => unit.id === line.purchaseUnitId);
+        const isBase = Boolean(item.baseUnitId) && line.purchaseUnitId === item.baseUnitId;
+        return { ...line, purchaseUnits: units,
+          purchaseUnitId: selected?.id ?? (isBase ? item.baseUnitId! : ""),
+          purchaseUnitLabel: selected?.name ?? (isBase ? item.baseUnit : "") };
+      }));
+    });
   }
 
   const problems = useMemo(() => {
@@ -733,6 +757,11 @@ export function ReceivingDrawer({
     >
       <div className="space-y-4">
         {action.error ? <Callout tone="bad">{action.error}</Callout> : null}
+        {unitItem && canManagePurchaseUnits ? <Drawer open onClose={() => setUnitItem(null)} title={`${t("inv.purchaseUnits")} · ${tx(unitItem.name)}`}>
+          <p className="mb-3 text-sm">{t("inv.baseUnit")}: {unitItem.baseUnit}</p>
+          {unitMessage ? <Callout>{unitMessage}</Callout> : null}
+          <PurchaseUnitsSection item={unitItem} onMessage={setUnitMessage} onChanged={() => void refreshPurchaseUnits(unitItem)} />
+        </Drawer> : null}
 
         <Field label={t("pur.againstOrder")} hint={t("pur.againstOrderHint")}>
           <Select value={orderId} onChange={(event) => setOrderId(event.target.value)}>
@@ -844,14 +873,28 @@ export function ReceivingDrawer({
                     ) : (
                       <Field label={t("inv.purchaseUnit")} required>
                         <Select value={line.purchaseUnitId} onChange={(event) => {
-                          const unit = line.purchaseUnits.find((candidate) => candidate.id === event.target.value);
-                          patchLine(line.key, { purchaseUnitId: event.target.value, purchaseUnitLabel: unit?.name ?? "" });
+                          const value = event.target.value;
+                          const unit = line.purchaseUnits.find(candidate => candidate.id === value);
+                          const item = itemsById.get(line.itemId);
+                          patchLine(line.key, { purchaseUnitId: value, purchaseUnitLabel: unit?.name ?? (value === item?.baseUnitId ? item.baseUnit : "") });
                         }}>
                           <option value="">—</option>
-                          {line.purchaseUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+                          {itemsById.get(line.itemId)?.baseUnitId ? (
+                            <option value={itemsById.get(line.itemId)!.baseUnitId!}>{itemsById.get(line.itemId)!.baseUnit} — {t("inv.baseUnit")}</option>
+                          ) : null}
+                          {line.purchaseUnits.filter(unit => unit.id !== itemsById.get(line.itemId)?.baseUnitId).map(unit => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
                         </Select>
                       </Field>
                     )}
+
+                    {!line.purchaseOrderLineId ? <div className="my-2 space-y-2">
+                      {line.purchaseUnits.length === 0 ? <Callout>{t("pur.purchaseUnitsEmpty")}</Callout> : null}
+                      {line.purchaseUnitId ? <p className="text-fg-muted text-xs" dir="ltr">
+                        1 {line.purchaseUnitLabel} = {line.purchaseUnits.find(unit => unit.id === line.purchaseUnitId)?.conversionFactorToBase ?? "1"} {itemsById.get(line.itemId)?.baseUnit}
+                      </p> : null}
+                      {canManagePurchaseUnits ? <Button type="button" size="sm" onClick={() => { setUnitMessage(""); setUnitItem(itemsById.get(line.itemId) ?? null); }}>{t("pur.managePurchaseUnits")}</Button>
+                        : <p className="text-fg-muted text-xs">{t("pur.purchaseUnitsPermission")}</p>}
+                    </div> : null}
 
                     <div className="grid gap-3 sm:grid-cols-3">
                       <Field

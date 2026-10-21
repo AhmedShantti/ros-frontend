@@ -3964,6 +3964,9 @@ export const consoleEn = {
   "inv.job.cancelled": "Cancelled",
   "inv.monitoringTenantScope": "Monitoring summaries span the tenant; worklist rows follow the selected scope and filters.",
   "inv.expiringTomorrow": "Expires tomorrow",
+  "pur.managePurchaseUnits": "Manage purchase units",
+  "pur.purchaseUnitsEmpty": "No purchase units configured. Choose the base unit explicitly, or configure packaging units and their conversion factors here.",
+  "pur.purchaseUnitsPermission": "Ask an Inventory manager to configure purchase units in Stock Items → item details → Purchase units.",
 } as const;
 
 export type ConsoleCopy = Record<keyof typeof consoleEn, string>;

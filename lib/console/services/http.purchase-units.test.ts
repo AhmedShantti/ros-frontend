@@ -21,6 +21,7 @@ const deletePurchaseUnit = vi.fn();
 vi.mock("@/lib/api/endpoints", () => ({
   api: {
     inventory: {
+      listUoms: async () => [{id:"actual-grams-id",code:"g",name:"Gram",dimension:"mass"}],
       listPurchaseUnits: (...args: unknown[]) => listPurchaseUnits(...args),
       createPurchaseUnit: (...args: unknown[]) => createPurchaseUnit(...args),
       updatePurchaseUnit: (...args: unknown[]) => updatePurchaseUnit(...args),
@@ -153,5 +154,15 @@ describe("Purchase units — FR-INV-003 HTTP boundary", () => {
     const rows = await httpServices.inventory.listPurchaseUnits("item-1");
 
     expect(rows[0]!.conversionFactorToBase).toBe(exact);
+  });
+});
+
+
+describe("Purchase-unit base UoM identity", () => {
+  it("registers catalogue UUIDs before mapping a stock item's base-unit label", async () => {
+    await httpServices.inventory.unitsOfMeasure();
+    const map = await import("./map");
+    expect(map.unitOf("actual-grams-id")).toBe("g");
+    expect(map.toStockItem({id:"grams-item",baseUnitId:"actual-grams-id",names:{en:"Flour"},standardCost:null} as never,"t1").baseUnit).toBe("g");
   });
 });

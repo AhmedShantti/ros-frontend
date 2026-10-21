@@ -922,3 +922,15 @@ describe("Stock items — purchase units (FR-INV-003)", () => {
     expect(itemsList).toHaveBeenCalledTimes(1);
   });
 });
+
+
+describe("Stock item purchase-unit base labels", () => {
+  it("uses the real base-unit catalogue identity instead of a legacy pc label", async () => {
+    itemsList.mockResolvedValue({rows:[{...ITEM_FLOUR,baseUnit:"pc"}],total:1});
+    listPurchaseUnits.mockResolvedValue([{id:"case-real",stockItemId:ITEM_FLOUR.id,name:"Case real",conversionFactorToBase:"12",supplierId:null}]);
+    const user=userEvent.setup();render(<StockItemsScreen />);
+    await user.click(await screen.findByText("Flour"));
+    const dialog=screen.getByRole("dialog", {name:"Flour"});
+    expect(await within(dialog).findByText(/1 Case real = 12 kg/)).toBeInTheDocument();
+  });
+});

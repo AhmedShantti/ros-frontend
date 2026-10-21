@@ -186,7 +186,7 @@ const UNIT_LABEL: Record<UnitCode, Localised> = {
 };
 
 export function unitLabel(unit: UnitCode, locale: Locale): string {
-  return tx(UNIT_LABEL[unit], locale);
+  return tx(UNIT_LABEL[unit], locale) || unit;
 }
 
 export function formatQuantity(qty: Quantity, opts: FormatOptions): string {
